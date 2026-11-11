@@ -169,6 +169,7 @@ async fn metrics(State(st): State<MetricsState>, headers: HeaderMap) -> Response
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     append_forward_histogram(&mut out, &st.node_id, &s.forward_stats);
+    append_packet_bytes(&mut out, &st.node_id, &s);
     (
         StatusCode::OK,
         [(
@@ -205,6 +206,145 @@ fn append_forward_histogram(
         ));
     }
     out.push_str(&format!("livekit_forward_latency_ns_bucket{{node_id=\"{node_id}\",node_type=\"SERVER\",le=\"+Inf\"}} {}\nlivekit_forward_latency_ns_count{{node_id=\"{node_id}\",node_type=\"SERVER\"}} {}\nlivekit_forward_latency_ns_sum{{node_id=\"{node_id}\",node_type=\"SERVER\"}} {}\n# EOF\n",snapshot.histogram_count,snapshot.histogram_count,snapshot.histogram_sum_ns));
+}
+
+/// `livekit_packet_bytes` as the fixed Go server exposes it: a process-lifetime
+/// counter, not the active-room gauges above. Measured against the pinned official
+/// binary (sha256 4bc2378e636740b29093061036249ffc9ebbef91f4ece1de12177c8dfee1e7dc):
+/// the sample name carries no `_total` suffix, labels are sorted, `country` is
+/// always empty and the family is absent until traffic has been handled.
+/// prometheus_client's OpenMetrics encoder would append `_total`, which the Region
+/// Agent's `HasPrefix("livekit_packet_bytes{")` reader does not match, so the family
+/// is written directly.
+fn append_packet_bytes(out: &mut String, node_id: &str, s: &rtc_runtime::api::NodeStats) {
+    // Go creates each direction's child lazily and independently: TrackStats calls
+    // IncrementBytes per stats key (telemetry/stats.go:102), so a subscriber-only
+    // participant exposes outgoing without incoming.
+    let mut samples = Vec::new();
+    if s.bytes_in > 0 || s.packets_in > 0 {
+        samples.push(("incoming", "initial", s.bytes_in));
+    }
+    if s.bytes_out > 0 || s.packets_out > 0 {
+        // Go splits downstream retransmissions into their own transmission label but
+        // folds upstream retransmissions into the initial count (telemetry/stats.go:85-92).
+        // str0m reports retransmit_bytes_out as a subset of bytes_out.
+        samples.push((
+            "outgoing",
+            "initial",
+            s.bytes_out.saturating_sub(s.retransmit_bytes_out),
+        ));
+        if s.retransmit_bytes_out > 0 {
+            samples.push(("outgoing", "retransmit", s.retransmit_bytes_out));
+        }
+    }
+    if samples.is_empty() {
+        return;
+    }
+    if out.ends_with("# EOF\n") {
+        out.truncate(out.len() - 6);
+    }
+    let node_id = node_id
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
+    out.push_str("# HELP livekit_packet_bytes \n# TYPE livekit_packet_bytes counter\n");
+    for (direction, transmission, value) in samples {
+        out.push_str(&format!(
+            "livekit_packet_bytes{{country=\"\",direction=\"{direction}\",node_id=\"{node_id}\",node_type=\"SERVER\",transmission=\"{transmission}\"}} {value}\n"
+        ));
+    }
+    out.push_str("# EOF\n");
+}
+
+#[cfg(test)]
+mod packet_bytes_counter_tests {
+    use super::*;
+
+    fn stats(bytes_in: u64, bytes_out: u64, retransmit: u64) -> rtc_runtime::NodeStats {
+        rtc_runtime::NodeStats {
+            bytes_in,
+            bytes_out,
+            retransmit_bytes_out: retransmit,
+            packets_in: u64::from(bytes_in > 0),
+            packets_out: u64::from(bytes_out > 0),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn idle_process_omits_the_whole_family_like_the_lazy_go_counter() {
+        let mut out = "# EOF\n".to_string();
+        append_packet_bytes(&mut out, "ND_idle", &stats(0, 0, 0));
+        assert_eq!(out, "# EOF\n", "no HELP, TYPE or sample before any traffic");
+    }
+
+    #[test]
+    fn sample_name_has_no_total_suffix_and_labels_match_the_measured_go_order() {
+        let mut out = "# EOF\n".to_string();
+        append_packet_bytes(&mut out, "ND_x", &stats(11300, 15019, 0));
+        assert_eq!(
+            out,
+            "# HELP livekit_packet_bytes \n\
+             # TYPE livekit_packet_bytes counter\n\
+             livekit_packet_bytes{country=\"\",direction=\"incoming\",node_id=\"ND_x\",node_type=\"SERVER\",transmission=\"initial\"} 11300\n\
+             livekit_packet_bytes{country=\"\",direction=\"outgoing\",node_id=\"ND_x\",node_type=\"SERVER\",transmission=\"initial\"} 15019\n\
+             # EOF\n"
+        );
+        assert!(!out.contains("livekit_packet_bytes_total"));
+        assert_eq!(out.matches("# EOF").count(), 1);
+    }
+
+    #[test]
+    fn downstream_retransmissions_are_their_own_series_and_leave_initial_disjoint() {
+        let mut out = "# EOF\n".to_string();
+        append_packet_bytes(&mut out, "ND_x", &stats(0, 1000, 250));
+        assert!(out.contains("direction=\"outgoing\",node_id=\"ND_x\",node_type=\"SERVER\",transmission=\"initial\"} 750\n"));
+        assert!(out.contains("direction=\"outgoing\",node_id=\"ND_x\",node_type=\"SERVER\",transmission=\"retransmit\"} 250\n"));
+        // The Agent sums every outgoing line, so the split must not change the total.
+        let total: u64 = out
+            .lines()
+            .filter(|l| l.starts_with("livekit_packet_bytes{") && l.contains("direction=\"outgoing\""))
+            .map(|l| l.rsplit(' ').next().unwrap().parse::<u64>().unwrap())
+            .sum();
+        assert_eq!(total, 1000);
+    }
+
+    #[test]
+    fn upstream_retransmissions_stay_folded_into_initial() {
+        let mut out = "# EOF\n".to_string();
+        append_packet_bytes(&mut out, "ND_x", &stats(500, 0, 0));
+        assert!(out.contains("direction=\"incoming\",node_id=\"ND_x\",node_type=\"SERVER\",transmission=\"initial\"} 500\n"));
+        assert!(!out.contains("direction=\"incoming\",node_id=\"ND_x\",node_type=\"SERVER\",transmission=\"retransmit\""));
+    }
+
+    #[test]
+    fn a_subscriber_only_process_exposes_outgoing_without_incoming() {
+        let mut out = "# EOF\n".to_string();
+        append_packet_bytes(&mut out, "ND_x", &stats(0, 900, 0));
+        assert!(out.contains("direction=\"outgoing\""));
+        assert!(!out.contains("direction=\"incoming\""), "Go creates each direction's child separately");
+        assert_eq!(out.matches("# EOF").count(), 1);
+    }
+
+    #[test]
+    fn repeated_scrapes_never_reset_or_double_count_the_process_total() {
+        let s = stats(11300, 15019, 0);
+        let mut first = "# EOF\n".to_string();
+        let mut second = "# EOF\n".to_string();
+        append_packet_bytes(&mut first, "ND_x", &s);
+        append_packet_bytes(&mut second, "ND_x", &s);
+        assert_eq!(first, second, "scraping is not a sampling event");
+    }
+
+    #[test]
+    fn node_id_is_escaped_once_and_appends_after_an_existing_family() {
+        let mut out = "livekit_room_total 1\n# EOF\n".to_string();
+        append_packet_bytes(&mut out, "ND_\"x", &stats(1, 1, 0));
+        assert!(out.starts_with("livekit_room_total 1\n"));
+        assert!(out.contains("node_id=\"ND_\\\"x\""));
+        assert_eq!(out.matches("# EOF").count(), 1);
+        assert!(out.ends_with("# EOF\n"));
+    }
 }
 
 pub async fn serve(
