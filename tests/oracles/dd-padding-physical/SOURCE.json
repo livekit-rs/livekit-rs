@@ -1,0 +1,28 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "corpus_provenance": "NEWLY AUTHORED. The source packet plan, coded bodies and DD structure shape are transcribed from the Rust consumer crates/rtc-media/src/regression/dd_padding.rs:102-116,333-345,397-425. All emitted values are measured from real Go execution over real pion vnet + DTLS/SRTP.",
+  "original_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "pkg/sfu/buffer/buffer.go": "a342e16f0a5672079b663dc5d66e8623c3c3afd39e92edcfa9bb1c5d15c516cb",
+    "pkg/sfu/buffer/buffer_base.go": "29d6e77102c60e6defd12550c3e9b2877325c339da2e008713ef1ff80303e403",
+    "pkg/sfu/buffer/dependencydescriptorparser.go": "c1e1f0c4112b8ba9815fa5e14796ef3b6ffe081a80fd8cb5f448bd792a56b5c4",
+    "pkg/sfu/downtrack.go": "8fe93a5a773de34408be61d3b8917e1da60f766f2c13c61bd774aab14321fc8d",
+    "pkg/sfu/forwarder.go": "f16138d5ced5491f57132174dc5bae35f0a6262339706f5cd2d502600474c6e7",
+    "pkg/sfu/rtpmunger.go": "ce73dfcc832717c414e15534b5551279be893f639c5f12b25394e6ab91d0b969",
+    "pkg/sfu/export_test.go": "467b4f5df2bf1e3cb38814e528ac7635bdd2c8a36f5602a03928b4a72b2049ed",
+    "pkg/sfu/videolayerselector/dependencydescriptor.go": "28937564e23d61c31b1bc9f706ead33b0f6b0c54584730f0eb7b6191ef7ce45c",
+    "pkg/sfu/videolayerselector/vp9.go": "194a073722a734e4770201bb892ef6c2aef1b6e1df17498eec2cd1acdc838072",
+    "pkg/sfu/videolayerselector/simulcast.go": "5e0516ee3a1fd3c7cf007b524709f0cd083f7c1285e99518a14b9a439836a4a7",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorextension.go": "2982192d8cc60cd0727c60f82bee12a1827665c1d1c9f8a1b6a9bf6853bf266f",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorwriter.go": "b59d824afc8dd5846240079a07691fcc82054acbe753057fc814b2706e53017f",
+    "pkg/sfu/downtrack_downstream_integration_test.go": "a2ad12aac012f747b3ae2d7a37fbe9a313b14ebc38dfc3d98574e5d446c695f2",
+    "pkg/testutils/vnettest/vnettest.go": "4c152f158d5902eb51354cda87df05e127d01f196343ddcd6da629f73e67a585",
+    "pkg/sfu/testutils/data.go": "9b9d08d4f6d6719c2d5629a5eb365649cd9baa158b04fc463394daf6fd45c392"
+  },
+  "helpers": {
+    "physical_helpers_test.go": "24d2e520d683b17c62461c0a5050e5b6cee68501b7a352c89338a64486083bad",
+    "physical_observer_test.go": "2386a12e4d7331e142faf4803526fbfdce0dccaa29281c95afb80cd2e8027dfd"
+  },
+  "scope": "Proves the original public buffer.Buffer.Write -> ReadExtended -> DownTrack.WriteRTP admission/padding decision and the far-side SRTP sequence numbers for the authored in-order/out-of-order and alternate-PT plans, with the original DD writer/reader and the original VP9/AV1 selectors. Does NOT prove: live server signalling or SDK interop, real decoder pixel output, congestion control / pacer timing (PassThrough pacer + null BWE), RTX/NACK repair, simulcast multi-SSRC allocation, the Rust timing histogram, or any DD structure other than the single authored one-decode-target chain."
+}

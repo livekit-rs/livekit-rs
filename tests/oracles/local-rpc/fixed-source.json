@@ -18,7 +18,7 @@
   "references/psrpc/pkg/server/options.go": "ca4d14ab5a120fad6fa7096d890c413f525e6f8ad18088c464d236d1af4e1c90",
   "references/livekit-stable/pkg/rtc/room.go": "6ef255a852f1be81f5fb9f0116d5eb12cc6a3d6d741293c6346ad9e4a59d101a",
   "references/psrpc/pkg/client/rpc.go": "795e199573204ae8a27ffe842d36d7e0da003c3f73270caba1ef2dbd7a201614",
-  "livekit-rs-server/crates/lk-protocol/protos/psrpc/internal.proto": "839214ad35246c70dec0813904688fc99ff8168259c44e21bf22baf3f778a85e",
+  "crates/lk-protocol/protos/psrpc/internal.proto": "839214ad35246c70dec0813904688fc99ff8168259c44e21bf22baf3f778a85e",
   "references/psrpc/pkg/client/client.go": "710a4b9ef7dd296f1459d239e495ccb8dcb034ce660ce530708284e641b8a29c",
   "references/psrpc/errors.go": "595d7fed393c73122019286415206428de82df85ee66f4b341b64c9b19ad5230"
 }

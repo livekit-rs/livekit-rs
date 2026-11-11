@@ -1,0 +1,174 @@
+{
+  "schema": "livekit-rs dd-one-rid-physical phase table v1",
+  "provenance": "NEWLY AUTHORED. Transcribed from the numbers already pinned in the Rust consumer crates/rtc-media/src/regression/dd_one_rid_literal.rs (phase tables, tid rule, rid/ssrc/spatial rule) and crates/rtc-media/src/regression/dd_one_rid_counterexample.rs (warmup plan, payload fixture, source descriptor bit layout, pacing, sender-report fixture). No expected output value is stored here: every observed field is measured from real Go execution.",
+  "phase_count": 68,
+  "group_order": [
+    "video/VP9 ONE_SPATIAL_LAYER_PER_STREAM",
+    "video/VP9 ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
+    "video/AV1 ONE_SPATIAL_LAYER_PER_STREAM",
+    "video/AV1 ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR"
+  ],
+  "warmup": {
+    "frames": 40,
+    "sn_base": 900,
+    "frame_base": 65480,
+    "ts_base": 1000,
+    "ts_step": 500,
+    "template_rule": "n == 0 -> 0; n odd -> 4; n even -> 1",
+    "rid_order": ["q", "f"],
+    "subscriber": "disabled: the forwarder target layer stays invalid, so no warmup packet may reach the subscriber"
+  },
+  "sender_report": {
+    "unix_seconds": 1730000000,
+    "packets": 40,
+    "octets": 40,
+    "injected_only_for": "rid campaign AND mode ONE_SPATIAL_LAYER_PER_STREAM",
+    "layers": [
+      { "layer": 0, "rid": "q", "ssrc": 101, "rtp_timestamp": 30000 },
+      { "layer": 2, "rid": "f", "ssrc": 202, "rtp_timestamp": 90000 }
+    ]
+  },
+  "pacing": {
+    "enable_delay_ms": 150,
+    "first_measured_ms": 300,
+    "measured_ms": 110,
+    "warmup_ms": 6
+  },
+  "source_ssrc": { "one": 101, "q": 101, "f": 202 },
+  "outer_spatial": { "one": 0, "q": 0, "f": 2 },
+  "structure_id": { "one": 0, "q": 0, "f": 8 },
+  "groups": [
+    {
+      "codec": "video/VP9",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM",
+      "campaign": "one",
+      "prefix": "SOURCE_DD_ONE_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "template": 0, "tid": 0, "first": true, "last": false, "attached": true, "sn": 1041, "frame": 10 },
+        { "phase": 1, "template": 0, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1042, "frame": 10 },
+        { "phase": 2, "template": 4, "tid": 1, "first": true, "last": false, "attached": false, "sn": 1043, "frame": 11 },
+        { "phase": 3, "template": 1, "tid": 0, "first": true, "last": false, "attached": false, "sn": 1045, "frame": 12 },
+        { "phase": 4, "template": 1, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1046, "frame": 12 },
+        { "phase": 5, "template": 4, "tid": 1, "first": false, "last": true, "attached": false, "sn": 1044, "frame": 11 }
+      ]
+    },
+    {
+      "codec": "video/VP9",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
+      "campaign": "one",
+      "prefix": "SOURCE_DD_ONE_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "template": 0, "tid": 0, "first": true, "last": false, "attached": true, "sn": 1041, "frame": 10 },
+        { "phase": 1, "template": 0, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1042, "frame": 10 },
+        { "phase": 2, "template": 4, "tid": 1, "first": true, "last": false, "attached": false, "sn": 1043, "frame": 11 },
+        { "phase": 3, "template": 1, "tid": 0, "first": true, "last": false, "attached": false, "sn": 1045, "frame": 12 },
+        { "phase": 4, "template": 1, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1046, "frame": 12 },
+        { "phase": 5, "template": 4, "tid": 1, "first": false, "last": true, "attached": false, "sn": 1044, "frame": 11 }
+      ]
+    },
+    {
+      "codec": "video/AV1",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM",
+      "campaign": "one",
+      "prefix": "SOURCE_DD_ONE_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "template": 0, "tid": 0, "first": true, "last": false, "attached": true, "sn": 1041, "frame": 10 },
+        { "phase": 1, "template": 0, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1042, "frame": 10 },
+        { "phase": 2, "template": 4, "tid": 1, "first": true, "last": false, "attached": false, "sn": 1043, "frame": 11 },
+        { "phase": 3, "template": 1, "tid": 0, "first": true, "last": false, "attached": false, "sn": 1045, "frame": 12 },
+        { "phase": 4, "template": 1, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1046, "frame": 12 },
+        { "phase": 5, "template": 4, "tid": 1, "first": false, "last": true, "attached": false, "sn": 1044, "frame": 11 }
+      ]
+    },
+    {
+      "codec": "video/AV1",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
+      "campaign": "one",
+      "prefix": "SOURCE_DD_ONE_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "template": 0, "tid": 0, "first": true, "last": false, "attached": true, "sn": 1041, "frame": 10 },
+        { "phase": 1, "template": 0, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1042, "frame": 10 },
+        { "phase": 2, "template": 4, "tid": 1, "first": true, "last": false, "attached": false, "sn": 1043, "frame": 11 },
+        { "phase": 3, "template": 1, "tid": 0, "first": true, "last": false, "attached": false, "sn": 1045, "frame": 12 },
+        { "phase": 4, "template": 1, "tid": 0, "first": false, "last": true, "attached": false, "sn": 1046, "frame": 12 },
+        { "phase": 5, "template": 4, "tid": 1, "first": false, "last": true, "attached": false, "sn": 1044, "frame": 11 }
+      ]
+    },
+    {
+      "codec": "video/VP9",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM",
+      "campaign": "rid",
+      "prefix": "SOURCE_DD_RID_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1041, "frame": 10, "ts": 30000 },
+        { "phase": 1, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1042, "frame": 11, "ts": 33000 },
+        { "phase": 2, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1043, "frame": 12, "ts": 36000 },
+        { "phase": 3, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 13, "ts": 39000 },
+        { "phase": 4, "rid": "q", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 14, "ts": 42000 },
+        { "phase": 5, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1041, "frame": 5, "ts": 99000 },
+        { "phase": 6, "rid": "f", "template": 3, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1042, "frame": 6, "ts": 102000 },
+        { "phase": 7, "rid": "f", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1043, "frame": 7, "ts": 105000 },
+        { "phase": 8, "rid": "f", "template": 2, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 8, "ts": 108000 },
+        { "phase": 9, "rid": "f", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 9, "ts": 111000 },
+        { "phase": 10, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1046, "frame": 10, "ts": 114000 }
+      ]
+    },
+    {
+      "codec": "video/VP9",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
+      "campaign": "rid",
+      "prefix": "SOURCE_DD_RID_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1041, "frame": 10, "ts": 30000 },
+        { "phase": 1, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1042, "frame": 11, "ts": 33000 },
+        { "phase": 2, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1043, "frame": 12, "ts": 36000 },
+        { "phase": 3, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 13, "ts": 39000 },
+        { "phase": 4, "rid": "q", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 14, "ts": 42000 },
+        { "phase": 5, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1041, "frame": 5, "ts": 99000 },
+        { "phase": 6, "rid": "f", "template": 3, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1042, "frame": 6, "ts": 102000 },
+        { "phase": 7, "rid": "f", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1043, "frame": 7, "ts": 105000 },
+        { "phase": 8, "rid": "f", "template": 2, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 8, "ts": 108000 },
+        { "phase": 9, "rid": "f", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 9, "ts": 111000 },
+        { "phase": 10, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1046, "frame": 10, "ts": 114000 }
+      ]
+    },
+    {
+      "codec": "video/AV1",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM",
+      "campaign": "rid",
+      "prefix": "SOURCE_DD_RID_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1041, "frame": 10, "ts": 30000 },
+        { "phase": 1, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1042, "frame": 11, "ts": 33000 },
+        { "phase": 2, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1043, "frame": 12, "ts": 36000 },
+        { "phase": 3, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 13, "ts": 39000 },
+        { "phase": 4, "rid": "q", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 14, "ts": 42000 },
+        { "phase": 5, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1041, "frame": 5, "ts": 99000 },
+        { "phase": 6, "rid": "f", "template": 3, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1042, "frame": 6, "ts": 102000 },
+        { "phase": 7, "rid": "f", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1043, "frame": 7, "ts": 105000 },
+        { "phase": 8, "rid": "f", "template": 2, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 8, "ts": 108000 },
+        { "phase": 9, "rid": "f", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 9, "ts": 111000 },
+        { "phase": 10, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1046, "frame": 10, "ts": 114000 }
+      ]
+    },
+    {
+      "codec": "video/AV1",
+      "mode": "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
+      "campaign": "rid",
+      "prefix": "SOURCE_DD_RID_PHYSICAL ",
+      "phases": [
+        { "phase": 0, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1041, "frame": 10, "ts": 30000 },
+        { "phase": 1, "rid": "q", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1042, "frame": 11, "ts": 33000 },
+        { "phase": 2, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1043, "frame": 12, "ts": 36000 },
+        { "phase": 3, "rid": "q", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 13, "ts": 39000 },
+        { "phase": 4, "rid": "q", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 14, "ts": 42000 },
+        { "phase": 5, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1041, "frame": 5, "ts": 99000 },
+        { "phase": 6, "rid": "f", "template": 3, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1042, "frame": 6, "ts": 102000 },
+        { "phase": 7, "rid": "f", "template": 0, "tid": 0, "first": true, "last": true, "attached": true, "sn": 1043, "frame": 7, "ts": 105000 },
+        { "phase": 8, "rid": "f", "template": 2, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1044, "frame": 8, "ts": 108000 },
+        { "phase": 9, "rid": "f", "template": 4, "tid": 1, "first": true, "last": true, "attached": false, "sn": 1045, "frame": 9, "ts": 111000 },
+        { "phase": 10, "rid": "f", "template": 1, "tid": 0, "first": true, "last": true, "attached": false, "sn": 1046, "frame": 10, "ts": 114000 }
+      ]
+    }
+  ]
+}

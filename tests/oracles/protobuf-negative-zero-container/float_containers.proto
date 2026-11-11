@@ -1,0 +1,18 @@
+// Wire-shape counterpart of the Rust-only #[derive(Message)] FloatContainers at
+// crates/lk-protocol/tests/protobuf_negative_zero.rs:5-19. Field numbers, scalar
+// kinds, labels, map key/value kinds and proto3 optional presence are copied
+// from that derive; nothing else is added.
+syntax = "proto3";
+
+package livekit.rs.oracles;
+
+option go_package = "local.test/negzerocontainer;main";
+
+message FloatContainers {
+  float single = 1;
+  double double = 2;
+  repeated float repeated = 3;
+  map<string, double> map = 4;
+  map<string, float> single_map = 5;
+  optional double optional = 6;
+}

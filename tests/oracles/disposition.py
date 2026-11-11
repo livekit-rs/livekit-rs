@@ -52,6 +52,36 @@ class Merger:
             older.pop('superseded_attempts', []) + [older])
         self.measured[name] = newer
 
+    def paired_upsert(self, name, record):
+        """Paired evidence outranks a rebind row only on the same candidate.
+
+        The rebind layer runs first, so a plain mtime upsert would let a paired
+        PASS measured on an older binary overwrite a fresh NOT_RUN/FAIL. A
+        rebind row that actually executed the test is never upgraded here, but a
+        paired failure on the same binary still downgrades it.
+        """
+        previous = self.measured.get(name)
+        if previous is None:
+            self.upsert(name, record)
+            return
+        same = (not previous.get('binary_sha256') or not record.get('binary_sha256')
+                or previous['binary_sha256'] == record['binary_sha256'])
+        downgrade = same and previous.get('status') == 'PASS' \
+            and record.get('status') == 'FAIL'
+        if not downgrade and (previous.get('status') != 'NOT_RUN' or not same):
+            previous.setdefault('superseded_attempts', []).append(
+                dict(record, superseded_by_rebind=True,
+                     rebind_status=previous.get('status'),
+                     rebind_binary_sha256=previous.get('binary_sha256'),
+                     same_candidate=same))
+            self.measured[name] = previous
+            return
+        # Install directly: upsert() re-sorts by mtime, and the rebind row is
+        # always written after the paired report it is meant to defer to.
+        record.setdefault('superseded_attempts', []).extend(
+            previous.pop('superseded_attempts', []) + [previous])
+        self.measured[name] = record
+
     def paired(self, name, path):
         """A harness that drives one ignored consumer over several real cases."""
         report = load(path)
@@ -74,13 +104,14 @@ class Merger:
                   and report.get('binary_identity_unchanged')
                   and report.get('private_inputs_removed'))
             binary = report.get('test_binary') or {}
-            self.upsert(name, dict(base, status='PASS' if ok else 'FAIL',
-                                   exit_code=0 if ok else 1,
-                                   executed_one=executed == len(cases),
-                                   paired_cases=len(cases),
-                                   rust_executions_proved=executed,
-                                   binary_sha256=binary.get('sha256'),
-                                   binary_path=binary.get('path')))
+            self.paired_upsert(name, dict(
+                base, status='PASS' if ok else 'FAIL',
+                exit_code=0 if ok else 1,
+                executed_one=executed == len(cases),
+                paired_cases=len(cases),
+                rust_executions_proved=executed,
+                binary_sha256=binary.get('sha256'),
+                binary_path=binary.get('path')))
             return
 
         if 'old_public_consumer_exit' in report:
@@ -96,7 +127,7 @@ class Merger:
             # the driver receipt binds the consumer, the report binds the CLI.
             driver = path.parent / 'driver-receipt.json'
             consumer = load(driver).get('consumer_binary_sha256') if driver.is_file() else None
-            self.upsert(name, dict(
+            self.paired_upsert(name, dict(
                 base, status='PASS' if ok else 'FAIL',
                 exit_code=report.get('old_public_consumer_exit'),
                 executed_one=proved(text), paired_status=report.get('status'),
@@ -118,7 +149,7 @@ class Merger:
                 executed = executed and proved(read_log(path.parent / (case['case'] + '.log')))
             ok = (bool(cases) and report.get('binary_unchanged') and executed
                   and all(c.get('accepted') and c.get('exit_code') == 0 for c in cases))
-            self.upsert(name or derived, dict(
+            self.paired_upsert(name or derived, dict(
                 base, status='PASS' if ok else 'FAIL', exit_code=0 if ok else 1,
                 executed_one=executed, cases=[c['case'] for c in cases],
                 binary_sha256=report.get('sha256'), binary_path=report.get('binary')))
@@ -236,8 +267,6 @@ def main():
                         record.setdefault('superseded_attempts', []).extend(
                             previous.pop('superseded_attempts', []) + [previous])
                     runner[name] = record
-    for name, path in mapping(args.paired, require_name=False):
-        merger.paired(name, path)
     # A per-crate build and a workspace build of the same source are different
     # binaries, so the re-bind layer supersedes any earlier per-crate measurement.
     for path in args.rebind:
@@ -252,6 +281,9 @@ def main():
                       'reason': row.get('reason'), 'log': row.get('log'),
                       'mtime': path.stat().st_mtime}
             merger.upsert(row['test'], {k: v for k, v in record.items() if v is not None})
+
+    for name, path in mapping(args.paired, require_name=False):
+        merger.paired(name, path)
 
     table = []
     for entry in runtime:

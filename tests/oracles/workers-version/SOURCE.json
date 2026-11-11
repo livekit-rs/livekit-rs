@@ -1,0 +1,22 @@
+{
+  "status": "NOT_RUN",
+  "scope": "NewVersion validity pair and GreaterThan comparison as called by RedisStore.Start, over 60 vectors extracted from the pinned upstream version_test.go. Not RedisStore.Start, not a Redis GET/SET, not VersionKey persistence, not egressWorker, not worker dispatch.",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "go_version_module": "hashicorp/go-version v1.9.0",
+  "corpus_provenance": "GENERATED at staging time by prepare.py from the pinned upstream version_test.go: TestGreaterThan (17) + TestComparePreReleases (17) + TestNewVersion (26) = 60. The upstream expected values are not used; Go computes valid/update at run time. The TestNewVersion current operand is the real version.Version constant read from the pinned references/livekit-stable/version/version.go.",
+  "recorded_upstream_difference": "RedisStore.Start discards the NewVersion error and then calls GreaterThan on a nil *Version, whose String() dereferences v.segments (version.go:169-171,436-442) and panics. The producer emits upstream_nil_deref=true instead of calling it. The Rust port returns a typed error. Recorded, not absorbed into a PASS.",
+  "source_sha256": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/livekit-stable/version/version.go": "9276a2b925084c3ac00b10fafac094015c43caa90340d56fc4b3012e846307b7",
+    "references/livekit-stable/pkg/service/redisstore.go": "70c2e0ba92361665d896f2cbd1fbd1a7ce6256d630c5a7fdc6183f0a92fa5569",
+    "references/go-modules/hashicorp-go-version-v1.9.0/go.mod": "eaae97e899a62e9c8e02ac5d173c3ab6834385fc18ef89b6dcbdf6986bab3ed1",
+    "references/go-modules/hashicorp-go-version-v1.9.0/version.go": "4c090b093437945311267bcbb20d3bdfdcd1382883acd238393c47c91a4b4b77",
+    "references/go-modules/hashicorp-go-version-v1.9.0/version_test.go": "726c19b19acbd4d255ebbc931cc94e7a54057641b2dbd41b79e83af7d5b65522"
+  },
+  "oracle_sha256": {
+    "main.go": "aa5a88632b08455018a563759056d0ba477b9d41207ea61a7b99864977b86366",
+    "prepare.py": "cf3aa2437dc0b3688d1ec9460bcd6ae2ae6f331530f55512638e950164af8fc9",
+    "README.md": "b33f254867b1c42ab4a4a7a289182a39f3a0f9f9acc7e3b31358597f934553c2"
+  }
+}

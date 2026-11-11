@@ -1,0 +1,20 @@
+{
+  "status": "NOT_RUN",
+  "scope": "json.Marshal of the actual upstream service.LayoutMetadata for 7 newly authored layout inputs. Not UpdateLayout, not a permission check, not GetEgress, not UpdateParticipant, not SDK delivery.",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "corpus_provenance": "cases.json is NEWLY AUTHORED for this oracle, not extracted from upstream. Upstream UpdateLayout takes req.Layout from the caller and has no fixed input list. The 7 inputs cover every escape branch of the Rust port. The c0-controls row was added to probe a suspected Go/serde_json divergence on \\b and \\f; the pinned toolchain encode.go:1009-1029 has explicit short-form branches for both, so the assumption was false and the measured output agrees. No defect found.",
+  "source_sha256": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/livekit-stable/pkg/service/egress.go": "076578f06700738efb7d5f92f9451c2c7e9a715f955036009d69f1586d0adabe",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85"
+  },
+  "oracle_sha256": {
+    "main.go": "489f72b2b4f0c80c0ddeefb80c1d547acdd3107fa52f73769c595307ab5605e3",
+    "prepare.py": "cc0e68f6a6f63e46b7cb722ac4334cb1eeb457cb34e80d7f9be7e1c7332ad4e5",
+    "cases.json": "b4ea9bf91cf1a35be9ff40dd0c04735c1bae3f09a4493bf4b4ad6a76ca864733",
+    "README.md": "8842351ee4a4aea51c2a46557f879a78f41fa751ec7ca2bf1262944cea6c2c87"
+  }
+}

@@ -30,7 +30,7 @@ for name, expected in manifest['inputs'].items():
         raise SystemExit('Oracle input drift: '+name)
 if out.is_relative_to(r/'references') or out.is_relative_to(source):
     raise SystemExit('Output must not modify oracle/reference inputs')
-out.mkdir(mode=0o700, exist_ok=False)
+out.mkdir(mode=0o700, parents=True, exist_ok=False)
 mod = (r/'references/livekit-stable/go.mod').read_text()
 header = 'module github.com/livekit/livekit-server\n'
 assert mod.count(header) == 1

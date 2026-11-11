@@ -1,0 +1,28 @@
+{
+  "status": "SOURCE_ORACLE_NOT_RUN",
+  "scope": "actual fixed Go DataChannelWriter reliable+unreliable policy and BusyOnly bitrate over the committed 12-case/20-call ordinary-writer corpus, with an explicit scripted clock and controlled buffered-amount/raw-IO seam; NOT proof of physical SCTP/pion datachannel transport behavior, NOT proof of the PCTransport deprecated MaxBuffered cap (disabled, max=0), NOT proof of concurrent-writer deadline/generation interactions, and NOT a whole-workspace acceptance result",
+  "source_sha256": {
+    "references/livekit-stable/pkg/sfu/datachannel/datachannel_writer.go": "631a03eb252ec77bed9cdc29c4f3c3e8b544e5b842b0f1a262bbe6275b7a2eaa",
+    "references/livekit-stable/pkg/sfu/datachannel/bitrate.go": "2cc7fbcb6b599026b9c464a1478cda7d422086c2a263cf9caad9e574bbab76c1",
+    "references/livekit-stable/pkg/rtc/transport.go": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/livekit-stable/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "oracle_inputs_sha256": {
+    "oracle/driver.go": "c7c348a5fd36e37b563c2dad38903f8a6d4fd5118a77b96e2a6982ad61146f69",
+    "oracle/main.go": "8c78e2b10a793e263bdeaab2136e9954c36e4033bc47dedcc6e2a731ebbc3d86",
+    "prepare.py": "f39386c0d099bcace09c5f04aa3dde2aa1e0bfc6f443dc3e337426ae28407c1a"
+  },
+  "corpus_sha256": {
+    "tests/oracles/ordinary-data-writer/cases.json": "febacc1ddc9832f4ad18fc2e0ad12eda908b1e22c63baa845ad74315d84cccd4"
+  },
+  "corpus_provenance": "COMMITTED/IMMUTABLE: tests/oracles/ordinary-data-writer/cases.json is a pre-existing committed corpus consumed verbatim; this producer never edits it",
+  "cases": 12,
+  "calls": 20,
+  "clock_transforms": [
+    "mono.Now() -> sourceNow()",
+    "time.Now() -> sourceNow()"
+  ],
+  "source_logic_changes": false
+}

@@ -1,0 +1,21 @@
+{
+  "provenance": "TRANSCRIBED verbatim from the hardcoded sequence table in crates/rtc-media/src/regression.rs:5159-5194 (test actual_go_joining_connection_callback_sequence_all_eighteen_stages). This file is the stage schedule input, NOT Go output; every results.jsonl row is produced by real Go execution of the original PCTransport state helpers.",
+  "sequences": [
+    {
+      "id": "initial-ready",
+      "stages": ["constructor", "first-connected", "repeat-connected"]
+    },
+    {
+      "id": "reset-late-before-connected",
+      "stages": ["constructor", "first-connected", "reset", "late-channel-open", "again-connected", "next-channel-open"]
+    },
+    {
+      "id": "normal-late-before-connected",
+      "stages": ["constructor", "first-connected", "late-channel-open", "again-connected"]
+    },
+    {
+      "id": "reset-connected-before-late",
+      "stages": ["constructor", "first-connected", "reset", "again-connected", "late-channel-open"]
+    }
+  ]
+}

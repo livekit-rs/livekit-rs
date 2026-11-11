@@ -1,0 +1,30 @@
+[
+ {
+  "name": "empty",
+  "layout": ""
+ },
+ {
+  "name": "plain-ascii",
+  "layout": "grid"
+ },
+ {
+  "name": "html-trio",
+  "layout": "<>&"
+ },
+ {
+  "name": "javascript-separators",
+  "layout": "\u2028\u2029"
+ },
+ {
+  "name": "quote-backslash-newline",
+  "layout": "\"\\\n"
+ },
+ {
+  "name": "c0-controls",
+  "layout": "\u0000\u0001\b\t\u000b\f\r\u001f"
+ },
+ {
+  "name": "unicode-non-ascii",
+  "layout": "\u65e5\u672c\u8a9e\ud83c\udfa5e\u0301"
+ }
+]

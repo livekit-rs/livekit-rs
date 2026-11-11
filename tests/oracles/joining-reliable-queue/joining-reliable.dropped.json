@@ -1,0 +1,62 @@
+{
+  "asymmetry": "TSV column 7 is the literal 0 required by the Rust parser; real Go joiningUnsequencedDropped is reported per id below (over-cap is 1 before replay).",
+  "producer": "TestActualJoiningReliableQueueSource",
+  "rows": [
+    {
+      "id": "empty",
+      "go_joining_unsequenced_dropped_before_replay": 0,
+      "go_joining_unsequenced_dropped_after_replay": 0,
+      "emitted_column_7": "0",
+      "transport_write_calls": 0,
+      "send_errors": "",
+      "queueing_mode_per_send": "",
+      "rust_parser_ignores_real_dropped_counter": true,
+      "upstream_dropped_source": "pkg/rtc/participant.go:4193 joiningUnsequencedDropped++"
+    },
+    {
+      "id": "inclusive-cap",
+      "go_joining_unsequenced_dropped_before_replay": 0,
+      "go_joining_unsequenced_dropped_after_replay": 0,
+      "emitted_column_7": "0",
+      "transport_write_calls": 2,
+      "send_errors": "false,false",
+      "queueing_mode_per_send": "true,true",
+      "rust_parser_ignores_real_dropped_counter": true,
+      "upstream_dropped_source": "pkg/rtc/participant.go:4193 joiningUnsequencedDropped++"
+    },
+    {
+      "id": "over-cap",
+      "go_joining_unsequenced_dropped_before_replay": 1,
+      "go_joining_unsequenced_dropped_after_replay": 0,
+      "emitted_column_7": "0",
+      "transport_write_calls": 1,
+      "send_errors": "false,true",
+      "queueing_mode_per_send": "true,true",
+      "rust_parser_ignores_real_dropped_counter": true,
+      "upstream_dropped_source": "pkg/rtc/participant.go:4193 joiningUnsequencedDropped++"
+    },
+    {
+      "id": "cloned-input",
+      "go_joining_unsequenced_dropped_before_replay": 0,
+      "go_joining_unsequenced_dropped_after_replay": 0,
+      "emitted_column_7": "0",
+      "transport_write_calls": 1,
+      "send_errors": "false",
+      "queueing_mode_per_send": "true",
+      "rust_parser_ignores_real_dropped_counter": true,
+      "upstream_dropped_source": "pkg/rtc/participant.go:4193 joiningUnsequencedDropped++"
+    },
+    {
+      "id": "post-established",
+      "go_joining_unsequenced_dropped_before_replay": 0,
+      "go_joining_unsequenced_dropped_after_replay": 0,
+      "emitted_column_7": "0",
+      "transport_write_calls": 1,
+      "send_errors": "false",
+      "queueing_mode_per_send": "false",
+      "rust_parser_ignores_real_dropped_counter": true,
+      "upstream_dropped_source": "pkg/rtc/participant.go:4193 joiningUnsequencedDropped++"
+    }
+  ],
+  "server": "livekit-server v1.13.10 e5655ac20267fa5005dccaf3f0e3bfc3ea688c07"
+}

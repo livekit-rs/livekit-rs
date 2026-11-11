@@ -1,0 +1,26 @@
+{
+  "status": "NOT_RUN",
+  "scope": "Google protobuf wire encoding of a 6-field float container message for 4 sign/presence cases, compared against the Rust prost encoder. Not protojson, not a descriptor-pool test, not a live server path.",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "protobuf_version": "google.golang.org/protobuf v1.36.12 (pinned by references/protocol-stable/go.mod:49)",
+  "corpus_provenance": "cases.json is NEWLY AUTHORED. FloatContainers is a Rust-only #[derive(Message)] struct at crates/lk-protocol/tests/protobuf_negative_zero.rs:5-19 with no upstream .proto, so both the .proto and the 4-case sign/presence matrix are authored here to match that derive exactly (field numbers, scalar kinds, labels, map key/value kinds, proto3 optional presence).",
+  "map_order_note": "The Rust consumer stores maps in a BTreeMap (sorted). Go default proto.Marshal leaves map iteration order unspecified, so wire_base64 comes from MarshalOptions{Deterministic:true}. The producer also probes 8 default marshals per case and records default_marshal_order_stable so the ordering instability is evidence, not an assumption.",
+  "source_inputs_sha256": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "crates/lk-protocol/tests/protobuf_negative_zero.rs": "2a1f4558058b6a45e55b3f4b557f44af49934cca737e8be30255410b5e3a1eab",
+    "tests/oracles/protobuf-negative-zero-container/main.go": "88e3f835586201bbbc1df50a8e14555e48221b4da98b1b5999e5bbae20f1c861",
+    "tests/oracles/protobuf-negative-zero-container/cases.json": "03a0d27374a96c7134def543ec049297f3471fbcf28d29bca3924a3d92ffe034",
+    "tests/oracles/protobuf-negative-zero-container/float_containers.proto": "de89db4b6adebead18e6fff2b5136b57bb3a2f9ce60a711421e2d0eb0a5346fb"
+  },
+  "oracle_sha256": {
+    "main.go": "88e3f835586201bbbc1df50a8e14555e48221b4da98b1b5999e5bbae20f1c861",
+    "prepare.py": "d8a6ef18d125bdbdfe5a9d4b5fe2fc81d8c6d248cad58a81e14bd413ec19530c",
+    "cases.json": "03a0d27374a96c7134def543ec049297f3471fbcf28d29bca3924a3d92ffe034",
+    "float_containers.proto": "de89db4b6adebead18e6fff2b5136b57bb3a2f9ce60a711421e2d0eb0a5346fb",
+    "README.md": "6d17ae399d2d05644751ef89a8546693fdc84c61039cb1e8c9275bc8723bf074"
+  }
+}

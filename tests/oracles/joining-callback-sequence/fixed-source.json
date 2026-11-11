@@ -1,0 +1,18 @@
+{
+  "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+  "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+  "references/livekit-stable/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "references/livekit-stable/pkg/rtc/transport.go": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d",
+  "references/livekit-stable/pkg/rtc/config.go": "904b2d6a0245b1141ce5de9ea7987211d38aa91a986e79d5f3b09150de8074df",
+  "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+  "references/livekit-stable/pkg/rtc/room_test.go": "50f4080f531cac8aa5f082a6e4f026552f7ec4a371da3406048f9034819e05b5",
+  "references/livekit-stable/pkg/rtc/transport/handler.go": "9423e4ab22dfd79b6329106df0c238183d06c9cbd94b54824985e0e2f80cde59",
+  "references/livekit-stable/pkg/rtc/transport/transportfakes/fake_handler.go": "548e1ad451c44a0d32bf858a7d87fbe94f671f39ae9a4c4ea97f3ebbca60a879",
+  "references/livekit-stable/pkg/telemetry/prometheus/node.go": "d7ff82331b8691d0fef89d16b214ef9081629d5b0b6c7f34c2693b658a540431",
+  "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+  "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+  "references/psrpc/go.mod": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0",
+  "references/psrpc/go.sum": "e73e69f3f68df7c646ddbb4c66feb2ca5bbce2c7afd9d615039a862ac30ec173",
+  "references/go-modules/mediatransportutil-f234b534b095/go.mod": "4d43ee74fb8e20460b1dc6fad7ad45d2882d8aa6b2da13592b42f6832a9effa4",
+  "references/go-modules/mediatransportutil-f234b534b095/go.sum": "7bf8cb99895afe23ba769d72a33be8bec1478b72eea87e9317dd73997ab5b744"
+}

@@ -1,0 +1,23 @@
+{
+  "status": "NOT_RUN",
+  "scope": "Supplemental typed failure flags over the same 16 committed wire cases and the same original generated livekit.Node decoder: invalid_utf8 probed by the exported InvalidUTF8() bool interface, error_is_proto probed by errors.Is(err, proto.Error). Not a wire reimplementation and not error-text classification.",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "protobuf_version": "google.golang.org/protobuf v1.36.12 (pinned by references/protocol-stable/go.mod:49)",
+  "corpus_provenance": "Reuses tests/oracles/list-nodes-wire/cases.jsonl verbatim; no new corpus is authored.",
+  "typed_probe_provenance": "internal/impl/codec_field.go:17-21 defines errInvalidUTF8 with an exported InvalidUTF8() bool method and Unwrap() returning internal/errors.Error; proto/proto.go:32-35 re-exports that sentinel as proto.Error. Both probes are type/interface based, so neither reads the deliberately destabilised error prefix.",
+  "source_inputs_sha256": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "tests/oracles/list-nodes-wire/cases.jsonl": "ff7a987336e71a202e4b47fd040aef15bc7da65e37e4beee9293d55c942854b3",
+    "tests/oracles/list-nodes-wire-typed/main.go": "9696ae7a3420fe07a3076cc4a4535c475a9074545e684f6b67ddce05553a30de",
+    "tests/oracles/list-nodes-wire-typed/prepare.py": "e3d31a8aab63b814cbf72f04aa91433ca290fb97863e7a3565e53525a5e59b12"
+  },
+  "oracle_sha256": {
+    "main.go": "9696ae7a3420fe07a3076cc4a4535c475a9074545e684f6b67ddce05553a30de",
+    "prepare.py": "e3d31a8aab63b814cbf72f04aa91433ca290fb97863e7a3565e53525a5e59b12",
+    "README.md": "7601b63c9ef4c4bc100d1cdb967d8ff1cbad642216f32aad663ef3125c885a0e"
+  }
+}

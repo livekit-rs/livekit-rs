@@ -1,0 +1,33 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "corpus_provenance": "NEWLY AUTHORED. The 68-phase source plan (phases.json), the coded bodies and the two-decode-target / five-template DD structure shape are transcribed from the numbers already pinned in the Rust consumer crates/rtc-media/src/regression/dd_one_rid_literal.rs:40-199 and dd_one_rid_counterexample.rs:143-233,493-510,620-747. No expected output value is authored: every emitted field is measured from real Go execution over a real pion vnet + DTLS/SRTP DownTrack capture.",
+  "original_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "pkg/sfu/buffer/buffer.go": "a342e16f0a5672079b663dc5d66e8623c3c3afd39e92edcfa9bb1c5d15c516cb",
+    "pkg/sfu/buffer/buffer_base.go": "29d6e77102c60e6defd12550c3e9b2877325c339da2e008713ef1ff80303e403",
+    "pkg/sfu/buffer/dependencydescriptorparser.go": "c1e1f0c4112b8ba9815fa5e14796ef3b6ffe081a80fd8cb5f448bd792a56b5c4",
+    "pkg/sfu/downtrack.go": "8fe93a5a773de34408be61d3b8917e1da60f766f2c13c61bd774aab14321fc8d",
+    "pkg/sfu/forwarder.go": "f16138d5ced5491f57132174dc5bae35f0a6262339706f5cd2d502600474c6e7",
+    "pkg/sfu/rtpmunger.go": "ce73dfcc832717c414e15534b5551279be893f639c5f12b25394e6ab91d0b969",
+    "pkg/sfu/export_test.go": "467b4f5df2bf1e3cb38814e528ac7635bdd2c8a36f5602a03928b4a72b2049ed",
+    "pkg/sfu/videolayerselector/base.go": "cb429f41b744363946160e4706a34aec1e75da281651cdec945add1036a40a71",
+    "pkg/sfu/videolayerselector/simulcast.go": "5e0516ee3a1fd3c7cf007b524709f0cd083f7c1285e99518a14b9a439836a4a7",
+    "pkg/sfu/videolayerselector/ddforwarder.go": "f202d8f1a2613f50d895fdec6bcaa545943506fc0b170212b5c251388e82cb96",
+    "pkg/sfu/videolayerselector/temporallayerselector/dependencydescriptor.go": "8f1ddcb5ac4ebfbefa3c3726d94e02633ea7274f1210369b79271f5f0e313269",
+    "pkg/sfu/codecmunger/ddtemporal.go": "0a7cf63dbd54787e720cacbf80c9fe030570abcc60a732e0a7c5be13511bea6c",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorextension.go": "2982192d8cc60cd0727c60f82bee12a1827665c1d1c9f8a1b6a9bf6853bf266f",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorwriter.go": "b59d824afc8dd5846240079a07691fcc82054acbe753057fc814b2706e53017f",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorreader.go": "fe8f4e4b2f8dac66c8d48cddf03be2076fafd4d42f2ad1bf74b7966b2b0c6c9d",
+    "pkg/sfu/downtrack_downstream_integration_test.go": "a2ad12aac012f747b3ae2d7a37fbe9a313b14ebc38dfc3d98574e5d446c695f2",
+    "pkg/testutils/vnettest/vnettest.go": "4c152f158d5902eb51354cda87df05e127d01f196343ddcd6da629f73e67a585",
+    "pkg/sfu/testutils/data.go": "9b9d08d4f6d6719c2d5629a5eb365649cd9baa158b04fc463394daf6fd45c392",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "helpers": {
+    "physical_helpers_test.go": "812cb6d6829322c9242863fcd1e3b05906bdd56785ada3049417cab20177a3ef",
+    "physical_observer_test.go": "4295a96dd31a7eab15aa73c8ac80465fa292d739033b74555b962db4ca9314f7",
+    "phases.json": "f560fc7fd4852ac92a1566e6c107858a38c889383710ded91332a7dc360ff767"
+  },
+  "scope": "Proves, for the authored 68-phase plan, the original public buffer.Buffer.Write -> ReadExtended -> DownTrack.WriteRTP admission decision, the original Simulcast + DD temporal selector + DDTemporal munger + DDForwarder output (frame-number rebase, active decode target mask, structure attachment), the dropped-slot padding packet, and the far-side SRTP sequence numbers / timestamps / markers / payload bytes, for VP9 and AV1 in both ONE_SPATIAL_LAYER_PER_STREAM modes. The RID layer switch goes through the real target-only allocation path (SetMaxTemporalLayer + SetMaxSpatialLayer + ProvisionalAllocatePrepare/Allocate/Commit) and the cross-RID clock through the real DownTrack.HandleRTCPSenderReportData. Does NOT prove: live server signalling or SDK interop; real decoder pixel output; congestion control or pacer timing (PassThrough pacer + null BWE, authored wall-clock pacing); RTX/NACK repair; the stream allocator's own bandwidth estimation (the published bitrate table is an authored input); real RTCP wire transport of the sender reports (they are injected at the public DownTrack entry point, not received as SRTCP); any DD structure other than the single authored two-decode-target / five-template one; or the Rust engine's own timing histogram."
+}
