@@ -3,6 +3,11 @@ from pathlib import Path
 import argparse,hashlib,json,re
 p=argparse.ArgumentParser();p.add_argument('--go',required=True,type=Path);p.add_argument('--rust',required=True,type=Path);p.add_argument('--go-receipt',required=True,type=Path);p.add_argument('--rust-receipt',required=True,type=Path);p.add_argument('--out',required=True,type=Path);p.add_argument('--rust-source',type=Path);p.add_argument('--profile',choices=['go11','compact9'],default='go11');a=p.parse_args();here=Path(__file__).resolve().parent
 H=lambda b:hashlib.sha256(b).hexdigest()
+def observer_source(name):
+    # Staged layouts keep a copy under oracle/; the committed observers sit beside this reader.
+    for candidate in (here/'oracle'/name, here/name):
+        if candidate.is_file():return candidate
+    raise AssertionError('missing original observer source '+name)
 # Each original output file must be bound by a coordinator execution receipt,
 # including a real successful process result. Rows alone never certify execution.
 def receipt(path,actual,kind):
@@ -10,7 +15,7 @@ def receipt(path,actual,kind):
  assert x['actual_sha256']==H(actual.read_bytes()),(kind,'actual output digest')
  for field in ['binary_sha256','source_sha256']:
   assert re.fullmatch('[0-9a-f]{64}',x[field]),(kind,field)
- if kind.startswith('original_go'):assert x['source_sha256']==H((here/'oracle'/('update_audio_owner_observer_test.go' if a.profile=='go11' else 'update_audio_compact_tail_observer_test.go')).read_bytes()),'wrong original observer source'
+ if kind.startswith('original_go'):assert x['source_sha256']==H(observer_source('update_audio_owner_observer_test.go' if a.profile=='go11' else 'update_audio_compact_tail_observer_test.go').read_bytes()),'wrong original observer source'
  else:assert x['source_sha256']==H((a.rust_source or here/'payload/livekit-rs-server/crates/rtc-core/src/room/tests.rs').read_bytes()),'wrong actual reviewed Rust owner-test source'
  return x
 rg=receipt(a.go_receipt,a.go,'original_go11'if a.profile=='go11'else'original_go_compact9');rr=receipt(a.rust_receipt,a.rust,'rust_owner11'if a.profile=='go11'else'rust_owner_compact9')

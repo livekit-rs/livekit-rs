@@ -53,6 +53,14 @@ def stop_consumer_group(process):
  while time.monotonic()<end and group_alive(process.pid):time.sleep(.02)
  return not group_alive(process.pid)
 
+CONSUMER_TEST='cli_redis_address_tests::actual_original_redis_address_public_consumer'
+def consumer_target_check(command):
+ # The bin target lists zero tests, so a green exit there is not evidence. A cargo
+ # invocation must select --lib; a prebuilt binary must provably list the reader.
+ if Path(command[0]).name.startswith('cargo'):return ('--lib'in command),'cargo-lib'
+ listed=subprocess.run([command[0],'--list','--ignored'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120,check=False)
+ ok=listed.returncode==0 and any(line.strip()==CONSUMER_TEST+': test' for line in listed.stdout.decode(errors='replace').splitlines())
+ return ok,'prebuilt-listed'
 def invoke_consumer(command,env,timeout):
  # Inherit original stdout/stderr unchanged: no stream decoding/normalization.
  process=subprocess.Popen(command,env=env,start_new_session=True)
@@ -137,7 +145,7 @@ def main():
    assert source_valid,'actual original main/source disposition mismatch '+row['id']
   assert len(report['cases'])==12 and [r['id']for r in report['cases']]==expected_ids
   if a.consumer_command_json:
-   command=json.loads(a.consumer_command_json);assert isinstance(command,list)and command and all(isinstance(v,str)for v in command);assert '--lib'in command,'actual public reader is in the library; bin zero-tests is not evidence';consumer_env=dict(os.environ);consumer_env['LIVEKIT_REDIS_ADDRESS_ACTUAL']=str(a.output.resolve());result=invoke_consumer(command,consumer_env,a.consumer_timeout_seconds);report['consumer_process']=result;report['old_public_consumer_exit']=result['exit'];save()
+   command=json.loads(a.consumer_command_json);assert isinstance(command,list)and command and all(isinstance(v,str)for v in command);target_ok,target_kind=consumer_target_check(command);assert target_ok,'actual public reader is in the library; bin zero-tests is not evidence';report['consumer_command']=command;report['consumer_target_check']=target_kind;consumer_env=dict(os.environ);consumer_env['LIVEKIT_REDIS_ADDRESS_ACTUAL']=str(a.output.resolve());result=invoke_consumer(command,consumer_env,a.consumer_timeout_seconds);report['consumer_process']=result;report['old_public_consumer_exit']=result['exit'];save()
   same=all(row['functional_stdout_exit_equal']for row in report['cases']);reader_ok=report.get('old_public_consumer_exit',0)==0 and not report.get('consumer_process',{}).get('timed_out',False) and not report.get('consumer_process',{}).get('interrupted',False) and report.get('consumer_process',{}).get('cleanup_complete',True);report['functional_stdout_exit_status']='PASS'if same and reader_ok else'FAIL';report['whole_cli_stdio_status']='PASS'if all(row['exact_equal']for row in report['cases']) else'OPEN_STDERR_DIFFERENCE';report['status']='PASS_FUNCTIONAL_SCOPED_STDERR_OPEN'if same and reader_ok else'FAIL';save()
  finally:
   if admin:

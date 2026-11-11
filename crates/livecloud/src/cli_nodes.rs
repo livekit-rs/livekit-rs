@@ -830,11 +830,22 @@ mod tests {
                 .unwrap();
                 assert_eq!(actual.unwrap(), vec![node], "actual Go {id}");
             } else {
-                assert_eq!(
-                    actual.unwrap_err(),
-                    source["error"].as_str().unwrap(),
-                    "actual Go {id} error"
-                );
+                // Go's detrand selects one of two source-defined prefixes per
+                // build (protobuf internal/errors/errors.go). Only that prefix
+                // may differ; every other error is compared byte-exactly.
+                let go_error = source["error"].as_str().unwrap();
+                let actual_error = actual.unwrap_err();
+                match go_error
+                    .strip_prefix("proto:\u{a0}")
+                    .or_else(|| go_error.strip_prefix("proto: "))
+                {
+                    Some(suffix) => assert_eq!(
+                        actual_error,
+                        format!("proto: {suffix}"),
+                        "actual Go {id} error"
+                    ),
+                    None => assert_eq!(actual_error, go_error, "actual Go {id} error"),
+                }
             }
             count += 1;
         }

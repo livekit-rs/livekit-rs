@@ -507,7 +507,7 @@
     "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85"
   },
   "assets_sha256": {
-    "run.py": "2dd799f29c0db02fef288cb905e9854fee77b7a8f63aed22574776bf00099c75",
+    "run.py": "d7d4fba48bb562e54689b734b8289afa61ed161ed5128f1cc9d0a2902a90d909",
     "new-tests.rs": "1b05266ed5d1c4f7f9377af48bf69416f614b06a1ec910fb235c21c13114b091",
     "REPLAY.md": "819a1f7c290f308d6c6e58f03d9e58b216b1e97f018f9c0c466919b18ce3965d",
     "build-package.py": "f4682b5b2df89865bc25098164cdee390527726438a1ee0e5fe691e4c7b50d08",

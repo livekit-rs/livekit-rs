@@ -112,7 +112,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/livekit/livekit-server => ../../../../references/livekit-stable
+replace github.com/livekit/livekit-server => ../../../references/livekit-stable
 
 replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.18-warp.6
 replace github.com/pion/dtls/v3 => github.com/livekit/dtls/v3 v3.1.5-warp.3

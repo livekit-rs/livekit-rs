@@ -1,0 +1,17 @@
+[
+  {
+    "file": "tests/oracles/list-nodes-redis-address/redis_address.rs",
+    "line": 239,
+    "reason": "v1 base reference source for the list-nodes-redis-address patch generator (SOURCE.json parent_v1_source_sha256, redis_address.rs.v1-v2.patch). tests/oracles is not a Cargo test target: there is no workspace-root tests/*.rs and no crate [[test]] path pointing here. The live workspace test with this fn name is crates/livecloud/src/redis_address.rs, which the runtime inventory records once as cli_nodes::redis_address::source_port_controls::actual_go_resolve_tcp_addr_controls."
+  },
+  {
+    "file": "tests/oracles/list-nodes-redis-address/new-tests.rs",
+    "line": 7,
+    "reason": "v1 base reference source for the same patch generator (tests-only target cli_redis_address_tests.rs, base_sha256 null). Not compiled by any workspace test target. The live workspace test is crates/livecloud/src/cli_redis_address_tests.rs, recorded once as cli_redis_address_tests::actual_original_redis_address_public_consumer."
+  },
+  {
+    "file": "crates/livecloud/src/cloud_control/mod.rs",
+    "line": 514,
+    "reason": "kotlin_native_wss_registration_snapshot_ack_and_heartbeat is inside #[cfg(test)] mod tests, but the whole cloud_control module is gated by #[cfg(feature = \"cloud\")] at crates/livecloud/src/lib.rs:7. The cloud feature (crates/livecloud/Cargo.toml:23) is not enabled by any workspace member or by the default cargo test --locked --workspace build, so this site produces no runtime ignored entry. It is the pinned Kotlin/Native SPEC-0078 WSS fixture and belongs to the R2 milestone, not to Standalone acceptance."
+  }
+]

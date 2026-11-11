@@ -16,6 +16,8 @@ def main():
     p.add_argument('--redis-server',type=Path,default=Path('/opt/homebrew/bin/redis-server'))
     p.add_argument('--filter',required=True)
     p.add_argument('--env',required=True,help='test-owned Redis URL environment variable')
+    p.add_argument('--isolated-env',help='explicit dedicated fixture ownership variable set to 1')
+    p.add_argument('--value-format',choices=('url','address'),default='url',help='url emits redis://host:port, address emits the bare literal host:port')
     p.add_argument('--output',type=Path,required=True)
     a=p.parse_args();a.test_binary=a.test_binary.resolve();a.output=a.output.resolve()
     if not __debug__:p.error('assertions must stay enabled')
@@ -45,7 +47,10 @@ def main():
                     except (OSError,TimeoutError):pass
                     if time.monotonic()>=deadline:raise RuntimeError('owned Redis readiness timed out')
                     time.sleep(.05)
-                environment={**os.environ,a.env:f'redis://127.0.0.1:{port}'}
+                value=f'127.0.0.1:{port}' if a.value_format=='address' else f'redis://127.0.0.1:{port}'
+                environment={**os.environ,a.env:value}
+                if a.isolated_env:environment[a.isolated_env]='1'
+                row['isolated_environment_name']=a.isolated_env
                 with open(a.output/f'{index:02d}-test.stdout','wb') as stdout,open(a.output/f'{index:02d}-test.stderr','wb') as stderr:
                     test=subprocess.Popen([a.test_binary,'--ignored','--exact',name,'--nocapture','--test-threads=1'],stdout=stdout,stderr=stderr,env=environment,start_new_session=True)
                     code=test.wait(timeout=120)

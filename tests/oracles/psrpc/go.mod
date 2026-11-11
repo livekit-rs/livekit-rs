@@ -24,4 +24,4 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 )
 
-replace github.com/livekit/psrpc => ../../../../references/psrpc
+replace github.com/livekit/psrpc => ../../../references/psrpc

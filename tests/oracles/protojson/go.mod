@@ -174,6 +174,6 @@ replace github.com/pion/dtls/v3 => github.com/livekit/dtls/v3 v3.1.5-warp.3
 replace github.com/pion/ice/v4 => github.com/livekit/ice/v4 v4.4.0-warp.3
 
 // Use immutable project inputs without changing reference checkouts.
-replace github.com/livekit/protocol => ../../../../references/protocol-stable
+replace github.com/livekit/protocol => ../../../references/protocol-stable
 
-replace github.com/livekit/psrpc => ../../../../references/psrpc
+replace github.com/livekit/psrpc => ../../../references/psrpc

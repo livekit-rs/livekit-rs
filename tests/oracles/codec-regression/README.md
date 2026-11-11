@@ -15,6 +15,8 @@ GOTOOLCHAIN=go1.26.3 GOFLAGS=-mod=mod go test ./pkg/service -run '^TestOriginalL
 GOTOOLCHAIN=go1.26.3 GOFLAGS=-mod=mod go test ./pkg/rtc -run '^TestOriginalLiveKitCodecRegressionPolicy$' -count=1 -v
 ```
 
+On a host with no Docker daemon, add the upstream `-docker=false` flag to the `./pkg/service` command. `pkg/service/docker_test.go` defines that flag for exactly this case and its `TestMain` otherwise calls `log.Fatalf` before any test runs. `TestOriginalLiveKitCodecRoomGate` never calls `requireDocker`, so the observer still executes in full and still produces all 21 rows; only unrelated daemon-dependent tests are skipped. Record which invocation was used, and never treat a skipped observer as a pass.
+
 The first fixture creates one original `rtc.Room` and joins six original `NewMockParticipant`s via its actual owner `Join`; the original `roomManagerParticipantHelper.ShouldRegressCodec` produces 21 count/threshold results. The second constructs original `MediaTrack` for each policy and both helper decisions and calls its actual `enableRegression` method, producing 6 rows. All rows have `SOURCE_CODEC_GATE ` prefix. Room/track cleanup uses their original Close methods.
 
 After both Go commands succeed, combine their complete logs without removing failures and run the native supplemental ignored reader with `GO_CODEC_GATE_RESULTS` pointing to that combined file:
