@@ -61,3 +61,5 @@ lk-config.workspace = true
 # Actual PSRPC expiry acceptance over original native ICE/DTLS/SCTP fixture.
 str0m.workspace = true
 rtc-crypto.workspace = true
+# Assert the official server's silent graceful-shutdown log surface.
+tracing-subscriber = { workspace = true }

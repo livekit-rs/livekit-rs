@@ -85,7 +85,9 @@ import re
 import shutil
 import signal
 import socket
+import struct
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -98,6 +100,7 @@ OFFICIAL_SHA256 = "4bc2378e636740b29093061036249ffc9ebbef91f4ece1de12177c8dfee1e
 REG_ITEM = "RUNTIME:Redis.NodeRegistrationLifecycle"
 STATS_ITEM = "RUNTIME:Redis.NodeStatsSampling"
 CHURN_ITEM = "RUNTIME:Redis.ServerStartConnectionChurn"
+CHANNEL_ITEM = "RUNTIME:Redis.PsrpcChannelSurface"
 STARTUP_RACE_ITEM = "RUNTIME:Server.InterruptBeforeRunningRace"
 HEALTH_ITEM = "FUNC:DEPLOY_HEALTH"
 INTERVAL_ITEM = "YAML:node_stats.stats_update_interval"
@@ -113,9 +116,14 @@ AVAILABILITY_WINDOW_SECONDS = 6.0
 REGION = "harness-21q"
 STALE_SECONDS = 3600
 NODES_KEY = b"nodes"
-ITEMS = sorted({REG_ITEM, STATS_ITEM, CHURN_ITEM, STARTUP_RACE_ITEM, HEALTH_ITEM,
-                INTERVAL_ITEM, MAX_DELAY_ITEM, REGION_ITEM, WT_PORT_ITEM, WT_CERT_ITEM,
-                POOL_ITEM})
+ITEMS = sorted({REG_ITEM, STATS_ITEM, CHURN_ITEM, CHANNEL_ITEM, STARTUP_RACE_ITEM,
+                HEALTH_ITEM, INTERVAL_ITEM, MAX_DELAY_ITEM, REGION_ITEM, WT_PORT_ITEM,
+                WT_CERT_ITEM, POOL_ITEM})
+
+
+def channel_shape(topic: str) -> str:
+    """Strip the per-process random node/psrpc-client id from a Redis channel name."""
+    return re.sub(r"\|(ND|CLI)_[A-Za-z0-9]+", r"|\1_<id>", topic)
 # `cmd/server/main.go:54,83` bind `--config` to `LIVEKIT_CONFIG` and `--redis-host` to
 # `REDIS_HOST`, and `pkg/config/config.go:1120-1123` applies `redis-host` with
 # `if c.IsSet(...)`, which an env var set to the *empty string* satisfies. Exporting
@@ -208,10 +216,27 @@ def node_proto(node_id: str, updated_at: int, state: int = 1) -> bytes:
             + bfield(4, stats) + vfield(6, state) + sfield(7, REGION))
 
 
+def host_memory_total() -> int:
+    """Physical memory, used only as an upper bound on the sampled stats total. Both
+    servers derive `memory_total` from VM page classes, not from this number: upstream
+    `go-osstat@v0.2.8/memory/memory_darwin.go:107-109` reduces to
+    wired+compressor+active+inactive+speculative+free, which is algebraically the same
+    sum the candidate builds in `livecloud/src/node_stats.rs:373-383`. Both then average
+    it in float32 over the stats window (`prometheus/node.go:233,270` and
+    `node_stats.rs:155,162`), so it is a moving sample, not a host constant."""
+    if sys.platform == "darwin":
+        done = run_checked(["sysctl", "-n", "hw.memsize"])
+        return int(done.stdout.strip())
+    for line in pathlib.Path("/proc/meminfo").read_text().splitlines():
+        if line.startswith("MemTotal:"):
+            return int(line.split()[1]) * 1024
+    raise AssertionError("no host memory total available")
+
+
 def decode_node(buf: bytes) -> dict:
     node = {"id": None, "ip": None, "num_cpus": None, "type": 0, "state": None,
             "region": "", "started_at": None, "updated_at": None,
-            "stats_present": False, "stats_fields": []}
+            "stats_present": False, "stats_fields": [], "stats_values": {}}
     for number, wire, value in pb_fields(buf):
         if number == 1 and wire == 2:
             node["id"] = value.decode(errors="replace")
@@ -224,6 +249,12 @@ def decode_node(buf: bytes) -> dict:
             seen = []
             for sub, sub_wire, sub_value in pb_fields(value):
                 seen.append(sub)
+                if sub_wire == 0:
+                    node["stats_values"][sub] = sub_value
+                elif sub_wire == 5:
+                    node["stats_values"][sub] = struct.unpack("<f", sub_value)[0]
+                elif sub_wire == 1:
+                    node["stats_values"][sub] = struct.unpack("<Q", sub_value)[0]
                 if sub == 1 and sub_wire == 0:
                     node["started_at"] = sub_value
                 elif sub == 2 and sub_wire == 0:
@@ -264,6 +295,11 @@ def keepalive_channel(node_id: str) -> str:
 # ---------------------------------------------------------------------------- RESP
 
 
+class RedisError(AssertionError):
+    """A `-` reply. Returning it as bytes let a rejected command masquerade as data,
+    so a fault that never fired could still satisfy a recovery assertion."""
+
+
 class Resp:
     def __init__(self, host: str, port: int):
         self.sock = socket.create_connection((host, port), timeout=5)
@@ -273,8 +309,10 @@ class Resp:
     def read(self):
         line = self.file.readline(1 << 20)
         tag, data = line[:1], line[1:-2]
-        if tag in (b"+", b"-"):
+        if tag == b"+":
             return data
+        if tag == b"-":
+            raise RedisError(data.decode(errors="replace"))
         if tag == b":":
             return int(data)
         if tag == b"$":
@@ -362,8 +400,28 @@ class Store:
     def publish(self, channel: str, payload: bytes) -> int:
         return self.call(b"PUBLISH", channel.encode(), payload)
 
-    def client_kill(self, *kind: bytes) -> int:
-        return self.call(b"CLIENT", b"KILL", *kind)
+    def pubsub_channels(self, pattern: str) -> list[str]:
+        return sorted(v.decode(errors="replace")
+                      for v in (self.call(b"PUBSUB", b"CHANNELS", pattern.encode()) or []))
+
+    def client_kill(self, kind: bytes) -> int:
+        """Redis 7.2 has no `ALL` keyword — `CLIENT KILL normal all` is `ERR syntax
+        error`. `TYPE <kind>` is the form that kills every client of that class, and
+        `SKIPME` defaults to yes, so this fresh caller connection survives it."""
+        killed = self.call(b"CLIENT", b"KILL", b"TYPE", kind)
+        assert isinstance(killed, int), ("CLIENT KILL returned no count", killed)
+        return killed
+
+    def client_types(self) -> dict[str, int]:
+        listing = self.call(b"CLIENT", b"LIST").decode(errors="replace")
+        counts: dict[str, int] = {}
+        for line in listing.splitlines():
+            fields = dict(part.split("=", 1) for part in line.split() if "=" in part)
+            flags = fields.get("flags", "")
+            kind = ("pubsub" if "P" in flags else
+                    "replication" if "M" in flags or "S" in flags else "normal")
+            counts[kind] = counts.get(kind, 0) + 1
+        return counts
 
     def connections(self) -> int:
         info = self.call(b"INFO", b"clients").decode(errors="replace")
@@ -665,6 +723,8 @@ def vector_register(official, rust, name, ctx):
         assert reached is not None, (side, "server never served HTTP", run.text()[-2000:])
         node_id, record = ctx["store"].wait_one_own()
         connections = ctx["store"].connections()
+        connection_kinds = ctx["store"].client_types()
+        subscribed_channels = ctx["store"].pubsub_channels("*")
         time.sleep(SETTLE_SECONDS + AVAILABILITY_WINDOW_SECONDS)
         after = ctx["store"].records().get(node_id)
         assert after is not None, (side, "the live record vanished", ctx["store"].names())
@@ -692,6 +752,8 @@ def vector_register(official, rust, name, ctx):
             "updated_at_advanced": after["updated_at"] > record["updated_at"],
             "started_at_fixed": after["started_at"] == record["started_at"],
             "connections_while_running": connections,
+            "connection_kinds_while_running": connection_kinds,
+            "subscribed_channels_while_running": subscribed_channels,
             "stop": stop,
             "own_after_stop": after_stop,
             "late_ping_receivers": receivers,
@@ -734,6 +796,14 @@ def vector_register(official, rust, name, ctx):
                                               go["unregister_error_lines"])
     assert not go["update_error_lines"], ("official re-HSET failed",
                                           go["update_error_lines"])
+    # The system-stats comparisons below are only meaningful if the official actually
+    # sampled them: 0 == 0 would otherwise pass for two servers that report nothing.
+    assert (go["after"]["stats_values"].get(17) or 0) > 0, \
+        ("official reported no cpu count, so the stats comparison would be vacuous",
+         go["after"]["stats_values"])
+    assert (go["after"]["stats_values"].get(34) or 0) > 0, \
+        ("official reported no memory total, so the stats comparison would be vacuous",
+         go["after"]["stats_values"])
 
     # --- the two binaries ---
     comparisons = (
@@ -745,6 +815,12 @@ def vector_register(official, rust, name, ctx):
         ("region", rec["region"], rs["record"]["region"]),
         ("num_cpus", rec["num_cpus"], rs["record"]["num_cpus"]),
         ("stats_present", rec["stats_present"], rs["record"]["stats_present"]),
+        ("stats-field-set", go["after"]["stats_fields"], rs["after"]["stats_fields"]),
+        ("stats-num-cpus", go["after"]["stats_values"].get(17),
+         rs["after"]["stats_values"].get(17)),
+        ("stats-memory-total-plausible",
+         0 < (go["after"]["stats_values"].get(34) or 0) <= host_memory_total(),
+         0 < (rs["after"]["stats_values"].get(34) or 0) <= host_memory_total()),
         ("health-200-while-live", go["health_live"], rs["health_live"]),
         ("updated_at-advanced", go["updated_at_advanced"], rs["updated_at_advanced"]),
         ("started_at-fixed", go["started_at_fixed"], rs["started_at_fixed"]),
@@ -768,35 +844,125 @@ def vector_register(official, rust, name, ctx):
     ctx["known_differences"].append({
         "id": STATS_ITEM,
         "scope_of_this_item": (
-            "which `livekit.NodeStats` fields the registered record carries. The "
-            "registration/heartbeat/revoke lifecycle above is certified; the sampling "
-            "behind it is not. Upstream replaces the whole Stats from "
-            "`prometheus.GetNodeStats` (`pkg/routing/node.go:142-153`): rooms, clients, "
-            "tracks, bytes, packets, cpu load, memory and the rate ring."),
+            "the media-derived half of `livekit.NodeStats`. Upstream replaces the whole "
+            "Stats from `prometheus.GetNodeStats` (`pkg/routing/node.go:142-153`): rooms, "
+            "clients, tracks in/out, bytes, packets, nacks and the rate ring, alongside "
+            "the system load/memory fields. This vector runs an idle server with no room, "
+            "so proto3 omits every zero counter on BOTH sides and the media half is never "
+            "exercised here."),
         "difference": (
-            "the official record carries the stats field set below; the candidate carries "
-            "only started_at and updated_at. Anything that reads past the stamp — the node "
-            "selector's load/region sorting, `list-nodes`' stat columns — sees zeros from "
-            "the candidate."),
+            "none on what this vector measures. Both sides carry the same field set below "
+            "— started_at(1), updated_at(2), num_cpus(17), the three load averages(18-20), "
+            "cpu_load(21), memory_total(34), memory_used(35) — and num_cpus is compared as "
+            "an exact host-invariant value, with the official asserted non-zero so the "
+            "comparison cannot pass as 0 == 0. memory_total is NOT compared for equality: "
+            "both sides build it from VM page classes and then average it in float32 over "
+            "the stats window, so it moves between two runs. The two definitions were "
+            "checked against each other and reduce to the same sum "
+            "(wired+compressor+active+inactive+speculative+free): upstream "
+            "`go-osstat@v0.2.8/memory/memory_darwin.go:107-109` via "
+            "`prometheus/node.go:233,270`, candidate `node_stats.rs:373-383,155,162`. "
+            "Each side is instead bounded by the host's physical memory, and both raw "
+            "values are recorded below. The load averages, cpu_load and memory_used are "
+            "sampled per side and recorded, not compared. HISTORY — earlier batches of "
+            "this campaign recorded the candidate carrying only started_at/updated_at; "
+            "that is no longer true and the old receipt is kept unedited at "
+            "evidence/2026-11-04/c31-redis-node-registration-lifecycle-paired."),
         "observed_in_this_run": {"official_stats_fields": go["after"]["stats_fields"],
-                                 "rust_stats_fields": rs["after"]["stats_fields"]},
+                                 "rust_stats_fields": rs["after"]["stats_fields"],
+                                 "official_stats_values": go["after"]["stats_values"],
+                                 "rust_stats_values": rs["after"]["stats_values"],
+                                 "host_memory_total": host_memory_total(),
+                                 "memory_total_relative_delta": abs(
+                                     (go["after"]["stats_values"].get(34) or 0)
+                                     - (rs["after"]["stats_values"].get(34) or 0))
+                                 / max(1, host_memory_total())},
         "handling": (
-            "stays OPEN as a sampling gap. Liveness (availability window, readiness, "
-            "revocation) is accepted by this vector; load/region selection and real media "
-            "state are not, and must be accepted separately rather than by this scope."),
+            "stays OPEN, narrowed to the media-derived counters and the rate ring. "
+            "Liveness (availability window, readiness, revocation) and the system-stats "
+            "field set are accepted by this vector. num_rooms/num_clients/num_tracks/"
+            "bytes/packets under real load, and the node selector's load/region sorting "
+            "that reads them, are NOT accepted here and need a room-bearing differential."),
     })
     ctx["known_differences"].append({
         "id": CHURN_ITEM,
         "scope_of_this_item": (
-            "how many Redis connections one healthy server start leaves open, read from "
-            "`INFO clients` while the server serves."),
+            "how many Redis connections one healthy idle server start leaves open, read "
+            "from `INFO clients` and broken down by `CLIENT LIST` flags while the server "
+            "serves. One harness caller connection is included in both counts."),
         "difference": (
-            "go-redis keeps a pool per client (registry, psrpc bus, plus the shared "
-            "subscription connection) where redis-rs multiplexes one command connection "
-            "per client plus one per subscription."),
+            f"the official holds {go['connections_while_running']} and the candidate "
+            f"{rs['connections_while_running']}. The per-kind breakdown and the enumerated "
+            "channel list below locate the difference: the candidate gives every "
+            "subscription its own connection (`lk-compat/src/service_bus/redis_transport.rs"
+            ":1-3,226-237`, one bounded RESP3 push queue per subscription), and a claimed "
+            "RPC handler subscribes to both its request and its claim channel "
+            "(`service_bus/rpc.rs:1122-1132`). Upstream instead batches every channel onto "
+            "ONE `redis.PubSub` (`references/psrpc/pkg/bus/redisbus/redisbus.go:68,262`) "
+            "shared by the whole server (`pkg/service/wire_gen.go:45`). So the candidate's "
+            "pubsub socket count tracks its channel count, while the official's stays at "
+            "one regardless of how many services are wired."),
         "observed_in_this_run": {"official_connections": go["connections_while_running"],
-                                 "rust_connections": rs["connections_while_running"]},
-        "handling": "recorded, not compared: an open item, not this vector's contract.",
+                                 "rust_connections": rs["connections_while_running"],
+                                 "official_kinds": go["connection_kinds_while_running"],
+                                 "rust_kinds": rs["connection_kinds_while_running"]},
+        "handling": (
+            "recorded, not compared, and still OPEN. The architecture is identified, not "
+            "excused: matching upstream's footprint means multiplexing channels onto "
+            "shared connections, which is a transport change with its own recovery and "
+            "back-pressure acceptance. A connection count is not automatically a leak or "
+            "a performance result, and this vector does not claim it is either. The "
+            f"distinct channel-set difference is its own item ({CHANNEL_ITEM})."),
+    })
+    go_channels = set(go["subscribed_channels_while_running"])
+    rs_channels = set(rs["subscribed_channels_while_running"])
+    # Node and psrpc client ids are random per process, so a raw set difference reports
+    # every node-scoped topic as missing on both sides. Diff the topic shape instead and
+    # keep the raw sets as the observed record.
+    go_shape = {channel_shape(c) for c in go_channels}
+    rs_shape = {channel_shape(c) for c in rs_channels}
+    only_go = go_shape - rs_shape
+    # `…|CLI_<id>|…` is a psrpc client topic; everything else is a server-side topic the
+    # candidate never subscribes at all, which an idle measurement *can* call a gap.
+    client_only = sorted(c for c in only_go if "|CLI_" in c)
+    server_only = sorted(only_go - set(client_only))
+    ctx["known_differences"].append({
+        "id": CHANNEL_ITEM,
+        "scope_of_this_item": (
+            "which psrpc topics an idle single-node server has subscribed to in Redis, "
+            "enumerated with `PUBSUB CHANNELS *` while it serves. This is the topic "
+            "surface, not the socket count. Node/client ids are normalized to `<id>` "
+            "before diffing because they are random per process."),
+        "difference": (
+            f"the official subscribes to {len(go_channels)} channels and the candidate to "
+            f"{len(rs_channels)}; normalized to topic shape that is {len(go_shape)} vs "
+            f"{len(rs_shape)}. {len(client_only)} of the official-only shapes are the "
+            "psrpc *client* side (`…|CLI_<id>|CLAIM` and `…|CLI_<id>|RES`) for the service "
+            "clients it constructs at startup; whether the candidate creates those lazily "
+            "on first call or never creates them is NOT determined by an idle measurement. "
+            f"The remaining {len(server_only)} are server-side topics, listed in "
+            "`official_only_server_topics`: the official subscribes the node-scoped "
+            "`Signal|<node>|CLAIM`, `|RES` and `|STR`, where the candidate subscribes only "
+            "`Signal|RelaySignal|<node>|STR`. Node-scoped signal addressing is a concrete "
+            "candidate gap, not a lazy-creation ambiguity."),
+        "observed_in_this_run": {
+            "official_channel_count": len(go_channels),
+            "rust_channel_count": len(rs_channels),
+            "official_shape_count": len(go_shape),
+            "rust_shape_count": len(rs_shape),
+            "official_only": sorted(only_go),
+            "official_only_client_topics": client_only,
+            "official_only_server_topics": server_only,
+            "rust_only": sorted(rs_shape - go_shape),
+            "shared": sorted(go_shape & rs_shape),
+            "raw_official_channels": sorted(go_channels),
+            "raw_rust_channels": sorted(rs_channels)},
+        "handling": (
+            "OPEN, split. The client-topic half needs a real cross-node RPC where a remote "
+            "worker answers on the candidate's client channel (the multi-node PSRPC "
+            "workline). The `Signal|<node>` half is a missing server subscription and needs "
+            "its own cross-node signal relay acceptance; neither is closed by this "
+            "registration vector."),
     })
     return out
 
@@ -1344,8 +1510,10 @@ def vector_client_kill(official, rust, name, ctx):
         baseline_publish = sub.next_publish() is not None
         sub.close()
 
-        killed = {"normal": store.client_kill(b"normal", b"all"),
-                  "pubsub": store.client_kill(b"pubsub", b"all")}
+        clients_before = store.client_types()
+        killed = {"normal": store.client_kill(b"normal"),
+                  "pubsub": store.client_kill(b"pubsub")}
+        clients_after = store.client_types()
 
         before = store.records()[node_id]["updated_at"]
         deadline = time.monotonic() + 12
@@ -1359,7 +1527,6 @@ def vector_client_kill(official, rust, name, ctx):
                 publish_after_kill = True
                 receivers_after_kill = store.publish(channel, ping_envelope(int(time.time())))
                 break
-            revived_at = time.monotonic()
         after = store.records().get(node_id, {}).get("updated_at")
         stamps = [before]
         for _ in range(3):
@@ -1370,7 +1537,9 @@ def vector_client_kill(official, rust, name, ctx):
         stop = run.interrupt()
         out[side] = {"normalized_config": run.normalized_config,
                      "config_sha256": run.config_sha256,
-                     "killed_replies": killed, "before": before, "stamps": stamps,
+                     "killed": killed, "clients_before": clients_before,
+                     "clients_after": clients_after,
+                     "before": before, "stamps": stamps,
                      "baseline_publish": baseline_publish,
                      "publish_after_kill": publish_after_kill,
                      "receivers_after_kill": receivers_after_kill,
@@ -1382,6 +1551,15 @@ def vector_client_kill(official, rust, name, ctx):
                      "stop": stop, "own_after_stop": run.own_names()}
     go, rs = out["official"], out["rust"]
 
+    assert go["clients_before"].get("pubsub", 0) >= 1, \
+        ("the official held no pubsub connection, so there was nothing to kill",
+         go["clients_before"])
+    assert go["killed"]["normal"] >= 1, ("CLIENT KILL TYPE normal closed no connection — "
+                                         "the fault never fired", go["killed"],
+                                         go["clients_before"])
+    assert go["killed"]["pubsub"] >= 1, ("CLIENT KILL TYPE pubsub closed no connection — "
+                                         "the fault never fired", go["killed"],
+                                         go["clients_before"])
     assert go["baseline_publish"], ("the official never published a keepalive ping on "
                                     "its own channel before the kill", go)
     assert go["publish_after_kill"], ("the official publish connection never came back "
@@ -1396,6 +1574,8 @@ def vector_client_kill(official, rust, name, ctx):
                                              go["could_not_update_node"])
 
     comparisons = (
+        ("normal-clients-killed", go["killed"]["normal"] >= 1, rs["killed"]["normal"] >= 1),
+        ("pubsub-clients-killed", go["killed"]["pubsub"] >= 1, rs["killed"]["pubsub"] >= 1),
         ("publish-after-kill", go["publish_after_kill"], rs["publish_after_kill"]),
         ("subscriber-rejoined", (go["receivers_after_kill"] or 0) >= 1,
          (rs["receivers_after_kill"] or 0) >= 1),
@@ -1410,6 +1590,9 @@ def vector_client_kill(official, rust, name, ctx):
         if left != right:
             ctx["mismatch"](name, label, left, right)
     assert same_config(name, out)
+    assert rs["killed"]["normal"] >= 1 and rs["killed"]["pubsub"] >= 1, \
+        ("the candidate side never had its connections killed, so its recovery below "
+         "would be vacuous", rs["killed"], rs["clients_before"])
     assert rs["publish_after_kill"], ("the candidate publish connection never came back "
                                       "after CLIENT KILL", rs)
     assert (rs["receivers_after_kill"] or 0) >= 1, ("the candidate never re-joined its own "
@@ -1439,9 +1622,9 @@ def vector_wt_bind_failure(official, rust, name, ctx):
         if not run.wait_exit():
             run.force_stop()
         immediate = run.own_names()
-        subscribers = store.publish(keepalive_channel(immediate[0] if immediate
-                                                       else "ND_absent"),
-                                   ping_envelope(int(time.time())))
+        channels = store.pubsub_channels("Keepalive|Ping|*")
+        subscribers = sum(store.publish(ch, ping_envelope(int(time.time())))
+                          for ch in channels)
         time.sleep(3.0)
         text = run.text()
         out[side] = {"normalized_config": run.normalized_config,
@@ -1450,6 +1633,7 @@ def vector_wt_bind_failure(official, rust, name, ctx):
                      "http_port_free_after_exit": free(p["http"]),
                      "own_immediately_after_exit": immediate,
                      "own_after_3s": run.own_names(),
+                     "keepalive_channels_after_exit": channels,
                      "ping_receivers_after_exit": subscribers,
                      "dev_cert_warning": bool(log_lines(
                          text, "generated self-signed cert (dev mode)")),
@@ -1470,6 +1654,9 @@ def vector_wt_bind_failure(official, rust, name, ctx):
                                                    go["own_immediately_after_exit"])
     assert go["own_after_3s"] == [], ("official kept refreshing a record after the failure",
                                       go["own_after_3s"])
+    assert go["keepalive_channels_after_exit"] == [], \
+        ("a keepalive subscription outlived the official's failed start",
+         go["keepalive_channels_after_exit"])
     assert go["ping_receivers_after_exit"] == 0, ("a keepalive subscriber outlived the "
                                                   "failed start", go["ping_receivers_after_exit"])
     assert go["dev_cert_warning"], ("official lost the dev-mode cert warning", go)
@@ -1480,6 +1667,8 @@ def vector_wt_bind_failure(official, rust, name, ctx):
         ("own-immediately-after-exit", go["own_immediately_after_exit"],
          rs["own_immediately_after_exit"]),
         ("own-after-3s", go["own_after_3s"], rs["own_after_3s"]),
+        ("keepalive-channels-after-exit", go["keepalive_channels_after_exit"],
+         rs["keepalive_channels_after_exit"]),
         ("ping-receivers-after-exit", go["ping_receivers_after_exit"],
          rs["ping_receivers_after_exit"]),
         ("dev-cert-warning", go["dev_cert_warning"], rs["dev_cert_warning"]),
@@ -1497,6 +1686,9 @@ def vector_wt_bind_failure(official, rust, name, ctx):
          rs["own_immediately_after_exit"], rs["webtransport_lines"])
     assert rs["own_after_3s"] == [], ("a worker outlived the candidate's failed start and "
                                       "kept refreshing", rs["own_after_3s"])
+    assert rs["keepalive_channels_after_exit"] == [], \
+        ("the candidate left a keepalive subscription behind after the failed start",
+         rs["keepalive_channels_after_exit"])
     assert rs["ping_receivers_after_exit"] == 0, \
         ("the candidate's keepalive subscription survived the failed start",
          rs["ping_receivers_after_exit"])
@@ -1726,8 +1918,11 @@ def main() -> int:
             f"registers then undoes). Also consumes {INTERVAL_ITEM}, {MAX_DELAY_ITEM}, "
             f"{REGION_ITEM}, {WT_PORT_ITEM}, {WT_CERT_ITEM} and {HEALTH_ITEM} on the real "
             f"start path. Not covered: the content of NodeStats past started_at/updated_at "
-            f"({STATS_ITEM}), cross-node room routing, the WebTransport session plane, and "
-            f"the connection-count difference ({CHURN_ITEM}, recorded below)."),
+            f"({STATS_ITEM}), cross-node room routing, the WebTransport session plane, "
+            f"the connection-count difference ({CHURN_ITEM}, recorded below), the psrpc "
+            f"topic surface ({CHANNEL_ITEM}, recorded below), a *slow* rather than dead "
+            "Redis during shutdown (the bounded worker join is not exercised here), and "
+            "a panicking worker's release reporting."),
         "binaries": {"official_go": {"path": str(official),
                                      "sha256": sha(official.read_bytes())},
                      "rust": {"path": str(rust), "sha256": sha(rust.read_bytes())}},

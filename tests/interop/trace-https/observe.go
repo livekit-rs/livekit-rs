@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -233,6 +234,35 @@ func clientIdentity(out string) (roots *x509.CertPool, certPath, keyPath string,
 	return roots, certPath, keyPath, nil
 }
 
+// drivenItems names the ledger leaves this profile actually wrote. A receipt that
+// only reports endpoint totals cannot show which leaf it exercised (SPEC-0075 §2.7).
+func drivenItems(config map[string]any, args []string) []string {
+	var leaves []string
+	var walk func(string, any)
+	walk = func(prefix string, value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				walk(prefix+key+".", child)
+			}
+		case map[string]string:
+			for key := range typed {
+				leaves = append(leaves, "YAML:"+prefix+key)
+			}
+		default:
+			leaves = append(leaves, "YAML:"+strings.TrimSuffix(prefix, "."))
+		}
+	}
+	walk("", config)
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			leaves = append(leaves, "base_flags:"+arg)
+		}
+	}
+	sort.Strings(leaves)
+	return leaves
+}
+
 func run(binary, fixture, out, profile string, record map[string]any) (err error) {
 	var clientRoots *x509.CertPool
 	var certPath, keyPath string
@@ -302,6 +332,7 @@ func run(binary, fixture, out, profile string, record map[string]any) (err error
 	}
 	defer file.Close()
 	command := exec.Command(binary, "--config", cfgPath)
+	record["driven_items"] = drivenItems(config, []string{"--config"})
 	command.Stdout, command.Stderr = file, file
 	for _, varEntry := range os.Environ() {
 		if strings.HasPrefix(varEntry, "OTEL_") || strings.HasPrefix(varEntry, "SSL_CERT_") {

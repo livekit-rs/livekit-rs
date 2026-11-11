@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -23,6 +24,35 @@ import (
 
 	"github.com/quic-go/quic-go"
 )
+
+// drivenItems names the ledger leaves this profile actually wrote. A receipt that
+// only reports endpoint totals cannot show which leaf it exercised (SPEC-0075 §2.7).
+func drivenItems(config map[string]any, args []string) []string {
+	var leaves []string
+	var walk func(string, any)
+	walk = func(prefix string, value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				walk(prefix+key+".", child)
+			}
+		case map[string]string:
+			for key := range typed {
+				leaves = append(leaves, "YAML:"+prefix+key)
+			}
+		default:
+			leaves = append(leaves, "YAML:"+strings.TrimSuffix(prefix, "."))
+		}
+	}
+	walk("", config)
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			leaves = append(leaves, "base_flags:"+arg)
+		}
+	}
+	sort.Strings(leaves)
+	return leaves
+}
 
 func run(binary, fixture, output, profile string, record map[string]any) (err error) {
 	var listeners []net.Listener
@@ -100,6 +130,7 @@ func run(binary, fixture, output, profile string, record map[string]any) (err er
 		args = append(args, "--bind", bindArg)
 	}
 	command := exec.Command(binary, args...)
+	record["driven_items"] = drivenItems(config, args)
 	command.Stdout, command.Stderr = log, log
 	for _, listener := range listeners {
 		if e := listener.Close(); e != nil {

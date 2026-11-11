@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -162,6 +164,35 @@ func exercise(network, transport, server, clientIP, relayIP, advertisedIP string
 	return nil
 }
 
+// drivenItems names the ledger leaves this profile actually wrote. A receipt that
+// only reports endpoint totals cannot show which leaf it exercised (SPEC-0075 §2.7).
+func drivenItems(config map[string]any, args []string) []string {
+	var leaves []string
+	var walk func(string, any)
+	walk = func(prefix string, value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				walk(prefix+key+".", child)
+			}
+		case map[string]string:
+			for key := range typed {
+				leaves = append(leaves, "YAML:"+prefix+key)
+			}
+		default:
+			leaves = append(leaves, "YAML:"+strings.TrimSuffix(prefix, "."))
+		}
+	}
+	walk("", config)
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			leaves = append(leaves, "base_flags:"+arg)
+		}
+	}
+	sort.Strings(leaves)
+	return leaves
+}
+
 func run(binary, output, profile, bind, transport string, result map[string]any) (err error) {
 	network, clientIP, listenerIP, relayIP, advertisedIP := "udp4", "127.0.0.1", bind, bind, "127.0.0.1"
 	switch profile {
@@ -264,6 +295,7 @@ func run(binary, output, profile, bind, transport string, result map[string]any)
 	}
 	defer log.Close()
 	command := exec.Command(binary, "--config", cfgPath)
+	result["driven_items"] = drivenItems(config, []string{"--config"})
 	command.Stdout, command.Stderr = log, log
 	if err := httpListener.Close(); err != nil {
 		return err

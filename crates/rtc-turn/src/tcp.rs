@@ -325,6 +325,79 @@ mod tests {
         h.shutdown().await;
     }
 
+    /// Both TCP regressions above bind 127.0.0.1 through `TurnServer::start`,
+    /// so the embedded off-loopback accept/read path had no coverage. This is
+    /// the geometry of the external-TLS TCP profile: listener and client both
+    /// on an assigned non-loopback IPv4, relay bind taken from the listener.
+    #[tokio::test]
+    #[ignore = "requires an assigned non-loopback IPv4 in TURN_TEST_NONLOOPBACK_V4"]
+    async fn embedded_tcp_allocate_over_non_loopback_ipv4() {
+        let addr: Ipv4Addr = std::env::var("TURN_TEST_NONLOOPBACK_V4")
+            .expect("TURN_TEST_NONLOOPBACK_V4 must name an assigned non-loopback IPv4")
+            .parse()
+            .expect("TURN_TEST_NONLOOPBACK_V4 must be an IPv4 address");
+        assert!(
+            !addr.is_loopback() && !addr.is_unspecified(),
+            "need a real assigned address, got {addr}"
+        );
+        let ip = IpAddr::V4(addr);
+        let cfg = TurnServerConfig {
+            listeners: vec![ListenerSpec::Tcp(SocketAddr::new(ip, 0))],
+            relay_ipv4: Some(Ipv4Addr::LOCALHOST),
+            relay_bind_ipv4: ip,
+            relay_port_range: (0, 0),
+            ..TurnServerConfig::default()
+        };
+        let h = TurnServer::start_embedded(
+            cfg,
+            Arc::new(Auth),
+            crate::policy::LocalRelayPolicy::new([ip], Vec::new()),
+        )
+        .await
+        .unwrap();
+        let server = h.local_addrs()[0];
+        assert_eq!(server.ip(), ip);
+
+        // Bind the client to the same address so the accepted peer is not
+        // loopback either; an unbound dial would source from 127.0.0.1.
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.bind(SocketAddr::new(ip, 0)).unwrap();
+        let mut s = socket.connect(server).await.unwrap();
+        assert_eq!(s.local_addr().unwrap().ip(), ip);
+
+        let mut b = MessageBuilder::new(Method::Allocate, Class::Request, [7u8; 12]);
+        b.add(
+            attr::REQUESTED_TRANSPORT,
+            &attr::encode_requested_transport(attr::PROTO_UDP),
+        );
+        s.write_all(&b.build(None, true)).await.unwrap();
+        let chal = Message::decode(&read_frame(&mut s).await).unwrap();
+        assert_eq!(chal.error_code().unwrap().unwrap().0, 401);
+        let nonce = chal.nonce().unwrap().to_vec();
+
+        let key = long_term_key("bob", "livekit", "pw");
+        let mut b = MessageBuilder::new(Method::Allocate, Class::Request, [8u8; 12]);
+        b.add(
+            attr::REQUESTED_TRANSPORT,
+            &attr::encode_requested_transport(attr::PROTO_UDP),
+        )
+        .add(attr::USERNAME, b"bob")
+        .add(attr::REALM, b"livekit")
+        .add(attr::NONCE, &nonce);
+        s.write_all(&b.build(Some(&key), true)).await.unwrap();
+        let ok = Message::decode(&read_frame(&mut s).await).unwrap();
+        assert_eq!(ok.class(), Class::Success, "{:?}", ok.error_code());
+        assert_eq!(h.allocation_count(), 1);
+        let relayed = ok
+            .xor_address(attr::XOR_RELAYED_ADDRESS)
+            .expect("relayed address")
+            .unwrap();
+        assert!(relayed.is_ipv4(), "expected an IPv4 relay, got {relayed}");
+
+        drop(s);
+        h.shutdown().await;
+    }
+
     fn proxy_cfg(trusted: Vec<(std::net::IpAddr, u8)>) -> TurnServerConfig {
         TurnServerConfig {
             listeners: vec![ListenerSpec::Tcp("127.0.0.1:0".parse().unwrap())],

@@ -266,6 +266,12 @@ impl Cluster {
         let controller = tokio::spawn(async move {
             loop {
                 tokio::select! {_=stop.cancelled()=>break,change=changed.changed()=>if change.is_err(){break;}}
+                // A registry change and cancellation can both be ready; select! picks
+                // arbitrarily, so shutdown must win here rather than report the
+                // deliberate closing refusal as a reconciliation failure.
+                if stop.is_cancelled() {
+                    break;
+                }
                 let Some(c) = weak.upgrade() else {
                     break;
                 };

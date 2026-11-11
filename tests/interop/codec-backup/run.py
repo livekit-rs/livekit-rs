@@ -17,6 +17,26 @@ PROFILES = {
     "regression": -1, "simulcast": 0, "prefer-below": 4, "prefer-equal": 3,
     "unknown-positive": 0, "unknown-negative": 0,
 }
+# These two profiles make run.mjs overwrite AddTrack.backup_codec_policy with a signed
+# unknown value on the real signaling socket and assert TrackPublished echoes it back.
+RAW_POLICY_PROFILES = {"unknown-positive", "unknown-negative"}
+
+
+def driven_items(config, profile):
+    """Name the ledger leaves this profile actually wrote (SPEC-0075 §2.7)."""
+    leaves = []
+
+    def walk(prefix, value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                walk(f"{prefix}{key}.", child)
+        else:
+            leaves.append("YAML:" + prefix.rstrip("."))
+
+    walk("", config)
+    if profile in RAW_POLICY_PROFILES:
+        leaves.append("SIGNAL:VideoTrack.OpenBackupCodecPolicy")
+    return sorted(leaves)
 
 
 def free_port(kind, used):
@@ -49,7 +69,8 @@ def run(binary, output, profile, single):
         "video": {"codec_regression_threshold": PROFILES[profile]},
     }
     url = f"http://127.0.0.1:{http}"
-    receipt = {"profile": profile, "single": single, "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest()}
+    receipt = {"profile": profile, "single": single, "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+               "driven_items": driven_items(config, profile)}
     with tempfile.TemporaryDirectory(prefix="lk-backup-codec-") as temp:
         conf = Path(temp) / "server.json"
         conf.write_text(json.dumps(config))

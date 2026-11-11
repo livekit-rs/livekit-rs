@@ -148,6 +148,27 @@ def run_daemon(command, env, output, profile, ports):
     return proc.returncode, healthy, ports_released
 
 
+def driven_items(config, command, env):
+    """Name the ledger leaves this profile actually wrote (SPEC-0075 §2.7): a receipt
+    reporting only families and exit codes cannot show which leaf it exercised."""
+    leaves = []
+
+    def walk(prefix, value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                walk(f"{prefix}{key}.", child)
+        else:
+            leaves.append("YAML:" + prefix.rstrip("."))
+
+    walk("", config)
+    for arg in command:
+        if arg.startswith("--"):
+            leaves.append("generated_flags:" + arg.split("=", 1)[0])
+    if env.get(FORCE_ENV):
+        leaves.append("env:" + FORCE_ENV)
+    return sorted(set(leaves))
+
+
 def run(binary, output, profile, mode, forced, dual):
     v6 = open_v6(0)
     port = v6.getsockname()[1]
@@ -218,6 +239,7 @@ def run(binary, output, profile, mode, forced, dual):
     return {
         "profile": profile, "command": command, "generated_env": {FORCE_ENV: env[FORCE_ENV]}
         if mode == "env" else {}, "exit_code": exit_code, "expected_family": expected_family,
+        "driven_items": driven_items(config, command, env),
         "daemon_health": healthy, "daemon_ports_released": daemon_ports_released,
         "stderr": stderr, "stdout": stdout, "wire": seen, "fixture_errors": errors,
         "udp_ports_released": True, "accepted": accepted and not errors,

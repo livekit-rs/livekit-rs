@@ -56,6 +56,11 @@ pub enum ServerError {
     /// `InitializeServer` even runs (`cmd/server/main.go:295-298`).
     #[error(transparent)]
     NodeIdentity(#[from] lk_compat::routing::LocalNodeError),
+    /// `InitializeServer` construction errors (selector, WebRTC IP filter,
+    /// embedded TURN). Upstream reaches these after `getConfig`/`ValidateKeys`/
+    /// `LoadTURNSecrets`, and `main.go:190-192` prints `err.Error()` verbatim.
+    #[error("{0}")]
+    Wiring(lk_config::ConfigError),
     /// `server.Start()` failing at `RegisterNode`/`router.Start()`
     /// (`pkg/service/server.go:222-233`).
     #[error(transparent)]
@@ -206,6 +211,11 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         )
         .map_err(ServerError::NodeIdentity)?,
     );
+
+    // `InitializeServer` (`cmd/server/main.go:303`) builds the room allocator's
+    // selector, the WebRTC IP filter and the embedded TURN server. Those
+    // constructions — not `getConfig` — own these refusals upstream.
+    lk_config::validate_server_wiring(&loaded.official).map_err(ServerError::Wiring)?;
 
     // Webhooks (fail fast like upstream wire.go).
     let mut services = CompatServices::new(cfg.clone()).with_agent_config(
@@ -620,6 +630,13 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         )
         .await?;
 
+    // `signal.Notify` runs between `InitializeServer` and `server.Start()`
+    // (`cmd/server/main.go:303-321`), so the handlers are installed before any
+    // listener accepts. Registering them at the shutdown wait instead leaves a
+    // window where the port is connectable but a signal still hits the default
+    // disposition and kills the process without the shutdown log line.
+    let mut signals = Signals::new();
+
     // `LivekitServer.Start()` opens with `RegisterNode()` then `router.Start()`
     // (`server.go:222-233`): the HSET lands and the keepalive subscription is
     // acknowledged before anything serves. Nothing is announced as ready before
@@ -862,7 +879,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         ));
     }
 
-    wait_for_shutdown(&manager, &node_router, state.agents()).await;
+    wait_for_shutdown(&mut signals, &manager, &node_router, state.agents()).await;
     cluster_guard.shutdown().await;
     node_router.stop().await;
     state.agents().shutdown().await;
@@ -966,11 +983,11 @@ impl Drop for ClusterShutdownGuard {
 /// and before the participant wait, `Stop()` after the wait and before
 /// `close(s.doneChan)` — which is what `stop_tx.send(true)` is in `run()`.
 async fn wait_for_shutdown(
+    signals: &mut Signals,
     manager: &RoomManager,
     node_router: &crate::node::NodeRouter,
     agents: &lk_compat::agent::service::AgentService,
 ) {
-    let mut signals = Signals::new();
     let sig = signals.next().await;
     logging::notify(
         crate::zap::INFO,
@@ -1007,17 +1024,25 @@ async fn wait_for_shutdown(
 
 struct Signals {
     #[cfg(unix)]
+    int: tokio::signal::unix::Signal,
+    #[cfg(unix)]
     term: tokio::signal::unix::Signal,
     #[cfg(unix)]
     quit: tokio::signal::unix::Signal,
 }
 
 impl Signals {
+    /// Registers all three handlers at once, as `signal.Notify(sigChan, SIGINT,
+    /// SIGTERM, SIGQUIT)` does (`cmd/server/main.go:310`). Registering SIGINT here
+    /// rather than through `ctrl_c()` inside `next()` matters: `ctrl_c()` installs
+    /// its handler on first poll, which would leave SIGINT at the default
+    /// disposition until the shutdown wait is reached.
     fn new() -> Self {
         #[cfg(unix)]
         {
             use tokio::signal::unix::{SignalKind, signal};
             Signals {
+                int: signal(SignalKind::interrupt()).expect("SIGINT handler"),
                 term: signal(SignalKind::terminate()).expect("SIGTERM handler"),
                 quit: signal(SignalKind::quit()).expect("SIGQUIT handler"),
             }
@@ -1032,7 +1057,7 @@ impl Signals {
         #[cfg(unix)]
         {
             tokio::select! {
-                _ = tokio::signal::ctrl_c() => "interrupt",
+                _ = self.int.recv() => "interrupt",
                 _ = self.term.recv() => "terminated",
                 _ = self.quit.recv() => "quit",
             }
@@ -1449,6 +1474,23 @@ mod worker_lifecycle_tests {
                 usize::try_from(raw).unwrap_or(usize::MAX)
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod signal_registration_tests {
+    use super::Signals;
+
+    /// `signal.Notify` covers SIGINT alongside SIGTERM/SIGQUIT before `Start()`
+    /// (`cmd/server/main.go:310`). Raising SIGINT after `new()` but before the
+    /// first `next()` poll must be captured, not taken at the default
+    /// disposition — registering it lazily inside `next()` via `ctrl_c()` kills
+    /// this process instead of returning "interrupt".
+    #[tokio::test]
+    async fn sigint_is_registered_before_the_first_poll() {
+        let mut signals = Signals::new();
+        assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
+        assert_eq!(signals.next().await, "interrupt");
     }
 }
 

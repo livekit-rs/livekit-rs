@@ -173,6 +173,21 @@ impl<T: OfficialConfigView + ?Sized> OfficialConfigView for Box<T> {
     }
 }
 
+/// Validations upstream performs while wiring services, not while loading
+/// config: `InitializeServer` runs after `getConfig`, `ValidateKeys` and
+/// `LoadTURNSecrets` (`cmd/server/main.go:249-305`). The server-start path must
+/// call this before building services so a bad value still fails loudly with
+/// upstream's bare message, while `parse` alone accepts it exactly as Go does.
+///
+/// Order follows `wire_gen.go`: `NewRoomAllocator` (:64) builds the selector,
+/// `NewLocalRoomManager` (:148) builds the WebRTC IP filter
+/// (`roommanager.go:126`), then `newInProcessTurnServer` (:157) validates TURN.
+pub fn validate_server_wiring(cfg: &official::Config) -> Result<(), ConfigError> {
+    unsupported::check_selector(cfg)?;
+    normalize::check_ip_filters(cfg)?;
+    normalize::validate_turn(cfg)
+}
+
 /// Parses `args` (including `argv[0]`) against `env`.
 pub fn parse(
     args: Vec<OsString>,
@@ -251,6 +266,47 @@ mod tests {
             .map(OsString::from)
             .collect();
         parse_with_probe(args, env, &info(name), &FakeProbe::local("10.0.0.5"))
+    }
+
+    /// The config-observer differential compares Go's `getConfig` +
+    /// `ValidateKeys` + `LoadTURNSecrets` with `parse`. Upstream builds the
+    /// selector, the WebRTC IP filter and the embedded TURN server later, in
+    /// `InitializeServer`, so these four inputs load cleanly and only refuse
+    /// startup — with upstream's bare message, never silently ignored.
+    #[test]
+    fn wiring_validations_are_deferred_past_config_load() {
+        for (body, expected) in [
+            (
+                "node_selector:\n  kind: \"x-node_selector.kind\"\n",
+                "unsupported node selector",
+            ),
+            ("turn:\n  enabled: true\n", "invalid TURN ports"),
+            (
+                "rtc:\n  ips:\n    includes: [nope]\n",
+                "invalid CIDR address: nope",
+            ),
+            (
+                "node_selector:\n  kind: regionaware\n  regions:\n  - name: r1\n    lat: 1.5\n    lon: -2.25\n",
+                "current region cannot be blank",
+            ),
+        ] {
+            let action = run(
+                "livekit-server",
+                &["--dev", "--config-body", body],
+                &Env::default(),
+            )
+            .unwrap_or_else(|e| panic!("config load must accept {body:?}: {e}"));
+            let EntryAction::RunServer(config) = action else {
+                panic!("expected RunServer for {body:?}");
+            };
+            assert_eq!(
+                validate_server_wiring(&config.official)
+                    .unwrap_err()
+                    .to_string(),
+                expected,
+                "wiring refusal for {body:?}"
+            );
+        }
     }
 
     #[test]

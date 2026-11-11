@@ -50,32 +50,24 @@ pub(crate) fn check_node_listing_transport(cfg: &Config) -> Result<(), ConfigErr
     Ok(())
 }
 
-pub(crate) fn check(cfg: &Config) -> Result<(), ConfigError> {
-    for rule in UNSUPPORTED {
-        if (rule.active)(cfg) {
-            return Err(ConfigError::unsupported(rule.path, rule.reason));
-        }
-    }
-
-    // SPEC-0074 C24: mirror `selector.CreateNodeSelector`
-    // (pkg/routing/selector/interfaces.go:33-66). It is built by
-    // `NewRoomAllocator` during `InitializeServer`; a construction error
-    // surfaces as `fmt.Println(err)` + `os.Exit(1)` (cmd/server/main.go:190-192),
-    // so the message is bare upstream text, not an `unsupported configuration`
-    // wrapper. `any`/`cpuload`/`sysload`/`random` construct without validation,
-    // and under a single standalone node the selector is never invoked (`random`
-    // additionally emits a stderr deprecation WARN, which is not part of
-    // startup-surface parity), so those kinds start normally. Only `regionaware`
-    // validates at construction (`NewRegionAwareSelector`, regionaware.go:35-67):
-    // a blank current region (the top-level `region`, not `node_selector.*`)
-    // is fatal, and a non-empty `regions` list that omits the current region is
-    // fatal.
+/// SPEC-0074 C24: mirror `selector.CreateNodeSelector`
+/// (pkg/routing/selector/interfaces.go:33-75). Upstream builds it in
+/// `NewRoomAllocator` (service/roomallocator.go:43) from `InitializeServer`
+/// (wire_gen.go:64) — after `getConfig`, `ValidateKeys` and `LoadTURNSecrets`,
+/// so a bad kind is not a config-load error. A construction error surfaces as
+/// `fmt.Println(err)` + `os.Exit(1)` (cmd/server/main.go:190-192), so the message
+/// is bare upstream text, not an `unsupported configuration` wrapper.
+pub(crate) fn check_selector(cfg: &Config) -> Result<(), ConfigError> {
     let kind = cfg.node_selector.kind.as_str();
     if !KNOWN_SELECTORS.contains(&kind) {
         // ErrUnsupportedSelector (interfaces.go:26)
         return Err(ConfigError::msg("unsupported node selector"));
     }
     if kind == "regionaware" {
+        // Only `regionaware` validates at construction
+        // (`NewRegionAwareSelector`, regionaware.go:35-67): a blank current
+        // region (the top-level `region`, not `node_selector.*`) is fatal, and a
+        // non-empty `regions` list omitting the current region is fatal.
         if cfg.region.is_empty() {
             // ErrCurrentRegionNotSet (errors.go:21)
             return Err(ConfigError::msg("current region cannot be blank"));
@@ -91,6 +83,15 @@ pub(crate) fn check(cfg: &Config) -> Result<(), ConfigError> {
             return Err(ConfigError::msg(
                 "unknown lat and lon for the current region",
             ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn check(cfg: &Config) -> Result<(), ConfigError> {
+    for rule in UNSUPPORTED {
+        if (rule.active)(cfg) {
+            return Err(ConfigError::unsupported(rule.path, rule.reason));
         }
     }
 
@@ -180,19 +181,22 @@ mod tests {
     fn selector_and_prometheus() {
         let mut c = Config::default();
         c.node_selector.kind = "bogus".into();
+        // Upstream rejects an unknown kind in `CreateNodeSelector` during
+        // `InitializeServer`, not in `getConfig`, so config load must accept it.
+        assert!(check(&c).is_ok(), "config load does not build the selector");
         assert_eq!(
-            check(&c).unwrap_err().to_string(),
+            check_selector(&c).unwrap_err().to_string(),
             "unsupported node selector"
         );
         // SPEC-0074 C24: cpuload/sysload/random/any/"" construct without
         // validation upstream and are never invoked in a single standalone
         // node, so they must start (not be rejected).
         c.node_selector.kind = "cpuload".into();
-        assert!(check(&c).is_ok(), "cpuload must start in standalone");
+        assert!(check_selector(&c).is_ok(), "cpuload must start in standalone");
         c.node_selector.kind = "sysload".into();
-        assert!(check(&c).is_ok(), "sysload must start in standalone");
+        assert!(check_selector(&c).is_ok(), "sysload must start in standalone");
         c.node_selector.kind = "random".into();
-        assert!(check(&c).is_ok(), "random must start in standalone");
+        assert!(check_selector(&c).is_ok(), "random must start in standalone");
         let mut c = Config::default();
         c.prometheus.port = 9100;
         c.prometheus.username = "u".into();
@@ -214,8 +218,9 @@ mod tests {
         // blank top-level `region` -> ErrCurrentRegionNotSet.
         let mut c = Config::default();
         c.node_selector.kind = "regionaware".into();
+        assert!(check(&c).is_ok(), "config load does not build the selector");
         assert_eq!(
-            check(&c).unwrap_err().to_string(),
+            check_selector(&c).unwrap_err().to_string(),
             "current region cannot be blank"
         );
 
@@ -225,7 +230,7 @@ mod tests {
         c.node_selector.kind = "regionaware".into();
         c.region = "US-east".into();
         assert!(
-            check(&c).is_ok(),
+            check_selector(&c).is_ok(),
             "region with empty regions list must start"
         );
 
@@ -238,7 +243,7 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(
-            check(&c).unwrap_err().to_string(),
+            check_selector(&c).unwrap_err().to_string(),
             "unknown lat and lon for the current region"
         );
 
@@ -250,6 +255,6 @@ mod tests {
             name: "US-east".into(),
             ..Default::default()
         }];
-        assert!(check(&c).is_ok(), "matching region must start");
+        assert!(check_selector(&c).is_ok(), "matching region must start");
     }
 }

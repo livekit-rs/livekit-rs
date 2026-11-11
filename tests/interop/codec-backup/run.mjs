@@ -32,6 +32,9 @@ const room = `backup-${Date.now()}`;
 const api = new RoomServiceClient(url.replace(/^ws/, 'http'), 'devkey', 'secret');
 const evidence = { profile, single: single === 'true', sdkSha256: sha(sdk),
   lockSha256: sha(lock), sdkVersion: JSON.parse(lock).packages['node_modules/livekit-client'].version,
+  // Only the raw-policy profiles inject and assert a signed unknown policy on the wire;
+  // the named-policy profiles exercise regression selection, not policy retention.
+  driven_items: rawPolicy === undefined ? [] : ['SIGNAL:VideoTrack.OpenBackupCodecPolicy'],
   status: 'FAIL' };
 let browser;
 const clients = new Map();

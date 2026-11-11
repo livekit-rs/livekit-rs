@@ -884,3 +884,58 @@ async fn invalidation_replaces_inflight_discovery_without_stranding_old_waiters(
     exercise.expect("each actual discovery generation must finish");
     assert_eq!(peer_calls.load(Ordering::SeqCst), 2);
 }
+
+#[derive(Clone, Default)]
+struct ErrorLog(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for ErrorLog {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for ErrorLog {
+    type Writer = ErrorLog;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Shutdown cancels before it drains the controller, so a registry change that is already
+/// pending leaves both select! branches ready and the pick is arbitrary. The official
+/// server logs nothing on a clean SIGINT; the deliberate closing refusal must stay silent.
+#[tokio::test]
+async fn shutdown_with_pending_registry_change_logs_no_reconciliation_error() {
+    let log = ErrorLog::default();
+    let _guard = tracing::subscriber::set_default(
+        tracing_subscriber::fmt()
+            .with_writer(log.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::ERROR)
+            .finish(),
+    );
+    // select! chooses uniformly among ready branches, so one round proves nothing.
+    for _ in 0..32 {
+        let registry = Registry::new(Limits::default());
+        let cluster = Cluster::start(
+            registry.clone(),
+            Arc::new(TokenMinter::new(keys())),
+            0.7,
+            bus().into(),
+        )
+        .await
+        .unwrap();
+        registry.disconnect("worker-gone");
+        cluster.cancel();
+        cluster.shutdown().await;
+    }
+    let captured = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+    assert!(
+        !captured.contains("agent RPC registration reconciliation failed"),
+        "graceful shutdown reported a reconciliation failure: {captured}"
+    );
+}

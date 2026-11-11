@@ -37,7 +37,7 @@ use crate::keys::{
     path_error,
 };
 use crate::netdetect::{NetProbe, determine_ip};
-use crate::normalize::{Extras, to_server_config, validate_turn};
+use crate::normalize::{Extras, to_server_config};
 use crate::official::{Config, KeyMap, LivecloudSection, decode_yaml};
 use crate::unsupported;
 
@@ -704,7 +704,6 @@ pub(crate) fn load_command(
                 }
             }
             binary_turn_secrets = load_turn_secrets(&mut cfg, &mut warnings)?;
-            validate_turn(&cfg)?;
         }
         Mode::CreateJoinToken => {
             if cfg.keys.is_empty() {

@@ -304,16 +304,25 @@ pub(crate) fn parse_cidr(s: &str) -> Result<(IpAddr, u8), String> {
 }
 
 /// `rtc.ips.{includes,excludes}` are parsed by `IPFilterFromConf`
-/// (webrtc_config.go:441-460), which returns the bare `net.ParseCIDR` error
-/// unwrapped; `startServer` propagates it and `main.go:191` prints
-/// `err.Error()` verbatim to stdout (SPEC-0074 C30). The path is therefore not
-/// part of the message — unlike `invalid(...)`, which formats Go's own
-/// `NewConfig` field errors.
-fn cidrs(path: &str, list: &[String]) -> Result<Vec<(IpAddr, u8)>, ConfigError> {
-    let _ = path;
-    list.iter()
-        .map(|s| parse_cidr(s).map_err(ConfigError::msg))
-        .collect()
+/// (webrtc_config.go:441-460), reached from `NewWebRTCConfig` inside
+/// `NewLocalRoomManager` (service/roommanager.go:126, wire_gen.go:148) — after
+/// `getConfig`/`ValidateKeys`/`LoadTURNSecrets`. `startServer` propagates the
+/// bare `net.ParseCIDR` error and `main.go:191` prints `err.Error()` verbatim to
+/// stdout (SPEC-0074 C30), so the path is not part of the message.
+///
+/// Normalization therefore skips malformed entries instead of failing config
+/// load; `check_ip_filters` re-parses the raw list at the wiring boundary and
+/// refuses startup, so a bad CIDR is never accepted and ignored.
+fn cidrs(list: &[String]) -> Vec<(IpAddr, u8)> {
+    list.iter().filter_map(|s| parse_cidr(s).ok()).collect()
+}
+
+/// Authoritative `IPFilterFromConf` parse, run at the wiring boundary.
+pub(crate) fn check_ip_filters(cfg: &Config) -> Result<(), ConfigError> {
+    for s in cfg.rtc.ips.includes.iter().chain(&cfg.rtc.ips.excludes) {
+        parse_cidr(s).map_err(ConfigError::msg)?;
+    }
+    Ok(())
 }
 
 /// TURN peer CIDR lists use the upstream error text (`service/turn.go`).
@@ -588,8 +597,8 @@ pub(crate) fn to_server_config(
             excludes: r.interfaces.excludes.clone(),
         },
         ips: Filter {
-            includes: cidrs("rtc.ips.includes", &r.ips.includes)?,
-            excludes: cidrs("rtc.ips.excludes", &r.ips.excludes)?,
+            includes: cidrs(&r.ips.includes),
+            excludes: cidrs(&r.ips.excludes),
         },
         enable_loopback_candidate: r.enable_loopback_candidate,
         use_mdns: r.use_mdns,
