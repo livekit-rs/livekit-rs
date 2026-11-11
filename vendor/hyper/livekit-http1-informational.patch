@@ -1,0 +1,285 @@
+--- a/src/ext/mod.rs
++++ b/src/ext/mod.rs
+@@ -62,6 +62,13 @@
+ pub(crate) use informational::OnInformational;
+ #[cfg(all(feature = "http1", feature = "client", feature = "ffi"))]
+ pub(crate) use informational::{on_informational_raw, OnInformationalCallback};
++
++#[cfg(all(feature = "http1", feature = "server"))]
++mod server_informational;
++#[cfg(all(feature = "http1", feature = "server"))]
++pub(crate) use server_informational::InformationalReceiver;
++#[cfg(all(feature = "http1", feature = "server"))]
++pub use server_informational::InformationalSender;
+ 
+ #[cfg(feature = "http2")]
+ /// Extension type representing the `:protocol` pseudo-header in HTTP/2.
+--- /dev/null
++++ b/src/ext/server_informational.rs
+@@ -0,0 +1,96 @@
++use std::{
++    collections::VecDeque,
++    fmt,
++    sync::{Arc, Mutex},
++    task::{Context, Poll, Waker},
++};
++
++use http::{HeaderMap, Response, StatusCode};
++
++#[derive(Default)]
++struct Queue {
++    heads: VecDeque<Response<()>>,
++    reader: Option<Waker>,
++    accepted: u8,
++    closed: bool,
++}
++
++/// Sends informational heads on the HTTP/1 connection for this request.
++///
++/// This extension is available on HTTP/1 server requests. Accepted heads are
++/// written in order before the final service response. A request may queue at
++/// most nine pending heads, and its sender closes when the service completes.
++#[derive(Clone)]
++pub struct InformationalSender(Arc<Mutex<Queue>>);
++
++impl fmt::Debug for InformationalSender {
++    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
++        formatter
++            .debug_struct("InformationalSender")
++            .finish_non_exhaustive()
++    }
++}
++
++pub(crate) struct InformationalReceiver(Arc<Mutex<Queue>>);
++
++impl InformationalSender {
++    pub(crate) fn channel() -> (Self, InformationalReceiver) {
++        let queue = Arc::new(Mutex::new(Queue::default()));
++        (Self(queue.clone()), InformationalReceiver(queue))
++    }
++
++    /// Queues a non-upgrade 1xx response without a body.
++    ///
++    /// Returns false for invalid statuses, a reached limit, or an ended request.
++    /// A 101 upgrade belongs to the service's normal final response.
++    pub fn try_send(&self, status: StatusCode, headers: HeaderMap) -> bool {
++        if !status.is_informational() || status == StatusCode::SWITCHING_PROTOCOLS {
++            return false;
++        }
++        let reader = {
++            let mut queue = self.0.lock().expect("informational response queue");
++            if queue.closed || queue.accepted == 9 {
++                return false;
++            }
++            let mut head = Response::new(());
++            *head.status_mut() = status;
++            *head.headers_mut() = headers;
++            queue.heads.push_back(head);
++            queue.accepted += 1;
++            queue.reader.take()
++        };
++        if let Some(reader) = reader {
++            reader.wake();
++        }
++        true
++    }
++}
++
++impl InformationalReceiver {
++    pub(crate) fn close(&self) {
++        let mut queue = self.0.lock().expect("informational response queue");
++        queue.closed = true;
++        queue.reader = None;
++    }
++
++    pub(crate) fn poll_recv(&self, cx: &mut Context<'_>) -> Poll<Option<Response<()>>> {
++        let mut queue = self.0.lock().expect("informational response queue");
++        if let Some(head) = queue.heads.pop_front() {
++            Poll::Ready(Some(head))
++        } else if queue.closed {
++            Poll::Ready(None)
++        } else {
++            queue.reader = Some(cx.waker().clone());
++            Poll::Pending
++        }
++    }
++}
++
++impl Drop for InformationalReceiver {
++    fn drop(&mut self) {
++        let mut queue = self.0.lock().expect("informational response queue");
++        queue.closed = true;
++        queue.reader = None;
++        queue.heads.clear();
++    }
++}
+--- a/src/proto/h1/conn.rs
++++ b/src/proto/h1/conn.rs
+@@ -599,6 +599,44 @@
+         self.io.has_buffered_write()
+     }
+ 
++    #[cfg(feature = "server")]
++    pub(crate) fn write_informational(&mut self, response: http::Response<()>) {
++        let status = response.status();
++        // As with a normal final response, an explicit 100 replaces the
++        // automatic 100 that would otherwise accompany the first body read.
++        if status == http::StatusCode::CONTINUE {
++            if let Reading::Continue(decoder) = &self.state.reading {
++                self.state.reading = Reading::Body(decoder.clone());
++            }
++        }
++
++        let out = self.io.headers_buf();
++        out.extend_from_slice(if self.state.version == Version::HTTP_10 {
++            b"HTTP/1.0 "
++        } else {
++            b"HTTP/1.1 "
++        });
++        out.extend_from_slice(status.as_str().as_bytes());
++        out.push(b' ');
++        if let Some(reason) = status.canonical_reason() {
++            out.extend_from_slice(reason.as_bytes());
++        } else {
++            out.extend_from_slice(b"status code ");
++            out.extend_from_slice(status.as_str().as_bytes());
++        }
++        out.extend_from_slice(b"\r\n");
++        for (name, value) in response.headers() {
++            if name == http::header::CONTENT_LENGTH || name == http::header::TRANSFER_ENCODING {
++                continue;
++            }
++            out.extend_from_slice(name.as_str().as_bytes());
++            out.extend_from_slice(b": ");
++            out.extend_from_slice(value.as_bytes());
++            out.extend_from_slice(b"\r\n");
++        }
++        out.extend_from_slice(b"\r\n");
++    }
++
+     pub(crate) fn write_head(&mut self, head: MessageHead<T::Outgoing>, body: Option<BodyLength>) {
+         if let Some(encoder) = self.encode_head(head, body) {
+             self.state.writing = if !encoder.is_eof() {
+--- a/src/proto/h1/dispatch.rs
++++ b/src/proto/h1/dispatch.rs
+@@ -40,6 +40,11 @@
+         -> crate::Result<()>;
+     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), ()>>;
+     fn should_poll(&self) -> bool;
++
++    #[cfg(feature = "server")]
++    fn poll_informational(&mut self, _cx: &mut Context<'_>) -> Poll<Option<http::Response<()>>> {
++        Poll::Ready(None)
++    }
+ }
+ 
+ cfg_server! {
+@@ -48,6 +53,7 @@
+     pub(crate) struct Server<S: HttpService<B>, B> {
+         in_flight: Pin<Box<Option<S::Future>>>,
+         pub(crate) service: S,
++        informational: Option<crate::ext::InformationalReceiver>,
+     }
+ }
+ 
+@@ -361,7 +367,14 @@
+                 && self.conn.can_write_head()
+                 && self.dispatch.should_poll()
+             {
+-                if let Some(msg) = ready!(Pin::new(&mut self.dispatch).poll_msg(cx)) {
++                #[cfg(feature = "server")]
++                self.drain_informational(cx);
++                let message = Pin::new(&mut self.dispatch).poll_msg(cx);
++                // The service may have queued a head while returning its
++                // final response in this poll. Emit the head first.
++                #[cfg(feature = "server")]
++                self.drain_informational(cx);
++                if let Some(msg) = ready!(message) {
+                     let (head, body) = msg.map_err(crate::Error::new_user_service)?;
+ 
+                     let body_type = if body.is_end_stream() {
+@@ -454,6 +467,13 @@
+         })
+     }
+ 
++    #[cfg(feature = "server")]
++    fn drain_informational(&mut self, cx: &mut Context<'_>) {
++        while let Poll::Ready(Some(head)) = self.dispatch.poll_informational(cx) {
++            self.conn.write_informational(head);
++        }
++    }
++
+     fn close(&mut self) {
+         self.is_closing = true;
+         self.conn.close_read();
+@@ -572,6 +592,7 @@
+             Server {
+                 in_flight: Box::pin(None),
+                 service,
++                informational: None,
+             }
+         }
+ 
+@@ -599,8 +620,15 @@
+             cx: &mut Context<'_>,
+         ) -> Poll<Option<Result<(Self::PollItem, Self::PollBody), Self::PollError>>> {
+             let mut this = self.as_mut();
+-            let ret = if let Some(fut) = &mut this.in_flight.as_mut().as_pin_mut() {
+-                let resp = ready!(fut.as_mut().poll(cx)?);
++            let Some(fut) = this.in_flight.as_mut().as_pin_mut() else {
++                unreachable!("poll_msg shouldn't be called if no inflight");
++            };
++            let response = ready!(fut.poll(cx));
++            if let Some(receiver) = &mut this.informational {
++                receiver.close();
++            }
++            this.in_flight.set(None);
++            Poll::Ready(Some(response.map(|resp| {
+                 let (parts, body) = resp.into_parts();
+                 let head = MessageHead {
+                     version: parts.version,
+@@ -608,14 +636,8 @@
+                     headers: parts.headers,
+                     extensions: parts.extensions,
+                 };
+-                Poll::Ready(Some(Ok((head, body))))
+-            } else {
+-                unreachable!("poll_msg shouldn't be called if no inflight");
+-            };
+-
+-            // Since in_flight finished, remove it
+-            this.in_flight.set(None);
+-            ret
++                (head, body)
++            })))
+         }
+ 
+         fn recv_msg(&mut self, msg: crate::Result<(Self::RecvItem, IncomingBody)>) -> crate::Result<()> {
+@@ -626,6 +648,9 @@
+             *req.headers_mut() = msg.headers;
+             *req.version_mut() = msg.version;
+             *req.extensions_mut() = msg.extensions;
++            let (sender, receiver) = crate::ext::InformationalSender::channel();
++            req.extensions_mut().insert(sender);
++            self.informational = Some(receiver);
+             let fut = self.service.call(req);
+             self.in_flight.set(Some(fut));
+             Ok(())
+@@ -641,6 +666,17 @@
+ 
+         fn should_poll(&self) -> bool {
+             self.in_flight.is_some()
++        }
++
++        fn poll_informational(&mut self, cx: &mut Context<'_>) -> Poll<Option<http::Response<()>>> {
++            let Some(receiver) = &mut self.informational else {
++                return Poll::Ready(None);
++            };
++            let result = receiver.poll_recv(cx);
++            if matches!(result, Poll::Ready(None)) {
++                self.informational = None;
++            }
++            result
+         }
+     }
+ }

@@ -1,0 +1,25 @@
+{"direct_error":"","id":"unknown-room-field","verified":true,"verify_error":""}
+{"direct_error":"","id":"unknown-egress-field","verified":true,"verify_error":""}
+{"direct_error":"","id":"unknown-advanced-field","verified":true,"verify_error":""}
+{"direct_error":"proto: (line 1:19): duplicate field \"emptyTimeout\"","id":"duplicate-known-scalar","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:19): duplicate field \"emptyTimeout\""}
+{"direct_error":"proto: (line 1:19): duplicate field \"empty_timeout\"","id":"alias-known-scalar","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:19): duplicate field \"empty_timeout\""}
+{"direct_error":"proto: (line 1:14): duplicate field \"agents\"","id":"duplicate-repeated-field","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:14): duplicate field \"agents\""}
+{"direct_error":"proto: (line 1:60): duplicate field \"keyFrameInterval\"","id":"duplicate-nested-double","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:60): duplicate field \"keyFrameInterval\""}
+{"direct_error":"proto: (line 1:60): duplicate field \"key_frame_interval\"","id":"alias-nested-double","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:60): duplicate field \"key_frame_interval\""}
+{"direct_error":"","id":"duplicate-unknown-fields","verified":true,"verify_error":""}
+{"direct_error":"","id":"duplicate-nested-unknown-fields","verified":true,"verify_error":""}
+{"direct_error":"","id":"unknown-enum-string","verified":true,"verify_error":""}
+{"direct_error":"","id":"unknown-enum-number","verified":true,"verify_error":""}
+{"direct_error":"proto: (line 1:14): invalid value for string field value: null","id":"map-scalar-null","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:14): invalid value for string field value: null"}
+{"direct_error":"proto: (line 3:3): duplicate field \"emptyTimeout\"","id":"multiline-known-duplicate","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 3:3): duplicate field \"emptyTimeout\""}
+{"direct_error":"proto: (line 1:26): duplicate field \"emptyTimeout\"","id":"unicode-before-known-duplicate","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:26): duplicate field \"emptyTimeout\""}
+{"direct_error":"proto: (line 1:19): duplicate field \"empty\\u0054imeout\"","id":"escaped-key-duplicate","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:19): duplicate field \"empty\\u0054imeout\""}
+{"direct_error":"proto: (line 1:22): duplicate field \"emptyTimeout\"","id":"null-known-duplicate","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:22): duplicate field \"emptyTimeout\""}
+{"direct_error":"proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"invalid\"","id":"wrong-scalar-before-duplicate","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"invalid\""}
+{"direct_error":"proto: syntax error (line 1:11): unexpected token 4","id":"wrong-message-kind","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: syntax error (line 1:11): unexpected token 4"}
+{"direct_error":"proto: syntax error (line 1:11): unexpected token {","id":"wrong-repeated-kind","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: syntax error (line 1:11): unexpected token {"}
+{"direct_error":"proto: (line 1:17): invalid value for uint32 field emptyTimeout: 4294967296","id":"wrong-numeric-range","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:17): invalid value for uint32 field emptyTimeout: 4294967296"}
+{"direct_error":"proto: (line 1:58): invalid value for double field keyFrameInterval: true","id":"wrong-float-kind","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:58): invalid value for double field keyFrameInterval: true"}
+{"direct_error":"proto: (line 1:54): invalid value for int32 field audioBitrate: true","id":"wrong-bool-kind","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:54): invalid value for int32 field audioBitrate: true"}
+{"direct_error":"proto: (line 1:20): duplicate map key \"x\"","id":"known-map-duplicate","verified":false,"verify_error":"token is malformed: could not JSON decode claim: proto: (line 1:20): duplicate map key \"x\""}
+{"direct_error":"proto: syntax error (line 1:1): unexpected token null","id":"null-config","verified":true,"verify_error":""}

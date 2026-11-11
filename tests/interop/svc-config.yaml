@@ -1,0 +1,15 @@
+# Isolate VP9 layering from dynamic bandwidth allocation during codec validation.
+port: 7980
+bind_addresses: [127.0.0.1]
+rtc:
+  tcp_port: 7981
+  udp_port: 7982
+  node_ip: 127.0.0.1
+  use_external_ip: false
+  enable_loopback_candidate: true
+  ips:
+    includes: [127.0.0.1/32]
+  congestion_control:
+    enabled: false
+logging:
+  level: info

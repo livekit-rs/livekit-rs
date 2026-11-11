@@ -1,0 +1,4 @@
+# Merge with the coordinator's actual server profile; do not silently overwrite
+# existing ports, certificates, keys, TURN or frozen network limits.
+rtc:
+  reconnect_on_data_channel_error: true

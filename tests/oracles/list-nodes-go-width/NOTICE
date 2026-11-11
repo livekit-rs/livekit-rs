@@ -1,0 +1,4 @@
+This isolated list-nodes measurement candidate ports the generated Unicode property trie and scalar/measurement algorithms from:
+- github.com/clipperhouse/displaywidth v0.11.0 (MIT; original copyright and license in licenses/displaywidth-MIT.txt)
+- github.com/olekukonko/tablewriter v1.1.4 measurement wrapper/ANSI regexp semantics (MIT; licenses/tablewriter-MIT.txt)
+Exact selected source files, not Unicode guesses, are bound by SOURCE-INPUTS.json. No original source was edited. The original Go observers import and execute upstream methods only when the coordinator runs them; no execution is claimed by this package.

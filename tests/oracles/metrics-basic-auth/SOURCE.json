@@ -1,0 +1,25 @@
+{
+  "status": "SOURCE_AND_RECORDED_GO21_ONLY_REEXECUTION_REQUIRED",
+  "fixed_inputs_sha256": {
+    "references/livekit-stable/pkg/service/basic_auth.go": "aaaa41eb2e610e8530a984ce15696f548a526f36c859117fa888c2af4012e684",
+    "references/livekit-stable/pkg/service/server.go": "d61f2d9caf4aed2b5f7c655f3f8eb8a51b0b0f357632d471d2b81b883d7ede0f",
+    "references/livekit-stable/pkg/config/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "references/livekit-stable/cmd/server/main.go": "9006ed033eb2786629d950b08321206cdd0f1202fe89f999c9a331e1e0dc691f",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "livekit-rs-server/crates/livecloud/src/server.rs": "5152865aa2f4eb649dbd7cd449ff62f4ec92e929418d8a61ee37d7049b05acad",
+    "livekit-rs-server/crates/lk-config/src/normalize.rs": "bd3e9ecf653dc73031cf1a49f447b73aa75038b63c9c5970411646e2541a73ec",
+    "livekit-rs-server/crates/lk-config/src/unsupported.rs": "f8494810d1d3bf42872eeb54ce75b0dd0359a3626e0c6b3e9821eb1260f2fdcb",
+    "livekit-rs-server/Cargo.lock": "3be063802aa06ccd174973effe2c3d69f85d138d5a26b8a80910196d1c7432cd",
+    "livekit-rs-docs/specs/0011-functional-parity-todo.json": "1b0c2ca6976003e115e0902b0cd3fe1c16ecc3cc15ffbfc9b09ac77c7837e8a3"
+  },
+  "local_toolchain_source_sha256": {
+    "/Users/zoujiaqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.3.darwin-arm64/src/net/http/request.go": "4a34a9e157a606a046d5b9f8f761c571c4762668fa351d92048515a595939c38",
+    "/Users/zoujiaqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.3.darwin-arm64/src/encoding/base64/base64.go": "e6437c7716ecd1ae91c9d10037362cab186e5873a6365b713e2d8c57d8fc32fc",
+    "/Users/zoujiaqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.3.darwin-arm64/LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+  },
+  "observer_sha256": "c063a7df533eb29b9919747b9fac598e379de7bf79e7554cd7b73483c84a7243",
+  "cases_sha256": "3916d277915e0494256b5fda9c7d70de0ed62d1d0830d5367db5a79a3d1024da"
+}

@@ -1,0 +1,97 @@
+[
+  {
+    "id": "bound-denied-restored-held-then-bind",
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        0,
+        "bind"
+      ],
+      [
+        20000000000,
+        "tick"
+      ],
+      [
+        21000000000,
+        "deny"
+      ],
+      [
+        40000000000,
+        "tick"
+      ],
+      [
+        41000000000,
+        "allow"
+      ],
+      [
+        45000000000,
+        "tick"
+      ],
+      [
+        46000000000,
+        "bind"
+      ],
+      [
+        70000000000,
+        "tick"
+      ]
+    ]
+  },
+  {
+    "id": "restored-held-over15-and-repeated-allow",
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        0,
+        "bind"
+      ],
+      [
+        21000000000,
+        "deny"
+      ],
+      [
+        41000000000,
+        "allow"
+      ],
+      [
+        45000000000,
+        "tick"
+      ],
+      [
+        50000000000,
+        "allow"
+      ],
+      [
+        56000000000,
+        "tick"
+      ],
+      [
+        57000000000,
+        "tick"
+      ]
+    ]
+  },
+  {
+    "id": "already-allowed-does-not-renew",
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        10000000000,
+        "allow"
+      ],
+      [
+        16000000000,
+        "tick"
+      ]
+    ]
+  }
+]

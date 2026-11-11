@@ -1,0 +1,11 @@
+{"name": "base62-empty", "hex": ""}
+{"name": "base62-zero", "hex": "00"}
+{"name": "base62-61", "hex": "3d"}
+{"name": "base62-256", "hex": "0100"}
+{"name": "base62-255", "hex": "ff"}
+{"name": "base62-zero256", "hex": "0000000000000000000000000000000000000000000000000000000000000000"}
+{"name": "base62-allff", "hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+{"name": "base62-increasing", "hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"}
+{"name": "nodes-empty", "nodes": []}
+{"name": "nodes-local-zero", "nodes": [{"id": "ND_fixed", "ip": "127.0.0.1", "region": "test", "state": "SERVING", "numCpus": 16, "stats": {"startedAt": "1700000000", "updatedAt": "1700000000"}}]}
+{"name": "nodes-stat-boundaries", "nodes": [{"id": "ND_fixed", "ip": "::1", "region": "eu", "state": "SHUTTING_DOWN", "stats": {"numCpus": 7, "numRooms": 9, "numClients": 23, "memoryUsed": "999", "memoryTotal": "1000", "bytesIn": "9007199254740993", "packetsIn": "123456789", "rates": [{"nackTotal": 3.25, "bytesIn": 999, "bytesOut": 1000, "packetsIn": 12345.75, "sysPacketsOut": 10, "sysPacketsDropped": 2}, {"nackTotal": 999}]}}]}

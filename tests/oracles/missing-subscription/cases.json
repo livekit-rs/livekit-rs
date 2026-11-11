@@ -1,0 +1,111 @@
+[
+  {
+    "id": "strict-missing",
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        60000000000,
+        "tick"
+      ],
+      [
+        60000000001,
+        "tick"
+      ],
+      [
+        63000000000,
+        "tick"
+      ]
+    ]
+  },
+  {
+    "id": "repeat-resets",
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        59000000000,
+        "subscribe"
+      ],
+      [
+        119000000000,
+        "tick"
+      ],
+      [
+        119000000001,
+        "tick"
+      ]
+    ]
+  },
+  {
+    "id": "cancel",
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        59000000000,
+        "unsubscribe"
+      ],
+      [
+        63000000000,
+        "tick"
+      ]
+    ]
+  },
+  {
+    "id": "permission-priority",
+    "actions": [
+      [
+        0,
+        "deny"
+      ],
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        63000000000,
+        "tick"
+      ],
+      [
+        64000000000,
+        "allow"
+      ],
+      [
+        64000000000,
+        "tick"
+      ]
+    ]
+  },
+  {
+    "id": "disconnected",
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        59000000000,
+        "disconnect"
+      ],
+      [
+        63000000000,
+        "tick"
+      ],
+      [
+        64000000000,
+        "connect"
+      ],
+      [
+        64000000000,
+        "tick"
+      ]
+    ]
+  }
+]

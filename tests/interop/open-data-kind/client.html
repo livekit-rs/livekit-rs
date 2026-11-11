@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>Original SDK public SendData open kind</title><script src="/sdk.js"></script><script>
+let room;const native=[],received=[],errors=[],bound=new WeakSet();
+window.fixture={
+ async connect({url,token,single}){
+  room=new LivekitClient.Room({singlePeerConnection:single});
+  room.on(LivekitClient.RoomEvent.DataReceived,(data,participant,kind,topic)=>{try{received.push({value:JSON.parse(new TextDecoder().decode(data)),kind,topic,fromServer:participant===undefined});}catch{errors.push('sdk-payload');}});
+  await room.connect(url,token);return {sid:room.localParticipant.sid};
+ },
+ bind(){
+  const engine=room.engine;if(typeof engine?.dataChannelForKind!=='function')throw Error('locked SDK inspection seam absent');
+  const channels=[0,1].map(kind=>engine.dataChannelForKind(kind,true)??engine.dataChannelForKind(kind,false));
+  if(!channels.every(c=>c instanceof RTCDataChannel&&c.readyState==='open'))return false;
+  for(const channel of channels){if(bound.has(channel))continue;bound.add(channel);channel.addEventListener('message',async event=>{try{const buf=event.data instanceof Blob?await event.data.arrayBuffer():event.data;const bytes=new Uint8Array(buf);native.push({label:channel.label,ordered:channel.ordered,maxRetransmits:channel.maxRetransmits,base64:btoa(String.fromCharCode(...bytes))});}catch{errors.push('native-observer');}});}
+  return true;
+ },
+ snapshot(){const m=room.engine.pcManager;const p=m.publisher?._pc,s=m.subscriber?._pc;return {connection:room.state,mode:m.mode,publisherNative:p instanceof RTCPeerConnection,subscriberNative:s instanceof RTCPeerConnection,same:p===s,unique:new Set([p,s].filter(v=>v instanceof RTCPeerConnection)).size,native:[...native],received:[...received],errors:[...errors]};},
+ async close(){await room?.disconnect();}
+};
+</script>

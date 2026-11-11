@@ -1,0 +1,86 @@
+{
+  "status": "FROZEN_DATA_PTO_TLR_WRITER_V2_TERMINAL_WAKE_FIX_NOT_COMPILED_NOT_RUN",
+  "parent": "/tmp/sctp-rack-adaptive-timer-v2",
+  "parent_source_sha256": "4a448019c9ed6854ce7844f82f6a18476388ed935b9c335033884ed61c0fe062",
+  "files": [
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/mod.rs",
+      "before_sha256": "391de1b6c32be9101008dfbb33ab997d33c1f485f13912b334d05661c8d72a48",
+      "after_sha256": "c3786dd0f3e58f945a48af84452847d462694945859a7cb64cd7c5e3c2d78971"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/pto_tlr_tests.rs",
+      "before_sha256": null,
+      "after_sha256": "fc2f15b8a692180da38429d8679d7576bd7fd897ae4fb4646a2546b65938403d"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/source_tlr.rs",
+      "before_sha256": null,
+      "after_sha256": "26d141c0827d6c37d80254ed1a365c6f9fceda9b77d60599264d10bc8b32f285"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/writer_abort_tests.rs",
+      "before_sha256": null,
+      "after_sha256": "336875470223ec2bafaca045765dfa60f192ea1a35ba18e0db484023c91c0bc2"
+    }
+  ],
+  "required_existing_context": [
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/adaptive_rack_cases.rs",
+      "before_sha256": null,
+      "after_sha256": "ba7b1d87db3c36ad1b011fa1707d8702e35123d11e0dd41fd2e9c8ec649cbd79"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/adaptive_rack_old_api_test.rs",
+      "before_sha256": null,
+      "after_sha256": "c257e3d54ff85c7d82040cf850a8e6388db3c57e7bb2d7c1dcc7e3731aa0ad81"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/adaptive_rack_tests.rs",
+      "before_sha256": null,
+      "after_sha256": "d9e2df1477f6a0638c69d5fc45384862d7cf621190cc43fd35716b41938a541a"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/mod.rs",
+      "before_sha256": "b14b70df00efaf3c073bb54d399e79e3528756444a707f93b664a6f745a8715b",
+      "after_sha256": "391de1b6c32be9101008dfbb33ab997d33c1f485f13912b334d05661c8d72a48"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/source_rack.rs",
+      "before_sha256": null,
+      "after_sha256": "7f2db5c87c5fc0ae922fb8622fa42d59bb842d8e69973813d155b90df60feb55"
+    }
+  ],
+  "oracle_source_sha256": "d704fb3c95f8cc4dd6ed8ebaf7ca96f01390fb284b11aa0ce3905e20c3519108",
+  "old_api_red_scope": "only baseline v2 existing methods/fields, no SourceTlr or new types",
+  "open": [
+    "idle PTO active heartbeat/ACK RTT seeding",
+    "SHUTDOWN carried cumulative ACK",
+    "full association restart reset",
+    "all actual source and native/runtime execution"
+  ],
+  "new_dependencies": false,
+  "shared_edits": false,
+  "assets_sha256": {
+    "CONTRACT.md": "4de436abb20f882262fec51ad7ad0d739e8129a2f8ffbfbb075fdbfbf51651da",
+    "abort-old-api-only.patch": "41cb00529586977219774788bd2f4fcd7dd3e9baf9f956359bfee6fff513f202",
+    "apply.py": "a778d5d1b13ea0539a562d4eb3c3b114f5bee1ade49bb2b07bda66be8ee8337b",
+    "baseline-red-only.patch": "990849ca96bcfd98a308813921b8edcf444ea5e10fddd6657ca19c39d1f719ee",
+    "changes.patch": "1c8c468521614360eb4007dc8cd723aec458afef6d75fa709bd61bd4e8daf5cb",
+    "mutation-remove-terminal-wake.py": "fa8e844af6174cc05098848203d574211630d1041915dc2bcf1e7f3a5c520b56",
+    "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "oracle/prepare.py": "e88362f666d1c0259d40ffce87dec61bad437048cc7e03684b2d60e1524fce5f",
+    "oracle/pto_tlr_test.go": "dda5f2bed824fcb2d2ec6a5f9e6d8394bfed543672d0603adbd8ba6b4e440547",
+    "prepare_payload.py": "9fb935e298225473dfc2d95e6e965f877202c16b105c57fe323f6ee6bd41efa5",
+    "pto-old-api-test.rs": "f40673b99fa500e9efd985c9c7110a9ed201a68f69b7a4a606afb8bd089e27c8"
+  },
+  "predecessor": "/tmp/sctp-pto-tlr-writer-v1",
+  "predecessor_source_sha256": "48e497c8c71f45576715413e0cbede43eae4bf65dbe74e5c0591ef641cc782ad",
+  "independent_review_sha256": "2923b30f1cc01808a353b224e12371f88c35321eb17d4836e9c628ac99296c2b",
+  "adoption_dependencies": [
+    "root source-profile aligned SCTP payload floor4 adapter; no whole-file overwrite",
+    "actual source18 and strict Rust consumer",
+    "all existing exact/source/default/encrypted gates"
+  ]
+}

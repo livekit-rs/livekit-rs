@@ -1,0 +1,353 @@
+{
+  "status": "FROZEN_SOURCE_ONLY_NOT_COMPILED_NOT_RUN",
+  "targets": [
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/auth/claims.rs",
+      "base_sha256": "889efa51f8ea54fe62ce11f6066f2a0441b74a96f4e7e1b9fcd1f37b500c584b",
+      "payload_sha256": "3a54e8be3240ff898a01bd85507931e86ccc3e40177c5d495b0d41cf6d3ee50c"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/convert/enums.rs",
+      "base_sha256": "d5b02a13d7e8f214d7e0a78da5c4354e3fd185e82f01fa2d5c3f056e59c5d239",
+      "payload_sha256": "e7d13f7b3889898ec80f913aa091844190cc6b7f0f797d0c8dfaa25d0033f5f2"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/signal/session/open_source_tests.rs",
+      "base_sha256": null,
+      "payload_sha256": "b8cb53c2f4631427d3639bb046a5793e321de84bb925b6be20cf01dbbc1983e9"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/signal/session.rs",
+      "base_sha256": "7d02267ad6ddfa18124ba91d48bfc9fe8fa130b60f37ed596ca74c14e0cba7c7",
+      "payload_sha256": "3aca036a49dca1a90b658037a9e0c9130aa38afb5e4c70f108cd79ca0c66fa76"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/model.rs",
+      "base_sha256": "87cdddf2cce57c2281a51d4a0d6d3ee3a3a42af78f3d4a1a5e6ce581a2362786",
+      "payload_sha256": "4b53f60b79486f201d5ff0c05c47f8d4469e340334d4bd46c900dc4a1c11b3c4"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/permission.rs",
+      "base_sha256": "426122cbfd2110fd36d3bc31c97aeb2e75ad5b9769131067f0a21199e5624ec7",
+      "payload_sha256": "92242d0d711b7c8c857bdc57f7ed28f7e27181696963007c36928def87c4adb5"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/api.rs",
+      "base_sha256": "3fc1cb3a8ce49a7140f6e463aa1f2c3b4480c50500764a473c2a5803a44ea9a2",
+      "payload_sha256": "bcf9e18850b8e70065d0ad02c895f168582becd8d28154ceb2b8785e632b7333"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/publish.rs",
+      "base_sha256": "fd38a0ba507e389048af5eaf86b6a2c7ae955feff980cd4a0e6f161cf3d90b09",
+      "payload_sha256": "f507067b7eab7c2926390c632f1038c69cab2b3737666610cb4ddfe383d4a03f"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/tests/open_numeric_source.rs",
+      "base_sha256": null,
+      "payload_sha256": "a4018587811e6733e6f4f08ff3efd6ca887f0ac26ef57929866ceaf0c6a7a2d3"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/tests.rs",
+      "base_sha256": "ea7194699bcfff2c9eaf80058427046cf3be8c5bf2a959b1681e29f211c9a232",
+      "payload_sha256": "75d97af506b786307290830f1d330cc0ffec90e6678b31770adaa81c334bbeba"
+    }
+  ],
+  "hunks": {
+    "livekit-rs-server/crates/lk-compat/src/auth/claims.rs": [
+      {
+        "start": 267,
+        "old": [
+          "        .map(|s| rtc_core::permission::canonical_source(*s).to_owned())\n"
+        ],
+        "new": [
+          "        .map(|s| rtc_core::permission::canonical_source(*s).into_owned())\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/convert/enums.rs": [
+      {
+        "start": 1,
+        "old": [
+          "//! (open enums); unknown wire values map to the engine default.\n"
+        ],
+        "new": [
+          "//! (open enums); TrackSource retains unknown int32 values; other legacy enum mappings retain their documented fallback.\n"
+        ]
+      },
+      {
+        "start": 28,
+        "old": [
+          "enum_map!(track_source_to_proto, track_source_from_proto, TrackSource, pb::TrackSource, TrackSource::Unknown, {\n",
+          "    TrackSource::Unknown => pb::TrackSource::Unknown,\n",
+          "    TrackSource::Camera => pb::TrackSource::Camera,\n",
+          "    TrackSource::Microphone => pb::TrackSource::Microphone,\n",
+          "    TrackSource::ScreenShare => pb::TrackSource::ScreenShare,\n",
+          "    TrackSource::ScreenShareAudio => pb::TrackSource::ScreenShareAudio,\n",
+          "});\n"
+        ],
+        "new": [
+          "/// TrackSource is an open int32 enum in the fixed binary WS/protobuf API.\n",
+          "pub fn track_source_to_proto(source: TrackSource) -> i32 { source.as_i32() }\n",
+          "pub fn track_source_from_proto(value: i32) -> TrackSource { TrackSource::from_i32(value) }\n"
+        ]
+      },
+      {
+        "start": 263,
+        "old": [
+          "pub fn track_source_to_claim(source: TrackSource) -> &'static str {\n",
+          "    match source {\n",
+          "        TrackSource::Unknown => \"unknown\",\n",
+          "        TrackSource::Camera => \"camera\",\n",
+          "        TrackSource::Microphone => \"microphone\",\n",
+          "        TrackSource::ScreenShare => \"screen_share\",\n",
+          "        TrackSource::ScreenShareAudio => \"screen_share_audio\",\n",
+          "    }\n"
+        ],
+        "new": [
+          "pub fn track_source_to_claim(source: TrackSource) -> std::borrow::Cow<'static, str> {\n",
+          "    rtc_core::permission::canonical_source(source)\n"
+        ]
+      },
+      {
+        "start": 302,
+        "old": [
+          "            assert_eq!(track_source_from_claim(track_source_to_claim(s)), s);\n"
+        ],
+        "new": [
+          "            assert_eq!(track_source_from_claim(&track_source_to_claim(s)), s);\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/signal/session/open_source_tests.rs": [],
+    "livekit-rs-server/crates/lk-compat/src/signal/session.rs": [
+      {
+        "start": 445,
+        "old": [],
+        "new": [
+          "\n",
+          "#[cfg(test)]\n",
+          "#[path = \"session/open_source_tests.rs\"]\n",
+          "mod open_source_tests;\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/model.rs": [
+      {
+        "start": 15,
+        "old": [
+          "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]\n"
+        ],
+        "new": [
+          "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]\n"
+        ]
+      },
+      {
+        "start": 23,
+        "old": [],
+        "new": [
+          "    /// Open protocol values outside the five currently modeled source names.\n",
+          "    /// Use from_i32: the opaque inner value cannot alias a known variant.\n",
+          "    Unrecognized(UnrecognizedTrackSource),\n",
+          "}\n",
+          "\n",
+          "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\n",
+          "pub struct UnrecognizedTrackSource(i32);\n",
+          "\n",
+          "impl TrackSource {\n",
+          "    pub fn from_i32(value: i32) -> Self {\n",
+          "        match value {\n",
+          "            0 => Self::Unknown, 1 => Self::Camera, 2 => Self::Microphone,\n",
+          "            3 => Self::ScreenShare, 4 => Self::ScreenShareAudio,\n",
+          "            other => Self::Unrecognized(UnrecognizedTrackSource(other)),\n",
+          "        }\n",
+          "    }\n",
+          "    pub fn as_i32(self) -> i32 {\n",
+          "        match self {\n",
+          "            Self::Unknown => 0, Self::Camera => 1, Self::Microphone => 2,\n",
+          "            Self::ScreenShare => 3, Self::ScreenShareAudio => 4,\n",
+          "            Self::Unrecognized(value) => value.0,\n",
+          "        }\n",
+          "    }\n",
+          "}\n",
+          "impl Ord for TrackSource {\n",
+          "    fn cmp(&self, other: &Self) -> std::cmp::Ordering { self.as_i32().cmp(&other.as_i32()) }\n",
+          "}\n",
+          "impl PartialOrd for TrackSource {\n",
+          "    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/permission.rs": [
+      {
+        "start": 83,
+        "old": [
+          "                    .any(|s| s == canonical_source(source)))\n"
+        ],
+        "new": [
+          "                    .any(|s| s.as_str() == canonical_source(source).as_ref()))\n"
+        ]
+      },
+      {
+        "start": 245,
+        "old": [
+          "pub fn canonical_source(source: TrackSource) -> &'static str {\n",
+          "    match source {\n",
+          "        TrackSource::Unknown => \"unknown\",\n",
+          "        TrackSource::Camera => \"camera\",\n",
+          "        TrackSource::Microphone => \"microphone\",\n",
+          "        TrackSource::ScreenShare => \"screen_share\",\n",
+          "        TrackSource::ScreenShareAudio => \"screen_share_audio\",\n"
+        ],
+        "new": [
+          "pub fn canonical_source(source: TrackSource) -> std::borrow::Cow<'static, str> {\n",
+          "    use std::borrow::Cow;\n",
+          "    match source.as_i32() {\n",
+          "        0 => Cow::Borrowed(\"unknown\"), 1 => Cow::Borrowed(\"camera\"),\n",
+          "        2 => Cow::Borrowed(\"microphone\"), 3 => Cow::Borrowed(\"screen_share\"),\n",
+          "        4 => Cow::Borrowed(\"screen_share_audio\"),\n",
+          "        value => Cow::Owned(value.to_string()),\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/room/api.rs": [
+      {
+        "start": 186,
+        "old": [
+          "                    p.info.permission = new_perm.clone();\n"
+        ],
+        "new": []
+      },
+      {
+        "start": 194,
+        "old": [
+          "                        .map(|s| crate::permission::canonical_source(*s).to_owned())\n"
+        ],
+        "new": [
+          "                        .map(|s| crate::permission::canonical_source(*s).into_owned())\n"
+        ]
+      },
+      {
+        "start": 203,
+        "old": [],
+        "new": [
+          "                    // Fixed Participant.ToProto reads the authoritative grant's\n",
+          "                    // projection. A newly materialized raw numeric source name\n",
+          "                    // is not an enum NAME and projects back to UNKNOWN here.\n",
+          "                    p.info.permission = p.grants.video.to_permission();\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/room/publish.rs": [
+      {
+        "start": 243,
+        "old": [
+          "                TrackSource::Unknown => \"unknown\".to_string(),\n"
+        ],
+        "new": [
+          "                TrackSource::Unknown | TrackSource::Unrecognized(_) => \"unknown\".to_string(),\n"
+        ]
+      },
+      {
+        "start": 294,
+        "old": [
+          "            TrackSource::Unknown => \"\",\n"
+        ],
+        "new": [
+          "            TrackSource::Unknown | TrackSource::Unrecognized(_) => \"\",\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/room/tests/open_numeric_source.rs": [],
+    "livekit-rs-server/crates/rtc-core/src/room/tests.rs": [
+      {
+        "start": 3473,
+        "old": [],
+        "new": [
+          "\n",
+          "#[path = \"tests/open_numeric_source.rs\"]\n",
+          "mod open_numeric_source;\n"
+        ]
+      }
+    ]
+  },
+  "context_sha256": {
+    "livekit-rs-server/crates/lk-compat/src/signal/session/raw_source_tests.rs": "f0e7ec825583934ec8af158a901ef85f35e6eb97de3ae45c1fffd50de2b96dbd",
+    "livekit-rs-server/crates/lk-compat/src/signal/session/add_track_response_tests.rs": "7f491ce10ddf0cd275d2699d191204af24eacc628481ba6949373dbe2a6ff89f",
+    "livekit-rs-server/crates/rtc-core/src/room/requests.rs": "8cbbe8bcf2230f0e4137751875b531c386a90fc3b7e99d4cad02e530ddfc15b1",
+    "livekit-rs-server/crates/rtc-runtime/src/room_task.rs": "14b9ee88d309f7379f47b73df4c1756b1c4ff81204b1edbe2ee50c7a90f582d6",
+    "livekit-rs-server/crates/rtc-runtime/src/net/mod.rs": "737d81438cc3e1a72085a5413e01f4ac2f0a08c4cd212110cc0810d2f1332800",
+    "livekit-rs-server/Cargo.toml": "2f3f63b714aad310cbf895c9132ed3e0de7ec56298da995318c3a49a7eabbc54",
+    "livekit-rs-server/Cargo.lock": "3294a4493aa1b5150051d2f34153097c5c6f6dc7a6ee1fd59d9725315ab5f748",
+    "livekit-rs-server/crates/lk-compat/src/signal/params.rs": "4149cc1241b4d4974e92da7306b1bf26f3056505ae379cad9ab70920c0c004bc",
+    "livekit-rs-server/crates/lk-compat/src/signal/encode.rs": "926d1aa2475d9d7fa9a137bd2505d19ff032ba7c3d5fa6515006e82689cbca78",
+    "livekit-rs-server/crates/lk-compat/src/convert/models.rs": "bdaee31478ffa73dc1bbfcf441c1e4d13a9c44489dd1c81afcf95c9594c43aee",
+    "livekit-rs-server/crates/rtc-core/src/media_api.rs": "38f36813d2f23e6d198c8dba999dab113bf98f167358a79202971b4315e8fc91",
+    "livekit-rs-server/crates/rtc-media/src/uptrack.rs": "afa565679af188453cf3bc8bbfd8ca1c380f0e3590b197b8f4dde6b6ad189196",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b"
+  },
+  "fixed_source_sha256": {
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "references/protocol-stable/auth/grants.go": "eff12c293de465c4e95185de96b8d5510f5f97f1f10e48c93d63fa0540bbe9d7",
+    "references/protocol-stable/auth/verifier.go": "299ba44f325824d51458fa950caa7c71f4bb8b573d4f75cf6c63c5bdc7c07280",
+    "references/protocol-stable/livekit/livekit_models.pb.go": "a4bd26f05210610648916657c2c4079e6492a921f3ae14c4e8da2aeb10bf0b99",
+    "references/protocol-stable/protobufs/livekit_rtc.proto": "b15cdd37f7a3c84caed7c00b8177bd196235ced118e31a64511a9811d56ae928",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/utils.go": "187ced6935ef2791c66dc78f0d804cc658b366d075a44d5465257a8b6b22d3b3",
+    "references/livekit-stable/pkg/rtc/signalling/signalhandler.go": "eff1fea4244de08865ecfd0e54b346f03ddf6799448fd532b3c7791e3fd104ea"
+  },
+  "fixed_source_root": "/Users/zoujiaqing/projects/livekit-rs",
+  "assets_sha256": {
+    "COMMANDS.txt": "ceeffa582dae7fb32b0fac4610470731139812f903e6cc16c9d8df9cb0075496",
+    "CONTRACT.md": "f3edb344c90eb753a64b454365e8af461f970de1f9125be4df3985f1702ec2b5",
+    "SPEC-PROPOSAL.json": "f0bdacfff2010fb935008c049e881039777773fc17a2803acf8b5e92792ec66a",
+    "apply.py": "c13d962b442da7a4d22455adcc49b8d2e6281e61f0a08a39a95247f7096b1e48",
+    "base/livekit-rs-server/crates/lk-compat/src/auth/claims.rs": "889efa51f8ea54fe62ce11f6066f2a0441b74a96f4e7e1b9fcd1f37b500c584b",
+    "base/livekit-rs-server/crates/lk-compat/src/convert/enums.rs": "d5b02a13d7e8f214d7e0a78da5c4354e3fd185e82f01fa2d5c3f056e59c5d239",
+    "base/livekit-rs-server/crates/lk-compat/src/signal/session.rs": "7d02267ad6ddfa18124ba91d48bfc9fe8fa130b60f37ed596ca74c14e0cba7c7",
+    "base/livekit-rs-server/crates/rtc-core/src/model.rs": "87cdddf2cce57c2281a51d4a0d6d3ee3a3a42af78f3d4a1a5e6ce581a2362786",
+    "base/livekit-rs-server/crates/rtc-core/src/permission.rs": "426122cbfd2110fd36d3bc31c97aeb2e75ad5b9769131067f0a21199e5624ec7",
+    "base/livekit-rs-server/crates/rtc-core/src/room/api.rs": "3fc1cb3a8ce49a7140f6e463aa1f2c3b4480c50500764a473c2a5803a44ea9a2",
+    "base/livekit-rs-server/crates/rtc-core/src/room/publish.rs": "fd38a0ba507e389048af5eaf86b6a2c7ae955feff980cd4a0e6f161cf3d90b09",
+    "base/livekit-rs-server/crates/rtc-core/src/room/tests.rs": "ea7194699bcfff2c9eaf80058427046cf3be8c5bf2a959b1681e29f211c9a232",
+    "baseline-test-only.patch": "d8fa820ec6156bbafd9beabf9a36d0fc17a12746c82535303ff3d3aa33afee99",
+    "build.py": "c06d73d18f307d896d3724ade0fba6eb180d2ff0268857fab62618064df51f01",
+    "changes.patch": "d26f056f6ca1aa9e5289f2458ae34dbb8a2e8da2e79e6b6acc903a71037b67b0",
+    "consumer-inventory.json": "4d354b5c1915ef749fbc9101d52bfed73495135b63a6ffda2d6fcd8f0a6ffe32",
+    "core-later-bind.rs": "a4018587811e6733e6f4f08ff3efd6ca887f0ac26ef57929866ceaf0c6a7a2d3",
+    "fixture/compare.py": "394d43913184dee4c62a22010c61c373fca63c9085f577fa3a2815d5600e937c",
+    "fixture/run.mjs": "668a2a0b559a74e343854c38b481a5009a6deaf830efd7372a70efab833f46ae",
+    "open_source_tests.rs": "b8cb53c2f4631427d3639bb046a5793e321de84bb925b6be20cf01dbbc1983e9",
+    "oracle/cases.json": "1acfe8acd481c431efaea5ec810b0a05f3a18295fed811a5ecd86261d6a65cb8",
+    "oracle/main.go": "7360df5855f6497a4813987b55f09d7a18563b04ff02c3d4d683d717d023e281",
+    "oracle/prepare.py": "9011194f1ddcd80162b07ecd2a40cba0a72ea5ce29e82be6bd7685af85068e15",
+    "payload/livekit-rs-server/crates/lk-compat/src/auth/claims.rs": "3a54e8be3240ff898a01bd85507931e86ccc3e40177c5d495b0d41cf6d3ee50c",
+    "payload/livekit-rs-server/crates/lk-compat/src/convert/enums.rs": "e7d13f7b3889898ec80f913aa091844190cc6b7f0f797d0c8dfaa25d0033f5f2",
+    "payload/livekit-rs-server/crates/lk-compat/src/signal/session/open_source_tests.rs": "b8cb53c2f4631427d3639bb046a5793e321de84bb925b6be20cf01dbbc1983e9",
+    "payload/livekit-rs-server/crates/lk-compat/src/signal/session.rs": "3aca036a49dca1a90b658037a9e0c9130aa38afb5e4c70f108cd79ca0c66fa76",
+    "payload/livekit-rs-server/crates/rtc-core/src/model.rs": "4b53f60b79486f201d5ff0c05c47f8d4469e340334d4bd46c900dc4a1c11b3c4",
+    "payload/livekit-rs-server/crates/rtc-core/src/permission.rs": "92242d0d711b7c8c857bdc57f7ed28f7e27181696963007c36928def87c4adb5",
+    "payload/livekit-rs-server/crates/rtc-core/src/room/api.rs": "bcf9e18850b8e70065d0ad02c895f168582becd8d28154ceb2b8785e632b7333",
+    "payload/livekit-rs-server/crates/rtc-core/src/room/publish.rs": "f507067b7eab7c2926390c632f1038c69cab2b3737666610cb4ddfe383d4a03f",
+    "payload/livekit-rs-server/crates/rtc-core/src/room/tests/open_numeric_source.rs": "a4018587811e6733e6f4f08ff3efd6ca887f0ac26ef57929866ceaf0c6a7a2d3",
+    "payload/livekit-rs-server/crates/rtc-core/src/room/tests.rs": "75d97af506b786307290830f1d330cc0ffec90e6678b31770adaa81c334bbeba",
+    "preservation.json": "c239c7a325ea7af0d3c8757d3069a056a0a12f30fd2954e48ec7abc383ed3f22",
+    "seal.py": "8e0018f3ad4290954629bfa359d3f456fcc95ff87874f4c94f99e9c127828105"
+  },
+  "cases": 12,
+  "normal_same_old_API_tests": 3,
+  "core_injected_accepted_media_event_tests": 1,
+  "actual_source_results_prefilled": false,
+  "baseline_new_opaque_types_or_methods_referenced": false,
+  "core_tests_exact_current_prefix_preserved": true,
+  "separate_open": [
+    "actual encrypted unknown-source later-bind producer",
+    "other open enum types and complete unknown-enum umbrella"
+  ],
+  "notes": [
+    "Raw known-five/current authoritative sidecar and accepted AddTrack empty-message fixes remain intact",
+    "Opaque variant can only be constructed outside core/model using canonical from_i32",
+    "Public permission after raw99 materialization must be0; admission must still be99"
+  ]
+}

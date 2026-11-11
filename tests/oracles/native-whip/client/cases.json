@@ -1,0 +1,134 @@
+[
+  {
+    "id": "client-00",
+    "input": ""
+  },
+  {
+    "id": "client-01",
+    "input": " "
+  },
+  {
+    "id": "client-02",
+    "input": "null"
+  },
+  {
+    "id": "client-03",
+    "input": "{}"
+  },
+  {
+    "id": "client-04",
+    "input": "[]"
+  },
+  {
+    "id": "client-05",
+    "input": "true"
+  },
+  {
+    "id": "client-06",
+    "input": "1"
+  },
+  {
+    "id": "client-07",
+    "input": "\"x\""
+  },
+  {
+    "id": "client-08",
+    "input": "{\"clientIp\":\"a\"}"
+  },
+  {
+    "id": "client-09",
+    "input": "{\"clientIp\":null}"
+  },
+  {
+    "id": "client-10",
+    "input": "{\"clientIp\":2}"
+  },
+  {
+    "id": "client-11",
+    "input": "{\"clientIp\":false}"
+  },
+  {
+    "id": "client-12",
+    "input": "{\"clientIp\":[]}"
+  },
+  {
+    "id": "client-13",
+    "input": "{\"clientIp\":{}}"
+  },
+  {
+    "id": "client-14",
+    "input": "{\"CLIENTIP\":\"b\"}"
+  },
+  {
+    "id": "client-15",
+    "input": "{\"clientIp\":\"a\",\"clientIp\":null}"
+  },
+  {
+    "id": "client-16",
+    "input": "{\"clientIp\":\"a\",\"clientIp\":\"b\"}"
+  },
+  {
+    "id": "client-17",
+    "input": "{\"clientIp\":\"a\"} {\"clientIp\":\"ignored\"}"
+  },
+  {
+    "id": "client-18",
+    "input": "{\"clientIp\":\"a\",}"
+  },
+  {
+    "id": "client-19",
+    "input": "{\"clientIp\":\"a\""
+  },
+  {
+    "id": "client-20",
+    "input": "{\"clientIp\":\"\\ud800\"}"
+  },
+  {
+    "id": "client-21",
+    "input": "{\"clientIp\":\"\\ud800\\udc00\"}"
+  },
+  {
+    "id": "client-22",
+    "input": "{\"subscribedParticipantTrackNames\":{\"p\":[\"a\",\"b\"]}}"
+  },
+  {
+    "id": "client-23",
+    "input": "{\"subscribedParticipantTrackNames\":null}"
+  },
+  {
+    "id": "client-24",
+    "input": "{\"subscribedParticipantTrackNames\":[]}"
+  },
+  {
+    "id": "client-25",
+    "input": "{\"subscribedParticipantTrackNames\":{\"p\":false}}"
+  },
+  {
+    "id": "client-26",
+    "input": "{\"subscribedParticipantTrackNames\":{\"p\":[null,\"a\",2]}}"
+  },
+  {
+    "id": "client-27",
+    "input": "{\"subscribedParticipantTrackNames\":{\"p\":null}}"
+  },
+  {
+    "id": "client-28",
+    "input": "{\"subscribedParticipantTrackNames\":{\"p\":[\"a\"]},\"subscribedParticipantTrackNames\":{\"q\":[\"b\"]}}"
+  },
+  {
+    "id": "client-29",
+    "input": "{\"subscribedParticipantTrackNames\":{\"p\":[\"a\"]},\"subscribedParticipantTrackNames\":null}"
+  },
+  {
+    "id": "client-30",
+    "input": "{\"unknown\":{\"x\":[true,false,null,1.5]}}"
+  },
+  {
+    "id": "client-31",
+    "input": "{\"unknown\":\"\\x\"}"
+  },
+  {
+    "id": "client-32",
+    "input": "{\"clientIp\":-5}"
+  }
+]

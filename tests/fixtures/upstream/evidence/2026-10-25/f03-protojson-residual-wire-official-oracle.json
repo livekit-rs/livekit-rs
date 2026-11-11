@@ -1,0 +1,365 @@
+{
+  "status": "OFFICIAL_ONLY_NOT_RUST_PASS",
+  "cases": [
+    {
+      "case": "duplicate-string-map-key",
+      "decoded": false,
+      "error": "proto: (line 1:24): duplicate map key \"k\"",
+      "type": "livekit.CreateAgentDispatchRequest"
+    },
+    {
+      "case": "numeric-map-leading-zero",
+      "decoded": false,
+      "error": "proto: (line 1:24): duplicate map key \"01\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "numeric-map-leading-plus",
+      "decoded": false,
+      "error": "proto: (line 1:25): duplicate map key \"1\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "numeric-map-negative-zero",
+      "decoded": false,
+      "error": "proto: (line 1:25): duplicate map key \"0\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "numeric-map-exponent-rejected",
+      "decoded": false,
+      "error": "proto: (line 1:18): invalid value for int32 key: \"1e0\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "numeric-map-out-of-range",
+      "decoded": false,
+      "error": "proto: (line 1:18): invalid value for int32 key: \"2147483648\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "numeric-map-valid-negative",
+      "decoded": true,
+      "message": {
+        "gap_histogram": {
+          "-1": 1,
+          "2": 2
+        }
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "wgENCP///////////wEQAcIBBAgCEAI="
+    },
+    {
+      "case": "any-known-type-first",
+      "decoded": true,
+      "message": {
+        "call_context": [
+          {
+            "@type": "type.googleapis.com/livekit.RoomParticipantIdentity",
+            "room": "r",
+            "identity": "p"
+          }
+        ]
+      },
+      "type": "livekit.SIPCallInfo",
+      "wire_base64": "0gE9CjN0eXBlLmdvb2dsZWFwaXMuY29tL2xpdmVraXQuUm9vbVBhcnRpY2lwYW50SWRlbnRpdHkSBgoBchIBcA=="
+    },
+    {
+      "case": "any-known-type-last",
+      "decoded": true,
+      "message": {
+        "call_context": [
+          {
+            "@type": "type.googleapis.com/livekit.RoomParticipantIdentity",
+            "room": "r",
+            "identity": "p"
+          }
+        ]
+      },
+      "type": "livekit.SIPCallInfo",
+      "wire_base64": "0gE9CjN0eXBlLmdvb2dsZWFwaXMuY29tL2xpdmVraXQuUm9vbVBhcnRpY2lwYW50SWRlbnRpdHkSBgoBchIBcA=="
+    },
+    {
+      "case": "any-duplicate-payload-type-first",
+      "decoded": false,
+      "error": "proto: (line 1:91): duplicate field \"room\"",
+      "type": "livekit.SIPCallInfo"
+    },
+    {
+      "case": "any-duplicate-payload-type-last",
+      "decoded": false,
+      "error": "proto: (line 1:29): duplicate field \"room\"",
+      "type": "livekit.SIPCallInfo"
+    },
+    {
+      "case": "any-duplicate-type",
+      "decoded": false,
+      "error": "proto: (line 1:80): duplicate \"@type\" field",
+      "type": "livekit.SIPCallInfo"
+    },
+    {
+      "case": "any-empty",
+      "decoded": true,
+      "message": {
+        "call_context": [
+          {}
+        ]
+      },
+      "type": "livekit.SIPCallInfo",
+      "wire_base64": "0gEA"
+    },
+    {
+      "case": "any-unknown-type",
+      "decoded": false,
+      "error": "proto: (line 1:26): unable to resolve \"type.googleapis.com/livekit.UnknownMessage\": \"not found\"",
+      "type": "livekit.SIPCallInfo"
+    },
+    {
+      "case": "any-duration",
+      "decoded": true,
+      "message": {
+        "call_context": [
+          {
+            "@type": "type.googleapis.com/google.protobuf.Duration",
+            "value": "1.500s"
+          }
+        ]
+      },
+      "type": "livekit.SIPCallInfo",
+      "wire_base64": "0gE4Cix0eXBlLmdvb2dsZWFwaXMuY29tL2dvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIICAEQgMq17gE="
+    },
+    {
+      "case": "any-duration-duplicate-value",
+      "decoded": false,
+      "error": "proto: (line 1:86): duplicate \"value\" field",
+      "type": "livekit.SIPCallInfo"
+    },
+    {
+      "case": "any-null",
+      "decoded": false,
+      "error": "proto: syntax error (line 1:17): unexpected token null",
+      "type": "livekit.SIPCallInfo"
+    },
+    {
+      "case": "fieldmask-trim",
+      "decoded": true,
+      "message": "userName",
+      "type": "google.protobuf.FieldMask",
+      "wire_base64": "Cgl1c2VyX25hbWU="
+    },
+    {
+      "case": "fieldmask-underscore",
+      "decoded": false,
+      "error": "proto: (line 1:1): google.protobuf.FieldMask.paths contains invalid path: \"user_name\"",
+      "type": "google.protobuf.FieldMask"
+    },
+    {
+      "case": "fieldmask-empty-component",
+      "decoded": false,
+      "error": "proto: (line 1:1): google.protobuf.FieldMask.paths contains invalid path: \"\"",
+      "type": "google.protobuf.FieldMask"
+    },
+    {
+      "case": "fieldmask-trailing-dot",
+      "decoded": false,
+      "error": "proto: (line 1:1): google.protobuf.FieldMask.paths contains invalid path: \"a.\"",
+      "type": "google.protobuf.FieldMask"
+    },
+    {
+      "case": "fieldmask-empty",
+      "decoded": true,
+      "message": "",
+      "type": "google.protobuf.FieldMask",
+      "wire_base64": ""
+    },
+    {
+      "case": "fieldmask-whitespace",
+      "decoded": true,
+      "message": "",
+      "type": "google.protobuf.FieldMask",
+      "wire_base64": ""
+    },
+    {
+      "case": "fieldmask-valid-nested",
+      "decoded": true,
+      "message": "userName.displayName,roomName",
+      "type": "google.protobuf.FieldMask",
+      "wire_base64": "ChZ1c2VyX25hbWUuZGlzcGxheV9uYW1lCglyb29tX25hbWU="
+    },
+    {
+      "case": "timestamp-lowercase",
+      "decoded": false,
+      "error": "proto: (line 1:1): invalid google.protobuf.Timestamp value \"2020-01-01t00:00:00z\"",
+      "type": "google.protobuf.Timestamp"
+    },
+    {
+      "case": "timestamp-space",
+      "decoded": false,
+      "error": "proto: (line 1:1): invalid google.protobuf.Timestamp value \"2020-01-01 00:00:00Z\"",
+      "type": "google.protobuf.Timestamp"
+    },
+    {
+      "case": "timestamp-missing-zone",
+      "decoded": false,
+      "error": "proto: (line 1:1): invalid google.protobuf.Timestamp value \"2020-01-01T00:00:00\"",
+      "type": "google.protobuf.Timestamp"
+    },
+    {
+      "case": "timestamp-overprecision-zero",
+      "decoded": false,
+      "error": "proto: (line 1:1): invalid google.protobuf.Timestamp value \"2020-01-01T00:00:00.1234567890Z\"",
+      "type": "google.protobuf.Timestamp"
+    },
+    {
+      "case": "timestamp-leap-second",
+      "decoded": false,
+      "error": "proto: (line 1:1): invalid google.protobuf.Timestamp value \"2020-01-01T00:00:60Z\"",
+      "type": "google.protobuf.Timestamp"
+    },
+    {
+      "case": "timestamp-year-zero",
+      "decoded": false,
+      "error": "proto: (line 1:1): google.protobuf.Timestamp value out of range: \"0000-01-01T00:00:00Z\"",
+      "type": "google.protobuf.Timestamp"
+    },
+    {
+      "case": "timestamp-offset-hour-24",
+      "decoded": true,
+      "message": "2019-12-31T00:00:00Z",
+      "type": "google.protobuf.Timestamp",
+      "wire_base64": "CICfqvAF"
+    },
+    {
+      "case": "timestamp-boundary-offset",
+      "decoded": false,
+      "error": "proto: (line 1:1): google.protobuf.Timestamp value out of range: \"0001-01-01T00:00:00+01:00\"",
+      "type": "google.protobuf.Timestamp"
+    },
+    {
+      "case": "value-null",
+      "decoded": true,
+      "message": null,
+      "type": "google.protobuf.Value",
+      "wire_base64": "CAA="
+    },
+    {
+      "case": "value-string-null-value",
+      "decoded": true,
+      "message": "NULL_VALUE",
+      "type": "google.protobuf.Value",
+      "wire_base64": "GgpOVUxMX1ZBTFVF"
+    },
+    {
+      "case": "value-object-null",
+      "decoded": true,
+      "message": {
+        "k": null
+      },
+      "type": "google.protobuf.Value",
+      "wire_base64": "KgkKBwoBaxICCAA="
+    },
+    {
+      "case": "value-list-null",
+      "decoded": true,
+      "message": [
+        null,
+        1,
+        "x"
+      ],
+      "type": "google.protobuf.Value",
+      "wire_base64": "MhQKAggACgkRAAAAAAAA8D8KAxoBeA=="
+    },
+    {
+      "case": "struct-null",
+      "decoded": true,
+      "message": {
+        "k": null
+      },
+      "type": "google.protobuf.Struct",
+      "wire_base64": "CgcKAWsSAggA"
+    },
+    {
+      "case": "struct-duplicate",
+      "decoded": false,
+      "error": "proto: (line 1:8): duplicate map key \"k\"",
+      "type": "google.protobuf.Struct"
+    },
+    {
+      "case": "list-value-null",
+      "decoded": true,
+      "message": [
+        null,
+        {
+          "k": null
+        }
+      ],
+      "type": "google.protobuf.ListValue",
+      "wire_base64": "CgIIAAoLKgkKBwoBaxICCAA="
+    },
+    {
+      "case": "unknown-huge-number",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "unknown-invalid-number",
+      "decoded": false,
+      "error": "invalid character '1' after object key:value pair",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "unknown-negative-zero",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "unknown-isolated-surrogate",
+      "decoded": false,
+      "error": "proto: unexpected EOF",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "unknown-broken-surrogate-pair",
+      "decoded": false,
+      "error": "proto: syntax error (line 1:11): invalid escape code \"\\\\u0041\" in string",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "known-isolated-surrogate",
+      "decoded": false,
+      "error": "proto: unexpected EOF",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "known-valid-surrogate-pair",
+      "decoded": true,
+      "message": {
+        "name": "😀"
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "CgTwn5iA"
+    },
+    {
+      "case": "unknown-invalid-utf8",
+      "decoded": false,
+      "error": "proto: syntax error (line 1:11): invalid UTF-8 in string",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "known-invalid-utf8",
+      "decoded": false,
+      "error": "proto: syntax error (line 1:9): invalid UTF-8 in string",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "unknown-overlong-utf8",
+      "decoded": false,
+      "error": "proto: syntax error (line 1:11): invalid UTF-8 in string",
+      "type": "livekit.CreateRoomRequest"
+    }
+  ]
+}

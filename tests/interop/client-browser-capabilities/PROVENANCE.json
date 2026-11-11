@@ -1,0 +1,11 @@
+{
+  "origin_source_package_sha256": "b662b68cc4b5037c2891f1f364fa5c2df67f74db37abacf44e01f9509b0bbb63",
+  "complete_original_package": "livekit-rs-docs/evidence/2026-10-28/functional-browser-capabilities-final/native-sdk-v5-source.tar.gz",
+  "actual_runtime_assets": {
+    "run.mjs": "3ebcc346fac4304d12730314d387ca6d5339d72cff4f9dac6ae50dcebdf7b98c",
+    "client.html": "bef995b6bc310d78fe165ddeea0edb4368d10293fe435559c4092f5c58c08d1f",
+    "cases.json": "f1cab6ca35b546756cc1da2e92433dbe538a5930c54a954f32a2fd6cecafc47a",
+    "sdk-pins.json": "cbc6ec08f7dc4045358f640a45c39d6f11dac668fd9fff2163404c0097278824"
+  },
+  "status": "Actual source11 and same-final-binary Rust11 passed; not native Firefox/WebKit, RED/FEC or audio NACK acceptance"
+}

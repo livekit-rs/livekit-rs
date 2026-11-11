@@ -1,0 +1,14 @@
+{
+  "references/livekit-stable/pkg/clientconfiguration/conf.go": "fad8967f97a01e65608cac60b9cd2c25574ec14d0c8710f5764414ed073c17f3",
+  "references/livekit-stable/pkg/clientconfiguration/staticconfiguration.go": "abc4cf2a0185aff57cffe95cbc1098fd39b0f4e36fe414b5879cf95bb5a09df7",
+  "references/livekit-stable/pkg/clientconfiguration/match.go": "307a1201e9b30d38e502071eaac13d850056086f37f84a2e959aaed85a5f5c70",
+  "references/livekit-stable/pkg/clientconfiguration/conf_test.go": "33188f5c8ad1037077c9bdb2bc0272003ba363f1a96194ad27ad01ef609a17e3",
+  "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+  "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+  "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+  "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+  "references/psrpc/go.mod": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0",
+  "references/go-stdlib-go1.26.3/src/unicode/letter.go": "b35a6d259313cef88d07e9e4027b8bd72c60ae140418f5be2c41a2ecea6074fe",
+  "references/go-stdlib-go1.26.3/src/unicode/tables.go": "6a88d48746c4b2c471cc04ae40559694b734770212e6f5ea5f1962adb0c0bdb1",
+  "references/protocol-stable/codecs/mime/mimetype.go": "0d442ae3d3ff4b6ae1c15abeef396f0b7fe143dc40b4afca692b8a6d71d3bce1"
+}

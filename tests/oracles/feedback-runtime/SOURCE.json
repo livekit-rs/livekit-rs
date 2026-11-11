@@ -1,0 +1,66 @@
+{
+  "fixed_livekit_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "status": "RECONSTRUCTABLE_SOURCE_INPUTS_NOT_EXECUTED",
+  "generator_inputs": [
+    {
+      "path": "uniform-cases.json",
+      "sha256": "b135f1205cbf06baeb42264e6451b5e15d7f332d54542f929f4d0b3acee48148"
+    },
+    {
+      "path": "sequencer-cases.json",
+      "sha256": "015c20f40dba15d11c1c4372cbd66eb687038d3a58a4686212df07e711aca93c"
+    },
+    {
+      "path": "generate-uniform.py",
+      "sha256": "b038c04e0f6347329382ce2a661aaf9b9f268d338d3258f8268c0ff8a101d22a"
+    },
+    {
+      "path": "generate-sequencer.py",
+      "sha256": "4572467159c560f823759da4838552adbfc55fdec9d17d26d30734c04e324705"
+    },
+    {
+      "path": "LICENSE-UPSTREAM",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ],
+  "original_F32_generated_sources": {
+    "fixed_livekit_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "go_module": "github.com/pion/interceptor v0.1.49",
+    "go_sum": "h1:iyBsNHRoLNNXZiJA/DdGvJgdyfS8YWDCzxIAlVjt5nY=",
+    "primary_paths": [
+      "references/livekit-stable/pkg/rtc/transport.go:464-470 initial1Mbps+NoOp;581-632 native priority vs Remote/passthrough",
+      "references/livekit-stable/pkg/sfu/streamallocator/streamallocator.go:307-313,481-486,704-723 callback change\u2192HandleREMB and TWCC\u2192estimator",
+      "Pion pkg/gcc/noop_pacer.go:32-35,46-56 target no-op and immediate Write",
+      "Pion pkg/gcc/send_side_bwe.go:268-270,293-310 callback only on changed target"
+    ],
+    "retained_consulted_pion_source": [
+      {
+        "path": "source/pion-interceptor-v0.1.49/LICENSE",
+        "sha256": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f"
+      },
+      {
+        "path": "source/pion-interceptor-v0.1.49/go.mod",
+        "sha256": "58607cb7a02e2f82ed6880d0aafe9fd00afc645501d11fa4f6823952f0f5fc44"
+      },
+      {
+        "path": "source/pion-interceptor-v0.1.49/pkg/gcc/noop_pacer.go",
+        "sha256": "392b78dbfc434af36ba88510573776c35b90017310b0c3aadad861696dc9721f"
+      },
+      {
+        "path": "source/pion-interceptor-v0.1.49/pkg/gcc/send_side_bwe.go",
+        "sha256": "1b8fc3a931d8eb893cdabc7b71d72d4a2b326f095b4492c6e30b474c2e9ed522"
+      }
+    ],
+    "reference_retention": "Source and license retained isolated. Coordinator must register exact borrowed source provenance under references before final repository adoption; no runtime Go dependency."
+  },
+  "required_by": [
+    "crates/rtc-media/src/feedback/uniform.rs compile-time include_str uniform-cases.json",
+    "crates/rtc-media/tests/remote_nack_source.rs compile-time include_str sequencer-cases.json"
+  ],
+  "source_metadata": "Generators extract actual fixed Go source methods into bounded standalone oracle harnesses; outputmustbeexecutedbycoordinator. Publiccases never actualGoPASS by construction.",
+  "execution_checkpoint_2026_10_27": {
+    "status": "PASS_SCOPED",
+    "reference": "livekit-rs-docs/evidence/2026-10-27/pion-uniform-nack-source-execution.json",
+    "notes": "Actual Go and exact Rust consumers executed. Preparation-only status above is retained as original snapshot; no distributed/SDK whole-system acceptance follows."
+  }
+}

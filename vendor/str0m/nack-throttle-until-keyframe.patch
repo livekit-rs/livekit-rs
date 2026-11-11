@@ -1,0 +1,98 @@
+diff --git a/src/streams/send.rs b/src/streams/send.rs
+index 696c5bc0..99bb5fd6 100644
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -160,6 +160,10 @@ pub struct StreamTx {
+     /// Determines retransmitted bytes ratio value to clear queued resends.
+     rtx_ratio_cap: Option<f32>,
+ 
++    /// Ignore incoming NACKs (fixed LiveKit `FlagStopRTXOnPLI`): set when the
++    /// application forwards a subscriber PLI, cleared when it sends a keyframe.
++    nack_throttled: bool,
++
+     /// Last time we produced a SR.
+     last_sender_report: Instant,
+ 
+@@ -354,6 +358,7 @@ impl StreamTx {
+             blank_packet: RtpPacket::blank(),
+             rtx_cache: RtxCache::new(2000, DEFAULT_RTX_CACHE_DURATION),
+             rtx_ratio_cap: DEFAULT_RTX_RATIO_CAP,
++            nack_throttled: false,
+             last_sender_report: already_happened(),
+             pending_request_keyframe: None,
+             pending_request_remb: None,
+@@ -1190,11 +1195,26 @@ impl StreamTx {
+         }
+     }
+ 
++    /// Stop answering NACKs until cleared (LiveKit `FlagStopRTXOnPLI`): after a
++    /// receiver asked for a keyframe, retransmitting older packets only adds load.
++    /// Already queued resends are still sent. Default `false`.
++    pub fn set_nack_throttled(&mut self, throttled: bool) {
++        self.nack_throttled = throttled;
++    }
++
++    /// Whether incoming NACKs are currently ignored.
++    pub fn nack_throttled(&self) -> bool {
++        self.nack_throttled
++    }
++
+     pub(crate) fn handle_nack(
+         &mut self,
+         entries: impl Iterator<Item = NackEntry>,
+         now: Instant,
+     ) -> Option<()> {
++        if self.nack_throttled {
++            return Some(());
++        }
+         // Turning NackEntry into SeqNo we need to know a SeqNo "close by" to lengthen the 16 bit
+         // sequence number into the 64 bit we have in SeqNo.
+         let seq_no = self.rtx_cache.last_cached_seq_no()?;
+@@ -1683,6 +1703,47 @@ mod test {
+         }
+     }
+ 
++    #[test]
++    fn nack_throttle_ignores_new_nacks_until_cleared() {
++        let now = Instant::now();
++        let mut codecs = CodecConfig::empty();
++        codecs.enable_opus(true, false);
++        for p in codecs.iter_mut() {
++            p.set_fb_nack(true);
++        }
++        let mut stream = StreamTx::new(42.into(), None, MidRid("aud".into(), None), false, 1200);
++        stream.set_rtx_cache(200, DEFAULT_RTX_CACHE_DURATION, None);
++        let exts = ExtensionMap::standard();
++        let mut buf = vec![];
++        for seq in [100u64, 101] {
++            stream.write_rtp(
++                RtpWrite::new(111.into(), seq.into(), 48_000, now, vec![0xf8, 0xff, 0xfe])
++                    .nackable(true),
++            );
++        }
++        stream.send_queue.handle_timeout(now);
++        while stream
++            .poll_packet(now, &exts, None, codecs.params(), &mut buf)
++            .is_some()
++        {}
++        let nack = |pid| [NackEntry { pid, blp: 0 }].into_iter();
++        assert!(!stream.nack_throttled());
++        stream.set_nack_throttled(true);
++        stream.handle_nack(nack(100), now);
++        assert!(
++            stream
++                .poll_packet(now, &exts, None, codecs.params(), &mut buf)
++                .is_none(),
++            "a throttled stream does not answer NACKs"
++        );
++        stream.set_nack_throttled(false);
++        stream.handle_nack(nack(101), now);
++        let resend = stream
++            .poll_packet(now, &exts, None, codecs.params(), &mut buf)
++            .expect("NACKs are answered again once cleared");
++        assert_eq!(resend.header.sequence_number, 101);
++    }
++
+     #[test]
+     fn opus_nack_retransmits_original_packet_without_rtx_header_or_sequence() {
+         for (nack, red) in [(true, false), (false, false), (true, true)] {

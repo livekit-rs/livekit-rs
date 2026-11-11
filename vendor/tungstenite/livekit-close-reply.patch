@@ -1,0 +1,45 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -52,6 +52,8 @@
+ all-features = true
+ 
+ [features]
++# Opt-in LiveKit/Gorilla server compatibility. Default and client roles unchanged.
++livekit-server-close-reply-empty-reason = []
+ __rustls-tls = [
+     "rustls",
+     "rustls-pki-types",
+--- a/src/protocol/mod.rs
++++ b/src/protocol/mod.rs
+@@ -721,6 +721,13 @@
+             WebSocketState::Active => {
+                 self.state = WebSocketState::ClosedByPeer;
+ 
++                // Gorilla1.5.3's default server close handler acknowledges the
++                // received code with an empty reason. Preserve input provenance,
++                // client behavior and upstream invalid-code handling separately.
++                #[cfg(feature = "livekit-server-close-reply-empty-reason")]
++                let omit_reply_reason = self.role == Role::Server
++                    && close.as_ref().map_or(true, |frame| frame.code.is_allowed());
++
+                 let close = close.map(|frame| {
+                     if !frame.code.is_allowed() {
+                         CloseFrame {
+@@ -732,6 +739,17 @@
+                     }
+                 });
+ 
++                #[cfg(feature = "livekit-server-close-reply-empty-reason")]
++                let reply = {
++                    let mut reply_close = close.clone();
++                    if omit_reply_reason {
++                        if let Some(frame) = &mut reply_close {
++                            frame.reason = Utf8Bytes::from_static("");
++                        }
++                    }
++                    Frame::close(reply_close)
++                };
++                #[cfg(not(feature = "livekit-server-close-reply-empty-reason"))]
+                 let reply = Frame::close(close.clone());
+                 debug!("Replying to close with {reply:?}");
+                 self.set_additional(reply);

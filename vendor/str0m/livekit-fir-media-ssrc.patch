@@ -1,0 +1,226 @@
+diff --git a/src/_internal_test_exports/fuzz.rs b/src/_internal_test_exports/fuzz.rs
+--- a/src/_internal_test_exports/fuzz.rs
++++ b/src/_internal_test_exports/fuzz.rs
+@@ -202,7 +202,7 @@
+     let mut feedback = VecDeque::new();
+     Rtcp::read_packet(data, &mut feedback);
+     // Exercise the feedback conversion as well.
+-    let _ = RtcpFb::from_rtcp(feedback.drain(..)).count();
++    let _ = RtcpFb::from_rtcp(feedback.drain(..), false).count();
+     Some(())
+ }
+ 
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1460,6 +1460,14 @@
+             self.session.receiver_report_rtt.clear();
+             self.session.receiver_report_loss.clear();
+         }
++    }
++
++    /// Require the FIR's common media SSRC to match a target in its FCI.
++    ///
++    /// Disabled by default. Enable this for applications that use LiveKit's
++    /// DownTrack FIR admission semantics.
++    pub fn set_require_fir_media_ssrc(&mut self, enabled: bool) {
++        self.session.require_fir_media_ssrc = enabled;
+     }
+     /// Drain actual authenticated receiver-report RTT observations in arrival
+     /// order, without periodic sampling, TWCC or ICE fallback.
+diff --git a/src/rtp/rtcp/fir.rs b/src/rtp/rtcp/fir.rs
+--- a/src/rtp/rtcp/fir.rs
++++ b/src/rtp/rtcp/fir.rs
+@@ -6,7 +6,9 @@
+ pub struct Fir {
+     /// Sender of this feedback. Mostly irrelevant, but part of RTCP packets.
+     pub sender_ssrc: Ssrc,
+-    /// The SSRC needing a full codec restart.
++    /// Common media source SSRC, separate from the targets in the FCI.
++    pub media_ssrc: Ssrc,
++    /// The streams needing a full codec restart.
+     pub reports: ReportList<FirEntry>,
+ }
+ 
+@@ -33,7 +35,7 @@
+     fn length_words(&self) -> usize {
+         // header
+         // sender SSRC
+-        // media SSRC (set to 0)
++        // media SSRC
+         // reports * FirEntry: SSRC + seqNo
+         1 + 1 + 1 + self.reports.len() * 2
+     }
+@@ -43,8 +45,7 @@
+ 
+         buf[4..8].copy_from_slice(&self.sender_ssrc.to_be_bytes());
+ 
+-        let media_ssrc = self.reports.iter().next().map(|s| *s.ssrc).unwrap_or(0);
+-        buf[8..12].copy_from_slice(&media_ssrc.to_be_bytes());
++        buf[8..12].copy_from_slice(&self.media_ssrc.to_be_bytes());
+ 
+         let mut buf = &mut buf[12..];
+         for r in &self.reports {
+@@ -72,6 +73,7 @@
+         }
+ 
+         let sender_ssrc = u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]).into();
++        let media_ssrc = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]).into();
+ 
+         let mut reports = ReportList::new();
+ 
+@@ -88,6 +90,7 @@
+ 
+         Ok(Fir {
+             sender_ssrc,
++            media_ssrc,
+             reports,
+         })
+     }
+diff --git a/src/rtp/rtcp/rtcpfb.rs b/src/rtp/rtcp/rtcpfb.rs
+--- a/src/rtp/rtcp/rtcpfb.rs
++++ b/src/rtp/rtcp/rtcpfb.rs
+@@ -30,7 +30,10 @@
+         )
+     }
+ 
+-    pub fn from_rtcp<T: IntoIterator<Item = Rtcp>>(t: T) -> impl Iterator<Item = RtcpFb> {
++    pub fn from_rtcp<T: IntoIterator<Item = Rtcp>>(
++        t: T,
++        require_fir_media_ssrc: bool,
++    ) -> impl Iterator<Item = RtcpFb> {
+         let mut q = Vec::new();
+         let iter = t.into_iter();
+         for pkt in iter {
+@@ -65,7 +68,20 @@
+                     q.push(RtcpFb::Pli(v.ssrc));
+                 }
+                 Rtcp::Fir(v) => {
+-                    q.extend(v.reports.into_iter().map(RtcpFb::Fir));
++                    if require_fir_media_ssrc {
++                        // Pion SRTCP routes to distinct FCI targets. LiveKit's
++                        // DownTrack accepts the FIR only when its MediaSSRC
++                        // also addresses that target.
++                        if let Some(report) = v
++                            .reports
++                            .into_iter()
++                            .find(|entry| *v.media_ssrc != 0 && entry.ssrc == v.media_ssrc)
++                        {
++                            q.push(RtcpFb::Fir(report));
++                        }
++                    } else {
++                        q.extend(v.reports.into_iter().map(RtcpFb::Fir));
++                    }
+                 }
+                 Rtcp::Twcc(v) => {
+                     q.push(RtcpFb::Twcc(v));
+@@ -114,7 +130,7 @@
+         };
+ 
+         let rtcp_items = vec![Rtcp::AppSpecificFeedback(fb)];
+-        let result: Vec<_> = RtcpFb::from_rtcp(rtcp_items).collect();
++        let result: Vec<_> = RtcpFb::from_rtcp(rtcp_items, false).collect();
+ 
+         assert_eq!(result.len(), 1);
+         assert!(matches!(&result[0], RtcpFb::AppSpecificFeedback(v) if v.media_ssrc == 200.into()));
+diff --git a/src/session.rs b/src/session.rs
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -91,6 +91,7 @@
+     probe_payload_params: Option<PayloadParams>,
+ 
+     pub(crate) receiver_report_rtt_enabled: bool,
++    pub(crate) require_fir_media_ssrc: bool,
+     pub(crate) receiver_report_loss: VecDeque<crate::ReceiverReportLoss>,
+     pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
+     pub(crate) rtp_stream_restart_detection: bool,
+@@ -215,6 +216,7 @@
+             probe_payload_params: None,
+ 
+             receiver_report_rtt_enabled: false,
++            require_fir_media_ssrc: false,
+             receiver_report_loss: VecDeque::new(),
+             receiver_report_rtt: VecDeque::new(),
+             rtp_stream_restart_detection: false,
+@@ -1151,7 +1153,7 @@
+             Vec::new()
+         };
+ 
+-        for fb in RtcpFb::from_rtcp(self.feedback_rx.drain(..)) {
++        for fb in RtcpFb::from_rtcp(self.feedback_rx.drain(..), self.require_fir_media_ssrc) {
+             if self.remote_feedback_enabled
+                 && let RtcpFb::Remb(report) = fb
+             {
+@@ -3035,6 +3037,61 @@
+     }
+ 
+     #[test]
++    fn actual_srtcp_livekit_fir_requires_the_common_media_ssrc_in_the_fci() {
++        let now = Instant::now();
++        let crypto = crate::crypto::test_default_provider();
++        let profile = SrtpProfile::AES128_CM_SHA1_80;
++        let material = vec![0x42; profile.keying_material_len()];
++        let key = KeyingMaterial::new(&material);
++        let mut peer = SrtpContext::new(crypto, profile, &key, true);
++        let mut session = Session::new(&RtcConfig::default());
++        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++        for (ssrc, mid) in [(101, "a"), (102, "b")] {
++            session
++                .streams
++                .declare_stream_tx(ssrc.into(), None, MidRid(mid.into(), None));
++        }
++
++        let mut deliver = |session: &mut Session, media: u32, targets: [u32; 2], pli| {
++            // Real SRTCP through authentication, RTCP parsing, normalization and
++            // SSRC-to-send-stream dispatch. Both FCI targets are valid streams.
++            let mut bytes = vec![0x84, 206, 0, 6];
++            bytes.extend_from_slice(&999u32.to_be_bytes());
++            bytes.extend_from_slice(&media.to_be_bytes());
++            for ssrc in targets {
++                bytes.extend_from_slice(&ssrc.to_be_bytes());
++                bytes.extend_from_slice(&[1, 0, 0, 0]);
++            }
++            if pli {
++                bytes.extend_from_slice(&[0x81, 206, 0, 2]);
++                bytes.extend_from_slice(&999u32.to_be_bytes());
++                bytes.extend_from_slice(&101u32.to_be_bytes());
++            }
++            session.handle_rtcp_receive(now, &peer.protect_rtcp(&bytes));
++            std::iter::from_fn(|| session.streams.poll_keyframe_request())
++                .map(|request| (request.mid, request.kind))
++                .collect::<Vec<_>>()
++        };
++
++        let native = deliver(&mut session, 0, [101, 102], false);
++        assert_eq!(native.len(), 2);
++        assert!(native.contains(&("a".into(), KeyframeRequestKind::Fir)));
++        assert!(native.contains(&("b".into(), KeyframeRequestKind::Fir)));
++
++        session.require_fir_media_ssrc = true;
++        assert!(deliver(&mut session, 0, [101, 102], false).is_empty());
++        assert!(deliver(&mut session, 101, [102, 102], false).is_empty());
++        assert_eq!(
++            deliver(&mut session, 101, [102, 101], false),
++            [("a".into(), KeyframeRequestKind::Fir)]
++        );
++        assert_eq!(
++            deliver(&mut session, 101, [101, 101], true),
++            [("a".into(), KeyframeRequestKind::Pli)]
++        );
++    }
++
++    #[test]
+     fn actual_srtcp_receiver_reports_emit_changed_matched_sender_rtt_and_fence_retired_sources() {
+         use crate::streams::RtpWrite;
+         let start = Instant::now();
+diff --git a/src/streams/receive.rs b/src/streams/receive.rs
+--- a/src/streams/receive.rs
++++ b/src/streams/receive.rs
+@@ -741,6 +741,7 @@
+                 self.stats.firs += 1;
+                 feedback.push_back(Rtcp::Fir(Fir {
+                     sender_ssrc,
++                    media_ssrc: ssrc,
+                     reports: FirEntry {
+                         ssrc,
+                         seq_no: self.next_fir_seq_no(),

@@ -1,0 +1,29 @@
+{
+  "status": "FROZEN_FIXTURE_NOT_EXECUTED_NOT_SYNTAX_CHECKED",
+  "source_sha256": {
+    "livekit-rs-server/tests/interop/participant-data-blob/raw-peer.mjs": "1f12c8b0ddbfca3d717c755db7a360a14cf7ed7b781b469772c9733839854485",
+    "livekit-rs-server/tests/interop/room-api-three-participants/run.mjs": "e60ff716b34f1d40e6aad661f68842b0e8a8179273dc430f063525a26672a908",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/service/roomservice.go": "81edf654a71eb328c07e7632bec2aeb22fed23316de15458ba9403967adcfe00",
+    "references/protocol-stable/protobufs/livekit_rtc.proto": "b15cdd37f7a3c84caed7c00b8177bd196235ced118e31a64511a9811d56ae928",
+    "livekit-rs-server/crates/rtc-core/src/room/requests.rs": "98f1c33e467b167dac41402bb34d5b180015a4a04806cb45bd6b574a521fe4e8",
+    "references/livekit-stable/pkg/service/rtcservice.go": "3681755f84f24b7924dd68e292a8c0ddeed629731eb76d2b437c04e788a9cdc3",
+    "livekit-rs-server/crates/lk-config/src/normalize.rs": "bd3e9ecf653dc73031cf1a49f447b73aa75038b63c9c5970411646e2541a73ec",
+    "livekit-rs-server/crates/rtc-runtime/src/manager.rs": "68647025bf5bc870c9badf6b0b3d3d854380969e71ecaa07f9fc234b6cbc2ada",
+    "livekit-rs-server/crates/lk-compat/src/twirp/room_service.rs": "39285896f1ad47a348836ae0b6605b0d790f4e49d7e7ddf0a3b1020425888d89"
+  },
+  "assets_sha256": {
+    "run.mjs": "d8cbad7cdd3dc6fca43894bb7ea479d9ccac9038f14098d5b7953d10fc3fb2f6",
+    "v2-to-v3.patch": "8e544339d2d4e76dd901170b639260873bf5697b725601a5c3d5cd1c4bf7ecde",
+    "CONTRACT.md": "44cf3be0f40b5e0cea75b5f72a268a21e6df6a8cd134e7f1086cc5ca5184213c"
+  },
+  "scope": "actual unchanged ServerSDK HTTP control API + binary generated WS Join/self response/claims, no RTC claim",
+  "shared_edits": false,
+  "services_or_compilers_run": false,
+  "parent_v1_source_sha256": "357594965bd8465aef3205d8d3513f19fb4f6fdc0fc5eaf03c8ec7a2151e4ac7",
+  "parent_v2_source_sha256": "4a5c11d72568cf3dbd09c443f4c626e633d255c431a7dbd0b54cd7b2cf443eed",
+  "required_owner_get_profile": true
+}

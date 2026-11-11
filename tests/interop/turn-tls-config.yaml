@@ -1,0 +1,25 @@
+# Local test fixture; generate certificates with npm run tls:fixture in tests/interop.
+port: 8080
+bind_addresses: [127.0.0.1]
+rtc:
+  tcp_port: 8081
+  udp_port: 8082
+  node_ip: 127.0.0.1
+  use_external_ip: false
+  enable_loopback_candidate: true
+  ips:
+    includes: [127.0.0.1/32]
+turn:
+  enabled: true
+  domain: turn.localhost
+  tls_port: 5349
+  udp_port: 0
+  external_tls: false
+  cert_file: tests/interop/output/tls/server.pem
+  key_file: tests/interop/output/tls/server-key.pem
+  bind_addresses: [127.0.0.1]
+  relay_range_start: 36000
+  relay_range_end: 36100
+  allow_restricted_peer_cidrs: [127.0.0.1/32]
+logging:
+  level: info

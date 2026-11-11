@@ -1,0 +1,41 @@
+{
+  "schema": "source-bound-notification-port-v1",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "license": "Apache-2.0",
+  "source_sha256": {
+    "references/livekit-stable/pkg/telemetry/events.go": "89414c13ac3ec608a7edd56bb7c14ddeecd3434d7979c0ff39cc1f827588cd99",
+    "references/protocol-stable/egress/notify_options.go": "aab056e1f80174f400a537744c12e690baee0c0b41ece423bcfe5d805cce2f25",
+    "references/protocol-stable/webhook/notifier.go": "a7d8b5e69b543cbd5b84f30ba252e86114910b4835c94be2b2ac462f243dc143",
+    "references/protocol-stable/webhook/resource_url_notifier.go": "fe81af901e30ca6e645277e40d66e89d40cd08d3513b5692c8d3b4f813226acf",
+    "references/protocol-stable/webhook/resource_queue.go": "f35ff6a5dbe61c3655db0adacb2ed86c441d50bc3d8b215ca7a719ec748b7563",
+    "references/protocol-stable/webhook/filter.go": "393dc1afbc99bdbf2c6e6d1ddaa4f1906dfea26e7f2ed9dd1979193d696798f7"
+  },
+  "production_sha256": {
+    "livekit-rs-server/crates/lk-compat/src/webhook/mod.rs": "15adf318c6d0dbe42ab715c4fd4e4e24ae8b7a97a9e6f6b107ca715394e60b89",
+    "livekit-rs-server/crates/lk-compat/src/worker_notifications.rs": "2aee8c0867b5f27eadfe6d8aaa033362bedad370c2e86742c0e99b71ce186aee"
+  },
+  "fixed_source_consumers": {
+    "events.go": "NotifyEvent assigns one EV_ id/current Unix second once before QueueNotify. NotifyEgressEvent includes minimal room sid/name and EgressInfo with GetEgressNotifyOptions; IngressStarted/Ended include minimal room with empty sid; Created/Updated emit analytics only.",
+    "notify_options.go": "All seven actual EgressInfo request arms read their own Webhooks list.",
+    "notifier.go": "NewDefaultNotifier constructs one ResourceURLNotifier per static URL plus exactly one extra ResourceURLNotifier, with independent default-empty filter; QueueNotify static routes first, extras in order; explicit unknown signing key returns no secret for provided signing key and stops later extras.",
+    "resource_url_notifier.go": "One resource key queue per notifier, per-item URL/key/secret; empty signing_key inherits default; errNoKey preserves actual spelling no singing key or secret was provided; queue stop/retirement belongs to same notifier.",
+    "filter.go": "Include wins exclude. DefaultNotifier never passes global filter to its extra notifier. WebhookConfig.filter_params is not consumed by this fixed QueueNotify path."
+  },
+  "implemented_scope": [
+    "Actual IOEvents mapping for egress started/updated/ended and ingress started/ended",
+    "Actual per-request seven-arm extra webhook extraction",
+    "Single independent extra resource FIFO with per-item destination/signing key",
+    "Global filtering independent from fixed allow-all extra filter; unused per-request filter_params retained as upstream behavior, not claimed feature",
+    "First enqueue/key error prevents later extras, preceding items remain enqueued",
+    "Late runtime capture with no static global URLs; shared resource capacity/age/idle/shutdown lifecycle",
+    "Actual signed HTTP/JWT digest/header tests and same-resource across-destination ordering; original room event API retained"
+  ],
+  "known_existing_adaptations": [
+    "Distinct queues remain bounded at 10000 per notifier; source resource map has no equivalent static cap",
+    "Existing per-attempt/connect HTTP bounds, Retry-After cap and drain-await semantics retained",
+    "Default ProtoJSON uses mature shared descriptor serializer to preserve numeric unknown enums; no response default-field dialect substitution"
+  ],
+  "execution": "NOT_RUN_BY_SUBAGENT; coordinator runs actual compiled tests and any official oracle. Static source review is not delivery PASS.",
+  "fixture_compilation_correction": "First coordinator workspace compile exposed unavailable optional axum OriginalUri feature. Test-only receive extractor now uses enabled http::Uri, preserving actual request path and every HTTP assertion; no features or production behavior changed."
+}

@@ -1,0 +1,60 @@
+{
+  "schema": "source-bound-port-v1",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "source_sha256": {
+    "references/livekit-stable/pkg/service/ioservice_sip.go": "320f2b41843e223db511ce53924a83b10ccad4b4ed064c77c8843e41ab61b29f",
+    "references/livekit-stable/pkg/service/ioservice.go": "73360d78bb03f2706f757ab2b5bfffd6fc72a7225ef01fab57e0c263f53156c1",
+    "references/protocol-stable/sip/sip.go": "62dc163b49f64a6cc58386e47cf9c380da1852b9fa185baed9d45d028c0c06f9",
+    "references/protocol-stable/rpc/sip.go": "bd108cc4a001b775cf81c09d245f4517f4d01778f979cb5030a9a43d17729eca",
+    "references/protocol-stable/livekit/sip.go": "0aab27de0f34e1dccfc8d5cbe2c58b65d83069f36f33d9c1eae9a68c20e17098",
+    "references/protocol-stable/livekit/types.go": "ceb7e058779511bfde9f5b2afcfa78d7cd9f5b2413c9ead72314e448522e8c47",
+    "references/protocol-stable/livekit/attrs.go": "df4a8ebf4e9f0deb89e25757551fbdf4f274847a3d975312cb204c4af20cf341",
+    "references/protocol-stable/utils/guid/id.go": "f9225a90d0e391075f004ce3fb889faf0abc7e0ce6fba311dd6fd3c9cac0450e",
+    "references/psrpc/errors.go": "595d7fed393c73122019286415206428de82df85ee66f4b341b64c9b19ad5230",
+    "references/go-stdlib-1.26.0/src/net/netip/netip.go": "dbebdcbfd55f9619d57f55910b2af6240adb84dcd58bc76b9b396e479b91815e",
+    "livekit-rs-server/crates/lk-compat/src/sip/domain/go_print.rs": "527743afb4f2f13544cc853317b2349f4a2a688c5c099bf6201ce39ef3107b9e"
+  },
+  "port_sha256": {
+    "mod.rs": "3f688a3b6b80670bd4f81ce136ff4e42181a82c51f47b98fe381277f802f3e58",
+    "netip.rs": "de61a70a0945d3993abfece9f79dfbaeecbee645ace79656ad149d0a734e46b9",
+    "tests.rs": "b8c09b1b0f6d05132047370185f27345017f5913703d1fbc0359b6722d247442",
+    "oracle_tests.rs": "9e55a981d5e8ab7d08f20f12158e7f6a3b3bb1274d2d018bafd506e86b06ffc2"
+  },
+  "additional_production_inputs_sha256": {
+    "livekit-rs-server/crates/lk-compat/src/sip/wire.rs": "964eb2cad8a27140f2e9cae86f1dc3fd3dc5a1df1ebd1c6ab7e3cfc33d058a9b",
+    "livekit-rs-server/crates/lk-compat/src/sip/wire/raw_tree.rs": "04242981e43e26b73174bab477925fc22ba2553e7aeb9d58b3a590b8f9ffc2d0"
+  },
+  "oracle_sha256": {
+    "main.go": "5c78772c83967d202937b77df33ac53dc8ce0cff56ba0ad504a8b371114f8b12",
+    "go.mod": "132df792e908e8919fae9e3e84b7ca8f1aa1f408b6f51c8360ab33009e8e77f4",
+    "go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "cases.json": "c233234fa172c9dd8790b168deed3d134af6a944faf5f310bdd4046aea13b2c6",
+    "README.md": "096dfd2ad44c911d61362591daee4f718d45da95df993c91bd39bb486d9d73d6"
+  },
+  "license_sha256": {
+    "LICENSE-GO": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "execution": "NOT_RUN_BY_SUBAGENT; coordinator owns actual Go/Rust/Redis/PSRPC execution evidence",
+  "scope": [
+    "Real Redis-backed catalog filtering and best-effort explicit trunk-ID lookup",
+    "Specific/default trunk conflict checks, caller/called normalization and address masks",
+    "Dispatch validation and priority, specific trunk precedence, PIN prompt/no-PIN/wrong-PIN rules",
+    "Legacy SIPCall normalization and exact legacy request filter semantics",
+    "Privacy hash/name, deterministic/random room naming, attributes and RoomConfiguration",
+    "Media upgrade/merge and source-owned unknown nested media/codecs/timeouts/config provenance",
+    "Auth credential/realm/provider response; explicit disconnected error"
+  ],
+  "adaptations": [
+    "Explicit async catalog operations replace Go context calls; no extra background task or global unknown-field cache",
+    "Generated Rust cannot encode an invalid UTF-8 privacy suffix: returned ordinary wire error instead of manufacturing replacement characters",
+    "Go netip address-validation/error logic is ported, not a new address matching policy",
+    "Random room IDs reuse the existing shortuuid-alphabet/new_sid generator; no target or synthetic successful result fallback"
+  ],
+  "remaining_acceptance": [
+    "Actual Go48 oracle and Rust real catalog comparison",
+    "Actual registered IOInfo PSRPC response envelope and unknown nested wire acceptance",
+    "SIP carrier/media call behavior remains an external worker acceptance boundary"
+  ]
+}

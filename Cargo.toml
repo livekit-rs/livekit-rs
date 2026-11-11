@@ -1,0 +1,189 @@
+[workspace]
+resolver = "3"
+exclude = [
+    "vendor/rustls",
+    "vendor/rustls-webpki",
+    "vendor/redis",
+    "vendor/sctp-proto",
+    "vendor/str0m",
+    "vendor/tungstenite",
+    "vendor/prost-reflect",
+    "vendor/prost-derive",
+    "vendor/h3",
+    "vendor/h3-quinn",
+    "vendor/axum",
+    "vendor/hyper",
+    "vendor/quinn-proto",
+]
+members = [
+    "crates/lk-protocol",
+    "crates/lk-config",
+    "crates/lk-compat",
+    "crates/rtc-core",
+    "crates/rtc-crypto",
+    "crates/rtc-media",
+    "crates/rtc-turn",
+    "crates/rtc-tls",
+    "crates/rtc-runtime",
+    "crates/lk-quic-crypto",
+    "crates/lk-webtransport",
+    "crates/livecloud",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+publish = false
+
+# Versions follow livekit-rs-docs/specs/0001-dependencies.md (DEP-01/DEP-02).
+# The RustCrypto 0.x series used by rtc-crypto is pinned to the series that
+# str0m 0.24.1 / dimpl 0.7.x are built against; see the upgrade tracking table.
+[workspace.dependencies]
+libc = "=0.2.191"
+getifs = { version = "=0.7.0", default-features = false }
+# internal
+lk-protocol = { path = "crates/lk-protocol" }
+lk-config = { path = "crates/lk-config" }
+lk-compat = { path = "crates/lk-compat" }
+lk-webtransport = { path = "crates/lk-webtransport" }
+rtc-core = { path = "crates/rtc-core" }
+rtc-crypto = { path = "crates/rtc-crypto" }
+rtc-media = { path = "crates/rtc-media" }
+rtc-turn = { path = "crates/rtc-turn" }
+rtc-tls = { path = "crates/rtc-tls" }
+rtc-runtime = { path = "crates/rtc-runtime" }
+lk-quic-crypto = { path = "crates/lk-quic-crypto" }
+
+# media
+str0m = { version = "=0.24.1", default-features = false }
+str0m-proto = { version = "=0.7.0", default-features = false, features = ["dtls"] }
+dimpl = { version = "=0.7.6", default-features = false, features = ["rust-crypto"] }
+
+# RustCrypto series compatible with str0m 0.24.1 provider traits
+aes = "=0.8.4"
+aes-gcm = "=0.10.3"
+ctr = "=0.9.2"
+hmac = "=0.12.1"
+sha1 = "=0.10.7"
+sha2 = "=0.10.9"
+sha2-oid = { package = "sha2", version = "=0.11.1", default-features = false, features = ["oid"] }
+md-5 = "=0.10.6"
+crc32fast = "=1.5.3"
+# DTLS certificate generation only produces DER, so it can use the latest series.
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "std"] }
+x509-cert = { version = "=0.3.0", default-features = false, features = ["builder", "std"] }
+getrandom = "=0.4.3"
+subtle = "=2.6.1"
+
+# runtime / networking
+tokio = { version = "=1.54.1", default-features = false, features = ["rt-multi-thread", "net", "time", "sync", "macros", "signal", "io-util", "fs"] }
+tokio-util = "=0.7.20"
+socket2 = { version = "=0.6.5", features = ["all"] }
+bytes = "=1.12.1"
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+
+# http
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "ws", "query"] }
+hyper = "=1.12.0"
+tower = "=0.5.3"
+tower-http = { version = "=0.7.1", features = ["limit", "trace"] }
+reqwest = { version = "=0.13.5", default-features = false }
+redis = { version = "=1.8.0", default-features = false, features = ["tokio-comp", "tls-rustls", "tokio-rustls-comp", "tls-rustls-insecure", "cluster-async"] }
+# SPEC-0074 C10: lk-compat dials a Redis TLS connection whose SNI/verification
+# name is set independently of the address host (xtls.ServerName). Same pinned
+# default-features=false rustls stack as rtc-tls (custom-provider, no aws-lc/ring).
+tokio-rustls = { version = "=0.26.6", default-features = false }
+# SPEC-0074 C15: QUIC transport for the WebTransport/HTTP-3 listener. Only the
+# transport state machine is used; its crypto abstraction is satisfied by the
+# pure-Rust rtc-tls provider (see rtc-tls `quinn` feature), so the default
+# `rustls-ring` provider is disabled and no ring/aws-lc is reachable.
+quinn-proto = { version = "=0.11.19", default-features = false }
+# Quinn high-level async Endpoint over the pure-Rust quinn-proto (rtc-tls
+# `quinn` feature supplies the crypto traits). `rustls-ring`/`ring`/`aws-lc-rs`
+# and the `Endpoint::client/server` conveniences (gated on those) stay disabled;
+# endpoints are built via `Endpoint::new` with our own configs and runtime.
+quinn = { version = "=0.11.12", default-features = false, features = ["runtime-tokio", "futures-io", "bloom"] }
+# RFC 9114 stack driving QUIC through Quinn; WT stream/session primitives come
+# from its public `webtransport`/`stream`/`proto` surfaces. The third-party
+# backend feature is the same escape hatch upstream `h3-webtransport` opts into:
+# it exposes `connection`/`frame`/`proto`/`stream`/`webtransport` internals and
+# the peek-first-frame resolver needed for mixed CONNECT/WT stream routing.
+h3 = { version = "=0.0.8", default-features = false, features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+h3-quinn = { version = "=0.0.10", default-features = false }
+# h3's public API is typed over `http`; same version h3 0.0.8 resolves.
+http = "=1.5.0"
+rustls-pki-types = { version = "=1.15.1", features = ["std"] }
+
+# protocol
+prost = "=0.14.4"
+prost-build = "=0.14.4"
+prost-types = "=0.14.4"
+prost-reflect = { version = "=0.16.5", features = ["serde"] }
+protox = "=0.10.0"
+pbjson = "=0.9.0"
+pbjson-build = "=0.9.0"
+pbjson-types = "=0.9.0"
+
+# serialization / config
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["raw_value", "float_roundtrip"] }
+serde-saphyr = "=2.0.0"
+clap = { version = "=4.6.7", default-features = false, features = ["std", "help", "usage", "error-context", "env"] }
+
+# security
+jsonwebtoken = { version = "=11.1.0", default-features = false }
+
+# misc
+base64 = "=0.23.1"
+flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+rand = "=0.10.3"
+thiserror = "=2.0.21"
+tracing = "=0.1.44"
+tracing-core = "=0.1.36"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "env-filter", "json", "ansi", "std"] }
+prometheus-client = "=0.25.1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Traced minimal metadata extension, SPEC-0006; never depends on references/.
+[patch.crates-io]
+rustls = { path = "vendor/rustls" }
+rustls-webpki = { path = "vendor/rustls-webpki" }
+redis = { path = "vendor/redis" }
+rpprof = { path = "vendor/rpprof" }
+smallvec-wrapper = { path = "vendor/smallvec-wrapper" }
+is = { path = "vendor/is" }
+tungstenite = { path = "vendor/tungstenite" }
+dimpl = { path = "vendor/dimpl" }
+str0m = { path = "vendor/str0m" }
+
+prost-reflect = { path = "vendor/prost-reflect" }
+prost-derive = { path = "vendor/prost-derive" }
+
+sctp-proto = { path = "vendor/sctp-proto" }
+
+# Final WebTransport HTTP/3 settings (SPEC-0074 C15): upstream h3 0.0.8 only
+# carries the draft-ietf-webtrans-http3-06 setting ids, so its SETTINGS block is
+# invisible to webtransport-go v0.12.0 -- the client pinned by the LiveKit
+# reference server, which requires `SETTINGS_WT_ENABLED`. The fork adds that id
+# and the final `SETTINGS_WT_MAX_SESSIONS`; see vendor/h3/webtransport-final-settings.patch.
+h3 = { path = "vendor/h3" }
+
+# RESET_STREAM_AT reception (SPEC-0074 C15): quinn-proto 0.11.19 has no notion of
+# draft-ietf-quic-reliable-stream-reset, so it rejects frame type 0x24 as an unknown
+# frame ID and kills the connection. Because the WebTransport listener advertises the
+# `reset_stream_at` transport parameter, that rejection is a protocol violation on our
+# side; the fork decodes the frame and delivers the reliable prefix it names. See
+# vendor/quinn-proto/stream-reset-partial-delivery.patch.
+quinn-proto = { path = "vendor/quinn-proto" }
+
+# Cancel-safe pending reads retain the receiver for STOP_SENDING (W01).
+h3-quinn = { path = "vendor/h3-quinn" }
+
+# Explicit RFC7692 negotiation at the RTC upgrade boundary.
+axum = { path = "vendor/axum" }
+hyper = { path = "vendor/hyper" }

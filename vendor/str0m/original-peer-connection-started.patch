@@ -1,0 +1,52 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -924,6 +924,9 @@
+     ice: IceAgent,
+     dtls: Dtls,
+     dtls_connected: bool,
++    // Native DTLS setup has started; distinct from ICE bookkeeping Checking
++    // before remote SDP and from the later authenticated Connected event.
++    connection_started_pending: bool,
+     sped_enabled: bool,
+     sped_plain: std::collections::VecDeque<net::DatagramSend>,
+     dtls_buf: Vec<u8>,
+@@ -966,6 +969,11 @@
+ pub enum Event {
+     // =================== ICE related events ===================
+ 
++    /// A valid remote description/direct setup initialized native DTLS. This
++    /// is the first aggregate PC!=New boundary, not DTLS Connected. A fresh
++    /// Rtc reports it once; ICE restarts of that logical PC do not replay it.
++    ConnectionStarted,
++
+     /// Emitted when we got ICE connection and established DTLS.
+     Connected,
+ 
+@@ -1307,6 +1315,7 @@
+             )
+             .expect("DTLS to init without problem"),
+             dtls_connected: false,
++            connection_started_pending: false,
+             sped_enabled: config.sped_enabled,
+             sped_plain: Default::default(),
+             dtls_buf: vec![0; 2000],
+@@ -1608,6 +1617,7 @@
+             let _ = self.dtls.handle_receive(&[]);
+         }
+ 
++        self.connection_started_pending = true;
+         Ok(())
+     }
+ 
+@@ -1699,6 +1709,11 @@
+         if self.state == RtcState::Closed {
+             self.last_timeout_reason = Reason::NotHappening;
+             return Ok(Some(Output::Timeout(not_happening())));
++        }
++
++        if self.state == RtcState::Alive && self.connection_started_pending {
++            self.connection_started_pending = false;
++            return Ok(Some(Output::Event(Event::ConnectionStarted)));
+         }
+ 
+         while let Some(e) = self.ice.poll_event() {

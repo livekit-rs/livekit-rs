@@ -1,0 +1,98 @@
+[
+  {
+    "id": "empty",
+    "input": ""
+  },
+  {
+    "id": "quote",
+    "input": "a\"b"
+  },
+  {
+    "id": "backslash",
+    "input": "a\\b"
+  },
+  {
+    "id": "nul",
+    "input": "\u0000"
+  },
+  {
+    "id": "bell",
+    "input": "\u0007"
+  },
+  {
+    "id": "backspace",
+    "input": "\b"
+  },
+  {
+    "id": "form-feed",
+    "input": "\f"
+  },
+  {
+    "id": "newline",
+    "input": "a\nb"
+  },
+  {
+    "id": "carriage-return",
+    "input": "a\rb"
+  },
+  {
+    "id": "tab",
+    "input": "a\tb"
+  },
+  {
+    "id": "vertical-tab",
+    "input": "\u000b"
+  },
+  {
+    "id": "ascii-control",
+    "input": "\u001f"
+  },
+  {
+    "id": "delete",
+    "input": "\u007f"
+  },
+  {
+    "id": "C1",
+    "input": "\u0085"
+  },
+  {
+    "id": "nbsp",
+    "input": "\u00a0"
+  },
+  {
+    "id": "soft-hyphen",
+    "input": "\u00ad"
+  },
+  {
+    "id": "han",
+    "input": "\u6c49"
+  },
+  {
+    "id": "accent",
+    "input": "\u00e9"
+  },
+  {
+    "id": "combining",
+    "input": "\u0301"
+  },
+  {
+    "id": "line-separator",
+    "input": "\u2028"
+  },
+  {
+    "id": "paragraph-separator",
+    "input": "\u2029"
+  },
+  {
+    "id": "private-use",
+    "input": "\ue000"
+  },
+  {
+    "id": "emoji",
+    "input": "\ud83d\ude00"
+  },
+  {
+    "id": "supplementary-private-use",
+    "input": "\udbc0\udc00"
+  }
+]

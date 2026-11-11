@@ -1,0 +1,269 @@
+--- a/src/alloc.rs
++++ b/src/alloc.rs
+@@ -198,7 +198,18 @@
+             if !in_alloc.get() {
+                 in_alloc.set(true);
+                 record_dealloc(ptr as usize, layout.size());
+-                record_sample(new_ptr as usize, new_size);
++                // Reallocation follows the same byte budget as allocation;
++                // recording every Vec/String growth otherwise amplifies the
++                // profiler's cost independently of its configured sample rate.
++                let _ = BYTES_LEFT.try_with(|bytes_left| {
++                    let remaining = bytes_left.get() - new_size as isize;
++                    if remaining <= 0 {
++                        bytes_left.set(SAMPLE_RATE.load(Ordering::Relaxed) as isize);
++                        record_sample(new_ptr as usize, new_size);
++                    } else {
++                        bytes_left.set(remaining);
++                    }
++                });
+                 in_alloc.set(false);
+             }
+         });
+@@ -531,50 +542,107 @@
+ 
+ /// Takes a snapshot of recorded heap allocations and resolves symbol information.
+ pub fn heap_report() -> Result<HeapReport> {
++    without_tracking(|| heap_report_inner(|ip, callback| backtrace::resolve(ip, callback)))
++}
++
++/// Exclude only this collector thread's implementation allocations. Other
++/// workers keep recording real allocations/deallocations during symbolization.
++pub fn without_tracking<T>(collect: impl FnOnce() -> T) -> T {
++    struct Restore(bool);
++    impl Drop for Restore {
++        fn drop(&mut self) {
++            IN_ALLOC.with(|value| value.set(self.0));
++        }
++    }
++    let previous = IN_ALLOC.with(|value| value.replace(true));
++    let _restore = Restore(previous);
++    collect()
++}
++
++fn heap_report_inner(
++    mut resolve: impl FnMut(*mut std::ffi::c_void, &mut dyn FnMut(&backtrace::Symbol)),
++) -> Result<HeapReport> {
+     let s = state();
+-    let data_read = s.callsites.read().unwrap();
+-    let mut records = Vec::with_capacity(data_read.len());
+-
+-    for data in data_read.values() {
++    // Capture address stacks and actual atomic counters under the read lock,
++    // then release it before any expensive native symbol resolution.
++    let raw = {
++        let data_read = s.callsites.read().unwrap();
++        data_read
++            .values()
++            .map(|data| {
++                (
++                    data.ips.clone(),
++                    data.alloc_objects.load(Ordering::Relaxed),
++                    data.alloc_bytes.load(Ordering::Relaxed),
++                    data.inuse_objects.load(Ordering::Relaxed),
++                    data.inuse_bytes.load(Ordering::Relaxed),
++                )
++            })
++            .collect::<Vec<_>>()
++    };
++    let timestamp = SystemTime::now();
++    let mut records = Vec::with_capacity(raw.len());
++    let mut resolved = HashMap::<usize, Vec<Symbol>>::new();
++    for (ips, alloc_objects, alloc_bytes, inuse_objects, inuse_bytes) in raw {
+         let mut frames_vec = Vec::new();
+ 
+-        for &ip in &data.ips {
+-            let mut symbols = Vec::new();
+-            backtrace::resolve(ip as *mut _, |sym| {
+-                symbols.push(Symbol {
+-                    name: sym.name().map(|n| n.as_bytes().to_vec()),
+-                    addr: sym.addr(),
+-                    lineno: sym.lineno(),
+-                    filename: sym.filename().map(|f| f.to_path_buf()),
++        for ip in ips {
++            let symbols = resolved.entry(ip).or_insert_with(|| {
++                let mut symbols = Vec::new();
++                resolve(ip as *mut _, &mut |sym| {
++                    symbols.push(Symbol {
++                        name: sym.name().map(|n| n.as_bytes().to_vec()),
++                        addr: sym.addr(),
++                        lineno: sym.lineno(),
++                        filename: sym.filename().map(|f| f.to_path_buf()),
++                    });
+                 });
++                symbols
+             });
+-
+             if !symbols.is_empty() {
+-                frames_vec.push(symbols);
+-            }
+-        }
+-
++                frames_vec.push(symbols.clone());
++            }
++        }
++
++        trim_allocator_prefix(&mut frames_vec);
+         let frames = Frames {
+             frames: frames_vec,
+             thread_name: String::new(),
+             thread_id: 0,
+-            sample_timestamp: SystemTime::now(),
++            sample_timestamp: timestamp,
+         };
+ 
+         records.push(HeapRecord {
+             frames,
+-            alloc_objects: data.alloc_objects.load(Ordering::Relaxed),
+-            alloc_bytes: data.alloc_bytes.load(Ordering::Relaxed),
+-            inuse_objects: data.inuse_objects.load(Ordering::Relaxed),
+-            inuse_bytes: data.inuse_bytes.load(Ordering::Relaxed),
++            alloc_objects,
++            alloc_bytes,
++            inuse_objects,
++            inuse_bytes,
+         });
+     }
+ 
+     Ok(HeapReport {
+         records,
+         sample_rate: SAMPLE_RATE.load(Ordering::Relaxed),
+-        timestamp: SystemTime::now(),
++        timestamp,
+     })
++}
++
++/// Remove only symbolically confirmed stack-capture/allocator prefix frames.
++/// All allocation cohorts/counters and the actual application caller remain.
++fn trim_allocator_prefix(frames: &mut Vec<Vec<Symbol>>) {
++    let end = frames.iter().rposition(|frame| {
++        frame.iter().any(|symbol| {
++            let name = symbol.name();
++            name.contains("rpprof::alloc::record_sample")
++                || (name.contains("rpprof::alloc::AllocProfiler") && name.contains("GlobalAlloc"))
++        })
++    });
++    if let Some(end) = end
++        && end + 1 < frames.len()
++    {
++        frames.drain(..=end);
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -596,9 +664,47 @@
+         let ptr = unsafe { profiler.alloc(layout) };
+         assert!(!ptr.is_null());
+ 
+-        let report = heap_report().unwrap();
++        let mut resolved = std::collections::HashSet::new();
++        let report = without_tracking(|| {
++            heap_report_inner(|ip, callback| {
++                assert!(
++                    state().callsites.try_write().is_ok(),
++                    "native symbolization must not hold the callsite lock"
++                );
++                assert!(
++                    resolved.insert(ip as usize),
++                    "resolve each observed PC once"
++                );
++                backtrace::resolve(ip, callback);
++            })
++        })
++        .unwrap();
++        assert!(
++            !resolved.is_empty(),
++            "resolve actual allocation stack addresses"
++        );
+         assert!(report.total_alloc_bytes() >= 1024);
+         assert!(!report.records.is_empty());
++        assert!(
++            report
++                .records
++                .iter()
++                .any(|record| !record.frames.frames.is_empty())
++        );
++        for record in &report.records {
++            if let Some(first) = record.frames.frames.first() {
++                assert!(
++                    first
++                        .iter()
++                        .all(|symbol| !symbol.name().contains("rpprof::alloc::record_sample"))
++                );
++                assert!(first.iter().all(|symbol| {
++                    !symbol
++                        .name()
++                        .contains("backtrace::backtrace::libunwind::trace")
++                }));
++            }
++        }
+ 
+         let inuse_rep = report.to_inuse_report();
+         assert!(inuse_rep.total_samples() >= 1024);
+@@ -614,8 +720,32 @@
+ 
+         unsafe { profiler.dealloc(ptr, layout) };
+ 
++        // Actual reallocations below the remaining byte budget must not
++        // trigger a new stack capture on every String/Vec growth.
++        reset();
++        set_sample_rate(1024 * 1024);
++        BYTES_LEFT.with(|value| value.set(1024 * 1024));
++        let small = Layout::from_size_align(16, 8).unwrap();
++        let original = unsafe { profiler.alloc(small) };
++        let larger = unsafe { profiler.realloc(original, small, 32) };
++        assert!(!larger.is_null());
++        assert_eq!(heap_report().unwrap().total_alloc_bytes(), 0);
++        unsafe { profiler.dealloc(larger, Layout::from_size_align(32, 8).unwrap()) };
+         stop();
+         assert!(!is_active());
+         reset();
+     }
+-}
++
++    #[test]
++    fn collector_exclusion_is_nested_and_panic_safe() {
++        assert!(!IN_ALLOC.with(Cell::get));
++        without_tracking(|| {
++            assert!(IN_ALLOC.with(Cell::get));
++            without_tracking(|| assert!(IN_ALLOC.with(Cell::get)));
++            assert!(IN_ALLOC.with(Cell::get));
++        });
++        assert!(!IN_ALLOC.with(Cell::get));
++        let _ = std::panic::catch_unwind(|| without_tracking(|| panic!("collector aborted")));
++        assert!(!IN_ALLOC.with(Cell::get));
++    }
++}
+--- a/src/report.rs
++++ b/src/report.rs
+@@ -497,6 +497,10 @@
+                         };
+                         let loc = protos::Location {
+                             id: function_id,
++                            // Preserve the real resolved native function address.
++                            // A default zero makes CPU profiles impossible to
++                            // resolve through the public pprof symbol endpoint.
++                            address: symbol.addr.map(|address| address as usize as u64).unwrap_or(0),
+                             line: vec![line].into(),
+                             ..protos::Location::default()
+                         };
+--- a/src/frames.rs
++++ b/src/frames.rs
+@@ -213,7 +213,16 @@
+                 symbols.push(perfmap_symbol);
+             } else {
+                 frame.resolve_symbol(|symbol| {
+-                    let symbol = Symbol::from(symbol);
++                    let mut symbol = Symbol::from(symbol);
++                    // Symbol resolution can supply a name but no function
++                    // base (notably Mach-O without debug info). Retain the
++                    // actual sampled instruction pointer for pprof lookup.
++                    if symbol.addr.is_none_or(|address| address.is_null()) {
++                        let ip = crate::backtrace::Frame::ip(frame);
++                        if ip != 0 {
++                            symbol.addr = Some(ip as *mut c_void);
++                        }
++                    }
+                     symbols.push(symbol);
+                 });
+             }

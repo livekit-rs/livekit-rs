@@ -1,0 +1,50 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 01e7bd3a..5c369704 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1487,6 +1487,12 @@ impl Rtc {
+         self.session.video_packet_events = enabled;
+     }
+ 
++    /// Widen enabled video packet events beyond AV1 and VP9 to all video
++    /// codecs. Disabled by default; does not change normal frame events.
++    pub fn set_all_video_packet_events(&mut self, enabled: bool) {
++        self.session.all_video_packet_events = enabled;
++    }
++
+     /// Enable the fixed Go five-rejected-packet source restart detector.
+     /// Default false; transport crypto, ICE and SCTP are retained on restart.
+     pub fn set_rtp_stream_restart_detection(&mut self, enabled: bool) {
+diff --git a/src/session.rs b/src/session.rs
+index 7c1cb6a8..8cd0f48d 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -128,6 +128,7 @@ pub(crate) struct Session {
+     // Next packet for RtpPacket event.
+     pending_packet: Option<RtpPacket>,
+     pub(crate) video_packet_events: bool,
++    pub(crate) all_video_packet_events: bool,
+     pending_media_packet: Option<crate::media::MediaPacket>,
+ 
+     // Total RTP payload bytes for media, including retransmissions.
+@@ -245,6 +246,7 @@ impl Session {
+             poll_packet_buf: vec![0; 2000],
+             pending_packet: None,
+             video_packet_events: false,
++            all_video_packet_events: false,
+             pending_media_packet: None,
+             media_bytes_rx: 0,
+             node_traffic: Default::default(),
+@@ -1058,10 +1060,10 @@ impl Session {
+         }
+ 
+         if self.video_packet_events
+-            && matches!(
++            && (matches!(
+                 packet_params.spec().codec,
+                 crate::format::Codec::Av1 | crate::format::Codec::Vp9
+-            )
++            ) || (self.all_video_packet_events && packet_params.spec().codec.is_video()))
+             && receipt.is_new_packet
+         {
+             self.pending_media_packet = Some(crate::media::MediaPacket {

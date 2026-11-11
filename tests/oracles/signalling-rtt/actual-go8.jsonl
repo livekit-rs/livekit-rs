@@ -1,0 +1,8 @@
+{"forward":false,"input":-1}
+{"forward":false,"input":0}
+{"converted":1,"forward":true,"input":1}
+{"converted":95,"forward":true,"input":95}
+{"converted":4294967295,"forward":true,"input":4294967295}
+{"converted":0,"forward":true,"input":4294967296}
+{"converted":1,"forward":true,"input":4294967297}
+{"converted":4294967295,"forward":true,"input":9223372036854775807}

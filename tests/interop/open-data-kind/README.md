@@ -1,0 +1,3 @@
+# Actual API data kind and native channel consumer
+
+Use the unchanged official SDK/protocol packages from the pinned parent interop directory. V2-IDENTITY-CONTRACT.md describes required launch receipts and environment. Start the fixed original main first and run Single and dual profiles into fresh results. Set REFERENCE_RESULTS to the matching actual source result when testing the candidate. All six signed kinds require the actual target native channel label, reliability, original protobuf kind and SDK callback; the non-target must receive nothing. The fixture does not implement reliable JOINING cache, publication restart or general writer completion semantics.

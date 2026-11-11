@@ -1,0 +1,1167 @@
+// Copyright 2023 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package config
+
+import (
+	"fmt"
+	"os"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/mitchellh/go-homedir"
+	"github.com/pkg/errors"
+	"github.com/urfave/cli/v3"
+	"gopkg.in/yaml.v3"
+
+	"github.com/livekit/mediatransportutil/pkg/rtcconfig"
+	"github.com/livekit/protocol/codecs/mime"
+	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
+	redisLiveKit "github.com/livekit/protocol/redis"
+	"github.com/livekit/protocol/rpc"
+	"github.com/livekit/protocol/webhook"
+
+	"github.com/livekit/livekit-server/pkg/agent"
+	"github.com/livekit/livekit-server/pkg/metric"
+	"github.com/livekit/livekit-server/pkg/sfu"
+	"github.com/livekit/livekit-server/pkg/sfu/bwe/remotebwe"
+	"github.com/livekit/livekit-server/pkg/sfu/bwe/sendsidebwe"
+	"github.com/livekit/livekit-server/pkg/sfu/pacer"
+	"github.com/livekit/livekit-server/pkg/sfu/streamallocator"
+)
+
+const (
+	generatedCLIFlagUsage = "generated"
+
+	// TURNMaxTTLSeconds is the operational maximum for TURN credential TTLs (24 hours).
+	// It bounds credential lifetime and prevents time.Duration overflow when multiplying
+	// by time.Second (values above ~9.2e9 seconds wrap on 64-bit builds).
+	TURNMaxTTLSeconds = 24 * 60 * 60
+
+	// DefaultTURNTTLSeconds is the default TTL for embedded TURN credentials, and the
+	// fallback used when a configured TTL is <= 0.
+	DefaultTURNTTLSeconds = 300
+
+	// DefaultExternalTURNTTLSeconds is the default TTL applied to external TURN
+	// (static-auth-secret) credentials when the configured TTL is left at 0.
+	DefaultExternalTURNTTLSeconds = 14400
+
+	// DefaultTURNPerUserRelayAllocationLimit bounds how many concurrent relay
+	// allocations a single participant credential may hold on the embedded TURN
+	// server. It prevents one authenticated participant from exhausting the
+	// shared relay-port range for everyone else. A value <= 0 disables the quota.
+	DefaultTURNPerUserRelayAllocationLimit = 12
+)
+
+var (
+	ErrKeyFileIncorrectPermission        = errors.New("key file others permissions must be set to 0")
+	ErrTURNSecretFileIncorrectPermission = errors.New("turn secret file others permissions must be set to 0")
+	ErrKeysNotSet                        = errors.New("one of key-file or keys must be provided")
+	ErrTURNSecretEmpty                   = errors.New("turn secret is empty")
+	ErrTURNServerNoCredentials           = errors.New("turn server has no usable credentials: set a non-empty secret/secret_file for dynamic auth, or username and credential for static auth")
+)
+
+type Config struct {
+	Port          uint32   `yaml:"port,omitempty"`
+	BindAddresses []string `yaml:"bind_addresses,omitempty"`
+	// PrometheusPort is deprecated
+	PrometheusPort uint32                   `yaml:"prometheus_port,omitempty"`
+	Prometheus     PrometheusConfig         `yaml:"prometheus,omitempty"`
+	DebugHandler   DebugHandlerConfig       `yaml:"debug_handler,omitempty"`
+	WebTransport   WebTransportConfig       `yaml:"webtransport,omitempty"`
+	RTC            RTCConfig                `yaml:"rtc,omitempty"`
+	Redis          redisLiveKit.RedisConfig `yaml:"redis,omitempty"`
+	Audio          sfu.AudioConfig          `yaml:"audio,omitempty"`
+	Video          VideoConfig              `yaml:"video,omitempty"`
+	Room           RoomConfig               `yaml:"room,omitempty"`
+	TURN           TURNConfig               `yaml:"turn,omitempty"`
+	Ingress        IngressConfig            `yaml:"ingress,omitempty"`
+	SIP            SIPConfig                `yaml:"sip,omitempty"`
+	WebHook        webhook.WebHookConfig    `yaml:"webhook,omitempty"`
+	NodeSelector   NodeSelectorConfig       `yaml:"node_selector,omitempty"`
+	KeyFile        string                   `yaml:"key_file,omitempty"`
+	Keys           map[string]string        `yaml:"keys,omitempty"`
+	Region         string                   `yaml:"region,omitempty"`
+	SignalRelay    SignalRelayConfig        `yaml:"signal_relay,omitempty"`
+	PSRPC          rpc.PSRPCConfig          `yaml:"psrpc,omitempty"`
+	// Deprecated: LogLevel is deprecated
+	LogLevel string        `yaml:"log_level,omitempty"`
+	Logging  LoggingConfig `yaml:"logging,omitempty"`
+	Limit    LimitConfig   `yaml:"limit,omitempty"`
+	Agents   agent.Config  `yaml:"agents,omitempty"`
+
+	Development bool `yaml:"development,omitempty"`
+
+	Metric metric.MetricConfig `yaml:"metric,omitempty"`
+	Trace  TracingConfig       `yaml:"trace,omitempty"`
+
+	NodeStats NodeStatsConfig `yaml:"node_stats,omitempty"`
+
+	EnableDataTracks bool `yaml:"enable_data_tracks,omitempty"`
+
+	EnableParticipantDataBlob bool `yaml:"enable_participant_data_blob,omitempty"`
+
+	API APIConfig `yaml:"api,omitempty"`
+}
+
+// WebTransportConfig is the node's HTTP/3 listener. QUIC has no plaintext mode,
+// so a certificate is required; development mode generates a self-signed one.
+type WebTransportConfig struct {
+	// Port is the UDP port to listen on. 0 starts no listener.
+	Port        uint32 `yaml:"port,omitempty"`
+	TLSCertFile string `yaml:"tls_cert_file,omitempty"`
+	TLSKeyFile  string `yaml:"tls_key_file,omitempty"`
+}
+
+type RTCConfig struct {
+	rtcconfig.RTCConfig `yaml:",inline"`
+
+	TURNServers []TURNServer `yaml:"turn_servers,omitempty"`
+
+	// EnableWarp turns on WARP = SPED (DTLS-in-STUN, saves DTLS round-trip) +
+	// SNAP (SCTP INIT in SDP, saves SCTP/data-channel init round-trip).
+	// Off by default; experimental.
+	EnableWarp bool `yaml:"enable_warp,omitempty"`
+
+	// Deprecated
+	StrictACKs bool `yaml:"strict_acks,omitempty"`
+
+	// Deprecated: use PacketBufferSizeVideo and PacketBufferSizeAudio
+	PacketBufferSize int `yaml:"packet_buffer_size,omitempty"`
+	// Number of packets to buffer for NACK - video
+	PacketBufferSizeVideo int `yaml:"packet_buffer_size_video,omitempty"`
+	// Number of packets to buffer for NACK - audio
+	PacketBufferSizeAudio int `yaml:"packet_buffer_size_audio,omitempty"`
+
+	// Throttle periods for pli/fir rtcp packets
+	PLIThrottle sfu.PLIThrottleConfig `yaml:"pli_throttle,omitempty"`
+
+	CongestionControl CongestionControlConfig `yaml:"congestion_control,omitempty"`
+
+	// allow TCP and TURN/TLS fallback
+	AllowTCPFallback *bool `yaml:"allow_tcp_fallback,omitempty"`
+
+	// Signaling RTT threshold (in milliseconds) governing ICE/TCP fallback. On a UDP
+	// failure, ICE/TCP is attempted only while the measured signaling RTT is below this
+	// value; at or above it, supporting clients fall back directly to TURN/TLS. When 0
+	// (the default), the RTT check is disabled and ICE/TCP is always attempted (for
+	// clients that support it). A positive value also gates allow_udp_unstable_fallback.
+	TCPFallbackRTTThreshold int `yaml:"tcp_fallback_rtt_threshold,omitempty"`
+
+	// When enabled, an established UDP connection reporting sustained high packet loss is
+	// migrated to ICE/TCP or TURN/TLS. Requires tcp_fallback_rtt_threshold to be set
+	// (> 0). Disabled by default.
+	AllowUDPUnstableFallback bool `yaml:"allow_udp_unstable_fallback,omitempty"`
+
+	// force a reconnect on a publication error
+	ReconnectOnPublicationError *bool `yaml:"reconnect_on_publication_error,omitempty"`
+
+	// force a reconnect on a subscription error
+	ReconnectOnSubscriptionError *bool `yaml:"reconnect_on_subscription_error,omitempty"`
+
+	// force a reconnect on a data channel error
+	ReconnectOnDataChannelError *bool `yaml:"reconnect_on_data_channel_error,omitempty"`
+
+	// Deprecated
+	DataChannelMaxBufferedAmount uint64 `yaml:"data_channel_max_buffered_amount,omitempty"`
+
+	// Threshold of data channel writing to be considered too slow, data packet could
+	// be dropped for a slow data channel to avoid blocking the room.
+	DatachannelSlowThreshold int `yaml:"datachannel_slow_threshold,omitempty"`
+
+	// Target latency for lossy data channels, used to drop packets to reduce latency.
+	DatachannelLossyTargetLatency time.Duration `yaml:"datachannel_lossy_target_latency,omitempty"`
+
+	// Target latency for data track channels, used to drop packets to keep the
+	// per-subscriber buffer bounded under downlink congestion. Data tracks are a
+	// low-latency lossy transport, so a stale queued frame is worse than a dropped
+	// one. Set to 0 to disable buffering control (unbounded buffering).
+	DatachannelDataTrackTargetLatency time.Duration `yaml:"datachannel_data_track_target_latency,omitempty"`
+
+	ForwardStats ForwardStatsConfig `yaml:"forward_stats,omitempty"`
+
+	// enable rtp stream restart detection for published tracks
+	EnableRTPStreamRestartDetection bool `yaml:"enable_rtp_stream_restart_detection,omitempty"`
+}
+
+type TURNServer struct {
+	Host       string `yaml:"host,omitempty"`
+	Port       int    `yaml:"port,omitempty"`
+	Protocol   string `yaml:"protocol,omitempty"`
+	Username   string `yaml:"username,omitempty"`
+	Credential string `yaml:"credential,omitempty"`
+	// Secret is used for TURN static auth secrets mechanism. When provided,
+	// dynamic credentials are generated using HMAC-SHA1 instead of static Username/Credential
+	Secret string `yaml:"secret,omitempty"`
+	// File containing the secret
+	SecretFile string `yaml:"secret_file,omitempty"`
+	// TTL is the time-to-live in seconds for generated credentials when using Secret.
+	// Defaults to 14400 seconds (4 hours) when 0. Negative values fall back to the 5m
+	// default and large values are capped at TURNMaxTTLSeconds.
+	TTL int `yaml:"ttl,omitempty"`
+}
+
+type CongestionControlConfig struct {
+	Enabled    bool `yaml:"enabled,omitempty"`
+	AllowPause bool `yaml:"allow_pause,omitempty"`
+
+	StreamAllocator streamallocator.StreamAllocatorConfig `yaml:"stream_allocator,omitempty"`
+
+	RemoteBWE remotebwe.RemoteBWEConfig `yaml:"remote_bwe,omitempty"`
+
+	UseSendSideBWEInterceptor bool `yaml:"use_send_side_bwe_interceptor,omitempty"`
+
+	UseSendSideBWE   bool                          `yaml:"use_send_side_bwe,omitempty"`
+	SendSideBWEPacer string                        `yaml:"send_side_bwe_pacer,omitempty"`
+	SendSideBWE      sendsidebwe.SendSideBWEConfig `yaml:"send_side_bwe,omitempty"`
+}
+
+// Validate reports configuration that would otherwise be ignored at runtime.
+func (c CongestionControlConfig) Validate() error {
+	switch pacer.PacerBehavior(c.SendSideBWEPacer) {
+	case "", pacer.PacerBehaviorPassThrough, pacer.PacerBehaviorNoQueue, pacer.PacerBehaviorLeakybucket:
+		return nil
+	default:
+		return fmt.Errorf(
+			"invalid send_side_bwe_pacer %q, must be one of %q, %q, %q",
+			c.SendSideBWEPacer,
+			pacer.PacerBehaviorPassThrough,
+			pacer.PacerBehaviorNoQueue,
+			pacer.PacerBehaviorLeakybucket,
+		)
+	}
+}
+
+type PlayoutDelayConfig struct {
+	Enabled bool `yaml:"enabled,omitempty"`
+	Min     int  `yaml:"min,omitempty"`
+	Max     int  `yaml:"max,omitempty"`
+}
+
+type VideoConfig struct {
+	DynacastPauseDelay   time.Duration                  `yaml:"dynacast_pause_delay,omitempty"`
+	StreamTrackerManager sfu.StreamTrackerManagerConfig `yaml:"stream_tracker_manager,omitempty"`
+
+	CodecRegressionThreshold int `yaml:"codec_regression_threshold,omitempty"`
+}
+
+type RoomConfig struct {
+	// enable rooms to be automatically created
+	AutoCreate         bool               `yaml:"auto_create,omitempty"`
+	EnabledCodecs      []CodecSpec        `yaml:"enabled_codecs,omitempty"`
+	MaxParticipants    uint32             `yaml:"max_participants,omitempty"`
+	EmptyTimeout       uint32             `yaml:"empty_timeout,omitempty"`
+	DepartureTimeout   uint32             `yaml:"departure_timeout,omitempty"`
+	EnableRemoteUnmute bool               `yaml:"enable_remote_unmute,omitempty"`
+	PlayoutDelay       PlayoutDelayConfig `yaml:"playout_delay,omitempty"`
+	SyncStreams        bool               `yaml:"sync_streams,omitempty"`
+	CreateRoomTimeout  time.Duration      `yaml:"create_room_timeout,omitempty"`
+	CreateRoomAttempts int                `yaml:"create_room_attempts,omitempty"`
+	// include room metadata in track webhook events instead of just room SID and name
+	EnableFullRoomInWebhooks bool `yaml:"enable_full_room_in_webhooks,omitempty"`
+	// target room participant update batch chunk size in bytes
+	UpdateBatchTargetSize int `yaml:"update_batch_target_size,omitempty"`
+	// deprecated, moved to limits
+	MaxMetadataSize uint32 `yaml:"max_metadata_size,omitempty"`
+	// deprecated, moved to limits
+	MaxRoomNameLength int `yaml:"max_room_name_length,omitempty"`
+	// deprecated, moved to limits
+	MaxParticipantIdentityLength int                                   `yaml:"max_participant_identity_length,omitempty"`
+	RoomConfigurations           map[string]*livekit.RoomConfiguration `yaml:"room_configurations,omitempty"`
+}
+
+type CodecSpec struct {
+	Mime     string `yaml:"mime,omitempty"`
+	FmtpLine string `yaml:"fmtp_line,omitempty"`
+}
+
+type LoggingConfig struct {
+	logger.Config `yaml:",inline"`
+	PionLevel     string `yaml:"pion_level,omitempty"`
+}
+
+type TURNConfig struct {
+	Enabled             bool     `yaml:"enabled,omitempty"`
+	Domain              string   `yaml:"domain,omitempty"`
+	CertFile            string   `yaml:"cert_file,omitempty"`
+	KeyFile             string   `yaml:"key_file,omitempty"`
+	TLSPort             int      `yaml:"tls_port,omitempty"`
+	UDPPort             int      `yaml:"udp_port,omitempty"`
+	RelayPortRangeStart uint16   `yaml:"relay_range_start,omitempty"`
+	RelayPortRangeEnd   uint16   `yaml:"relay_range_end,omitempty"`
+	ExternalTLS         bool     `yaml:"external_tls,omitempty"`
+	BindAddresses       []string `yaml:"bind_addresses,omitempty"`
+	// ProxyProtocol makes the TURN TCP listener require a PROXY protocol (v1 or v2)
+	// header on every connection and use the client address it carries. Needed when
+	// a proxy in front of TURN dials from its own address (a TLS-terminating L4
+	// proxy, a TCP reverse proxy): TURN echoes the address it sees back to the
+	// client as XOR-MAPPED-ADDRESS, and browsers such as Firefox reject a loopback
+	// or wildcard address there and abandon the allocation. Connections without
+	// the header are rejected.
+	ProxyProtocol bool `yaml:"proxy_protocol,omitempty"`
+	// ProxyProtocolTrustedCIDRs lists the proxies whose PROXY header is believed.
+	// Connections from any other address are closed, so a client that reaches
+	// tls_port directly cannot claim an arbitrary source address. Defaults to
+	// loopback only, for a proxy on the same host.
+	ProxyProtocolTrustedCIDRs []string `yaml:"proxy_protocol_trusted_cidrs,omitempty"`
+	// PerUserRelayAllocationLimit caps the number of concurrent relay allocations
+	// a single participant credential may hold, keyed by the participant ID. This
+	// stops one authenticated participant from consuming the shared relay-port
+	// range and denying TURN relays to others. Defaults to
+	// DefaultTURNPerUserRelayAllocationLimit; a value <= 0 disables the quota.
+	PerUserRelayAllocationLimit int `yaml:"per_user_relay_allocation_limit,omitempty"`
+	// TTL of the TURN credentials in seconds - defaults to 300. Values <= 0 fall back to the
+	// 300s (5m) default and large values are capped at TURNMaxTTLSeconds.
+	TTLSeconds int `yaml:"ttl_seconds,omitempty"`
+	// list of restricted peer CIDRs (loopback, link-local (unicast, multicast), multicast, private, unspecified) to allow access to.
+	// By default (i. e. empty list), all restricted peer CIDRs are denied access.
+	// When not empty, only the specified CIDRs are allowed access.
+	// Note that this check is applied to restricted peer CIDRs only.
+	AllowRestrictedPeerCIDRs []string `yaml:"allow_restricted_peer_cidrs,omitempty"`
+	// list of peer CIDRs to deny access to
+	// This applies to all peer CIDRs, including restricted ones.
+	// Deny list takes precedence over allow list.
+	DenyPeerCIDRs []string `yaml:"deny_peer_cidrs,omitempty"`
+}
+
+type NodeSelectorConfig struct {
+	Kind         string         `yaml:"kind,omitempty"`
+	SortBy       string         `yaml:"sort_by,omitempty"`
+	Algorithm    string         `yaml:"algorithm,omitempty"`
+	CPULoadLimit float32        `yaml:"cpu_load_limit,omitempty"`
+	SysloadLimit float32        `yaml:"sysload_limit,omitempty"`
+	Regions      []RegionConfig `yaml:"regions,omitempty"`
+}
+
+type SignalRelayConfig struct {
+	RetryTimeout     time.Duration `yaml:"retry_timeout,omitempty"`
+	MinRetryInterval time.Duration `yaml:"min_retry_interval,omitempty"`
+	MaxRetryInterval time.Duration `yaml:"max_retry_interval,omitempty"`
+	StreamBufferSize int           `yaml:"stream_buffer_size,omitempty"`
+	ConnectAttempts  int           `yaml:"connect_attempts,omitempty"`
+}
+
+// RegionConfig lists available regions and their latitude/longitude, so the selector would prefer
+// regions that are closer
+type RegionConfig struct {
+	Name string  `yaml:"name,omitempty"`
+	Lat  float64 `yaml:"lat,omitempty"`
+	Lon  float64 `yaml:"lon,omitempty"`
+}
+
+// ---------------------------------
+
+type LimitConfig struct {
+	NumTracks              int32   `yaml:"num_tracks,omitempty"`
+	BytesPerSec            float32 `yaml:"bytes_per_sec,omitempty"`
+	SubscriptionLimitVideo int32   `yaml:"subscription_limit_video,omitempty"`
+	SubscriptionLimitAudio int32   `yaml:"subscription_limit_audio,omitempty"`
+	MaxMetadataSize        uint32  `yaml:"max_metadata_size,omitempty"`
+	// total size of all attributes on a participant
+	MaxAttributesSize            uint32 `yaml:"max_attributes_size,omitempty"`
+	MaxRoomNameLength            int    `yaml:"max_room_name_length,omitempty"`
+	MaxParticipantIdentityLength int    `yaml:"max_participant_identity_length,omitempty"`
+	MaxParticipantNameLength     int    `yaml:"max_participant_name_length,omitempty"`
+
+	MaxDataBlobKeyLength int    `yaml:"max_data_blob_key_length,omitempty"`
+	MaxDataBlobSize      uint32 `yaml:"max_data_blobs_size,omitempty"`
+
+	MaxDataTrackCustomEncodingLength int `yaml:"max_data_track_custom_encoding_length,omitempty"`
+
+	// maximum size (in bytes) of a single message read off a client-facing
+	// signalling WebSocket connection. Frames larger than this are rejected by the
+	// transport before being buffered, guarding against single-frame memory
+	// exhaustion. A value of 0 disables the limit (unbounded).
+	SignalMessageSizeLimit int64 `yaml:"signal_message_size_limit,omitempty"`
+	// same as SignalMessageSizeLimit, but for agent worker WebSocket connections.
+	AgentSignalMessageSizeLimit int64 `yaml:"agent_signal_message_size_limit,omitempty"`
+
+	// maximum size (in bytes) of an HTTP request body accepted on the main API
+	// listener (Twirp room/egress/ingress/SIP routes, etc). Requests larger than
+	// this are rejected before their body is decoded, so large messages cannot
+	// exhaust memory. A value of 0 disables the limit (unbounded).
+	MaxAPIRequestBodySize int64 `yaml:"max_api_request_body_size,omitempty"`
+}
+
+func (l LimitConfig) CheckRoomNameLength(name string) bool {
+	return l.MaxRoomNameLength == 0 || len(name) <= l.MaxRoomNameLength
+}
+
+func (l LimitConfig) CheckParticipantIdentityLength(identity string) bool {
+	return l.MaxParticipantIdentityLength == 0 || len(identity) <= l.MaxParticipantIdentityLength
+}
+
+func (l LimitConfig) CheckParticipantNameLength(name string) bool {
+	return l.MaxParticipantNameLength == 0 || len(name) <= l.MaxParticipantNameLength
+}
+
+func (l LimitConfig) CheckMetadataSize(metadata string) bool {
+	return l.MaxMetadataSize == 0 || uint32(len(metadata)) <= l.MaxMetadataSize
+}
+
+func (l LimitConfig) CheckAttributesSize(attributes map[string]string) bool {
+	if l.MaxAttributesSize == 0 {
+		return true
+	}
+
+	total := 0
+	for k, v := range attributes {
+		total += len(k) + len(v)
+	}
+	return uint32(total) <= l.MaxAttributesSize
+}
+
+// DataBlobKeyLength returns the length of the identifying content of a data blob key.
+// The text form of the key message is not used, as it adds field names and quotes.
+func DataBlobKeyLength(key *livekit.DataBlobKey) int {
+	switch k := key.GetKey().(type) {
+	case *livekit.DataBlobKey_Generic:
+		return len(k.Generic)
+	case *livekit.DataBlobKey_SchemaId:
+		return len(k.SchemaId.GetName()) + len(k.SchemaId.GetEncoding().GetCustom())
+	}
+	return 0
+}
+
+func (l LimitConfig) CheckDataBlobKeyLength(key *livekit.DataBlobKey) bool {
+	return l.MaxDataBlobKeyLength == 0 || DataBlobKeyLength(key) <= l.MaxDataBlobKeyLength
+}
+
+func (l LimitConfig) CheckDataTrackCustomEncodingLength(identifier string) bool {
+	return l.MaxDataTrackCustomEncodingLength == 0 || len(identifier) <= l.MaxDataTrackCustomEncodingLength
+}
+
+func (l LimitConfig) CheckDataTrackFrameEncoding(encoding *livekit.DataTrackFrameEncoding) bool {
+	custom, ok := encoding.GetValue().(*livekit.DataTrackFrameEncoding_Custom)
+	if !ok {
+		return true
+	}
+	return len(custom.Custom) != 0 && l.CheckDataTrackCustomEncodingLength(custom.Custom)
+}
+
+func (l LimitConfig) CheckDataTrackSchemaID(schema *livekit.DataTrackSchemaId) bool {
+	custom, ok := schema.GetEncoding().GetValue().(*livekit.DataTrackSchemaEncoding_Custom)
+	if !ok {
+		return true
+	}
+	return len(custom.Custom) != 0 && l.CheckDataTrackCustomEncodingLength(custom.Custom)
+}
+
+func (l LimitConfig) CheckDataBlobsSize(dataBlobs []*livekit.DataBlob) bool {
+	if l.MaxDataBlobSize == 0 {
+		return true
+	}
+
+	total := 0
+	for _, dataBlob := range dataBlobs {
+		total += DataBlobKeyLength(dataBlob.GetKey()) + len(dataBlob.Contents)
+	}
+	return uint32(total) <= l.MaxDataBlobSize
+}
+
+func (l LimitConfig) CanAddDataBlob(dataBlobs []*livekit.DataBlob, toAdd *livekit.DataBlob) bool {
+	if l.MaxDataBlobSize == 0 {
+		return true
+	}
+
+	total := 0
+	for _, dataBlob := range dataBlobs {
+		total += DataBlobKeyLength(dataBlob.GetKey()) + len(dataBlob.Contents)
+	}
+	return uint32(total+DataBlobKeyLength(toAdd.GetKey())+len(toAdd.Contents)) <= l.MaxDataBlobSize
+}
+
+// ---------------------------------
+
+type IngressConfig struct {
+	RTMPBaseURL string `yaml:"rtmp_base_url,omitempty"`
+	WHIPBaseURL string `yaml:"whip_base_url,omitempty"`
+	// Allow URL pull ingresses with a udp:// source URL. Disabled by default, and should only be
+	// enabled if both the callers allowed to create ingresses and the network the ingress handlers
+	// run on are trusted. Unlike an http or srt source url, a udp source url doesn't make the ingress
+	// handler connect out to the url host: the handler binds a local socket on the address and port
+	// taken from the url, and joins the multicast group if one is given. This lets the caller:
+	//   - Choose which local port the handler binds, potentially colliding with other services on
+	//     the host.
+	//   - Feed the session unauthenticated traffic. UDP is connectionless, so any host able to reach
+	//     that port can inject media, or spoof the sender address to disrupt a legitimate feed.
+	//   - Make the handler join arbitrary multicast groups and republish whatever it receives into a
+	//     room, using the ingress as a relay for streams on the handler's local network the caller has
+	//     no direct access to.
+	EnableUDPURLPull bool `yaml:"enable_udp_url_pull,omitempty"`
+}
+
+type SIPConfig struct{}
+
+type APIConfig struct {
+	// amount of time to wait for API to execute, default 2s
+	ExecutionTimeout time.Duration `yaml:"execution_timeout,omitempty"`
+
+	// min amount of time to wait before checking for operation complete
+	CheckInterval time.Duration `yaml:"check_interval,omitempty"`
+
+	// max amount of time to wait before checking for operation complete
+	MaxCheckInterval time.Duration `yaml:"max_check_interval,omitempty"`
+
+	// Backwards compatibility for room service api calls, will enable by default and remove in a future release
+	EnablePsrpcForGetListParticpants bool `yaml:"enable_psrpc_for_get_list_participants,omitempty"`
+}
+
+type PrometheusConfig struct {
+	Port     uint32 `yaml:"port,omitempty"`
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
+}
+
+type DebugHandlerConfig struct {
+	Port uint32 `yaml:"port,omitempty"`
+}
+
+type ForwardStatsConfig struct {
+	SummaryInterval time.Duration `yaml:"summary_interval,omitempty"`
+	ReportInterval  time.Duration `yaml:"report_interval,omitempty"`
+	ReportWindow    time.Duration `yaml:"report_window,omitempty"`
+}
+
+type TracingConfig struct {
+	// JaegerURL configures Jaeger as a global tracer.
+	//
+	// The following formats are supported: <hostname>, <host>:<port>, http(s)://<host>/<path>
+	JaegerURL string `yaml:"jaeger_url,omitempty"`
+}
+
+func DefaultAPIConfig() APIConfig {
+	return APIConfig{
+		ExecutionTimeout: 2 * time.Second,
+		CheckInterval:    100 * time.Millisecond,
+		MaxCheckInterval: 300 * time.Second,
+	}
+}
+
+type NodeStatsConfig struct {
+	StatsUpdateInterval           time.Duration   `yaml:"stats_update_interval,omitempty"`
+	StatsRateMeasurementIntervals []time.Duration `yaml:"stats_rate_measurement_intervals,omitempty"`
+	StatsMaxDelay                 time.Duration   `yaml:"stats_max_delay,omitempty"`
+}
+
+var DefaultNodeStatsConfig = NodeStatsConfig{
+	StatsUpdateInterval:           2 * time.Second,
+	StatsRateMeasurementIntervals: []time.Duration{10 * time.Second},
+	StatsMaxDelay:                 30 * time.Second,
+}
+
+var DefaultConfig = Config{
+	Port: 7880,
+	RTC: RTCConfig{
+		RTCConfig: rtcconfig.RTCConfig{
+			UseExternalIP:     false,
+			TCPPort:           7881,
+			ICEPortRangeStart: 0,
+			ICEPortRangeEnd:   0,
+			STUNServers:       []string{},
+		},
+		PacketBufferSize:                  500,
+		PacketBufferSizeVideo:             500,
+		PacketBufferSizeAudio:             200,
+		PLIThrottle:                       sfu.DefaultPLIThrottleConfig,
+		DatachannelDataTrackTargetLatency: 100 * time.Millisecond,
+		CongestionControl: CongestionControlConfig{
+			Enabled:                   true,
+			AllowPause:                false,
+			StreamAllocator:           streamallocator.DefaultStreamAllocatorConfig,
+			RemoteBWE:                 remotebwe.DefaultRemoteBWEConfig,
+			UseSendSideBWEInterceptor: false,
+			UseSendSideBWE:            false,
+			SendSideBWEPacer:          string(pacer.PacerBehaviorNoQueue),
+			SendSideBWE:               sendsidebwe.DefaultSendSideBWEConfig,
+		},
+	},
+	Audio: sfu.DefaultAudioConfig,
+	Video: VideoConfig{
+		DynacastPauseDelay:       5 * time.Second,
+		StreamTrackerManager:     sfu.DefaultStreamTrackerManagerConfig,
+		CodecRegressionThreshold: 5,
+	},
+	Redis: redisLiveKit.RedisConfig{},
+	Room: RoomConfig{
+		AutoCreate: true,
+		EnabledCodecs: []CodecSpec{
+			{Mime: mime.MimeTypePCMU.String()},
+			{Mime: mime.MimeTypePCMA.String()},
+			{Mime: mime.MimeTypeOpus.String()},
+			{Mime: mime.MimeTypeRED.String()},
+			{Mime: mime.MimeTypeVP8.String()},
+			{Mime: mime.MimeTypeH264.String()},
+			{Mime: mime.MimeTypeVP9.String()},
+			{Mime: mime.MimeTypeAV1.String()},
+			{Mime: mime.MimeTypeH265.String()},
+			{Mime: mime.MimeTypeRTX.String()},
+		},
+		EmptyTimeout:          5 * 60,
+		DepartureTimeout:      20,
+		CreateRoomTimeout:     10 * time.Second,
+		CreateRoomAttempts:    3,
+		UpdateBatchTargetSize: 128 * 1024,
+	},
+	Limit: LimitConfig{
+		MaxMetadataSize:                  512 * 1024,
+		MaxAttributesSize:                64 * 1024,
+		MaxRoomNameLength:                256,
+		MaxParticipantIdentityLength:     256,
+		MaxParticipantNameLength:         256,
+		MaxDataBlobKeyLength:             256,
+		MaxDataBlobSize:                  64000,
+		MaxDataTrackCustomEncodingLength: 32,
+		SignalMessageSizeLimit:           2 << 20,  // 2 MiB
+		AgentSignalMessageSizeLimit:      2 << 20,  // 2 MiB
+		MaxAPIRequestBodySize:            10 << 20, // 10 MiB
+	},
+	Logging: LoggingConfig{
+		PionLevel: "error",
+	},
+	TURN: TURNConfig{
+		Enabled:                     false,
+		BindAddresses:               []string{"0.0.0.0"},
+		ProxyProtocolTrustedCIDRs:   []string{"127.0.0.0/8", "::1/128"},
+		TTLSeconds:                  DefaultTURNTTLSeconds,
+		PerUserRelayAllocationLimit: DefaultTURNPerUserRelayAllocationLimit,
+	},
+	NodeSelector: NodeSelectorConfig{
+		Kind:         "any",
+		SortBy:       "random",
+		SysloadLimit: 0.9,
+		CPULoadLimit: 0.9,
+		Algorithm:    "lowest",
+	},
+	SignalRelay: SignalRelayConfig{
+		RetryTimeout:     7500 * time.Millisecond,
+		MinRetryInterval: 500 * time.Millisecond,
+		MaxRetryInterval: 4 * time.Second,
+		StreamBufferSize: 1000,
+		ConnectAttempts:  3,
+	},
+	Agents: agent.Config{
+		TargetLoad: agent.DefaultTargetLoad,
+	},
+	PSRPC:            rpc.DefaultPSRPCConfig,
+	Keys:             map[string]string{},
+	Metric:           metric.DefaultMetricConfig,
+	WebHook:          webhook.DefaultWebHookConfig,
+	NodeStats:        DefaultNodeStatsConfig,
+	API:              DefaultAPIConfig(),
+	EnableDataTracks: true,
+}
+
+func NewConfig(confString string, strictMode bool, c *cli.Command, baseFlags []cli.Flag) (*Config, error) {
+	// start with defaults
+	marshalled, err := yaml.Marshal(&DefaultConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	var conf Config
+	err = yaml.Unmarshal(marshalled, &conf)
+	if err != nil {
+		return nil, err
+	}
+
+	if confString != "" {
+		decoder := yaml.NewDecoder(strings.NewReader(confString))
+		decoder.KnownFields(strictMode)
+		if err := decoder.Decode(&conf); err != nil {
+			return nil, fmt.Errorf("could not parse config: %v", err)
+		}
+	}
+
+	if c != nil {
+		if err := conf.updateFromCLI(c, baseFlags); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := conf.RTC.Validate(conf.Development); err != nil {
+		return nil, fmt.Errorf("could not validate RTC config: %v", err)
+	}
+
+	if err := conf.RTC.CongestionControl.Validate(); err != nil {
+		return nil, fmt.Errorf("could not validate congestion control config: %v", err)
+	}
+
+	conf.NormalizeTURNTTLs()
+
+	// expand env vars in filenames
+	file, err := homedir.Expand(os.ExpandEnv(conf.KeyFile))
+	if err != nil {
+		return nil, err
+	}
+	conf.KeyFile = file
+
+	// set defaults for Turn relay if none are set
+	if conf.TURN.RelayPortRangeStart == 0 || conf.TURN.RelayPortRangeEnd == 0 {
+		// to make it easier to run in dev mode/docker, default to two ports
+		if conf.Development {
+			conf.TURN.RelayPortRangeStart = 30000
+			conf.TURN.RelayPortRangeEnd = 30002
+		} else {
+			conf.TURN.RelayPortRangeStart = 30000
+			conf.TURN.RelayPortRangeEnd = 40000
+		}
+	}
+
+	if conf.LogLevel != "" {
+		conf.Logging.Level = conf.LogLevel
+	}
+	if conf.Logging.Level == "" && conf.Development {
+		conf.Logging.Level = "debug"
+	}
+	if conf.Logging.PionLevel != "" {
+		if conf.Logging.ComponentLevels == nil {
+			conf.Logging.ComponentLevels = map[string]string{}
+		}
+		conf.Logging.ComponentLevels["transport.pion"] = conf.Logging.PionLevel
+		conf.Logging.ComponentLevels["pion"] = conf.Logging.PionLevel
+	}
+
+	// copy over legacy limits
+	if conf.Room.MaxMetadataSize != 0 {
+		conf.Limit.MaxMetadataSize = conf.Room.MaxMetadataSize
+	}
+	if conf.Room.MaxParticipantIdentityLength != 0 {
+		conf.Limit.MaxParticipantIdentityLength = conf.Room.MaxParticipantIdentityLength
+	}
+	if conf.Room.MaxRoomNameLength != 0 {
+		conf.Limit.MaxRoomNameLength = conf.Room.MaxRoomNameLength
+	}
+
+	return &conf, nil
+}
+
+func (conf *Config) IsTURNSEnabled() bool {
+	if conf.TURN.Enabled && conf.TURN.TLSPort != 0 {
+		return true
+	}
+	for _, s := range conf.RTC.TURNServers {
+		if s.Protocol == "tls" {
+			return true
+		}
+	}
+	return false
+}
+
+type configNode struct {
+	TypeNode  reflect.Value
+	TagPrefix string
+}
+
+func (conf *Config) ToCLIFlagNames(existingFlags []cli.Flag) map[string]reflect.Value {
+	existingFlagNames := map[string]bool{}
+	for _, flag := range existingFlags {
+		for _, flagName := range flag.Names() {
+			existingFlagNames[flagName] = true
+		}
+	}
+
+	flagNames := map[string]reflect.Value{}
+	var currNode configNode
+	nodes := []configNode{{reflect.ValueOf(conf).Elem(), ""}}
+	for len(nodes) > 0 {
+		currNode, nodes = nodes[0], nodes[1:]
+		for i := 0; i < currNode.TypeNode.NumField(); i++ {
+			// inspect yaml tag from struct field to get path
+			field := currNode.TypeNode.Type().Field(i)
+			yamlTagArray := strings.SplitN(field.Tag.Get("yaml"), ",", 2)
+			yamlTag := yamlTagArray[0]
+			isInline := false
+			if len(yamlTagArray) > 1 && yamlTagArray[1] == "inline" {
+				isInline = true
+			}
+			if (yamlTag == "" && (!isInline || currNode.TagPrefix == "")) || yamlTag == "-" {
+				continue
+			}
+			yamlPath := yamlTag
+			if currNode.TagPrefix != "" {
+				if isInline {
+					yamlPath = currNode.TagPrefix
+				} else {
+					yamlPath = fmt.Sprintf("%s.%s", currNode.TagPrefix, yamlTag)
+				}
+			}
+			if existingFlagNames[yamlPath] {
+				continue
+			}
+
+			// map flag name to value
+			value := currNode.TypeNode.Field(i)
+			if value.Kind() == reflect.Struct {
+				nodes = append(nodes, configNode{value, yamlPath})
+			} else {
+				flagNames[yamlPath] = value
+			}
+		}
+	}
+
+	return flagNames
+}
+
+func (conf *Config) ValidateKeys() error {
+	// prefer keyfile if set
+	if conf.KeyFile != "" {
+		var otherFilter os.FileMode = 0o007
+		if st, err := os.Stat(conf.KeyFile); err != nil {
+			return err
+		} else if st.Mode().Perm()&otherFilter != 0o000 {
+			return ErrKeyFileIncorrectPermission
+		}
+		f, err := os.Open(conf.KeyFile)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = f.Close()
+		}()
+		decoder := yaml.NewDecoder(f)
+		conf.Keys = map[string]string{}
+		if err = decoder.Decode(conf.Keys); err != nil {
+			return err
+		}
+	}
+
+	if len(conf.Keys) == 0 {
+		return ErrKeysNotSet
+	}
+
+	if !conf.Development {
+		for key, secret := range conf.Keys {
+			if len(secret) < 32 {
+				logger.Errorw("secret is too short, should be at least 32 characters for security", nil, "apiKey", key)
+			}
+		}
+	}
+	return nil
+}
+
+func (conf *Config) LoadTURNSecrets() error {
+	var otherFilter os.FileMode = 0o007
+	for i, s := range conf.RTC.TURNServers {
+		// trim first so a blank inline secret falls back to secret_file rather than being treated as set
+		inlineSecret := strings.TrimSpace(s.Secret)
+		switch {
+		case s.SecretFile != "" && inlineSecret != "":
+			logger.Warnw("both secret and secret_file are set for TURN server, the hardcoded secret will be used", nil,
+				"host", s.Host, "port", s.Port)
+			conf.RTC.TURNServers[i].Secret = inlineSecret
+		case s.SecretFile != "":
+			st, err := os.Stat(s.SecretFile)
+			if err != nil {
+				return err
+			}
+			if st.Mode().Perm()&otherFilter != 0o000 {
+				return ErrTURNSecretFileIncorrectPermission
+			}
+			data, err := os.ReadFile(s.SecretFile)
+			if err != nil {
+				return fmt.Errorf("reading turn secret file %q: %w", s.SecretFile, err)
+			}
+			secret := strings.TrimSpace(string(data))
+			if secret == "" {
+				return fmt.Errorf("turn server %q secret file %q: %w", s.Host, s.SecretFile, ErrTURNSecretEmpty)
+			}
+			conf.RTC.TURNServers[i].Secret = secret
+		default:
+			conf.RTC.TURNServers[i].Secret = inlineSecret
+		}
+
+		// validate credential mode as an explicit union rather than inferring it from a
+		// post-load empty secret (which would silently fall back to static credentials)
+		s := conf.RTC.TURNServers[i]
+		hasDynamic := s.Secret != ""
+		hasStatic := s.Username != "" && s.Credential != ""
+		if !hasDynamic && !hasStatic {
+			return fmt.Errorf("turn server %q: %w", s.Host, ErrTURNServerNoCredentials)
+		}
+	}
+	return nil
+}
+
+// ClampTURNTTLSeconds bounds a TURN credential TTL to [DefaultTURNTTLSeconds, TURNMaxTTLSeconds]:
+// non-positive values (which would otherwise produce already-expired credentials) fall back to
+// the 5m default and overflowing values clamp to the max. The second return value reports whether
+// the input was out of range.
+func ClampTURNTTLSeconds(ttlSeconds int) (int, bool) {
+	switch {
+	case ttlSeconds <= 0:
+		return DefaultTURNTTLSeconds, true
+	case ttlSeconds > TURNMaxTTLSeconds:
+		return TURNMaxTTLSeconds, true
+	default:
+		return ttlSeconds, false
+	}
+}
+
+// NormalizeTURNTTLs clamps configured TURN TTLs to the safe range, warning on any
+// adjustment. Safe to call more than once.
+func (conf *Config) NormalizeTURNTTLs() {
+	if clamped, changed := ClampTURNTTLSeconds(conf.TURN.TTLSeconds); changed {
+		logger.Warnw(
+			"turn.ttl_seconds out of range, using safe value", nil,
+			"configured", conf.TURN.TTLSeconds,
+			"clamped", clamped,
+			"max", TURNMaxTTLSeconds,
+		)
+		conf.TURN.TTLSeconds = clamped
+	}
+	for i := range conf.RTC.TURNServers {
+		// external TTL of 0 means "use the default", so only cap the upper bound here;
+		// non-positive values fall back to the default when credentials are generated
+		if ttl := conf.RTC.TURNServers[i].TTL; ttl > TURNMaxTTLSeconds {
+			logger.Warnw(
+				"turn_servers ttl out of range, using safe value", nil,
+				"host", conf.RTC.TURNServers[i].Host,
+				"configured", ttl,
+				"clamped", TURNMaxTTLSeconds,
+				"max", TURNMaxTTLSeconds,
+			)
+			conf.RTC.TURNServers[i].TTL = TURNMaxTTLSeconds
+		}
+	}
+}
+
+func GenerateCLIFlags(existingFlags []cli.Flag, hidden bool) ([]cli.Flag, error) {
+	defaultConfig := &DefaultConfig
+	flags := make([]cli.Flag, 0)
+	for name, value := range (defaultConfig).ToCLIFlagNames(existingFlags) {
+		valueType := value.Type()
+		if valueType.Kind() == reflect.Ptr {
+			valueType = valueType.Elem()
+		}
+		kind := valueType.Kind()
+
+		var flag cli.Flag
+		envVar := fmt.Sprintf("LIVEKIT_%s", strings.ToUpper(strings.ReplaceAll(name, ".", "_")))
+		defaultText := cliDefaultText(value)
+
+		switch kind {
+		case reflect.Bool:
+			flag = &cli.BoolFlag{
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
+			}
+		case reflect.String:
+			flag = &cli.StringFlag{
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
+			}
+		case reflect.Int, reflect.Int32:
+			flag = &cli.IntFlag{
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
+			}
+		case reflect.Int64:
+			if valueType == reflect.TypeOf(time.Duration(0)) {
+				// parse values like "30s", as the YAML config does
+				flag = &cli.DurationFlag{
+					Name:        name,
+					Sources:     cli.EnvVars(envVar),
+					Usage:       generatedCLIFlagUsage,
+					DefaultText: defaultText,
+					Hidden:      hidden,
+				}
+			} else {
+				flag = &cli.Int64Flag{
+					Name:        name,
+					Sources:     cli.EnvVars(envVar),
+					Usage:       generatedCLIFlagUsage,
+					DefaultText: defaultText,
+					Hidden:      hidden,
+				}
+			}
+		case reflect.Uint8, reflect.Uint16, reflect.Uint32:
+			flag = &cli.UintFlag{
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
+			}
+		case reflect.Uint64:
+			flag = &cli.Uint64Flag{
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
+			}
+		case reflect.Float32:
+			flag = &cli.Float64Flag{
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
+			}
+		case reflect.Float64:
+			flag = &cli.Float64Flag{
+				Name:        name,
+				Sources:     cli.EnvVars(envVar),
+				Usage:       generatedCLIFlagUsage,
+				DefaultText: defaultText,
+				Hidden:      hidden,
+			}
+		case reflect.Slice:
+			// TODO
+			continue
+		case reflect.Map:
+			// TODO
+			continue
+		case reflect.Struct:
+			// TODO
+			continue
+		default:
+			return flags, fmt.Errorf("cli flag generation unsupported for config type: %s is a %s", name, kind.String())
+		}
+
+		flags = append(flags, flag)
+	}
+
+	return flags, nil
+}
+
+func cliDefaultText(value reflect.Value) string {
+	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return ""
+		}
+		value = value.Elem()
+	}
+
+	switch value.Kind() {
+	case reflect.Bool:
+		return strconv.FormatBool(value.Bool())
+	case reflect.String:
+		return value.String()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if value.Type() == reflect.TypeOf(time.Duration(0)) {
+			return value.Interface().(time.Duration).String()
+		}
+		return strconv.FormatInt(value.Int(), 10)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return strconv.FormatUint(value.Uint(), 10)
+	case reflect.Float32, reflect.Float64:
+		return strconv.FormatFloat(value.Float(), 'f', -1, 64)
+	default:
+		return ""
+	}
+}
+
+func (conf *Config) updateFromCLI(c *cli.Command, baseFlags []cli.Flag) error {
+	generatedFlagNames := conf.ToCLIFlagNames(baseFlags)
+	for _, flag := range c.Flags {
+		flagName := flag.Names()[0]
+
+		if !c.IsSet(flagName) {
+			continue
+		}
+
+		configValue, ok := generatedFlagNames[flagName]
+		if !ok {
+			continue
+		}
+
+		if configValue.Kind() == reflect.Ptr {
+			configValue.Set(reflect.New(configValue.Type().Elem()))
+			configValue = configValue.Elem()
+		}
+
+		value := reflect.ValueOf(c.Value(flagName))
+		if value.CanConvert(configValue.Type()) {
+			configValue.Set(value.Convert(configValue.Type()))
+		} else {
+			return fmt.Errorf("unsupported generated cli flag type for config: %s (expected %s, got %s)", flagName, configValue.Type(), value.Type())
+		}
+	}
+
+	if c.IsSet("dev") {
+		conf.Development = c.Bool("dev")
+	}
+	if c.IsSet("key-file") {
+		conf.KeyFile = c.String("key-file")
+	}
+	if c.IsSet("keys") {
+		if err := conf.unmarshalKeys(c.String("keys")); err != nil {
+			return errors.New("Could not parse keys, it needs to be exactly, \"key: secret\", including the space")
+		}
+	}
+	if c.IsSet("region") {
+		conf.Region = c.String("region")
+	}
+	if c.IsSet("redis-host") {
+		conf.Redis.Address = c.String("redis-host")
+	}
+	if c.IsSet("redis-password") {
+		conf.Redis.Password = c.String("redis-password")
+	}
+	if c.IsSet("turn-cert") {
+		conf.TURN.CertFile = c.String("turn-cert")
+	}
+	if c.IsSet("turn-key") {
+		conf.TURN.KeyFile = c.String("turn-key")
+	}
+	if c.IsSet("node-ip") {
+		conf.RTC.NodeIP.UnmarshalString(c.String("node-ip"))
+	}
+	if c.IsSet("udp-port") {
+		conf.RTC.UDPPort.UnmarshalString(c.String("udp-port"))
+	}
+	if c.IsSet("bind") {
+		conf.BindAddresses = c.StringSlice("bind")
+	}
+	return nil
+}
+
+func (conf *Config) unmarshalKeys(keys string) error {
+	temp := make(map[string]any)
+	if err := yaml.Unmarshal([]byte(keys), temp); err != nil {
+		return err
+	}
+
+	conf.Keys = make(map[string]string, len(temp))
+
+	for key, val := range temp {
+		if secret, ok := val.(string); ok {
+			conf.Keys[key] = secret
+		}
+	}
+	return nil
+}
+
+// Note: only pass in logr.Logger with default depth
+func SetLogger(l logger.Logger) {
+	logger.SetLogger(l, "livekit")
+}
+
+func InitLoggerFromConfig(config *LoggingConfig) {
+	logger.InitFromConfig(&config.Config, "livekit")
+}

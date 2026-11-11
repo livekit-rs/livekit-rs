@@ -1,0 +1,10 @@
+{
+  "status": "PUBLIC_HTTP_GATE_PENDING_FINAL_CANDIDATE",
+  "files": {
+    "run-http.py": "1f4ade57ab07b9c4e1a26f12d4db4f71af66ade3242209097fd252760b0608d1",
+    "README.md": "82de7a746b65341ed527dcf2adb1f339919d8a270f2e230c6314b99150e28b54"
+  },
+  "preservation": "run-http.py copied unchanged from actual original13 baseline",
+  "cases": 13,
+  "historical_baseline": "F100 actual fixed Go/Rust comparison7 PASS6 FAIL; do not replace historical failure with component success"
+}

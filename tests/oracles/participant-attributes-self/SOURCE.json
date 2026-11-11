@@ -1,0 +1,17 @@
+{
+  "fixed_inputs_sha256": {
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/participant_internal_test.go": "8b6f5a12359e116585505b79b102e0f39c0d19539aa8ec3cb20b3a9034035ccc",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/livekit-stable/pkg/service/roomservice.go": "81edf654a71eb328c07e7632bec2aeb22fed23316de15458ba9403967adcfe00",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85"
+  },
+  "assets_sha256": {
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "source_self_attributes_test.go": "bc27f08aa0d7471da40a1f490537612be107ec14110e67408dc60ae520e354a4",
+    "prepare.py": "ab86445e497ff6f4a4021819db9af3f40e86be22c5e3a1dddb1c3718c27bb94e"
+  }
+}

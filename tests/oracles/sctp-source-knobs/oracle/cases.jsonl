@@ -1,0 +1,10 @@
+{"id":"defaults","min":0,"fast":0,"step":0}
+{"id":"negative","min":-1,"fast":-1,"step":-1}
+{"id":"all-positive","min":14000,"fast":14000,"step":2800}
+{"id":"small-knobs","min":1,"fast":1,"step":1}
+{"id":"wrap-zero","min":4294967296,"fast":4294967296,"step":4294967296}
+{"id":"wrap-one","min":4294967297,"fast":4294967297,"step":4294967297}
+{"id":"largest-signed","min":9223372036854775807,"fast":9223372036854775807,"step":9223372036854775807}
+{"id":"only-fast","min":0,"fast":3000,"step":0}
+{"id":"only-step","min":0,"fast":0,"step":5000}
+{"id":"only-min","min":18000,"fast":0,"step":0}

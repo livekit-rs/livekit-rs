@@ -1,0 +1,15 @@
+{
+  "status": "FROZEN_RTO_SOURCE_ONLY_NOT_RUN",
+  "cases": 12,
+  "stage_rows_per_case": 5,
+  "assets_sha256": {
+    "oracle/cases.jsonl": "502033db829138391261b8635aca5636f4b9d6fdea77263d6443ede680616f3b",
+    "oracle/fragment_pr_test.go": "6546c806c0a618ed2dfa39f2c59a4a6abe94f9aba4984ae7b35c4b420beed1e8",
+    "prepare.py": "808ee3056b0411a5526736c8c57eafa927547ca0dac6dedc89a0470262d8f1ac",
+    "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "README.md": "5db0ae7e53cf5801a95258f7206a224a21b1b3ddd7ec0a27b3484d8bb0cf4ebc"
+  },
+  "preserved_case_sha256": "502033db829138391261b8635aca5636f4b9d6fdea77263d6443ede680616f3b",
+  "origin_source_sha256": "17a55ad165e7bb250f47e85985037406dd6c2bce9c9c0b498871948296f2e540"
+}

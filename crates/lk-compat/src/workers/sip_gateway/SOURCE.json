@@ -1,0 +1,36 @@
+{
+  "status": "ACTUAL_SCOPED_GO_REDIS_HTTP_AND_SIP_WORKER_PASS",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "source_sha256": {
+    "references/livekit-stable/pkg/service/sip.go": "3df44eb29477053061f1b7c15040ac9bff2fe89fdd9f7788c028bd6ec7e60a13",
+    "references/livekit-stable/pkg/service/wire.go": "c5cc7cc603eba7e6ef7ff40df7397aeb4b34e23878af0eff4b333b69b924e922",
+    "references/protocol-stable/rpc/sip.go": "bd108cc4a001b775cf81c09d245f4517f4d01778f979cb5030a9a43d17729eca",
+    "references/protocol-stable/rpc/sip_client.go": "5a828b23977b049f85fc09cb8196096e8825ac1a69afaa76331792591bfb7fcb",
+    "references/protocol-stable/rpc/sip.psrpc.go": "b55d1da8310e8110c71f4da0f9681156b2aa8cdabb519676c82043519c8a1ffd",
+    "references/protocol-stable/livekit/sip.go": "0aab27de0f34e1dccfc8d5cbe2c58b65d83069f36f33d9c1eae9a68c20e17098",
+    "references/protocol-stable/livekit/sip_validation.go": "25da1c63c9d5d97bf6c1efdcfd4cb6ec1eeebef88d8b8919a5fc494e86c53cb8",
+    "references/go-stdlib-1.26.0/src/strconv/quote.go": "6602960ec8777de9926c1d02fbf5cb0828d4aefa38083865f4af17b6892c09a2",
+    "livekit-rs-server/crates/lk-compat/src/sip/wire.rs": "964eb2cad8a27140f2e9cae86f1dc3fd3dc5a1df1ebd1c6ab7e3cfc33d058a9b",
+    "livekit-rs-server/crates/lk-compat/src/workers/preserved.rs": "2078494a89cfbc217460050dcc532b245ccd40d99f1c8804ae5e8cf1301b2f31"
+  },
+  "additional_locked_source": {
+    "module": "golang.org/x/text",
+    "version": "v0.42.0",
+    "files_sha256": {
+      "internal/language/language.go": "19a0ccf7635fd3dbad3766d953996df5d1c24a367e44c49200ab6ec3023fc871",
+      "internal/language/lookup.go": "8f0ac8780f89d5c2b29b98fd599269b445d7bb612a7948c9e97d425424b5ea38",
+      "internal/language/tables.go": "876a73fb8b8fffd239efa592ffdf903c25757b4d17b715fc80d7aee8db2b985e",
+      "LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    }
+  },
+  "source_scope": {
+    "service/sip.go": "584-781 public Create/Transfer source order, timeout and mapping",
+    "service/wire.go": "244-257 explicitly omits generic retry/timeout for SIP",
+    "rpc/sip.go": "85-224 exact Create mapper",
+    "livekit/sip.go": "999-1141 validators and1323 Upgrade",
+    "strconv/quote.go": "255-365 +391 onward Go double-quoted-string validity",
+    "x/text": "ParseRegion+IsCountry+String exact two-uppercase-letter intersection"
+  },
+  "test_count_status": "716actualGo+37xtwirp+18rawAny vectors, realRedis queue/plain/gzip, publicHTTP82/84, full actualSIP outbound/transfer/rejection/inbound direct scope PASS. FullSIP/HA/provider matrices OPEN."
+}

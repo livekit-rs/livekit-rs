@@ -1,0 +1,6 @@
+[
+ {"id":"auto-create-true-default","auto_create":true,"tail":""},
+ {"id":"auto-create-false-default","auto_create":false,"tail":""},
+ {"id":"auto-create-true-plain-cap1","auto_create":true,"tail":"psrpc:\n  compression:\n    quality: 0\n    threshold: 1\n    max_decompressed_size: 1\n"},
+ {"id":"auto-create-false-plain-cap1","auto_create":false,"tail":"psrpc:\n  compression:\n    quality: 0\n    threshold: 1\n    max_decompressed_size: 1\n"}
+]

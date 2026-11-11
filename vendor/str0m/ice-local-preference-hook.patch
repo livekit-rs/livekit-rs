@@ -1,0 +1,16 @@
+diff --git a/src/change/direct.rs b/src/change/direct.rs
+index 556e9dc2..03659f5b 100644
+--- a/src/change/direct.rs
++++ b/src/change/direct.rs
+@@ -145,6 +145,11 @@ impl<'a> DirectApi<'a> {
+         self.rtc.ice.set_controlling(controlling);
+     }
+ 
++    /// Set the local ICE candidate preference policy before gathering candidates.
++    pub fn set_ice_local_preference(&mut self, preference: impl crate::ice::LocalPreference) {
++        self.rtc.ice.set_local_preference(preference);
++    }
++
+     /// Returns a reference to the local ICE credentials used by this peer connection.
+     ///
+     /// The ICE credentials consist of the username and password used by the ICE agent during

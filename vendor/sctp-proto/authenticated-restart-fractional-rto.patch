@@ -1,0 +1,1764 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -70,3 +70,14 @@
+ 
+ [dev-dependencies.assert_matches]
+ version = "1.5.0"
++
++[dependencies.hmac]
++version = "=0.12.1"
++default-features = false
++
++[dependencies.sha2]
++version = "=0.10.9"
++default-features = false
++
++[dev-dependencies.serde_json]
++version = "1"
+--- a/src/association/ack_rack_source_tests.rs
++++ b/src/association/ack_rack_source_tests.rs
+@@ -99,9 +99,10 @@
+             },
+         );
+         assert!(!a.outbound_queue.get(1).unwrap().retransmit);
+-        assert!(a
+-            .get_data_packets_to_retransmit(now + Duration::from_millis(101))
+-            .is_empty());
++        assert!(
++            a.get_data_packets_to_retransmit(now + Duration::from_millis(101))
++                .is_empty()
++        );
+     }
+ }
+ 
+--- a/src/association/adaptive_rack_old_api_test.rs
++++ b/src/association/adaptive_rack_old_api_test.rs
+@@ -59,11 +59,14 @@
+         .unwrap();
+     assert!(a.outbound_queue.pending_len() > 0);
+     assert!(!a.outbound_queue.get(initial).unwrap().abandoned);
+-    assert!(a.outbound_queue.get(initial).unwrap().retransmit,
+-        "real ACK of later cohort must not be permanently declined after source-observed reordering");
+-    assert!(!a
+-        .get_data_packets_to_retransmit(now + Duration::from_millis(2))
+-        .is_empty());
++    assert!(
++        a.outbound_queue.get(initial).unwrap().retransmit,
++        "real ACK of later cohort must not be permanently declined after source-observed reordering"
++    );
++    assert!(
++        !a.get_data_packets_to_retransmit(now + Duration::from_millis(2))
++            .is_empty()
++    );
+     assert_eq!(a.outbound_queue.get(initial).unwrap().nsent, 2);
+     assert_eq!(a.stats.get_num_fast_retrans(), 0);
+ }
+--- a/src/association/association_test.rs
++++ b/src/association/association_test.rs
+@@ -3949,7 +3949,7 @@
+     Ok(())
+ }
+ 
+-fn handle_init_test(name: &str, initial_state: AssociationState, expect_err: bool) {
++fn handle_init_test(name: &str, initial_state: AssociationState, expect_restart: bool) {
+     let mut a = create_association(TransportConfig::default());
+     a.set_state(initial_state);
+     let pkt = Packet {
+@@ -3971,8 +3971,108 @@
+     init.set_supported_extensions();
+ 
+     let result = a.handle_init(&pkt, &init);
+-    if expect_err {
+-        assert!(result.is_err(), "{} should fail", name);
++    if expect_restart {
++        // Fixed Pion v1.12.0 association.go handleRestartInit accepts INIT in
++        // these live states; wrong ports are discarded without killing the TCB.
++        assert!(
++            result.unwrap().is_empty(),
++            "{} wrong-port INIT must not commit",
++            name
++        );
++        a.set_state(AssociationState::Established);
++        a.source_port = pkt.common_header.destination_port;
++        a.destination_port = pkt.common_header.source_port;
++        a.peer_verification_tag = 9876;
++        a.open_stream(1, PayloadProtocolIdentifier::Binary)
++            .unwrap()
++            .write(b"pending-before-restart")
++            .unwrap();
++        a.set_state(initial_state);
++        let old_tag = a.my_verification_tag;
++        let old_peer_tsn = a.peer_last_tsn;
++        let old_peer_tag = a.peer_verification_tag;
++        let old_buffered = a.stream(1).unwrap().buffered_amount().unwrap();
++        let old_limits = (a.my_max_num_inbound_streams, a.my_max_num_outbound_streams);
++        if initial_state == AssociationState::ShutdownAckSent {
++            a.will_send_shutdown = true;
++            a.timers.start(Timer::T2Shutdown, Instant::now(), 1000);
++            let replies = a.handle_init(&pkt, &init).unwrap();
++            assert!(
++                replies.is_empty(),
++                "shutdown cannot issue INIT-ACK challenge"
++            );
++            assert!(a.will_send_shutdown_ack);
++            assert!(!a.will_send_shutdown);
++            assert!(a.timers.get(Timer::T2Shutdown).is_none());
++            assert!(a.restart_cookie_key.is_none());
++            assert_eq!(a.my_verification_tag, old_tag);
++            assert_eq!(a.peer_verification_tag, old_peer_tag);
++            assert_eq!(a.peer_last_tsn, old_peer_tsn);
++            assert_eq!(
++                a.stream(1).unwrap().buffered_amount().unwrap(),
++                old_buffered
++            );
++            assert_eq!(a.restart_generation, 0);
++            return;
++        }
++        let replies = a.handle_init(&pkt, &init).unwrap();
++        assert_eq!(replies.len(), 1, "{} must issue a restart challenge", name);
++        let ack = replies[0].chunks[0]
++            .as_any()
++            .downcast_ref::<ChunkInit>()
++            .unwrap();
++        assert!(ack.is_ack);
++        assert_ne!(ack.initiate_tag, old_tag);
++        assert_eq!(replies[0].common_header.verification_tag, init.initiate_tag);
++        let cookie = ack
++            .params
++            .iter()
++            .find_map(|param| param.as_any().downcast_ref::<ParamStateCookie>())
++            .unwrap();
++        assert!(
++            cookie.cookie.len() > 32,
++            "authenticated cookie carries candidate and INIT plus MAC"
++        );
++        let mut forged = cookie.cookie.to_vec();
++        *forged.last_mut().unwrap() ^= 1;
++        let echo_packet = Packet {
++            common_header: CommonHeader {
++                source_port: pkt.common_header.source_port,
++                destination_port: pkt.common_header.destination_port,
++                verification_tag: ack.initiate_tag,
++            },
++            chunks: vec![],
++        };
++        assert!(
++            a.handle_cookie_echo_at(
++                &echo_packet,
++                &ChunkCookieEcho {
++                    cookie: forged.into()
++                },
++                Instant::now()
++            )
++            .unwrap()
++            .is_empty()
++        );
++        assert_eq!(
++            a.state, initial_state,
++            "{} unverified COOKIE cannot change association state",
++            name
++        );
++        assert_eq!(a.my_verification_tag, old_tag);
++        assert_eq!(a.peer_verification_tag, old_peer_tag);
++        assert_eq!(a.peer_last_tsn, old_peer_tsn);
++        assert_eq!(
++            (a.my_max_num_inbound_streams, a.my_max_num_outbound_streams),
++            old_limits
++        );
++        assert_eq!(
++            a.stream(1).unwrap().buffered_amount().unwrap(),
++            old_buffered,
++            "{} pending DATA survives until a valid authenticated COOKIE-ECHO",
++            name
++        );
++        assert_eq!(a.restart_generation, 0);
+         return;
+     } else {
+         assert!(result.is_ok(), "{} should be ok", name);
+@@ -4019,31 +4119,31 @@
+     handle_init_test("normal", AssociationState::Closed, false);
+ 
+     handle_init_test(
+-        "unexpected state established",
++        "existing established TCB",
+         AssociationState::Established,
+         true,
+     );
+ 
+     handle_init_test(
+-        "unexpected state shutdownAckSent",
++        "existing shutdownAckSent",
+         AssociationState::ShutdownAckSent,
+         true,
+     );
+ 
+     handle_init_test(
+-        "unexpected state shutdownPending",
++        "existing shutdownPending",
+         AssociationState::ShutdownPending,
+         true,
+     );
+ 
+     handle_init_test(
+-        "unexpected state shutdownReceived",
++        "existing shutdownReceived",
+         AssociationState::ShutdownReceived,
+         true,
+     );
+ 
+     handle_init_test(
+-        "unexpected state shutdownSent",
++        "existing shutdownSent",
+         AssociationState::ShutdownSent,
+         true,
+     );
+--- a/src/association/mod.rs
++++ b/src/association/mod.rs
+@@ -1,5 +1,8 @@
+ use crate::association::state::{AckMode, AckState, AssociationState};
+ use crate::association::stats::AssociationStats;
++use crate::chunk::Chunk;
++use crate::chunk::ErrorCauseUnrecognizedChunkType;
++use crate::chunk::USER_INITIATED_ABORT;
+ use crate::chunk::chunk_abort::ChunkAbort;
+ use crate::chunk::chunk_cookie_ack::ChunkCookieAck;
+ use crate::chunk::chunk_cookie_echo::ChunkCookieEcho;
+@@ -16,20 +19,17 @@
+ use crate::chunk::chunk_shutdown_ack::ChunkShutdownAck;
+ use crate::chunk::chunk_shutdown_complete::ChunkShutdownComplete;
+ use crate::chunk::chunk_type::CT_FORWARD_TSN;
+-use crate::chunk::Chunk;
+-use crate::chunk::ErrorCauseUnrecognizedChunkType;
+-use crate::chunk::USER_INITIATED_ABORT;
+ use crate::config::COMMON_HEADER_SIZE;
+ use crate::config::DATA_CHUNK_HEADER_SIZE;
+ use crate::config::{ServerConfig, TransportConfig};
+ use crate::error::{Error, Result};
+ use crate::packet::{CommonHeader, Packet};
++use crate::param::Param;
+ use crate::param::param_heartbeat_info::ParamHeartbeatInfo;
+ use crate::param::param_outgoing_reset_request::ParamOutgoingResetRequest;
+ use crate::param::param_reconfig_response::{ParamReconfigResponse, ReconfigResult};
+ use crate::param::param_state_cookie::ParamStateCookie;
+ use crate::param::param_supported_extensions::ParamSupportedExtensions;
+-use crate::param::Param;
+ use crate::queue::outbound_queue::OutboundQueue;
+ use crate::queue::payload_queue::PayloadQueue;
+ use crate::queue::reassembly_queue::ReassemblyQueue;
+@@ -38,7 +38,7 @@
+ use crate::{AssociationEvent, Payload, Side, Transmit};
+ use stream::DataChannelStats;
+ use stream::{ReliabilityType, Stream, StreamEvent, StreamId, StreamResetError, StreamState};
+-use timer::{RtoManager, Timer, TimerTable, ACK_INTERVAL};
++use timer::{ACK_INTERVAL, RtoManager, Timer, TimerTable};
+ 
+ use crate::association::stream::RecvSendState;
+ use alloc::boxed::Box;
+@@ -60,6 +60,9 @@
+ use std::time::Instant;
+ use thiserror::Error;
+ 
++mod restart;
++#[cfg(test)]
++mod restart_tests;
+ pub(crate) mod state;
+ pub(crate) mod stats;
+ pub(crate) mod stream;
+@@ -222,6 +225,9 @@
+     inflight_queue_length: usize,
+     will_send_shutdown: bool,
+     next_stream_generation: u64,
++    restart_generation: u64,
++    restart_cookie_key: Option<[u8; 32]>,
++    restart_cookie_epoch: Option<Instant>,
+     bytes_received: usize,
+     bytes_sent: usize,
+ 
+@@ -356,6 +362,9 @@
+             inflight_queue_length: 0,
+             will_send_shutdown: false,
+             next_stream_generation: 0,
++            restart_generation: 0,
++            restart_cookie_key: None,
++            restart_cookie_epoch: None,
+             bytes_received: 0,
+             bytes_sent: 0,
+ 
+@@ -583,7 +592,7 @@
+             this.stored_init = Some(init);
+             let _ = this.send_init();
+             this.timers
+-                .start(Timer::T1Init, now, this.rto_mgr.get_rto());
++                .start_precise(Timer::T1Init, now, this.rto_mgr.get_rto_precise());
+         }
+ 
+         this
+@@ -865,7 +874,8 @@
+                 self.on_retransmission_failure(timer);
+             } else {
+                 self.on_retransmission_timeout(timer, n_rtos);
+-                self.timers.start(timer, now, self.rto_mgr.get_rto());
++                self.timers
++                    .start_precise(timer, now, self.rto_mgr.get_rto_precise());
+             }
+         }
+     }
+@@ -1000,7 +1010,7 @@
+ 
+     /// Current best estimate of this Association's latency (round-trip-time)
+     pub fn rtt(&self) -> Duration {
+-        Duration::from_millis(self.rto_mgr.get_rto())
++        self.rto_mgr.get_rto_duration()
+     }
+ 
+     /// The local IP address which was used when the peer established
+@@ -1745,13 +1755,16 @@
+         chunk: &Box<dyn Chunk + Send + Sync>,
+         now: Instant,
+     ) -> Result<()> {
++        if self.restart_generation != 0 && !self.valid_restart_packet(p, chunk.as_ref()) {
++            return Ok(());
++        }
+         chunk.check()?;
+         let chunk_any = chunk.as_any();
+         let packets = if let Some(c) = chunk_any.downcast_ref::<ChunkInit>() {
+             if c.is_ack {
+                 self.handle_init_ack(p, c, now)?
+             } else {
+-                self.handle_init(p, c)?
++                self.handle_init_at(p, c, now)?
+             }
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkAbort>() {
+             let mut err_str = String::new();
+@@ -1773,7 +1786,7 @@
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkHeartbeat>() {
+             self.handle_heartbeat(c)?
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkCookieEcho>() {
+-            self.handle_cookie_echo(c)?
++            self.handle_cookie_echo_at(p, c, now)?
+         } else if chunk_any.downcast_ref::<ChunkCookieAck>().is_some() {
+             self.handle_cookie_ack()?
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkPayloadData>() {
+@@ -1813,9 +1826,34 @@
+         Ok(())
+     }
+ 
++    #[cfg(test)]
+     fn handle_init(&mut self, p: &Packet, i: &ChunkInit) -> Result<Vec<Packet>> {
++        self.handle_init_at(p, i, Instant::now())
++    }
++    fn handle_init_at(&mut self, p: &Packet, i: &ChunkInit, now: Instant) -> Result<Vec<Packet>> {
+         let state = self.state();
+         debug!("[{}] chunkInit received in state '{}'", self.side, state);
++
++        // Fixed Pion handleInit/RFC9260§9.2: INIT cannot resurrect an
++        // association already waiting for SHUTDOWN-COMPLETE. Only its own port
++        // pair schedules a SHUTDOWN-ACK retry; never issue a restart cookie.
++        if state == AssociationState::ShutdownAckSent {
++            if p.common_header.destination_port == self.source_port
++                && p.common_header.source_port == self.destination_port
++            {
++                self.retransmit_shutdown_ack();
++            }
++            return Ok(vec![]);
++        }
++        // A delayed retransmission of the peer's current INIT belongs to the
++        // completed handshake, not a new association generation.
++        if state == AssociationState::Established
++            && p.common_header.destination_port == self.source_port
++            && p.common_header.source_port == self.destination_port
++            && i.initiate_tag == self.peer_verification_tag
++        {
++            return Ok(vec![]);
++        }
+ 
+         // https://tools.ietf.org/html/rfc4960#section-5.2.1
+         // Upon receipt of an INIT in the COOKIE-WAIT state, an endpoint MUST
+@@ -1830,7 +1868,7 @@
+         {
+             // 5.2.2.  Unexpected INIT in States Other than CLOSED, COOKIE-ECHOED,
+             //        COOKIE-WAIT, and SHUTDOWN-ACK-SENT
+-            return Err(Error::ErrHandleInitState);
++            return self.handle_restart_init(p, i, now);
+         }
+ 
+         // Should we be setting any of these permanently until we've ACKed further?
+@@ -1936,7 +1974,7 @@
+             self.send_cookie_echo()?;
+ 
+             self.timers
+-                .start(Timer::T1Cookie, now, self.rto_mgr.get_rto());
++                .start_precise(Timer::T1Cookie, now, self.rto_mgr.get_rto_precise());
+ 
+             self.set_state(AssociationState::CookieEchoed);
+ 
+@@ -1973,7 +2011,24 @@
+         Ok(vec![])
+     }
+ 
++    #[cfg(test)]
+     fn handle_cookie_echo(&mut self, c: &ChunkCookieEcho) -> Result<Vec<Packet>> {
++        let p = self.create_packet(vec![]);
++        self.handle_cookie_echo_at(&p, c, Instant::now())
++    }
++    fn handle_cookie_echo_at(
++        &mut self,
++        p: &Packet,
++        c: &ChunkCookieEcho,
++        now: Instant,
++    ) -> Result<Vec<Packet>> {
++        if self
++            .my_cookie
++            .as_ref()
++            .is_none_or(|cookie| cookie.cookie != c.cookie)
++        {
++            return self.handle_restart_cookie(p, c, now);
++        }
+         let state = self.state();
+         debug!("[{}] COOKIE-ECHO received in state '{}'", self.side, state);
+ 
+@@ -2705,9 +2760,7 @@
+         if sna32lt(self.cumulative_tsn_ack_point, d.cumulative_tsn_ack) {
+             trace!(
+                 "[{}] SACK: cumTSN advanced: {} -> {}",
+-                self.side,
+-                self.cumulative_tsn_ack_point,
+-                d.cumulative_tsn_ack
++                self.side, self.cumulative_tsn_ack_point, d.cumulative_tsn_ack
+             );
+ 
+             self.cumulative_tsn_ack_point = d.cumulative_tsn_ack;
+@@ -2810,9 +2863,7 @@
+ 
+         trace!(
+             "[{}] should send ack? newCumTSN={} peer_last_tsn={}",
+-            self.side,
+-            c.new_cumulative_tsn,
+-            self.peer_last_tsn
++            self.side, c.new_cumulative_tsn, self.peer_last_tsn
+         );
+         if sna32lte(c.new_cumulative_tsn, self.peer_last_tsn) {
+             trace!("[{}] sending ack on Forward TSN", self.side);
+@@ -2945,6 +2996,13 @@
+         }
+ 
+         Ok(vec![])
++    }
++
++    fn retransmit_shutdown_ack(&mut self) {
++        self.timers.stop(Timer::T2Shutdown);
++        self.will_send_shutdown = false;
++        self.will_send_shutdown_ack = true;
++        self.awake_write_loop();
+     }
+ 
+     fn handle_shutdown_ack(&mut self, _: &ChunkShutdownAck) -> Result<Vec<Packet>> {
+@@ -3326,7 +3384,7 @@
+                         self.min_tsn2measure_rtt = self.my_next_tsn;
+                         if let Some(since) = &c.since {
+                             let rtt = now.duration_since(*since);
+-                            let srtt = self.rto_mgr.set_new_rtt(rtt.as_millis() as u64);
++                            let srtt = self.rto_mgr.set_new_rtt_precise(rtt);
+                             trace!(
+                                 "[{}] SACK: measured-rtt={} srtt={} new-rto={}",
+                                 self.side,
+@@ -3389,7 +3447,7 @@
+                             self.min_tsn2measure_rtt = self.my_next_tsn;
+                             if let Some(since) = &c.since {
+                                 let rtt = now.duration_since(*since);
+-                                let srtt = self.rto_mgr.set_new_rtt(rtt.as_millis() as u64);
++                                let srtt = self.rto_mgr.set_new_rtt_precise(rtt);
+                                 trace!(
+                                     "[{}] SACK: measured-rtt={} srtt={} new-rto={}",
+                                     self.side,
+@@ -3441,7 +3499,7 @@
+         } else {
+             trace!("[{}] T3-rtx timer start (pt2)", self.side);
+             self.timers
+-                .restart_if_stale(Timer::T3RTX, now, self.rto_mgr.get_rto());
++                .restart_if_stale_precise(Timer::T3RTX, now, self.rto_mgr.get_rto_precise());
+         }
+ 
+         // Update congestion control parameters
+@@ -3462,13 +3520,10 @@
+                     self.cwnd
+                         .wrapping_add(core::cmp::min(total_bytes_acked as u32, self.cwnd)),
+                 ); // TCP way
+-                   // self.cwnd += min32(uint32(total_bytes_acked), self.mtu) // SCTP way (slow)
++                // self.cwnd += min32(uint32(total_bytes_acked), self.mtu) // SCTP way (slow)
+                 trace!(
+                     "[{}] updated cwnd={} ssthresh={} acked={} (SS)",
+-                    self.side,
+-                    self.cwnd,
+-                    self.ssthresh,
+-                    total_bytes_acked
++                    self.side, self.cwnd, self.ssthresh, total_bytes_acked
+                 );
+             } else {
+                 trace!(
+@@ -3500,10 +3555,7 @@
+                 self.set_cwnd(self.cwnd.wrapping_add(self.mtu.max(self.cwnd_ca_step)));
+                 trace!(
+                     "[{}] updated cwnd={} ssthresh={} acked={} (CA)",
+-                    self.side,
+-                    self.cwnd,
+-                    self.ssthresh,
+-                    total_bytes_acked
++                    self.side, self.cwnd, self.ssthresh, total_bytes_acked
+                 );
+             }
+         }
+@@ -3603,7 +3655,7 @@
+             // Start timer. (noop if already started)
+             trace!("[{}] T3-rtx timer start (pt3)", self.side);
+             self.timers
+-                .restart_if_stale(Timer::T3RTX, now, self.rto_mgr.get_rto());
++                .restart_if_stale_precise(Timer::T3RTX, now, self.rto_mgr.get_rto_precise());
+         } else if self.source_partial_reliability && self.outbound_queue.pending_len() != 0 {
+             // Previously accepted DATA must leave before entering terminal shutdown.
+             should_awake_write_loop = true;
+@@ -3940,8 +3992,11 @@
+         }
+ 
+         if self.active_reconfig.is_some() {
+-            self.timers
+-                .restart_if_stale(Timer::Reconfig, now, self.rto_mgr.get_rto());
++            self.timers.restart_if_stale_precise(
++                Timer::Reconfig,
++                now,
++                self.rto_mgr.get_rto_precise(),
++            );
+         }
+ 
+         raw_packets
+@@ -3981,7 +4036,7 @@
+             // Start timer. (noop if already started)
+             trace!("[{}] T3-rtx timer start (pt1)", self.side);
+             self.timers
+-                .restart_if_stale(Timer::T3RTX, now, self.rto_mgr.get_rto());
++                .restart_if_stale_precise(Timer::T3RTX, now, self.rto_mgr.get_rto_precise());
+ 
+             for p in &self.bundle_data_chunks_into_packets(chunks) {
+                 if let Ok(raw) = p.marshal() {
+@@ -4069,8 +4124,11 @@
+         // The timer belongs to exactly the request selected above or while
+         // draining the control queue.
+         if self.active_reconfig.is_some() {
+-            self.timers
+-                .restart_if_stale(Timer::Reconfig, now, self.rto_mgr.get_rto());
++            self.timers.restart_if_stale_precise(
++                Timer::Reconfig,
++                now,
++                self.rto_mgr.get_rto_precise(),
++            );
+         }
+ 
+         raw_packets
+@@ -4219,10 +4277,7 @@
+                     to_fast_retrans.push(Box::new(c.clone()));
+                     trace!(
+                         "[{}] fast-retransmit: tsn={} sent={} htna={}",
+-                        self.side,
+-                        c.tsn,
+-                        c.nsent,
+-                        self.fast_recover_exit_point
++                        self.side, c.tsn, c.nsent, self.fast_recover_exit_point
+                     );
+                 }
+                 i += 1;
+@@ -4335,7 +4390,7 @@
+ 
+             if let Ok(raw) = self.create_packet(vec![Box::new(shutdown)]).marshal() {
+                 self.timers
+-                    .start(Timer::T2Shutdown, now, self.rto_mgr.get_rto());
++                    .start_precise(Timer::T2Shutdown, now, self.rto_mgr.get_rto_precise());
+                 raw_packets.push(raw);
+             } else {
+                 warn!("[{}] failed to serialize a Shutdown packet", self.side);
+@@ -4347,7 +4402,7 @@
+ 
+             if let Ok(raw) = self.create_packet(vec![Box::new(shutdown_ack)]).marshal() {
+                 self.timers
+-                    .start(Timer::T2Shutdown, now, self.rto_mgr.get_rto());
++                    .start_precise(Timer::T2Shutdown, now, self.rto_mgr.get_rto_precise());
+                 raw_packets.push(raw);
+             } else {
+                 warn!("[{}] failed to serialize a ShutdownAck packet", self.side);
+@@ -4421,10 +4476,7 @@
+             if let Some(c) = self.outbound_queue.get_mut(tsn) {
+                 trace!(
+                     "[{}] retransmitting tsn={} ssn={} sent={}",
+-                    self.side,
+-                    c.tsn,
+-                    c.stream_sequence_number,
+-                    c.nsent
++                    self.side, c.tsn, c.stream_sequence_number, c.nsent
+                 );
+ 
+                 chunks.push(c.clone());
+@@ -4702,8 +4754,11 @@
+                 abandoned = true;
+             }
+             if abandoned {
+-                self.timers
+-                    .restart_if_stale(Timer::T3RTX, now, self.rto_mgr.get_rto());
++                self.timers.restart_if_stale_precise(
++                    Timer::T3RTX,
++                    now,
++                    self.rto_mgr.get_rto_precise(),
++                );
+             }
+         }
+     }
+@@ -4809,10 +4864,7 @@
+         }
+         trace!(
+             "[{}] building fwd_tsn: newCumulativeTSN={} cumTSN={} - {}",
+-            self.side,
+-            fwd_tsn.new_cumulative_tsn,
+-            self.cumulative_tsn_ack_point,
+-            stream_str
++            self.side, fwd_tsn.new_cumulative_tsn, self.cumulative_tsn_ack_point, stream_str
+         );
+ 
+         fwd_tsn
+@@ -4864,6 +4916,13 @@
+         Ok(())
+     }
+ 
++    /// Number of authenticated peer restarts committed in this association.
++    /// A blocked write captures this identity and must fail if it changes;
++    /// application-open stream ids themselves remain valid for fresh writes.
++    pub fn restart_generation(&self) -> u64 {
++        self.restart_generation
++    }
++
+     /// Source BlockWrite latch: set by enqueue; cleared only by the original
+     /// new-DATA/nonempty and pending-empty writer notification, or closure.
+     /// This intentionally differs from asking whether the pending queue is empty.
+@@ -4897,8 +4956,7 @@
+     fn on_ack_timeout(&mut self) {
+         trace!(
+             "[{}] ack timed out (ack_state: {})",
+-            self.side,
+-            self.ack_state
++            self.side, self.ack_state
+         );
+         self.stats.inc_ack_timeouts();
+         self.ack_state = AckState::Immediate;
+@@ -5230,9 +5288,10 @@
+         }
+         assert_eq!(a.outbound_queue.inflight_bytes(), 3000);
+         a.will_retransmit_fast = true;
+-        assert!(a
+-            .gather_outbound_fast_retransmission_packets(vec![], now)
+-            .is_empty());
++        assert!(
++            a.gather_outbound_fast_retransmission_packets(vec![], now)
++                .is_empty()
++        );
+         source_ack_all(&mut a, now + Duration::from_millis(1));
+     }
+     fn source_wire_tsns(packets: &[Bytes]) -> Vec<u32> {
+@@ -5555,7 +5614,10 @@
+                 );
+                 let c = a.outbound_queue.get(1).unwrap();
+                 assert_eq!(c.nsent, 2);
+-                assert!(!c.abandoned, "selector={selector} removed={remove}: old enqueue Rexmit1 must not override actual current stream");
++                assert!(
++                    !c.abandoned,
++                    "selector={selector} removed={remove}: old enqueue Rexmit1 must not override actual current stream"
++                );
+             }
+             let mut a = assoc(0, 3000, 0);
+             let now = Instant::now();
+--- a/src/association/pto_tlr_tests.rs
++++ b/src/association/pto_tlr_tests.rs
+@@ -75,9 +75,10 @@
+     assert_eq!(tsns(&first.payload), vec![2]);
+     let deadline = a.poll_timeout().unwrap();
+     assert_eq!(deadline, sent + Duration::from_millis(204));
+-    assert!(a
+-        .poll_transmit(deadline - Duration::from_nanos(1))
+-        .is_none());
++    assert!(
++        a.poll_transmit(deadline - Duration::from_nanos(1))
++            .is_none()
++    );
+     a.handle_timeout(deadline - Duration::from_nanos(1));
+     assert!(!a.source_tlr.active);
+     a.handle_timeout(deadline);
+@@ -94,9 +95,10 @@
+         a.poll_transmit(deadline).is_none(),
+         "spurious polling must not replenish a TLR budget"
+     );
+-    assert!(a
+-        .poll_transmit(deadline + Duration::from_nanos(1))
+-        .is_none());
++    assert!(
++        a.poll_transmit(deadline + Duration::from_nanos(1))
++            .is_none()
++    );
+     // Real producer wakes coalesce, rather than queuing three extra budgets.
+     a.awake_write_loop();
+     a.awake_write_loop();
+--- /dev/null
++++ b/src/association/restart.rs
+@@ -0,0 +1,308 @@
++//! Authenticated same-TCB restart, fixed Pion SCTP v1.12.0
++//! association.go handleRestartInit/handleCookieEcho/restartAssociation.
++//! Cookies are opaque on the wire. Their timestamp uses this TCB's monotonic
++//! epoch rather than a wall clock, retaining Pion's one-minute age/tie-tag checks.
++use super::*;
++use crate::chunk::{
++    COOKIE_RECEIVED_WHILE_SHUTTING_DOWN, ErrorCause, RESTART_OF_AN_ASSOCIATION_WITH_NEW_ADDRESSES,
++    STALE_COOKIE_ERROR,
++};
++use crate::param::param_type::ParamType;
++use bytes::{BufMut, BytesMut};
++use hmac::{Hmac, Mac};
++use sha2::Sha256;
++
++const COOKIE_HEADER: usize = 24;
++const MAC_LENGTH: usize = 32;
++const COOKIE_LIFETIME: Duration = Duration::from_secs(60);
++
++impl Association {
++    pub(super) fn valid_restart_packet(&self, packet: &Packet, chunk: &dyn Chunk) -> bool {
++        if packet.common_header.source_port != self.destination_port
++            || packet.common_header.destination_port != self.source_port
++        {
++            return false;
++        }
++        if chunk
++            .as_any()
++            .downcast_ref::<ChunkInit>()
++            .is_some_and(|init| !init.is_ack)
++            || chunk.as_any().is::<ChunkCookieEcho>()
++        {
++            return true;
++        }
++        packet.common_header.verification_tag == self.my_verification_tag
++    }
++
++    pub(super) fn handle_restart_init(
++        &mut self,
++        packet: &Packet,
++        init: &ChunkInit,
++        now: Instant,
++    ) -> Result<Vec<Packet>> {
++        if !matches!(
++            self.state,
++            AssociationState::Established
++                | AssociationState::ShutdownPending
++                | AssociationState::ShutdownSent
++                | AssociationState::ShutdownReceived
++        ) || packet.common_header.destination_port != self.source_port
++            || packet.common_header.source_port != self.destination_port
++        {
++            // A rejected restart must not tear down the still-live TCB.
++            return Ok(vec![]);
++        }
++        if init.params.iter().any(|param| {
++            matches!(
++                param.header().typ,
++                ParamType::Ipv4Addr | ParamType::Ipv6Addr | ParamType::HostNameAddr
++            )
++        }) {
++            let mut response = self.create_packet(vec![Box::new(ChunkAbort {
++                error_causes: vec![ErrorCause {
++                    code: RESTART_OF_AN_ASSOCIATION_WITH_NEW_ADDRESSES,
++                    raw: Bytes::new(),
++                }],
++            })]);
++            response.common_header.verification_tag = init.initiate_tag;
++            return Ok(vec![response]);
++        }
++        let key = *self
++            .restart_cookie_key
++            .get_or_insert_with(random::<[u8; 32]>);
++        let epoch = *self.restart_cookie_epoch.get_or_insert(now);
++        let issued = now
++            .saturating_duration_since(epoch)
++            .as_nanos()
++            .min(u64::MAX as u128) as u64;
++        let mut local_tag = random::<u32>();
++        while local_tag == 0 || local_tag == self.my_verification_tag {
++            local_tag = random::<u32>();
++        }
++        let mut raw = BytesMut::new();
++        raw.put_u64(issued);
++        raw.put_u32(self.my_verification_tag);
++        raw.put_u32(self.peer_verification_tag);
++        raw.put_u32(local_tag);
++        raw.put_u32(self.my_next_tsn);
++        // Retain the peer's complete INIT, including extension negotiation.
++        raw.extend_from_slice(&init.marshal()?);
++        let mut mac = Hmac::<Sha256>::new_from_slice(&key).expect("HMAC accepts 32-byte key");
++        mac.update(&raw);
++        raw.extend_from_slice(&mac.finalize().into_bytes());
++        let cookie = ParamStateCookie {
++            cookie: raw.freeze(),
++        };
++        let mut ack = ChunkInit {
++            is_ack: true,
++            initiate_tag: local_tag,
++            initial_tsn: self.my_next_tsn,
++            advertised_receiver_window_credit: self.max_receive_buffer_size,
++            num_inbound_streams: self
++                .my_max_num_inbound_streams
++                .min(init.num_outbound_streams),
++            num_outbound_streams: self
++                .my_max_num_outbound_streams
++                .min(init.num_inbound_streams),
++            params: vec![Box::new(cookie)],
++        };
++        ack.set_supported_extensions();
++        let mut response = self.create_packet(vec![Box::new(ack)]);
++        response.common_header.verification_tag = init.initiate_tag;
++        // Deliberately no TCB mutation until a valid COOKIE-ECHO arrives.
++        Ok(vec![response])
++    }
++
++    pub(super) fn handle_restart_cookie(
++        &mut self,
++        packet: &Packet,
++        echo: &ChunkCookieEcho,
++        now: Instant,
++    ) -> Result<Vec<Packet>> {
++        if !matches!(
++            self.state,
++            AssociationState::Established
++                | AssociationState::ShutdownPending
++                | AssociationState::ShutdownSent
++                | AssociationState::ShutdownReceived
++                | AssociationState::ShutdownAckSent
++        ) || echo.cookie.len() < COOKIE_HEADER + 20 + MAC_LENGTH
++        {
++            return Ok(vec![]);
++        }
++        let (Some(key), Some(epoch)) = (self.restart_cookie_key, self.restart_cookie_epoch) else {
++            return Ok(vec![]);
++        };
++        let (raw, signature) = echo.cookie.split_at(echo.cookie.len() - MAC_LENGTH);
++        let mut mac = Hmac::<Sha256>::new_from_slice(&key).expect("HMAC accepts 32-byte key");
++        mac.update(raw);
++        if mac.verify_slice(signature).is_err() {
++            return Ok(vec![]);
++        }
++        let u32_at = |offset| u32::from_be_bytes(raw[offset..offset + 4].try_into().unwrap());
++        let issued = u64::from_be_bytes(raw[..8].try_into().unwrap());
++        let (local_tie, peer_tie, local_tag, local_tsn) =
++            (u32_at(8), u32_at(12), u32_at(16), u32_at(20));
++        let Ok(init) = ChunkInit::unmarshal(&Bytes::copy_from_slice(&raw[COOKIE_HEADER..])) else {
++            return Ok(vec![]);
++        };
++        if init.is_ack
++            || packet.common_header.verification_tag != local_tag
++            || packet.common_header.destination_port != self.source_port
++            || packet.common_header.source_port != self.destination_port
++            || local_tie != self.my_verification_tag
++            || peer_tie != self.peer_verification_tag
++            || local_tag == self.my_verification_tag
++            || init.initiate_tag == self.peer_verification_tag
++        {
++            return Ok(vec![]);
++        }
++        let age = now
++            .checked_duration_since(epoch)
++            .and_then(|elapsed| elapsed.checked_sub(Duration::from_nanos(issued)));
++        if age.is_none_or(|age| age > COOKIE_LIFETIME) {
++            let stale = age
++                .unwrap_or_default()
++                .saturating_sub(COOKIE_LIFETIME)
++                .as_micros()
++                .min(u32::MAX as u128) as u32;
++            let mut response = self.create_packet(vec![Box::new(ChunkError {
++                error_causes: vec![ErrorCause {
++                    code: STALE_COOKIE_ERROR,
++                    raw: Bytes::copy_from_slice(&stale.to_be_bytes()),
++                }],
++            })]);
++            response.common_header.verification_tag = init.initiate_tag;
++            return Ok(vec![response]);
++        }
++        if self.state == AssociationState::ShutdownAckSent {
++            self.retransmit_shutdown_ack();
++            let mut response = self.create_packet(vec![Box::new(ChunkError {
++                error_causes: vec![ErrorCause {
++                    code: COOKIE_RECEIVED_WHILE_SHUTTING_DOWN,
++                    raw: Bytes::new(),
++                }],
++            })]);
++            response.common_header.verification_tag = init.initiate_tag;
++            return Ok(vec![response]);
++        }
++        self.restart_protocol_state(local_tag, local_tsn, &init, echo.cookie.clone());
++        Ok(vec![self.create_packet(vec![Box::new(ChunkCookieAck {})])])
++    }
++
++    fn restart_protocol_state(
++        &mut self,
++        local_tag: u32,
++        local_tsn: u32,
++        init: &ChunkInit,
++        cookie: Bytes,
++    ) {
++        for timer in Timer::VALUES {
++            self.timers.stop(timer);
++        }
++        self.restart_generation = self.restart_generation.wrapping_add(1);
++        // Old per-stream application events refer to discarded protocol buffers.
++        self.events
++            .retain(|event| matches!(event, Event::DataChannelStatsFinal(_)));
++        let mut closing = vec![];
++        for (&id, stream) in &mut self.streams {
++            if stream.state != RecvSendState::ReadWritable {
++                closing.push(id);
++                continue;
++            }
++            let was_high = stream.buffered_amount > stream.buffered_amount_low;
++            stream.reassembly_queue = ReassemblyQueue::new(id, self.max_receive_message_size);
++            stream.sequence_number = 0;
++            stream.first_message_id = 0;
++            stream.buffered_amount = 0;
++            if was_high {
++                self.events
++                    .push_back(Event::Stream(StreamEvent::BufferedAmountLow { id }));
++            }
++            self.events
++                .push_back(Event::Stream(StreamEvent::Writable { id }));
++        }
++        for id in closing {
++            if let Some(stream) = self.streams.remove(&id) {
++                self.events
++                    .push_back(Event::DataChannelStatsFinal(stream.stats));
++                self.events
++                    .push_back(Event::Stream(StreamEvent::Finished { id }));
++                self.events
++                    .push_back(Event::Stream(StreamEvent::ResetComplete { id }));
++            }
++        }
++        self.payload_queue = PayloadQueue::default();
++        self.outbound_queue = OutboundQueue::default();
++        self.inflight_queue_length = 0;
++        self.control_queue.clear();
++        self.stream_queue.retain(|id| self.streams.contains_key(id));
++        self.reconfigs.clear();
++        self.reconfig_reset_streams.clear();
++        self.active_reconfig = None;
++        self.pending_reset_streams.clear();
++        self.reconfig_requests.clear();
++        self.deferred_reset_data.clear();
++        self.max_completed_reconfig_rsn = None;
++        self.pending_reset_completions = PendingResetCompletions::default();
++        self.failed_reset_streams.clear();
++        self.retiring_streams.clear();
++        self.ready_stream_finishes = PendingResetCompletions::default();
++        self.delivered_stream_finishes = PendingResetCompletions::default();
++        self.deferred_forward_tsns.clear();
++        self.my_verification_tag = local_tag;
++        self.peer_verification_tag = init.initiate_tag;
++        self.my_next_tsn = local_tsn;
++        self.my_next_rsn = local_tsn;
++        self.min_tsn2measure_rtt = local_tsn;
++        self.cumulative_tsn_ack_point = local_tsn.wrapping_sub(1);
++        self.advanced_peer_tsn_ack_point = local_tsn.wrapping_sub(1);
++        self.my_max_num_inbound_streams = self
++            .my_max_num_inbound_streams
++            .min(init.num_outbound_streams);
++        self.my_max_num_outbound_streams = self
++            .my_max_num_outbound_streams
++            .min(init.num_inbound_streams);
++        self.my_cookie = Some(ParamStateCookie { cookie });
++        self.will_send_forward_tsn = false;
++        self.will_retransmit_fast = false;
++        self.will_retransmit_reconfig = false;
++        self.will_send_shutdown = false;
++        self.will_send_shutdown_ack = false;
++        self.will_send_shutdown_complete = false;
++        self.source_shutdown_complete_pending = false;
++        self.source_writer_pending.store(false, Ordering::Relaxed);
++        self.ordinary_write_pending = false;
++        self.source_pr_abandoned.clear();
++        self.stored_init = None;
++        self.stored_cookie_echo = None;
++        self.ack_state = AckState::Idle;
++        self.delayed_ack_triggered = false;
++        self.immediate_ack_triggered = false;
++        self.use_forward_tsn = false;
++        self.apply_remote_init_params(
++            init.initial_tsn,
++            init.advertised_receiver_window_credit,
++            &init.params,
++            "restart",
++        );
++        self.rto_mgr.reset();
++        self.cwnd = (4 * self.mtu)
++            .min((2 * self.mtu).max(4380))
++            .max(self.min_cwnd);
++        self.ssthresh = self.rwnd;
++        self.partial_bytes_acked = 0;
++        self.fast_recover_exit_point = 0;
++        self.in_fast_recovery = false;
++        self.source_rack_ack = SourceRackAck::with_min_tsn(local_tsn);
++        self.source_tlr = SourceTlr::default();
++        self.source_burst = None;
++        self.set_state(AssociationState::Established);
++        self.handshake_completed = true;
++        self.endpoint_events
++            .push_back(EndpointEventInner::Restarted {
++                local_tag,
++                peer_tag: init.initiate_tag,
++            });
++    }
++}
+--- /dev/null
++++ b/src/association/restart_tests.rs
+@@ -0,0 +1,524 @@
++use super::*;
++
++fn live_tcb(now: Instant) -> Association {
++    let config = Arc::new(TransportConfig::default().with_source_partial_reliability(true));
++    let mut a = Association::new_common(
++        config,
++        1400,
++        "127.0.0.1:9000".parse().unwrap(),
++        None,
++        Side::Server,
++        111,
++        100,
++    );
++    a.state = AssociationState::Established;
++    a.handshake_completed = true;
++    a.peer_verification_tag = 222;
++    a.peer_last_tsn = 199;
++    a.rwnd = 1 << 20;
++    a.open_stream(1, PayloadProtocolIdentifier::Binary).unwrap();
++    a.events.clear();
++    let _ = now;
++    a
++}
++fn receive_wire(a: &mut Association, packet: Packet, now: Instant) {
++    let encoded = packet.marshal().unwrap();
++    let parsed = Packet::unmarshal(&encoded).unwrap();
++    a.handle_inbound(parsed, now).unwrap();
++}
++fn request(a: &Association, peer_tag: u32) -> Packet {
++    let mut init = ChunkInit {
++        initiate_tag: peer_tag,
++        initial_tsn: 500,
++        advertised_receiver_window_credit: 1 << 20,
++        num_inbound_streams: 100,
++        num_outbound_streams: 100,
++        ..Default::default()
++    };
++    init.set_supported_extensions();
++    Packet {
++        common_header: CommonHeader {
++            source_port: a.destination_port,
++            destination_port: a.source_port,
++            verification_tag: 0,
++        },
++        chunks: vec![Box::new(init)],
++    }
++}
++fn challenge(a: &mut Association, peer_tag: u32, now: Instant) -> (u32, Bytes) {
++    let packet = request(a, peer_tag);
++    receive_wire(a, packet, now);
++    let ack = a.control_queue.pop_front().expect("wire INIT-ACK");
++    let ack = Packet::unmarshal(&ack.marshal().unwrap()).unwrap();
++    let init = ack.chunks[0].as_any().downcast_ref::<ChunkInit>().unwrap();
++    assert!(init.is_ack);
++    let cookie = init
++        .params
++        .iter()
++        .find_map(|param| param.as_any().downcast_ref::<ParamStateCookie>())
++        .unwrap();
++    (init.initiate_tag, cookie.cookie.clone())
++}
++fn echo(a: &Association, local_tag: u32, cookie: Bytes) -> Packet {
++    Packet {
++        common_header: CommonHeader {
++            source_port: a.destination_port,
++            destination_port: a.source_port,
++            verification_tag: local_tag,
++        },
++        chunks: vec![Box::new(ChunkCookieEcho { cookie })],
++    }
++}
++
++#[test]
++fn wire_restart_commits_same_tcb_only_after_authenticated_cookie_and_preserves_open_stream() {
++    let now = Instant::now();
++    let mut a = live_tcb(now);
++    let identity = &a as *const Association;
++    let stream_generation = a.streams[&1].stats.generation;
++    a.stream(1).unwrap().write(b"old-inflight").unwrap();
++    let old = a.send_next_data_chunk(now).unwrap();
++    a.stream(1).unwrap().write(b"old-pending").unwrap();
++    a.timers.start(Timer::T3RTX, now, 1000);
++    let (tag, cookie) = challenge(&mut a, 333, now);
++    let (_, competing) = challenge(&mut a, 444, now);
++    assert_eq!(a.my_verification_tag, 111);
++    assert!(
++        a.stream(1).unwrap().buffered_amount().unwrap() > 0,
++        "INIT cannot discard live data"
++    );
++    let mut forged = cookie.to_vec();
++    *forged.last_mut().unwrap() ^= 1;
++    let packet = echo(&a, tag, forged.into());
++    receive_wire(&mut a, packet, now);
++    assert_eq!(a.restart_generation, 0);
++    let packet = echo(&a, tag, cookie.clone());
++    receive_wire(&mut a, packet, now + Duration::from_micros(250));
++    assert_eq!(
++        &a as *const Association, identity,
++        "restart must not construct a new association"
++    );
++    assert_eq!(a.restart_generation, 1);
++    assert_eq!(a.my_verification_tag, tag);
++    assert_eq!(a.peer_verification_tag, 333);
++    assert_eq!(a.state, AssociationState::Established);
++    assert_eq!(
++        a.streams[&1].stats.generation, stream_generation,
++        "application stream remains open"
++    );
++    assert_eq!(a.stream(1).unwrap().buffered_amount().unwrap(), 0);
++    assert!(a.stream(1).unwrap().read().unwrap().is_none());
++    assert!(a.timers.get(Timer::T3RTX).is_none());
++    assert_eq!(
++        a.outbound_queue.pending_len() + a.outbound_queue.inflight_len(),
++        0
++    );
++    assert!(!a.ordinary_write_pending);
++    assert!(
++        a.events
++            .iter()
++            .any(|event| matches!(event, Event::Stream(StreamEvent::Writable { id: 1 })))
++    );
++    assert!(a.events.iter().all(|event| !matches!(
++        event,
++        Event::AssociationLost { .. } | Event::Stream(StreamEvent::Finished { id: 1 })
++    )));
++    let ack = a.control_queue.pop_back().unwrap();
++    assert!(ack.chunks[0].as_any().is::<ChunkCookieAck>());
++    a.stream(1).unwrap().write(b"new-generation").unwrap();
++    let sent = a
++        .send_next_data_chunk(now + Duration::from_millis(1))
++        .unwrap();
++    assert_eq!(sent.stream_sequence_number, 0);
++    assert_eq!(sent.tsn, old.tsn.wrapping_add(1));
++    let mut peer = live_tcb(now);
++    peer.my_verification_tag = 333;
++    peer.peer_verification_tag = tag;
++    peer.peer_last_tsn = sent.tsn.wrapping_sub(1);
++    let wire = a.create_packet(vec![Box::new(sent.clone())]);
++    receive_wire(&mut peer, wire, now + Duration::from_millis(2));
++    let message = peer
++        .stream(1)
++        .unwrap()
++        .read()
++        .unwrap()
++        .expect("post-restart DATA delivered");
++    let mut payload = [0u8; 14];
++    assert_eq!(message.read(&mut payload).unwrap(), payload.len());
++    assert_eq!(&payload, b"new-generation");
++    // A stale old-tag SACK cannot acknowledge the fresh flight queue.
++    let old_ack = Packet {
++        common_header: CommonHeader {
++            source_port: a.destination_port,
++            destination_port: a.source_port,
++            verification_tag: 111,
++        },
++        chunks: vec![Box::new(ChunkSelectiveAck {
++            cumulative_tsn_ack: sent.tsn,
++            advertised_receiver_window_credit: 1 << 20,
++            ..Default::default()
++        })],
++    };
++    receive_wire(&mut a, old_ack, now + Duration::from_millis(3));
++    assert!(a.stream(1).unwrap().buffered_amount().unwrap() > 0);
++    let packet = echo(&a, tag, cookie);
++    receive_wire(&mut a, packet, now + Duration::from_millis(4));
++    assert_eq!(
++        a.restart_generation, 1,
++        "duplicate accepted COOKIE-ECHO only repeats ACK"
++    );
++    let competing_tag = u32::from_be_bytes(competing[16..20].try_into().unwrap());
++    let packet = echo(&a, competing_tag, competing);
++    receive_wire(&mut a, packet, now + Duration::from_millis(5));
++    assert_eq!(
++        a.restart_generation, 1,
++        "competing old tie-tags cannot roll the TCB back"
++    );
++}
++
++#[test]
++fn wire_restart_rejects_stale_cookie_ports_and_new_addresses_without_discarding_live_data() {
++    use crate::chunk::{RESTART_OF_AN_ASSOCIATION_WITH_NEW_ADDRESSES, STALE_COOKIE_ERROR};
++    use crate::param::param_header::ParamHeader;
++    use crate::param::param_type::ParamType;
++    let now = Instant::now();
++    let mut a = live_tcb(now);
++    a.stream(1).unwrap().write(b"retained").unwrap();
++    let (tag, cookie) = challenge(&mut a, 333, now);
++    let mut wrong_port = echo(&a, tag, cookie.clone());
++    wrong_port.common_header.source_port += 1;
++    receive_wire(&mut a, wrong_port, now);
++    assert_eq!(a.restart_generation, 0);
++    let packet = echo(&a, tag, cookie);
++    receive_wire(&mut a, packet, now + Duration::from_secs(61));
++    let response = a.control_queue.pop_back().unwrap();
++    let error = response.chunks[0]
++        .as_any()
++        .downcast_ref::<ChunkError>()
++        .unwrap();
++    assert_eq!(error.error_causes[0].code, STALE_COOKIE_ERROR);
++    assert_eq!(&error.error_causes[0].raw[..], &1_000_000u32.to_be_bytes());
++    assert_eq!(a.stream(1).unwrap().buffered_amount().unwrap(), 8);
++    let mut init = request(&a, 444);
++    let value = init.chunks[0].as_any().downcast_ref::<ChunkInit>().unwrap();
++    let mut value = value.clone();
++    value.params.push(Box::new(ParamHeader {
++        typ: ParamType::HostNameAddr,
++        value_length: 0,
++    }));
++    // Exercise the production restart decision before unsupported address parsing
++    // (the native generic parser already rejects such an address on the wire).
++    let packets = a.handle_init_at(&init, &value, now).unwrap();
++    let abort = packets[0].chunks[0]
++        .as_any()
++        .downcast_ref::<ChunkAbort>()
++        .unwrap();
++    assert_eq!(
++        abort.error_causes[0].code,
++        RESTART_OF_AN_ASSOCIATION_WITH_NEW_ADDRESSES
++    );
++    init.common_header.source_port += 1;
++    receive_wire(&mut a, init, now);
++    assert_eq!(
++        a.state,
++        AssociationState::Established,
++        "invalid restart must not close the live TCB"
++    );
++}
++
++fn emitted_data(a: &mut Association, now: Instant) -> ChunkPayloadData {
++    let packets = a.gather_outbound(now).0;
++    packets
++        .iter()
++        .find_map(|wire| {
++            let packet = Packet::unmarshal(wire).unwrap();
++            packet
++                .chunks
++                .iter()
++                .find_map(|chunk| chunk.as_any().downcast_ref::<ChunkPayloadData>().cloned())
++        })
++        .expect("actual encoded DATA packet")
++}
++
++#[test]
++fn wire_sack_fractional_history_drives_precise_t3_and_karn_exclusion() {
++    let start = Instant::now();
++    let mut a = live_tcb(start);
++    let mut expected_srtt = 0.0_f64;
++    let mut expected_variance = 0.0_f64;
++    for (index, sample_us) in [1_250_125u64, 1_750_875, 1_125_375, 2_250_625]
++        .into_iter()
++        .enumerate()
++    {
++        let sent_at = start + Duration::from_secs(index as u64 * 20);
++        a.stream(1).unwrap().write(b"sample").unwrap();
++        let sent = emitted_data(&mut a, sent_at);
++        let elapsed = Duration::from_micros(sample_us);
++        let received_at = sent_at + elapsed;
++        let ack = Packet {
++            common_header: CommonHeader {
++                source_port: a.destination_port,
++                destination_port: a.source_port,
++                verification_tag: a.my_verification_tag,
++            },
++            chunks: vec![Box::new(ChunkSelectiveAck {
++                cumulative_tsn_ack: sent.tsn,
++                advertised_receiver_window_credit: 1 << 20,
++                ..Default::default()
++            })],
++        };
++        receive_wire(&mut a, ack, received_at);
++        let sample_ms = sample_us as f64 / 1000.0;
++        if expected_srtt == 0.0 {
++            expected_srtt = sample_ms;
++            expected_variance = sample_ms / 2.0;
++        } else {
++            expected_variance = 0.75 * expected_variance + 0.25 * (expected_srtt - sample_ms).abs();
++            expected_srtt = 0.875 * expected_srtt + 0.125 * sample_ms;
++        }
++        let expected_rto = (expected_srtt + 4.0 * expected_variance).clamp(1000.0, 60000.0);
++        assert!((a.rto_mgr.get_rto_precise() - expected_rto).abs() < 1e-8);
++        a.stream(1).unwrap().write(b"timer-owner").unwrap();
++        let flight = emitted_data(&mut a, received_at);
++        // The actual outgoing DATA production must arm the physical T3 timer;
++        // no helper call or synthetic deadline is allowed to arm it here.
++        let deadline = received_at + Duration::from_nanos((expected_rto * 1_000_000.0) as u64);
++        assert_eq!(a.timers.get(Timer::T3RTX), Some(deadline));
++        assert!(
++            !a.timers
++                .is_expired(Timer::T3RTX, deadline - Duration::from_nanos(1))
++                .0
++        );
++        let previous = a.rto_mgr.get_rto_precise();
++        a.handle_timeout(deadline);
++        assert!(a.stats.get_num_t3timeouts() > 0);
++        let retry = emitted_data(&mut a, deadline);
++        assert_eq!(
++            retry.tsn, flight.tsn,
++            "physical timeout produces the original DATA again"
++        );
++        assert!(a.outbound_queue.get(flight.tsn).unwrap().nsent > 1);
++        let mut ack = a.create_packet(vec![Box::new(ChunkSelectiveAck {
++            cumulative_tsn_ack: flight.tsn,
++            advertised_receiver_window_credit: 1 << 20,
++            ..Default::default()
++        })]);
++        ack.common_header.verification_tag = a.my_verification_tag;
++        receive_wire(&mut a, ack, deadline + Duration::from_micros(125));
++        assert_eq!(
++            a.rto_mgr.get_rto_precise(),
++            previous,
++            "Karn: retransmitted DATA must not update RTT"
++        );
++        a.timers.stop(Timer::T3RTX);
++    }
++}
++
++#[test]
++fn endpoint_routes_restart_cookie_and_new_tag_data_to_the_original_handle() {
++    let now = Instant::now();
++    let config = Arc::new(TransportConfig::default().with_source_partial_reliability(true));
++    let local = crate::generate_snap_token(&config).unwrap();
++    let remote_init = crate::generate_snap_token(&config).unwrap();
++    let mut endpoint = crate::Endpoint::new(Arc::new(crate::EndpointConfig::new()), None);
++    let mut client_config = crate::ClientConfig::new().with_snap(local, remote_init);
++    client_config.transport = config;
++    let remote: SocketAddr = "127.0.0.1:9000".parse().unwrap();
++    let (handle, mut a) = endpoint.connect(client_config, remote).unwrap();
++    a.open_stream(1, PayloadProtocolIdentifier::Binary).unwrap();
++    while a.poll().is_some() {}
++    let packet = request(&a, 333);
++    let (routed, event) = endpoint
++        .handle(now, remote, None, None, packet.marshal().unwrap())
++        .unwrap();
++    assert_eq!(routed, handle);
++    match event {
++        crate::DatagramEvent::AssociationEvent(event) => a.handle_event(event),
++        _ => panic!("restart INIT must not allocate another association"),
++    }
++    let ack = a.control_queue.pop_front().unwrap();
++    let init = ack.chunks[0].as_any().downcast_ref::<ChunkInit>().unwrap();
++    let tag = init.initiate_tag;
++    let cookie = init
++        .params
++        .iter()
++        .find_map(|param| param.as_any().downcast_ref::<ParamStateCookie>())
++        .unwrap()
++        .cookie
++        .clone();
++    let packet = echo(&a, tag, cookie);
++    let (routed, event) = endpoint
++        .handle(now, remote, None, None, packet.marshal().unwrap())
++        .unwrap();
++    assert_eq!(routed, handle);
++    match event {
++        crate::DatagramEvent::AssociationEvent(event) => a.handle_event(event),
++        _ => panic!("restart COOKIE-ECHO must retain association ownership"),
++    }
++    while let Some(event) = a.poll_endpoint_event() {
++        endpoint.handle_event(handle, event);
++    }
++    let packet = Packet {
++        common_header: CommonHeader {
++            source_port: a.destination_port,
++            destination_port: a.source_port,
++            verification_tag: tag,
++        },
++        chunks: vec![Box::new(ChunkPayloadData {
++            tsn: 500,
++            stream_identifier: 1,
++            stream_sequence_number: 0,
++            beginning_fragment: true,
++            ending_fragment: true,
++            payload_type: PayloadProtocolIdentifier::Binary,
++            user_data: Bytes::from_static(b"same-handle"),
++            ..Default::default()
++        })],
++    };
++    let (routed, event) = endpoint
++        .handle(now, remote, None, None, packet.marshal().unwrap())
++        .unwrap();
++    assert_eq!(
++        routed, handle,
++        "new tag DATA must route after the endpoint event"
++    );
++    match event {
++        crate::DatagramEvent::AssociationEvent(event) => a.handle_event(event),
++        _ => panic!("DATA cannot allocate a replacement association"),
++    }
++    let message = a.stream(1).unwrap().read().unwrap().unwrap();
++    let mut payload = [0u8; 11];
++    assert_eq!(message.read(&mut payload).unwrap(), payload.len());
++    assert_eq!(&payload, b"same-handle");
++}
++
++#[test]
++fn current_init_retransmission_and_shutdown_ack_state_do_not_start_restart() {
++    let now = Instant::now();
++    let mut a = live_tcb(now);
++    a.stream(1).unwrap().write(b"preserve-live-data").unwrap();
++    let buffered = a.stream(1).unwrap().buffered_amount().unwrap();
++    let tag = a.my_verification_tag;
++    let packet = request(&a, a.peer_verification_tag);
++    receive_wire(&mut a, packet, now);
++    assert!(a.control_queue.is_empty());
++    assert!(a.restart_cookie_key.is_none());
++    assert_eq!(a.my_verification_tag, tag);
++    assert_eq!(a.restart_generation, 0);
++    assert_eq!(a.stream(1).unwrap().buffered_amount().unwrap(), buffered);
++    a.state = AssociationState::ShutdownAckSent;
++    a.will_send_shutdown = true;
++    a.timers.start(Timer::T2Shutdown, now, 1000);
++    let mut wrong = request(&a, 333);
++    wrong.common_header.source_port += 1;
++    receive_wire(&mut a, wrong, now);
++    assert!(a.control_queue.is_empty());
++    assert!(!a.will_send_shutdown_ack);
++    assert!(a.will_send_shutdown);
++    assert!(a.timers.get(Timer::T2Shutdown).is_some());
++    let packet = request(&a, 333);
++    receive_wire(&mut a, packet, now);
++    assert!(a.will_send_shutdown_ack);
++    assert!(!a.will_send_shutdown);
++    assert!(a.timers.get(Timer::T2Shutdown).is_none());
++    assert!(a.control_queue.is_empty());
++    assert!(a.restart_cookie_key.is_none());
++    assert_eq!(a.my_verification_tag, tag);
++    assert_eq!(a.restart_generation, 0);
++    assert_eq!(a.state, AssociationState::ShutdownAckSent);
++    assert_eq!(a.stream(1).unwrap().buffered_amount().unwrap(), buffered);
++}
++
++/// Read observations produced by the unmodified pinned Pion algorithm and
++/// replay the same valid CRC32C INIT/COOKIE frames through native production
++/// parsing. Random cookies/timestamps are opaque and deliberately not compared
++/// byte-for-byte. The separately-recorded real UDP peer lifecycle is not
++/// mislabeled as a native UDP execution by this reader.
++#[test]
++#[ignore = "requires GO_SCTP_RESTART_HISTORY from exact Pion source observer"]
++fn fixed_pion_restart_wire_history_matches_native() {
++    use serde_json::{Value, json};
++    let input = std::env::var("GO_SCTP_RESTART_HISTORY").expect("fixed Pion JSONL observations");
++    let rows: Vec<Value> = std::fs::read_to_string(input)
++        .unwrap()
++        .lines()
++        .map(|line| serde_json::from_str(line).unwrap())
++        .collect();
++    assert_eq!(
++        rows.len(),
++        9,
++        "six wire records plus three actual UDP generations required"
++    );
++    let now = Instant::now();
++    let mut a = live_tcb(now);
++    let identity = &a as *const Association;
++    let stream_generation = a.streams[&1].stats.generation;
++    a.stream(1).unwrap().write(b"old-inflight").unwrap();
++    a.send_next_data_chunk(now).unwrap();
++    a.stream(1).unwrap().write(b"old-pending").unwrap();
++    let buffered = a.stream(1).unwrap().buffered_amount().unwrap();
++    let mut actual = Vec::new();
++    let packet = request(&a, a.peer_verification_tag);
++    receive_wire(&mut a, packet, now);
++    actual.push(json!({"phase":"duplicate-init","generation":a.restart_generation,"no_challenge":a.control_queue.is_empty(),"buffer_preserved":a.stream(1).unwrap().buffered_amount().unwrap()==buffered}));
++    let (tag, cookie) = challenge(&mut a, 333, now);
++    let (other_tag, other_cookie) = challenge(&mut a, 444, now);
++    let mut forged = cookie.to_vec();
++    *forged.last_mut().unwrap() ^= 1;
++    let packet = echo(&a, tag, forged.into());
++    receive_wire(&mut a, packet, now);
++    actual.push(json!({"phase":"invalid-cookie","generation":a.restart_generation,"buffer_preserved":a.stream(1).unwrap().buffered_amount().unwrap()==buffered,"tags_preserved":a.my_verification_tag==111&&a.peer_verification_tag==222}));
++    let mut packet = echo(&a, tag, cookie.clone());
++    packet.common_header.source_port += 1;
++    receive_wire(&mut a, packet, now);
++    actual.push(json!({"phase":"wrong-port-cookie","generation":a.restart_generation,"buffer_preserved":a.stream(1).unwrap().buffered_amount().unwrap()==buffered}));
++    let packet = echo(&a, tag, cookie.clone());
++    receive_wire(&mut a, packet, now);
++    actual.push(json!({"phase":"commit","generation":a.restart_generation,"same_tcb":std::ptr::eq(&a,identity),"same_stream":a.streams[&1].stats.generation==stream_generation,"stream_open":a.stream(1).unwrap().buffered_amount().is_ok(),"buffer_released":a.stream(1).unwrap().buffered_amount().unwrap()==0,"pending_empty":a.outbound_queue.pending_len()==0,"inflight_empty":a.outbound_queue.inflight_len()==0,"write_pending":a.ordinary_write_pending}));
++    let packet = echo(&a, tag, cookie);
++    receive_wire(&mut a, packet, now);
++    let packet = echo(&a, other_tag, other_cookie);
++    receive_wire(&mut a, packet, now);
++    actual.push(json!({"phase":"duplicate-competing-cookie","generation":a.restart_generation,"same_tcb":std::ptr::eq(&a,identity),"same_stream":a.streams[&1].stats.generation==stream_generation,"tags_preserved":a.my_verification_tag==tag&&a.peer_verification_tag==333}));
++    let mut shutdown = live_tcb(now);
++    shutdown.state = AssociationState::ShutdownAckSent;
++    let packet = request(&shutdown, 333);
++    receive_wire(&mut shutdown, packet, now);
++    actual.push(json!({"phase":"shutdown-ack-init","generation":shutdown.restart_generation,"no_challenge":shutdown.control_queue.is_empty(),"shutdown_ack_pending":shutdown.will_send_shutdown_ack}));
++    for row in &actual {
++        let matches: Vec<_> = rows
++            .iter()
++            .filter(|source| source["case"] == "wire" && source["phase"] == row["phase"])
++            .collect();
++        assert_eq!(
++            matches.len(),
++            1,
++            "one exact source observation for {}",
++            row["phase"]
++        );
++        for (key, value) in row.as_object().unwrap() {
++            assert_eq!(
++                &matches[0][key], value,
++                "actual native vs fixed Go phase={} field={key}",
++                row["phase"]
++            );
++        }
++    }
++    // Require the physically-executed Go scope to exist. Native physical peer
++    // and async writer-owner consumers have their own execution gates; this
++    // reader does not turn a recorded Go callback into native execution proof.
++    for generation in 0..3 {
++        let phase = format!("generation-{generation}");
++        let row = rows
++            .iter()
++            .find(|row| row["case"] == "physical" && row["phase"] == phase)
++            .unwrap();
++        assert_eq!(row["generation"], generation);
++        assert_eq!(row["same_tcb"], true);
++        assert_eq!(row["same_stream"], true);
++        assert_eq!(row["stream_open"], true);
++        assert_eq!(row["actual_bidirectional_data"], true);
++        assert_eq!(row["old_attempt_retired"], generation > 0);
++        assert_eq!(row["buffer_callback_released"], generation > 0);
++    }
++}
+--- a/src/association/source_shutdown_tests.rs
++++ b/src/association/source_shutdown_tests.rs
+@@ -1,6 +1,6 @@
+ // Uses existing public Endpoint/Association APIs; no new candidate types.
+ use super::*;
+-use crate::{generate_snap_token, ClientConfig, DatagramEvent, Endpoint, EndpointConfig};
++use crate::{ClientConfig, DatagramEvent, Endpoint, EndpointConfig, generate_snap_token};
+ struct Peer {
+     endpoint: Endpoint,
+     association: Association,
+@@ -149,9 +149,11 @@
+         sacks,
+         "not a fabricated received SACK"
+     );
+-    assert!(outputs(&mut a, base + Duration::from_millis(3))
+-        .iter()
+-        .any(contains::<ChunkShutdownAck>));
++    assert!(
++        outputs(&mut a, base + Duration::from_millis(3))
++            .iter()
++            .any(contains::<ChunkShutdownAck>)
++    );
+     Ok(())
+ }
+ #[test]
+--- a/src/association/stream.rs
++++ b/src/association/stream.rs
+@@ -1,5 +1,5 @@
++use crate::association::Association;
+ use crate::association::state::AssociationState;
+-use crate::association::Association;
+ use crate::chunk::chunk_payload_data::{ChunkPayloadData, PayloadProtocolIdentifier};
+ use crate::error::{Error, Result};
+ use crate::queue::reassembly_queue::{Chunks, ReassemblyQueue};
+@@ -742,10 +742,7 @@
+ 
+         trace!(
+             "[{}] bufferedAmount = {}, from_amount = {}, buffered_amount_low = {}",
+-            self.side,
+-            new_amount,
+-            from_amount,
+-            buffered_amount_low,
++            self.side, new_amount, from_amount, buffered_amount_low,
+         );
+ 
+         from_amount > buffered_amount_low && new_amount <= buffered_amount_low
+--- a/src/association/timer.rs
++++ b/src/association/timer.rs
+@@ -95,6 +95,26 @@
+         self.data[timer as usize] = Some(time);
+     }
+ 
++    /// Schedule from the unrounded RTO. Pion retains fractional milliseconds
++    /// until converting the physical timeout to nanoseconds.
++    pub fn start_precise(&mut self, timer: Timer, now: Instant, interval_ms: f64) {
++        let retries = self.retrans[timer as usize];
++        let millis = if timer == Timer::Ack {
++            interval_ms
++        } else if retries < 31 {
++            (interval_ms * (1u64 << retries) as f64).min(self.rto_max as f64)
++        } else {
++            self.rto_max as f64
++        };
++        self.data[timer as usize] = Some(now + Duration::from_nanos((millis * 1_000_000.0) as u64));
++    }
++    pub fn restart_if_stale_precise(&mut self, timer: Timer, now: Instant, interval_ms: f64) {
++        if self.data[timer as usize].is_some_and(|current| current >= now) {
++            return;
++        }
++        self.start_precise(timer, now, interval_ms);
++    }
++
+     /// Restarts the timer if the current instant is none or elapsed.
+     pub fn restart_if_stale(&mut self, timer: Timer, now: Instant, interval: u64) {
+         if let Some(current) = self.data[timer as usize] {
+@@ -152,6 +172,8 @@
+ #[derive(Debug)]
+ pub(crate) struct RtoManager {
+     pub(crate) srtt: u64,
++    srtt_precise: f64,
++    rto_precise: f64,
+     pub(crate) rttvar: f64,
+     pub(crate) rto: u64,
+     pub(crate) no_update: bool,
+@@ -164,6 +186,8 @@
+     fn default() -> Self {
+         RtoManager {
+             srtt: 0,
++            srtt_precise: 0.0,
++            rto_precise: RTO_INITIAL as f64,
+             rttvar: 0.0,
+             rto: RTO_INITIAL,
+             no_update: false,
+@@ -179,6 +203,8 @@
+     pub(crate) fn new(rto_initial: u64, rto_min: u64, rto_max: u64) -> Self {
+         RtoManager {
+             srtt: 0,
++            srtt_precise: 0.0,
++            rto_precise: rto_initial as f64,
+             rttvar: 0.0,
+             rto: rto_initial,
+             no_update: false,
+@@ -208,7 +234,38 @@
+ 
+         self.rto = (self.srtt + (4.0 * self.rttvar) as u64).clamp(self.rto_min, self.rto_max);
+ 
++        self.srtt_precise = self.srtt as f64;
++        self.rto_precise = self.rto as f64;
+         self.srtt
++    }
++
++    /// Update directly from an actual send-to-ACK Duration. Do not truncate
++    /// samples before EWMA: their fractional history affects later timeouts.
++    pub(crate) fn set_new_rtt_precise(&mut self, rtt: Duration) -> f64 {
++        if self.no_update {
++            return self.srtt_precise;
++        }
++        let rtt = rtt.as_nanos() as f64 / 1_000_000.0;
++        if self.srtt_precise == 0.0 {
++            self.srtt_precise = rtt;
++            self.rttvar = rtt / 2.0;
++        } else {
++            self.rttvar = 0.75 * self.rttvar + 0.25 * (self.srtt_precise - rtt).abs();
++            self.srtt_precise = 0.875 * self.srtt_precise + 0.125 * rtt;
++        }
++        self.rto_precise =
++            (self.srtt_precise + 4.0 * self.rttvar).clamp(self.rto_min as f64, self.rto_max as f64);
++        self.srtt = self.srtt_precise as u64;
++        self.rto = self.rto_precise as u64;
++        self.srtt_precise
++    }
++
++    pub(crate) fn get_rto_precise(&self) -> f64 {
++        self.rto_precise
++    }
++
++    pub(crate) fn get_rto_duration(&self) -> Duration {
++        Duration::from_nanos((self.rto_precise * 1_000_000.0) as u64)
+     }
+ 
+     /// get_rto simply returns the current RTO in msec.
+@@ -223,6 +280,8 @@
+         }
+ 
+         self.srtt = 0;
++        self.srtt_precise = 0.0;
++        self.rto_precise = self.rto_initial as f64;
+         self.rttvar = 0.0;
+         self.rto = self.rto_initial;
+     }
+@@ -230,6 +289,7 @@
+     /// set RTO value for testing
+     pub(crate) fn set_rto(&mut self, rto: u64, no_update: bool) {
+         self.rto = rto;
++        self.rto_precise = rto as f64;
+         self.no_update = no_update;
+     }
+ }
+--- a/src/endpoint/mod.rs
++++ b/src/endpoint/mod.rs
+@@ -115,6 +115,21 @@
+         event: EndpointEvent,
+     ) -> Option<AssociationEvent> {
+         match event.0 {
++            EndpointEventInner::Restarted {
++                local_tag,
++                peer_tag,
++            } => {
++                let conn = self.associations.get_mut(ch.0)?;
++                for tag in conn.loc_cids.values() {
++                    self.association_ids.remove(tag);
++                }
++                self.association_ids_init.remove(&conn.init_cid);
++                conn.init_cid = peer_tag;
++                conn.loc_cids.clear();
++                conn.loc_cids.insert(0, local_tag);
++                self.association_ids.insert(local_tag, ch);
++                self.association_ids_init.insert(peer_tag, ch);
++            }
+             EndpointEventInner::Drained => {
+                 let conn = self.associations.remove(ch.0);
+                 self.association_ids_init.remove(&conn.init_cid);
+@@ -161,6 +176,28 @@
+                 None
+             }
+         };
++
++        // A restarted peer has a fresh INIT tag and its COOKIE-ECHO addresses
++        // a not-yet-committed local tag. Route only when this transport has one
++        // unambiguous association; the association authenticates cookie/ports.
++        // Never allocate a replacement association for that peer's restart.
++        let known_ch = known_ch.or_else(|| {
++            if !matches!(
++                partial_decode.first_chunk_type,
++                CT_INIT | crate::chunk::chunk_type::CT_COOKIE_ECHO
++            ) {
++                return None;
++            }
++            let mut candidates = self
++                .associations
++                .iter()
++                .filter(|(_, meta)| meta.initial_remote == remote);
++            let (id, _) = candidates.next()?;
++            if candidates.next().is_some() {
++                return None;
++            }
++            Some(AssociationHandle(id))
++        });
+ 
+         if let Some(ch) = known_ch {
+             return Some((
+--- a/src/shared.rs
++++ b/src/shared.rs
+@@ -35,6 +35,8 @@
+ 
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub(crate) enum EndpointEventInner {
++    /// Replace protocol verification-tag routing after an authenticated restart.
++    Restarted { local_tag: u32, peer_tag: u32 },
+     /// The association has been drained
+     Drained,
+     /*// The association needs association identifiers

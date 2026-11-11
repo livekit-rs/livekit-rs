@@ -1,0 +1,1 @@
+Local same-version dependency-only fork: replace unmaintained paste with already selected maintained pastey0.2.3 under the same paste dependency alias. No library or macro-call source changed. Original Cargo.toml.orig and both licenses are retained.

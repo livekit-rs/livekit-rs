@@ -1,0 +1,95 @@
+
+const {Room,RoomEvent,Track}=LivekitClient;
+let room, audioContext, oscillator, initialSid, failedChannel, channelMessages=0;
+let videoTimer,trackEpoch=0; let localSidValue,localSessionEpoch=0; const remoteSessions=new Map(),nativeIds=new WeakMap();let nextNativeId=0; const mediaStates=new WeakMap(); const videos=new Map(), timers=[], errors=[], events=[], received=[];
+const stamp=(type,detail)=>events.push({type,detail,at:performance.now()});
+function localEpoch(){const sid=room?.localParticipant.sid;if(!sid)return 0;if(sid!==localSidValue){localSidValue=sid;localSessionEpoch++;}return localSessionEpoch;}
+function participantEpoch(participant){const old=remoteSessions.get(participant.identity);if(!participant.sid)return 0;if(!old||old.sid!==participant.sid){const value={sid:participant.sid,epoch:(old?.epoch??0)+1};remoteSessions.set(participant.identity,value);return value.epoch;}return old.epoch;}
+function nativeId(pc){if(!nativeIds.has(pc))nativeIds.set(pc,++nextNativeId);return nativeIds.get(pc);}
+function topology(){const manager=room?.engine?.pcManager;if(!manager)throw Error('actual PC manager unavailable');
+ const publisher=manager.publisher?._pc,subscriber=manager.subscriber?._pc;
+ if(!(publisher instanceof RTCPeerConnection))throw Error('actual publisher native PC unavailable');
+ if(manager.subscriber&&!(subscriber instanceof RTCPeerConnection))throw Error('actual subscriber native PC unavailable');
+ const pcs=[...new Set([publisher,subscriber].filter(Boolean))];
+ return {public:{mode:manager.mode,publisherId:nativeId(publisher),subscriberId:subscriber?nativeId(subscriber):null,nativeIds:pcs.map(nativeId)},pcs};}
+function binding(track,participant){
+ const current=room.remoteParticipants.get(participant.identity);const participantCurrent=current===participant&&current.sid===participant.sid;
+ let pc;try{pc=topology().pcs.find(pc=>pc.getReceivers().includes(track.receiver));}catch(error){errors.push('native receive binding: '+String(error));}
+ const state={localSessionEpoch:localEpoch(),participantEpoch:participantCurrent?participantEpoch(participant):0,participantCurrent,pcId:pc?nativeId(pc):0,trackEpoch:++trackEpoch,bindingValid:!!pc&&participantCurrent&&!!participant.sid&&!!room.localParticipant.sid};
+ if(participantCurrent&&!state.bindingValid)errors.push('actual track/participant/nativePC binding unavailable');
+ if(!participantCurrent)stamp('stale-track-observation',track.kind);
+ return state;
+}
+window.consumer={
+ async connect({url,token,single,publish}) {
+  audioContext=new AudioContext();await audioContext.resume();
+  room=new Room({singlePeerConnection:single,adaptiveStream:false,dynacast:false});
+  for(const name of ['Reconnecting','Reconnected','SignalReconnecting','Disconnected'])
+   if(RoomEvent[name]) room.on(RoomEvent[name],reason=>stamp(name,typeof reason==='number'?reason:undefined));
+  room.on(RoomEvent.ConnectionStateChanged,value=>stamp('state',value));
+  room.on(RoomEvent.DataReceived,(data,participant,kind)=>{
+   try {received.push({value:JSON.parse(new TextDecoder().decode(data)),from:participant?.identity??null,kind});}
+   catch(error){errors.push('DataReceived decode: '+String(error));}
+  });
+  room.on(RoomEvent.TrackUnsubscribed,track=>{const state=mediaStates.get(track);if(state)state.active=false;});
+  room.on(RoomEvent.TrackSubscribed,(track,publication,participant)=>{
+   stamp('TrackSubscribed',track.kind);
+   const element=track.attach();element.autoplay=true;element.volume=0;document.body.append(element);
+   element.play().catch(error=>errors.push('play: '+String(error)));
+   if(track.kind===Track.Kind.Video){
+    element.muted=true;element.playsInline=true;
+    const state={identity:participant.identity,frames:0,width:0,height:0,ended:false,active:true,...binding(track,participant)};videos.set(state.trackEpoch,state);mediaStates.set(track,state);
+    const frame=()=>{if(!state.active)return;state.frames++;state.width=element.videoWidth;state.height=element.videoHeight;if(!state.ended)element.requestVideoFrameCallback(frame);};
+    element.requestVideoFrameCallback(frame);
+    track.mediaStreamTrack.addEventListener('ended',()=>state.ended=true);
+   }
+   if(track.kind===Track.Kind.Audio){
+    const source=audioContext.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+    const analyser=audioContext.createAnalyser(),silent=audioContext.createGain();silent.gain.value=0;
+    source.connect(analyser);analyser.connect(silent);silent.connect(audioContext.destination);
+    const data=new Float32Array(analyser.fftSize);
+    const state={identity:participant.identity,samples:0,audible:0,active:true,...binding(track,participant)};audio.push(state);mediaStates.set(track,state);
+    timers.push(setInterval(()=>{if(!state.active||track.mediaStreamTrack.readyState!=='live')return;analyser.getFloatTimeDomainData(data);state.samples++;if(Math.sqrt(data.reduce((s,x)=>s+x*x,0)/data.length)>0.01)state.audible++;},100));
+   }
+  });
+  await room.connect(url,token,{autoSubscribe:true});initialSid=room.localParticipant.sid;
+  if(publish){
+   oscillator=audioContext.createOscillator();oscillator.frequency.value=440;
+   const gain=audioContext.createGain();gain.gain.value=.2;const dest=audioContext.createMediaStreamDestination();
+   oscillator.connect(gain);gain.connect(dest);oscillator.start();
+   await room.localParticipant.publishTrack(dest.stream.getAudioTracks()[0],{source:Track.Source.Microphone,name:'consumer-tone'});
+   const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;const ctx=canvas.getContext('2d');let seq=0;
+   videoTimer=setInterval(()=>{ctx.fillStyle=`hsl(${seq++%360} 70% 40%)`;ctx.fillRect(0,0,640,360);ctx.fillStyle='white';ctx.font='32px sans-serif';ctx.fillText(String(seq),40,70);},66);
+   await room.localParticipant.publishTrack(canvas.captureStream(15).getVideoTracks()[0],{source:Track.Source.Camera,videoCodec:'vp8',simulcast:false,videoEncoding:{maxBitrate:1800000,maxFramerate:15}});
+  }
+  return {connected:room.state==='connected',topology:topology().public};
+ },
+ selectChannel(kind){
+  // Inspection only: call the unchanged SDK's runtime method, retain and close
+  // its actual native receive handle. Never replace an SDK method/callback.
+  const engine=room.engine;
+  if(typeof engine?.dataChannelForKind!=='function')throw Error('locked SDK runtime inspection seam unavailable');
+  const sub=engine.dataChannelForKind(kind,true),pub=engine.dataChannelForKind(kind,false);
+  const channel=sub??pub;
+  if(!(channel instanceof RTCDataChannel)||channel.readyState!=='open')throw Error('actual downstream channel is not open');
+  failedChannel=channel;channel.addEventListener('message',()=>channelMessages++);
+  return {label:channel.label,ordered:channel.ordered,maxRetransmits:channel.maxRetransmits,selectedSubscriberHandle:!!sub};
+ },
+ closeSelected(){if(!(failedChannel instanceof RTCDataChannel))throw Error('no selected native handle');failedChannel.close();},
+ report(){
+  let selectedReplacement=false,replacementOpen=false;
+  if(failedChannel&&room?.engine?.dataChannelForKind){
+   const kind=failedChannel.maxRetransmits===0?1:0;
+   const next=room.engine.dataChannelForKind(kind,true)??room.engine.dataChannelForKind(kind,false);
+   selectedReplacement=!!next&&next!==failedChannel;replacementOpen=next?.readyState==='open';
+  }
+  let observedTopology=null;try{observedTopology=topology().public;}catch{}
+  return {topology:observedTopology,localSessionEpoch:localEpoch(),trackEpochMax:trackEpoch,remoteEpochs:Object.fromEntries([...remoteSessions].map(([identity,value])=>[identity,value.epoch])),events:[...events],received:[...received],errors:[...errors],connection:room?.state,
+   sidChanged:!!room&&room.localParticipant.sid!==initialSid,selectedState:failedChannel?.readyState,
+   channelMessages,selectedReplacement,replacementOpen,
+   videos:[...videos.values()].map(v=>({...v})),audio:audio.map(v=>({...v})),
+   localTracks:room?[...room.localParticipant.trackPublications.values()].map(p=>({kind:p.kind,hasTrack:!!p.track})):[]};
+ },
+ async close(){clearInterval(videoTimer);for(const timer of timers)clearInterval(timer);oscillator?.stop();await room?.disconnect();for(const el of document.querySelectorAll('video,audio')){el.pause();el.remove();}await audioContext?.close();}
+};
+const audio=[];

@@ -1,0 +1,613 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -141,6 +141,26 @@
+         self.0.session.bwe_snapshot()
+     }
+ 
++    /// Enable native automatic short-probe discovery (enabled by default).
++    ///
++    /// Disabling cancels only non-validation probe trains and their generated
++    /// padding. Native feedback, congestion control, media/RTX, physical probing
++    /// capability and explicit sustained validation continue. No estimate or
++    /// capacity proof is added. The policy survives estimator reset; identical
++    /// repeated settings do not cancel validation or renew any deadline.
++    pub fn set_automatic_probing(&mut self, enabled: bool) {
++        let now = self.0.last_now;
++        self.0.session.set_automatic_probing(enabled, now);
++    }
++
++    /// Read the configured normal-media pacing rate without changing state.
++    ///
++    /// This excludes temporary probe rates and queue-drain acceleration, and is
++    /// not measured link capacity. None means no bandwidth-estimating pacer.
++    pub fn configured_pacing_rate(&self) -> Option<Bitrate> {
++        self.0.session.configured_bwe_pacing_rate()
++    }
++
+     /// Enable periodic ALR exploration (enabled by default).
+     ///
+     /// Applications may disable this when their current allocation covers all
+--- a/src/bwe/delay/control.rs
++++ b/src/bwe/delay/control.rs
+@@ -147,6 +147,22 @@
+         self.trendline_estimator.hypothesis() == BandwidthUsage::Overuse
+     }
+ 
++    /// Accept a newly completed sustained measurement in native payload units.
++    /// Unlike the upstream short-probe path, current overuse takes precedence.
++    pub fn apply_validated_probe(&mut self, measured_payload: Bitrate, now: Instant) -> bool {
++        if self.is_overusing() || measured_payload.as_f64() <= 0.0 {
++            return false;
++        }
++        self.update_estimate(
++            self.trendline_estimator.hypothesis(),
++            None,
++            Some(measured_payload),
++            self.get_smoothed_rtt(),
++            now,
++        );
++        true
++    }
++
+     /// Update smoothed RTT using EWMA (RFC 6298, alpha = 1/8).
+     fn update_rtt(&mut self, rtt: Duration) {
+         // Keep history as fallback in case smoothed RTT is not yet available
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -88,6 +88,10 @@
+ 
+     pub fn end_probe(&mut self, now: Instant, cluster_id: TwccClusterId) {
+         self.bwe.end_probe(now, cluster_id);
++    }
++
++    pub fn set_automatic_probing(&mut self, enabled: bool) -> bool {
++        self.bwe.probe_control.set_automatic_probing(enabled)
+     }
+ 
+     pub fn set_periodic_alr_probing(&mut self, enabled: bool, now: Instant) {
+@@ -242,6 +246,9 @@
+             self.last_twcc_feedback_at = Some(now);
+         }
+ 
++        let batch_has_loss = send_records
++            .iter()
++            .any(|record| record.remote_recv_time().is_none());
+         let mut validation_feedback = false;
+         if let Some(v) = &mut self.validation {
+             let request = v.snapshot();
+@@ -251,11 +258,12 @@
+                 {
+                     validation_feedback = true;
+                     if let Some(bytes) = record.validation_packet_size() {
+-                        v.record(
++                        v.record_packet(
+                             *record.seq(),
+                             record.local_send_time(),
+                             record.remote_recv_time(),
+                             bytes,
++                            record.size(),
+                             now,
+                         );
+                     }
+@@ -331,7 +339,7 @@
+                 .update(&acked_packets, acked_bitrate, probe_result, now);
+ 
+         let Some(delay_estimate) = maybe_estimate else {
+-            self.finish_validation_feedback(validation_feedback, now);
++            self.finish_validation_feedback(validation_feedback, batch_has_loss, now);
+             return;
+         };
+ 
+@@ -345,7 +353,7 @@
+         // During startup with no loss, use delay-based estimate directly
+         if in_startup_phase(self.started_at, now) && loss <= 0.001 {
+             self.loss_controller.set_bandwidth_estimate(delay_estimate);
+-            self.finish_validation_feedback(validation_feedback, now);
++            self.finish_validation_feedback(validation_feedback, batch_has_loss, now);
+             return;
+         }
+ 
+@@ -372,25 +380,35 @@
+             }
+         }
+ 
+-        self.finish_validation_feedback(validation_feedback, now);
++        self.finish_validation_feedback(validation_feedback, batch_has_loss, now);
+ 
+         // Feed the (possibly combined) estimate into subcomponents wanting it.
+         self.propagate_estimate();
+     }
+ 
+-    fn finish_validation_feedback(&mut self, matching: bool, now: Instant) {
++    fn finish_validation_feedback(&mut self, matching: bool, batch_has_loss: bool, now: Instant) {
+         if !matching {
+             return;
+         }
+-        // Matching loss is rejected by Validation::record itself. Do not use a
+-        // lingering global loss-controller state to attribute old, pre-request
+-        // lost records to a new validation generation.
++        // Evaluate after this batch's actual ACK, trendline and loss updates.
++        // A cached Passed observation is never an input a second time.
+         let overuse = self.delay_controller.is_overusing();
+-        if let Some(v) = &mut self.validation {
+-            if overuse {
+-                v.terminate(BweValidationStatus::Failed, now);
+-            }
+-            v.finish_batch(now);
++        let measured_payload = self
++            .validation
++            .as_mut()
++            .and_then(|v| v.finish_feedback(overuse, batch_has_loss, now));
++        if let Some(rate) = measured_payload {
++            if self.delay_controller.apply_validated_probe(rate, now) {
++                if let Some(estimate) = self.delay_controller.last_estimate() {
++                    self.loss_controller.set_bandwidth_estimate(estimate);
++                    debug!(
++                        payload_bps = rate.as_f64(),
++                        estimate_bps = estimate.as_f64(),
++                        "native sustained measured payload accepted"
++                    );
++                    self.propagate_estimate();
++                }
++            }
+         }
+     }
+ 
+@@ -564,6 +582,11 @@
+     /// to tell the estimator which cluster to watch for in TWCC feedback.
+     /// Returns `true` if the probe was started, `false` if rejected.
+     pub fn start_probe(&mut self, config: ProbeClusterConfig, now: Instant) -> bool {
++        if !self.probe_control.automatic_probing_enabled()
++            && config.kind() != probe::ProbeKind::Validation
++        {
++            return false;
++        }
+         self.probe_estimator.probe_start(config, now)
+     }
+ 
+@@ -581,9 +604,11 @@
+         // within this transport, including packets sent at the same Instant.
+         let next_id = self.probe_control.next_cluster_id();
+         let periodic = self.probe_control.periodic_alr_policy();
++        let automatic = self.probe_control.automatic_probing_enabled();
+         *self = Self::new(init_bitrate);
+         self.probe_control.continue_cluster_ids(next_id);
+         self.probe_control.restore_periodic_alr_policy(periodic);
++        self.probe_control.set_automatic_probing(automatic);
+     }
+ }
+ 
+--- a/src/bwe/probe/control.rs
++++ b/src/bwe/probe/control.rs
+@@ -81,6 +81,7 @@
+     scheduled_exponential: Option<Instant>,
+     scheduled_periodic_alr: Option<Instant>,
+     periodic_alr_enabled: bool,
++    automatic_probing_enabled: bool,
+     periodic_alr_not_before: Option<Instant>,
+     scheduled_stagnant: Option<Instant>,
+ }
+@@ -120,6 +121,7 @@
+             scheduled_exponential: None,
+             scheduled_periodic_alr: None,
+             periodic_alr_enabled: true,
++            automatic_probing_enabled: true,
+             periodic_alr_not_before: None,
+             scheduled_stagnant: None,
+         }
+@@ -152,6 +154,22 @@
+                 .with_duration(Duration::from_secs(2))
+                 .with_requested_at(now),
+         )
++    }
++
++    pub(crate) fn automatic_probing_enabled(&self) -> bool {
++        self.automatic_probing_enabled
++    }
++
++    pub(crate) fn set_automatic_probing(&mut self, enabled: bool) -> bool {
++        if self.automatic_probing_enabled == enabled {
++            return false;
++        }
++        self.automatic_probing_enabled = enabled;
++        if !enabled {
++            self.pending.retain(|p| p.kind() == ProbeKind::Validation);
++        }
++        self.request_immediate();
++        true
+     }
+ 
+     pub(crate) fn periodic_alr_policy(&self) -> (bool, Option<Instant>) {
+@@ -253,7 +271,11 @@
+     }
+ 
+     pub fn poll_timeout(&self) -> Instant {
+-        self.next_timeout
++        if self.automatic_probing_enabled {
++            self.next_timeout
++        } else {
++            not_happening()
++        }
+     }
+ 
+     pub fn handle_timeout(&mut self, now: Instant) -> Option<ProbeClusterConfig> {
+@@ -265,6 +287,11 @@
+         // Timeout fired - reset to not_happening until we compute the next one.
+         self.next_timeout = not_happening();
+ 
++        // Automatic discovery is independent of physical capability and explicit
++        // sustained validation. Keep estimates/ALR history while it is suspended.
++        if !self.automatic_probing_enabled {
++            return None;
++        }
+         // Probing is disabled until first packet sent and padding queue exists.
+         if !self.enabled {
+             return None;
+@@ -1057,6 +1084,41 @@
+     }
+ 
+     #[test]
++    fn managed_discovery_keeps_capability_estimates_and_explicit_validation() {
++        let now = Instant::now();
++        let mut pc = ProbeControl::new();
++        assert!(pc.automatic_probing_enabled());
++        pc.enable(true);
++        pc.set_desired_bitrate(Bitrate::mbps(2));
++        pc.set_estimated_bitrate(Bitrate::kbps(32), BandwidthLimitedCause::DelayBasedLimited);
++        for (id, kind) in [
++            (1, ProbeKind::Initial),
++            (2, ProbeKind::Exponential),
++            (3, ProbeKind::IncreaseAlr),
++            (4, ProbeKind::PeriodicAlr),
++            (5, ProbeKind::LargeDrop),
++            (6, ProbeKind::Stagnant),
++        ] {
++            pc.pending
++                .push_back(ProbeClusterConfig::new(id.into(), Bitrate::mbps(1), kind));
++        }
++        assert!(pc.set_automatic_probing(false));
++        assert!(pc.pending.is_empty());
++        assert!(pc.enabled);
++        assert_eq!(pc.last_estimate, Some(Bitrate::kbps(32)));
++        assert_eq!(pc.desired_bitrate, Some(Bitrate::mbps(2)));
++        assert!(pc.poll_timeout() > now + Duration::from_secs(100));
++        assert!(pc.handle_timeout(now + Duration::from_secs(10)).is_none());
++        let validation = pc.validation_config(Bitrate::mbps(2), now).unwrap();
++        assert_eq!(validation.kind(), ProbeKind::Validation);
++        let identity = pc.next_cluster_id();
++        assert!(!pc.set_automatic_probing(false));
++        assert_eq!(pc.next_cluster_id(), identity);
++        assert!(pc.set_automatic_probing(true));
++        assert_eq!(pc.handle_timeout(now).unwrap().kind(), ProbeKind::Initial);
++    }
++
++    #[test]
+     fn periodic_policy_removes_only_periodic_pending_and_preserves_validation_initial() {
+         let now = Instant::now();
+         let mut pc = ProbeControl::new();
+--- a/src/bwe/validation.rs
++++ b/src/bwe/validation.rs
+@@ -60,6 +60,10 @@
+     last_send_size: u64,
+     first_receive_size: u64,
+     total_bytes: u64,
++    total_payload_bytes: u64,
++    last_send_payload_size: u64,
++    first_receive_payload_size: u64,
++    native_result_taken: bool,
+ }
+ impl Validation {
+     pub(super) fn new(id: u64, target: Bitrate, now: Instant) -> Self {
+@@ -87,6 +91,10 @@
+             last_send_size: 0,
+             first_receive_size: 0,
+             total_bytes: 0,
++            total_payload_bytes: 0,
++            last_send_payload_size: 0,
++            first_receive_payload_size: 0,
++            native_result_taken: false,
+         }
+     }
+     pub(super) fn snapshot(&self) -> BweValidationObservation {
+@@ -117,6 +125,7 @@
+             self.terminate(BweValidationStatus::Failed, now);
+         }
+     }
++    #[cfg(test)]
+     pub(super) fn record(
+         &mut self,
+         seq: u64,
+@@ -125,11 +134,23 @@
+         bytes: usize,
+         now: Instant,
+     ) {
++        // Historical zero-overhead synthetic vectors use equal byte units.
++        self.record_packet(seq, sent, received, bytes, bytes, now);
++    }
++    pub(super) fn record_packet(
++        &mut self,
++        seq: u64,
++        sent: Instant,
++        received: Option<Instant>,
++        bytes: usize,
++        payload_bytes: usize,
++        now: Instant,
++    ) {
+         self.timeout(now);
+         if !self.active() || sent < self.observation.requested_at || !self.seen.insert(seq) {
+             return;
+         }
+-        if self.seen.len() > 8192 {
++        if self.seen.len() > 8192 || payload_bytes > bytes {
+             self.terminate(BweValidationStatus::Failed, now);
+             return;
+         }
+@@ -142,21 +163,25 @@
+         self.observation.status = BweValidationStatus::Running;
+         self.observation.received_packets += 1;
+         let bytes = bytes as u64;
++        let payload_bytes = payload_bytes as u64;
+         if self.first_send.is_none_or(|v| sent < v) {
+             self.first_send = Some(sent);
+         }
+         if self.last_send.is_none_or(|v| sent >= v) {
+             self.last_send = Some(sent);
+             self.last_send_size = bytes;
++            self.last_send_payload_size = payload_bytes;
+         }
+         if self.first_receive.is_none_or(|v| received <= v) {
+             self.first_receive = Some(received);
+             self.first_receive_size = bytes;
++            self.first_receive_payload_size = payload_bytes;
+         }
+         if self.last_receive.is_none_or(|v| received > v) {
+             self.last_receive = Some(received);
+         }
+         self.total_bytes += bytes;
++        self.total_payload_bytes += payload_bytes;
+         self.observation.started_at = self.first_send;
+         self.observation.send_span = self
+             .last_send
+@@ -168,6 +193,37 @@
+             .duration_since(self.first_receive.unwrap());
+         self.observation.send_bytes = self.total_bytes.saturating_sub(self.last_send_size);
+         self.observation.recv_bytes = self.total_bytes.saturating_sub(self.first_receive_size);
++    }
++    /// Feed only the new passed edge, in native payload units from the same
++    /// unique packet set and endpoint exclusions as the protected proof.
++    /// Current batch loss prevents rebasing native loss control, even if that
++    /// loss belongs to another cluster. It never extends the proof deadline.
++    pub(super) fn finish_feedback(
++        &mut self,
++        overuse: bool,
++        batch_has_loss: bool,
++        now: Instant,
++    ) -> Option<Bitrate> {
++        if overuse {
++            self.terminate(BweValidationStatus::Failed, now);
++        }
++        self.finish_batch(now);
++        if self.observation.status != BweValidationStatus::Passed || self.native_result_taken {
++            return None;
++        }
++        self.native_result_taken = true;
++        if overuse || batch_has_loss {
++            return None;
++        }
++        let send_bytes = self
++            .total_payload_bytes
++            .saturating_sub(self.last_send_payload_size);
++        let recv_bytes = self
++            .total_payload_bytes
++            .saturating_sub(self.first_receive_payload_size);
++        let rate = (send_bytes as f64 * 8.0 / self.observation.send_span.as_secs_f64())
++            .min(recv_bytes as f64 * 8.0 / self.observation.recv_span.as_secs_f64());
++        (rate > 0.0 && rate.is_finite()).then(|| rate.into())
+     }
+     pub(super) fn finish_batch(&mut self, now: Instant) {
+         self.timeout(now);
+@@ -286,3 +342,70 @@
+         assert_eq!(v.snapshot().lost_packets, 1);
+     }
+ }
++
++#[cfg(test)]
++mod native_payload_tests {
++    use super::*;
++    fn full_window(start: Instant) -> Validation {
++        let mut v = Validation::new(42, Bitrate::kbps(80), start);
++        for i in 0..=10 {
++            let sent = start + Duration::from_millis(i * 100);
++            v.record_packet(
++                i,
++                sent,
++                Some(sent + Duration::from_secs(30)),
++                1000,
++                900,
++                sent,
++            );
++        }
++        v
++    }
++    #[test]
++    fn native_input_uses_actual_payload_not_protected_goal_and_only_once() {
++        let start = Instant::now();
++        let mut v = full_window(start);
++        assert_eq!(
++            v.finish_feedback(false, false, start + Duration::from_secs(1)),
++            Some(Bitrate::kbps(72))
++        );
++        assert_eq!(v.snapshot().measured_bitrate, Some(Bitrate::kbps(80)));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Passed);
++        assert!(
++            v.finish_feedback(false, false, start + Duration::from_secs(2))
++                .is_none()
++        );
++        assert!(
++            v.finish_feedback(true, true, start + Duration::from_secs(2))
++                .is_none()
++        );
++    }
++    #[test]
++    fn same_batch_loss_cannot_rebase_and_cached_pass_cannot_retry() {
++        let start = Instant::now();
++        let mut v = full_window(start);
++        assert!(
++            v.finish_feedback(false, true, start + Duration::from_secs(1))
++                .is_none()
++        );
++        assert_eq!(v.snapshot().status, BweValidationStatus::Passed);
++        assert!(
++            v.finish_feedback(false, false, start + Duration::from_secs(2))
++                .is_none()
++        );
++    }
++    #[test]
++    fn current_overuse_rejects_new_proof_before_native_input() {
++        let start = Instant::now();
++        let mut v = full_window(start);
++        assert!(
++            v.finish_feedback(true, false, start + Duration::from_secs(1))
++                .is_none()
++        );
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++        assert!(
++            v.finish_feedback(false, false, start + Duration::from_secs(2))
++                .is_none()
++        );
++    }
++}
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -213,6 +213,32 @@
+         self.probe_queue = keep;
+     }
+ 
++    pub(crate) fn configured_pacing_rate(&self) -> Bitrate {
++        self.pacing_bitrate
++    }
++
++    pub(crate) fn cancel_automatic_probes(&mut self) -> (bool, Vec<TwccClusterId>) {
++        let active_cancelled = self
++            .probe_queue
++            .front()
++            .is_some_and(|p| p.config().kind() != crate::bwe::ProbeKind::Validation);
++        let mut keep = VecDeque::new();
++        let mut cancelled = Vec::new();
++        while let Some(probe) = self.probe_queue.pop_front() {
++            if probe.config().kind() != crate::bwe::ProbeKind::Validation {
++                cancelled.push(probe.config().cluster());
++            } else {
++                keep.push_back(probe);
++            }
++        }
++        self.probe_queue = keep;
++        if active_cancelled {
++            self.next_poll_queue = None;
++            self.request_immediate_timeout();
++        }
++        (active_cancelled, cancelled)
++    }
++
+     pub(crate) fn cancel_periodic_alr_probes(&mut self) -> (bool, Vec<TwccClusterId>) {
+         let active_cancelled = self
+             .probe_queue
+@@ -564,6 +590,42 @@
+     use crate::rtp_::{DataSize, Mid, RtpHeader};
+     use queue::{PacketKind, Queue, QueuedPacket};
+     use std::time::{Duration, Instant};
++
++    #[test]
++    fn managed_discovery_cancels_only_ordinary_queue_and_leaves_validation_active() {
++        use crate::bwe_::ProbeKind;
++        let mut pacer = LeakyBucketPacer::new(Bitrate::kbps(300));
++        for (id, kind) in [
++            (0, ProbeKind::Initial),
++            (1, ProbeKind::Validation),
++            (2, ProbeKind::PeriodicAlr),
++            (3, ProbeKind::LargeDrop),
++        ] {
++            pacer.start_probe(ProbeClusterConfig::new(id.into(), Bitrate::mbps(1), kind));
++        }
++        let (active, ids) = pacer.cancel_automatic_probes();
++        assert!(active);
++        assert_eq!(ids, vec![0.into(), 2.into(), 3.into()]);
++        assert_eq!(pacer.active_cluster(), Some(1.into()));
++        let (active, ids) = pacer.cancel_automatic_probes();
++        assert!(!active);
++        assert!(ids.is_empty());
++        assert_eq!(pacer.active_cluster(), Some(1.into()));
++        // A queued ordinary behind active validation is removed without clearing
++        // the validation's selected queue or consuming unrelated completions.
++        pacer.next_poll_queue = Some(MidRid("validation".into(), None));
++        pacer.completed_probes.push_back(99.into());
++        pacer.start_probe(ProbeClusterConfig::new(
++            4.into(),
++            Bitrate::mbps(1),
++            ProbeKind::Exponential,
++        ));
++        let (active, ids) = pacer.cancel_automatic_probes();
++        assert!(!active);
++        assert_eq!(ids, vec![4.into()]);
++        assert!(pacer.next_poll_queue.is_some());
++        assert_eq!(pacer.completed_probes.pop_front(), Some(99.into()));
++    }
+ 
+     #[test]
+     fn queued_cluster_history_is_bounded_and_every_expiry_has_an_end_event() {
+--- a/src/pacer/mod.rs
++++ b/src/pacer/mod.rs
+@@ -34,6 +34,20 @@
+     pub fn cancel_probes(&mut self, validation_only: bool) {
+         if let PacerImpl::LeakyBucket(pacer) = self {
+             pacer.cancel_probes(validation_only);
++        }
++    }
++
++    pub fn configured_pacing_rate(&self) -> Option<Bitrate> {
++        match self {
++            PacerImpl::Null(_) => None,
++            PacerImpl::LeakyBucket(pacer) => Some(pacer.configured_pacing_rate()),
++        }
++    }
++
++    pub fn cancel_automatic_probes(&mut self) -> (bool, Vec<TwccClusterId>) {
++        match self {
++            PacerImpl::Null(_) => (false, Vec::new()),
++            PacerImpl::LeakyBucket(pacer) => pacer.cancel_automatic_probes(),
+         }
+     }
+ 
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1356,6 +1356,30 @@
+         }
+     }
+ 
++    pub fn configured_bwe_pacing_rate(&self) -> Option<Bitrate> {
++        self.bwe.as_ref()?;
++        self.pacer.configured_pacing_rate()
++    }
++
++    pub fn set_automatic_probing(&mut self, enabled: bool, now: Instant) {
++        let Some(bwe) = self.bwe.as_mut() else {
++            return;
++        };
++        if !bwe.set_automatic_probing(enabled) {
++            return;
++        }
++        if !enabled {
++            let (active_cancelled, cancelled) = self.pacer.cancel_automatic_probes();
++            for id in cancelled {
++                bwe.end_probe(now, id);
++            }
++            if active_cancelled {
++                self.streams.clear_pending_padding();
++                self.streams.set_probe_media(None);
++            }
++        }
++    }
++
+     pub fn set_periodic_alr_probing(&mut self, enabled: bool, now: Instant) {
+         let Some(bwe) = self.bwe.as_mut() else {
+             return;

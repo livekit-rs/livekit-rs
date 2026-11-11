@@ -1,0 +1,253 @@
+{
+  "status": "SOURCE_CANDIDATE_NO_COMPILE_NO_EXECUTION",
+  "base_root": "/tmp/add-track-open-kind-head4fc625a-inputs",
+  "targets": [
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/model.rs",
+      "phase": "production",
+      "base_sha256": "e62fc7320a1b99be4b4b900b1f21c43e735368fe876a4f3e928e2b13d815f99a",
+      "payload_sha256": "b15674834f6adc3bfc33cbed4cb34c925d0a49bfef97ba4ff0e3a1745bdcd0e2"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/convert/enums.rs",
+      "phase": "production",
+      "base_sha256": "7dcad8ba6b502ef6c614a21a02f13b796e430085042f186b2328f5368c10ca99",
+      "payload_sha256": "0087502956da67ce66e89e3a1c9154352acfa57773c8957ab699be2efafd89f4"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/media_events.rs",
+      "phase": "production",
+      "base_sha256": "25f326fc485a104a8f7181b3c9c5ca0ebb06d450f258ca8172a553598aa5c699",
+      "payload_sha256": "082cf2d72999fa4c53a1f8c84da8d9374297b90d1ed050454b206cf54fdecc43"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/signal/session/add_track_response_tests.rs",
+      "phase": "tests-only",
+      "base_sha256": "7f491ce10ddf0cd275d2699d191204af24eacc628481ba6949373dbe2a6ff89f",
+      "payload_sha256": "adcd9429ec85be9ecc0cbfdc0469ddb32fb4e1aafac1aca47923998fd9ef4f07"
+    }
+  ],
+  "line_hunks": {
+    "livekit-rs-server/crates/rtc-core/src/model.rs": [
+      {
+        "old_start": 13,
+        "old_end": 13,
+        "old_lines": [],
+        "new_lines": [
+          "    /// Open protocol type, retained until the owner checks AUDIO/VIDEO.\n",
+          "    Unrecognized(UnrecognizedTrackKind),\n",
+          "}\n",
+          "\n",
+          "/// Private inner value prevents a second representation of known0..2.\n",
+          "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\n",
+          "pub struct UnrecognizedTrackKind(i32);\n",
+          "\n",
+          "impl TrackKind {\n",
+          "    pub fn from_i32(value: i32) -> Self {\n",
+          "        match value {\n",
+          "            0 => Self::Audio,\n",
+          "            1 => Self::Video,\n",
+          "            2 => Self::Data,\n",
+          "            value => Self::Unrecognized(UnrecognizedTrackKind(value)),\n",
+          "        }\n",
+          "    }\n",
+          "\n",
+          "    pub fn as_i32(self) -> i32 {\n",
+          "        match self {\n",
+          "            Self::Audio => 0,\n",
+          "            Self::Video => 1,\n",
+          "            Self::Data => 2,\n",
+          "            Self::Unrecognized(value) => value.0,\n",
+          "        }\n",
+          "    }\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/convert/enums.rs": [
+      {
+        "old_start": 36,
+        "old_end": 41,
+        "old_lines": [
+          "enum_map!(track_kind_to_proto, track_kind_from_proto, TrackKind, pb::TrackType, TrackKind::Audio, {\n",
+          "    TrackKind::Audio => pb::TrackType::Audio,\n",
+          "    TrackKind::Video => pb::TrackType::Video,\n",
+          "    TrackKind::Data => pb::TrackType::Data,\n",
+          "});\n"
+        ],
+        "new_lines": [
+          "/// Preserve the original open enum until AddTrack's source-shaped type check.\n",
+          "pub fn track_kind_to_proto(kind: TrackKind) -> i32 {\n",
+          "    kind.as_i32()\n",
+          "}\n",
+          "pub fn track_kind_from_proto(value: i32) -> TrackKind {\n",
+          "    TrackKind::from_i32(value)\n",
+          "}\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/room/media_events.rs": [
+      {
+        "old_start": 135,
+        "old_end": 136,
+        "old_lines": [
+          "                                        TrackKind::Data => false,\n"
+        ],
+        "new_lines": [
+          "                                        TrackKind::Data | TrackKind::Unrecognized(_) => false,\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/signal/session/add_track_response_tests.rs": [
+      {
+        "old_start": 215,
+        "old_end": 215,
+        "old_lines": [],
+        "new_lines": [
+          "\n",
+          "// Append-only old-API regressions for every non-AUDIO/VIDEO numeric TrackType.\n",
+          "// None references the candidate opaque enum or its new methods.\n",
+          "#[test]\n",
+          "fn old_public_add_track_kind_binary_projection_retains_signed_i32() {\n",
+          "    use prost::Message as _;\n",
+          "    for value in [i32::MIN, -1, 0, 1, 2, 99, i32::MAX] {\n",
+          "        let input = pb::SignalRequest {\n",
+          "            message: Some(pb::signal_request::Message::AddTrack(pb::AddTrackRequest {\n",
+          "                cid: \"kind-projection\".into(),\n",
+          "                r#type: value,\n",
+          "                ..Default::default()\n",
+          "            })),\n",
+          "        };\n",
+          "        let decoded = pb::SignalRequest::decode(input.encode_to_vec().as_slice()).unwrap();\n",
+          "        let mut cache = RequestCache::default();\n",
+          "        let Inbound::Forward(SessionRequest::AddTrack(request)) = decode_request(decoded, &mut cache) else {\n",
+          "            panic!(\"existing decoder must forward AddTrack\")\n",
+          "        };\n",
+          "        assert_eq!(crate::convert::track_kind_to_proto(request.kind), value,\n",
+          "            \"legal open TrackType must not become AUDIO before owner validation\");\n",
+          "    }\n",
+          "}\n",
+          "\n",
+          "async fn unknown_kind_responses(\n",
+          "    allowed: bool,\n",
+          "    kinds: &[i32],\n",
+          ") -> Vec<(pb::AddTrackRequest, pb::RequestResponse)> {\n",
+          "    let (state, net) = crate::test_support::state().await;\n",
+          "    let key = RoomKey::new(ProjectId::local(), \"add-track-open-kind-diagnostics\");\n",
+          "    let grants = Grants {\n",
+          "        identity: \"open-kind-owner\".into(),\n",
+          "        video: VideoGrant {\n",
+          "            room_join: true,\n",
+          "            room: key.name.0.clone(),\n",
+          "            can_publish: Some(allowed),\n",
+          "            ..Default::default()\n",
+          "        },\n",
+          "        ..Default::default()\n",
+          "    };\n",
+          "    let mut handle = state\n",
+          "        .manager\n",
+          "        .join(params(&key, grants.clone()))\n",
+          "        .await\n",
+          "        .unwrap();\n",
+          "    let mut ctx = SessionCtx {\n",
+          "        state: state.clone(),\n",
+          "        grants,\n",
+          "        client: ClientMeta {\n",
+          "            sdk: SdkKind::Rust,\n",
+          "            protocol: 10,\n",
+          "            ..Default::default()\n",
+          "        },\n",
+          "        cache: Default::default(),\n",
+          "    };\n",
+          "    let mut results = Vec::new();\n",
+          "    for (index, kind) in kinds.iter().enumerate() {\n",
+          "        let mut original = original(&format!(\"open-kind-{index}\"), *kind);\n",
+          "        // Empty SID exercises new publication, exposing any unknown\u2192Audio alias.\n",
+          "        original.sid.clear();\n",
+          "        let response = rejected_response(&mut handle, &mut ctx, &original).await;\n",
+          "        results.push((original, response));\n",
+          "    }\n",
+          "    state.manager.close_all().await;\n",
+          "    state.agents.shutdown().await;\n",
+          "    net.shutdown_and_wait().await;\n",
+          "    results\n",
+          "}\n",
+          "\n",
+          "#[tokio::test]\n",
+          "async fn old_public_owner_rejects_every_unknown_track_kind_with_exact_echo() {\n",
+          "    for (original, actual) in unknown_kind_responses(true, &[99, -1, i32::MIN, i32::MAX]).await {\n",
+          "        assert_original_rejection(original, actual, pb::request_response::Reason::UnsupportedType);\n",
+          "    }\n",
+          "}\n",
+          "\n",
+          "#[tokio::test]\n",
+          "async fn old_public_owner_unknown_kind_still_checks_publish_permission_first() {\n",
+          "    for (original, actual) in unknown_kind_responses(false, &[99, -1, i32::MIN, i32::MAX]).await {\n",
+          "        assert_original_rejection(original, actual, pb::request_response::Reason::NotAllowed);\n",
+          "    }\n",
+          "}\n"
+        ]
+      }
+    ]
+  },
+  "context_sha256": {
+    "livekit-rs-server/crates/rtc-core/src/room/publish.rs": "f507067b7eab7c2926390c632f1038c69cab2b3737666610cb4ddfe383d4a03f",
+    "livekit-rs-server/crates/lk-compat/src/signal/params.rs": "4149cc1241b4d4974e92da7306b1bf26f3056505ae379cad9ab70920c0c004bc",
+    "livekit-rs-server/crates/lk-compat/src/signal/encode.rs": "926d1aa2475d9d7fa9a137bd2505d19ff032ba7c3d5fa6515006e82689cbca78",
+    "livekit-rs-server/crates/lk-compat/src/convert/models.rs": "bdaee31478ffa73dc1bbfcf441c1e4d13a9c44489dd1c81afcf95c9594c43aee",
+    "livekit-rs-server/crates/lk-compat/src/signal/session.rs": "3aca036a49dca1a90b658037a9e0c9130aa38afb5e4c70f108cd79ca0c66fa76",
+    "livekit-rs-server/crates/rtc-media/src/signaling.rs": "7adfab3ecb19a8976aa3152311e6537d3c9056ce8684d6ad9bd348b6547abaca",
+    "livekit-rs-server/crates/lk-compat/src/profile.rs": "3d7a8a8aed7397bf617741d549f6190600d157715bcf768ff8576ed5d8bc0bc6",
+    "livekit-rs-server/crates/rtc-core/src/permission.rs": "0a7b899aea11cdb22045348ebcb0fbe9575bbc8a1f731818cb4a859227b79111",
+    "livekit-rs-server/crates/rtc-core/src/room/requests.rs": "8cbbe8bcf2230f0e4137751875b531c386a90fc3b7e99d4cad02e530ddfc15b1"
+  },
+  "fixed_source_root": "/Users/zoujiaqing/projects/livekit-rs",
+  "fixed_source_sha256": {
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/participant_signal.go": "8a3ae07330888bd6737409ffc02a07820458b3de7f48dc825c22bcf17fbe59ac",
+    "references/livekit-stable/pkg/rtc/clientinfo.go": "d42ca04f2e41475d38960c637c55a3aff4dd2897a149126333647acca025b7a4",
+    "references/livekit-stable/pkg/rtc/signalling/signalhandler.go": "eff1fea4244de08865ecfd0e54b346f03ddf6799448fd532b3c7791e3fd104ea",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/protocol-stable/protobufs/livekit_rtc.proto": "b15cdd37f7a3c84caed7c00b8177bd196235ced118e31a64511a9811d56ae928",
+    "references/protocol-stable/protobufs/livekit_models.proto": "ff577c4b4906511b94c3398f9762cab89bdd350249510c6f7b99959f08daf4e6"
+  },
+  "assets_sha256": {
+    "ENUM-FOLLOWUPS.json": "277d19f6b9f28afc425fe947c8de39736f1d9e61c3feb1477d984df1f8f95aec",
+    "INPUTS.json": "1070768091d5faee19f26f810b51cb1f808e2af780f56aa160d9f1d2264677d9",
+    "README.md": "e49ae1489de2672968413346f920b4bc17e996b774dd6945fe666841b4d891eb",
+    "SPEC-SUGGESTION.md": "45f1f982365904d33747635b0f311b7bec540a9a9cb934482af939a4d6379747",
+    "all.patch": "d1d84dfb03194ac81759e46831b2202b21baa0fb5577d346a14ee9c418d04c2e",
+    "apply-narrow.py": "3840777b94a8c23379e13e7ca2f7eca1339cacdc959219614cb50782be9d1de9",
+    "build-package.py": "eb0ee8015e40bed18b8b4a2a76c8a39c8ab7209bbc151894d948532c7fdf3ab4",
+    "fixture/additive.patch": "4242900746599f18c1a6753878b8cf7f29446c4acc20d2c1e1e838e3c6c299bb",
+    "fixture/cases.json": "bcf23617dd773f05ac9da71da75dfa43652cea5ad1bd130ce6fea91b75e79787",
+    "fixture/run.mjs": "6eb1bc420cb42a79e57a48b345753b043362412e8af815882916541dc7419c72",
+    "payload/livekit-rs-server/crates/lk-compat/src/convert/enums.rs": "0087502956da67ce66e89e3a1c9154352acfa57773c8957ab699be2efafd89f4",
+    "payload/livekit-rs-server/crates/lk-compat/src/signal/session/add_track_response_tests.rs": "adcd9429ec85be9ecc0cbfdc0469ddb32fb4e1aafac1aca47923998fd9ef4f07",
+    "payload/livekit-rs-server/crates/rtc-core/src/model.rs": "b15674834f6adc3bfc33cbed4cb34c925d0a49bfef97ba4ff0e3a1745bdcd0e2",
+    "payload/livekit-rs-server/crates/rtc-core/src/room/media_events.rs": "082cf2d72999fa4c53a1f8c84da8d9374297b90d1ed050454b206cf54fdecc43",
+    "production.patch": "5bb6b679ce0d5b4a1351b0e21eca3986f489c17ed195a027f02afc346e9ba755",
+    "test-append.rs": "e79f650da3a7031c8b4f520cdf7b1d54fbc823fde498aef171a8c06b32074e80",
+    "tests-only.patch": "d866f3dff31fad7f24741b60e5a38a5e0e93948fe935cec9e7a5672c86f86e10"
+  },
+  "base_git_commit": "4fc625a3818757dcf3904a79bf8d97debe719b4b",
+  "base_input_receipt_sha256": "1070768091d5faee19f26f810b51cb1f808e2af780f56aa160d9f1d2264677d9",
+  "scope": {
+    "normal_old_API_tests_added": 3,
+    "baseline_new_enum_type_or_methods_referenced": false,
+    "original_diagnostic_tests_and_helpers_exact_prefix": true,
+    "unchanged_original_WS_cases": 4,
+    "additive_unknown_type_WS_cases": 6,
+    "WS_timeout_ms": 10000,
+    "actual_source_results_prefilled": false,
+    "no_author_compiler_or_service_execution": true,
+    "no_shared_writes": true,
+    "deferred_other_enum_fixes": true
+  },
+  "fixture_origin": {
+    "source_path": "/tmp/addtrack-rejection-full-echo-ws-addon-v1a/run.mjs",
+    "source_sha256": "66b400987e58cef12700e7452bf7261c20ac9f5d5eb7ec69fa69c76387c029f2",
+    "original_four_spec_text_sha256": "12412a5e778aebce876886e7771cc85aaef66e8b2392cadebab0256024d6eec1",
+    "original_four_spec_exact_prefix_checked": true,
+    "stronger_startup_receipts_and_actual_listener_check": true
+  }
+}

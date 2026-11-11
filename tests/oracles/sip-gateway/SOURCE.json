@@ -1,0 +1,16 @@
+{
+  "source_scope": "Actual pinned Go oracle, source annotations in main.go and copied source/license inputs.",
+  "status": "ACTUAL_FIXED_GO_EXECUTION_PASS",
+  "actual_rows": 716,
+  "inputs_sha256": {
+    "cases.json": "69232c19635b2a501535571e758db4417fe4e219349d59162e2ae2d856b448f0",
+    "go.mod": "8f5b0b1f07bea63fba69698e2e585de1b8554c194db5bf65e4401a8a8a344bf5",
+    "go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "main.go": "097bdc50ded3de15632a2467a9f55d32deee00f05bc83a27a6082e6d87251dff",
+    "source/xtext-v0.42.0/LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "source/xtext-v0.42.0/PATENTS": "96f408bfae65bf137fc2525d3ecb030271c50c1e90799f87abf8846d8dd505cc",
+    "source/xtext-v0.42.0/language.go.txt": "19a0ccf7635fd3dbad3766d953996df5d1c24a367e44c49200ab6ec3023fc871",
+    "source/xtext-v0.42.0/lookup.go.txt": "8f0ac8780f89d5c2b29b98fd599269b445d7bb612a7948c9e97d425424b5ea38",
+    "source/xtext-v0.42.0/tables.go.txt": "876a73fb8b8fffd239efa592ffdf903c25757b4d17b715fc80d7aee8db2b985e"
+  }
+}

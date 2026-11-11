@@ -1,0 +1,15 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "pkg/sfu/downtrack.go": "8fe93a5a773de34408be61d3b8917e1da60f766f2c13c61bd774aab14321fc8d",
+    "pkg/sfu/forwarder.go": "f16138d5ced5491f57132174dc5bae35f0a6262339706f5cd2d502600474c6e7",
+    "pkg/sfu/videolayerselector/dependencydescriptor.go": "28937564e23d61c31b1bc9f706ead33b0f6b0c54584730f0eb7b6191ef7ce45c",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorwriter.go": "b59d824afc8dd5846240079a07691fcc82054acbe753057fc814b2706e53017f"
+  },
+  "helpers": {
+    "physical_helpers_test.go": "e8534c9d1217030b81f4f4976b79f9193f15dac1451610cfedf4b568786da87e",
+    "physical_observer_test.go": "403ec6f3e39b551ce640729ae0967f0fb53d50e5e7a68744c00334c9391542b6"
+  }
+}

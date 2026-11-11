@@ -1,0 +1,860 @@
+[
+  {
+    "name": "inbound-missing",
+    "operation": "create_inbound",
+    "request": {}
+  },
+  {
+    "name": "inbound-preset-id",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "sip_trunk_id": "bad"
+      }
+    }
+  },
+  {
+    "name": "inbound-missing-security",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {}
+    }
+  },
+  {
+    "name": "inbound-one-half-auth",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "auth_username": "x"
+      }
+    }
+  },
+  {
+    "name": "inbound-invalid-status",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "ringing_timeout_status": 399
+      }
+    }
+  },
+  {
+    "name": "inbound-soft-header",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "headers": {
+          "To": "not-uri"
+        }
+      }
+    }
+  },
+  {
+    "name": "inbound-hard-header",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "headers": {
+          "From": "sip:a@host"
+        }
+      }
+    }
+  },
+  {
+    "name": "inbound-unicode-header",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "headers": {
+          "X-Tag": "東京"
+        }
+      }
+    }
+  },
+  {
+    "name": "inbound-media-negative",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "media": {
+          "media_timeout": "-1s"
+        }
+      }
+    }
+  },
+  {
+    "name": "inbound-media-limit",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "media": {
+          "media_timeout": "600s"
+        }
+      }
+    }
+  },
+  {
+    "name": "inbound-media-over",
+    "operation": "create_inbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "media": {
+          "media_timeout": "600.000000001s"
+        }
+      }
+    }
+  },
+  {
+    "name": "outbound-missing",
+    "operation": "create_outbound",
+    "request": {}
+  },
+  {
+    "name": "outbound-numbers",
+    "operation": "create_outbound",
+    "request": {
+      "trunk": {
+        "address": "host"
+      }
+    }
+  },
+  {
+    "name": "outbound-address",
+    "operation": "create_outbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ]
+      }
+    }
+  },
+  {
+    "name": "outbound-uri",
+    "operation": "create_outbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "address": "sip:host"
+      }
+    }
+  },
+  {
+    "name": "outbound-transport",
+    "operation": "create_outbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "address": "sip:host;transport=tcp"
+      }
+    }
+  },
+  {
+    "name": "outbound-unknown-enum",
+    "operation": "create_outbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "address": "host",
+        "transport": 999
+      }
+    }
+  },
+  {
+    "name": "outbound-mapped-forbidden-valid",
+    "operation": "create_outbound",
+    "request": {
+      "trunk": {
+        "numbers": [
+          "123"
+        ],
+        "address": "host",
+        "attributes_to_headers": {
+          "a": "From"
+        }
+      }
+    }
+  },
+  {
+    "name": "inbound-missing-action",
+    "operation": "apply_inbound",
+    "request": {
+      "sip_trunk_id": "old"
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ]
+    }
+  },
+  {
+    "name": "inbound-id-mismatch",
+    "operation": "apply_inbound",
+    "request": {
+      "sip_trunk_id": "other",
+      "replace": {
+        "sip_trunk_id": "old",
+        "numbers": [
+          "+123"
+        ]
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ]
+    }
+  },
+  {
+    "name": "inbound-optional-empty",
+    "operation": "apply_inbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "update": {
+        "name": "",
+        "metadata": ""
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ]
+    }
+  },
+  {
+    "name": "inbound-media-upgrade",
+    "operation": "apply_inbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "update": {
+        "media_encryption": 2
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ]
+    }
+  },
+  {
+    "name": "inbound-empty-list-update",
+    "operation": "apply_inbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "update": {
+        "numbers": {}
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ]
+    }
+  },
+  {
+    "name": "inbound-replace",
+    "operation": "apply_inbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "replace": {
+        "sip_trunk_id": "",
+        "numbers": [
+          "+123"
+        ]
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ]
+    }
+  },
+  {
+    "name": "outbound-missing-action",
+    "operation": "apply_outbound",
+    "request": {
+      "sip_trunk_id": "old"
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ],
+      "address": "host"
+    }
+  },
+  {
+    "name": "outbound-id-mismatch",
+    "operation": "apply_outbound",
+    "request": {
+      "sip_trunk_id": "other",
+      "replace": {
+        "sip_trunk_id": "old",
+        "numbers": [
+          "+123"
+        ],
+        "address": "host"
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ],
+      "address": "host"
+    }
+  },
+  {
+    "name": "outbound-optional-empty",
+    "operation": "apply_outbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "update": {
+        "name": "",
+        "metadata": ""
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ],
+      "address": "host"
+    }
+  },
+  {
+    "name": "outbound-media-upgrade",
+    "operation": "apply_outbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "update": {
+        "media_encryption": 2
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ],
+      "address": "host"
+    }
+  },
+  {
+    "name": "outbound-empty-list-update",
+    "operation": "apply_outbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "update": {
+        "numbers": {}
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ],
+      "address": "host"
+    }
+  },
+  {
+    "name": "outbound-replace",
+    "operation": "apply_outbound",
+    "request": {
+      "sip_trunk_id": "old",
+      "replace": {
+        "sip_trunk_id": "",
+        "numbers": [
+          "+123"
+        ],
+        "address": "host"
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "old",
+      "numbers": [
+        "+123"
+      ],
+      "address": "host"
+    }
+  },
+  {
+    "name": "list-clear",
+    "operation": "list",
+    "request": {
+      "clear": true
+    },
+    "existing": {
+      "numbers": [
+        "a",
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "list-empty",
+    "operation": "list",
+    "request": {},
+    "existing": {
+      "numbers": [
+        "a",
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "list-conflicting",
+    "operation": "list",
+    "request": {
+      "set": [
+        "a"
+      ],
+      "add": [
+        "b"
+      ]
+    },
+    "existing": {
+      "numbers": [
+        "a",
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "list-remove-first",
+    "operation": "list",
+    "request": {
+      "remove": [
+        "a"
+      ],
+      "add": [
+        "b",
+        "c"
+      ]
+    },
+    "existing": {
+      "numbers": [
+        "a",
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "list-set-duplicates",
+    "operation": "list",
+    "request": {
+      "set": [
+        "a",
+        "a"
+      ]
+    },
+    "existing": {
+      "numbers": [
+        "a",
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "list-empty-item",
+    "operation": "list",
+    "request": {
+      "add": [
+        ""
+      ]
+    },
+    "existing": {
+      "numbers": [
+        "a",
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "dispatch-legacy",
+    "operation": "create_dispatch",
+    "request": {
+      "rule": {
+        "dispatch_rule_direct": {
+          "room_name": "room"
+        }
+      },
+      "name": "legacy"
+    }
+  },
+  {
+    "name": "dispatch-new",
+    "operation": "create_dispatch",
+    "request": {
+      "dispatch_rule": {
+        "sip_dispatch_rule_id": "",
+        "rule": {
+          "dispatch_rule_direct": {
+            "room_name": "room",
+            "pin": ""
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "dispatch-missing-rule",
+    "operation": "create_dispatch",
+    "request": {
+      "dispatch_rule": {}
+    }
+  },
+  {
+    "name": "dispatch-bad-id",
+    "operation": "create_dispatch",
+    "request": {
+      "dispatch_rule": {
+        "sip_dispatch_rule_id": "not-empty",
+        "rule": {
+          "dispatch_rule_direct": {
+            "room_name": "room",
+            "pin": ""
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "dispatch-replace",
+    "operation": "apply_dispatch",
+    "request": {
+      "sip_dispatch_rule_id": "old",
+      "replace": {
+        "sip_dispatch_rule_id": "",
+        "rule": {
+          "dispatch_rule_direct": {
+            "room_name": "room",
+            "pin": ""
+          }
+        }
+      }
+    },
+    "existing": {
+      "sip_dispatch_rule_id": "old",
+      "rule": {
+        "dispatch_rule_direct": {
+          "room_name": "room",
+          "pin": ""
+        }
+      },
+      "attributes": {
+        "delete": "old",
+        "keep": "yes"
+      },
+      "trunk_ids": [
+        "old-trunk"
+      ]
+    }
+  },
+  {
+    "name": "dispatch-missing-action",
+    "operation": "apply_dispatch",
+    "request": {
+      "sip_dispatch_rule_id": "old"
+    },
+    "existing": {
+      "sip_dispatch_rule_id": "old",
+      "rule": {
+        "dispatch_rule_direct": {
+          "room_name": "room",
+          "pin": ""
+        }
+      },
+      "attributes": {
+        "delete": "old",
+        "keep": "yes"
+      },
+      "trunk_ids": [
+        "old-trunk"
+      ]
+    }
+  },
+  {
+    "name": "dispatch-map-delete",
+    "operation": "apply_dispatch",
+    "request": {
+      "sip_dispatch_rule_id": "old",
+      "update": {
+        "attributes": {
+          "delete": "",
+          "set": "new"
+        }
+      }
+    },
+    "existing": {
+      "sip_dispatch_rule_id": "old",
+      "rule": {
+        "dispatch_rule_direct": {
+          "room_name": "room",
+          "pin": ""
+        }
+      },
+      "attributes": {
+        "delete": "old",
+        "keep": "yes"
+      },
+      "trunk_ids": [
+        "old-trunk"
+      ]
+    }
+  },
+  {
+    "name": "dispatch-patch-clear",
+    "operation": "apply_dispatch",
+    "request": {
+      "sip_dispatch_rule_id": "old",
+      "update": {
+        "trunk_ids": {
+          "clear": true
+        }
+      }
+    },
+    "existing": {
+      "sip_dispatch_rule_id": "old",
+      "rule": {
+        "dispatch_rule_direct": {
+          "room_name": "room",
+          "pin": ""
+        }
+      },
+      "attributes": {
+        "delete": "old",
+        "keep": "yes"
+      },
+      "trunk_ids": [
+        "old-trunk"
+      ]
+    }
+  },
+  {
+    "name": "upgrade-inbound-0",
+    "operation": "upgrade_inbound",
+    "request": {
+      "media_encryption": 0
+    }
+  },
+  {
+    "name": "upgrade-inbound-2",
+    "operation": "upgrade_inbound",
+    "request": {
+      "media_encryption": 2
+    }
+  },
+  {
+    "name": "upgrade-inbound-999",
+    "operation": "upgrade_inbound",
+    "request": {
+      "media_encryption": 999
+    }
+  },
+  {
+    "name": "upgrade-outbound-0",
+    "operation": "upgrade_outbound",
+    "request": {
+      "media_encryption": 0
+    }
+  },
+  {
+    "name": "upgrade-outbound-2",
+    "operation": "upgrade_outbound",
+    "request": {
+      "media_encryption": 2
+    }
+  },
+  {
+    "name": "upgrade-outbound-999",
+    "operation": "upgrade_outbound",
+    "request": {
+      "media_encryption": 999
+    }
+  },
+  {
+    "name": "upgrade-dispatch-0",
+    "operation": "upgrade_dispatch",
+    "request": {
+      "media_encryption": 0
+    }
+  },
+  {
+    "name": "upgrade-dispatch-2",
+    "operation": "upgrade_dispatch",
+    "request": {
+      "media_encryption": 2
+    }
+  },
+  {
+    "name": "upgrade-dispatch-999",
+    "operation": "upgrade_dispatch",
+    "request": {
+      "media_encryption": 999
+    }
+  },
+  {
+    "name": "normalize-53",
+    "operation": "normalize",
+    "value": ""
+  },
+  {
+    "name": "normalize-54",
+    "operation": "normalize",
+    "value": "+"
+  },
+  {
+    "name": "normalize-55",
+    "operation": "normalize",
+    "value": "( )"
+  },
+  {
+    "name": "normalize-56",
+    "operation": "normalize",
+    "value": "+1 (23)-4"
+  },
+  {
+    "name": "normalize-57",
+    "operation": "normalize",
+    "value": "١٢٣"
+  },
+  {
+    "name": "normalize-58",
+    "operation": "normalize",
+    "value": "sip:user"
+  },
+  {
+    "name": "normalize-59",
+    "operation": "normalize",
+    "value": "++123"
+  },
+  {
+    "name": "inbound-collision",
+    "operation": "inbound_conflict",
+    "items": [
+      {
+        "sip_trunk_id": "a",
+        "numbers": [
+          "+123"
+        ]
+      },
+      {
+        "sip_trunk_id": "",
+        "numbers": [
+          "1 (23)"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "inbound-specific-no-collision",
+    "operation": "inbound_conflict",
+    "items": [
+      {
+        "sip_trunk_id": "a",
+        "numbers": [
+          "+123"
+        ],
+        "allowed_numbers": [
+          "999"
+        ]
+      },
+      {
+        "sip_trunk_id": "b",
+        "numbers": [
+          "123"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "dispatch-collision",
+    "operation": "dispatch_conflict",
+    "items": [
+      {
+        "sip_dispatch_rule_id": "a",
+        "rule": {
+          "dispatch_rule_direct": {
+            "room_name": "room",
+            "pin": ""
+          }
+        }
+      },
+      {
+        "sip_dispatch_rule_id": "b",
+        "rule": {
+          "dispatch_rule_direct": {
+            "room_name": "room",
+            "pin": ""
+          }
+        }
+      }
+    ]
+  },
+  {
+    "name": "dispatch-specific-no-collision",
+    "operation": "dispatch_conflict",
+    "items": [
+      {
+        "sip_dispatch_rule_id": "a",
+        "rule": {
+          "dispatch_rule_direct": {
+            "room_name": "room",
+            "pin": ""
+          }
+        }
+      },
+      {
+        "sip_dispatch_rule_id": "b",
+        "rule": {
+          "dispatch_rule_direct": {
+            "room_name": "room",
+            "pin": ""
+          }
+        },
+        "trunk_ids": [
+          "specific"
+        ]
+      }
+    ]
+  }
+]

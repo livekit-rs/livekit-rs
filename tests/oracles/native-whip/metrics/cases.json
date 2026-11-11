@@ -1,0 +1,116 @@
+[
+  {
+    "id": "one",
+    "packets": [
+      {
+        "seq": 1,
+        "timestamp": 0,
+        "header": 12,
+        "payload": 100,
+        "padding": 0
+      }
+    ]
+  },
+  {
+    "id": "padding-before-start",
+    "packets": [
+      {
+        "seq": 0,
+        "timestamp": 0,
+        "header": 12,
+        "payload": 0,
+        "padding": 40
+      },
+      {
+        "seq": 1,
+        "timestamp": 960,
+        "header": 12,
+        "payload": 100,
+        "padding": 0
+      }
+    ]
+  },
+  {
+    "id": "padding-after-start",
+    "packets": [
+      {
+        "seq": 1,
+        "timestamp": 0,
+        "header": 12,
+        "payload": 100,
+        "padding": 0
+      },
+      {
+        "seq": 2,
+        "timestamp": 960,
+        "header": 12,
+        "payload": 0,
+        "padding": 40
+      }
+    ]
+  },
+  {
+    "id": "padded-media",
+    "packets": [
+      {
+        "seq": 1,
+        "timestamp": 0,
+        "header": 20,
+        "payload": 100,
+        "padding": 12
+      }
+    ]
+  },
+  {
+    "id": "duplicate",
+    "packets": [
+      {
+        "seq": 1,
+        "timestamp": 0,
+        "header": 12,
+        "payload": 100,
+        "padding": 0
+      },
+      {
+        "seq": 1,
+        "timestamp": 0,
+        "header": 12,
+        "payload": 100,
+        "padding": 0
+      }
+    ]
+  },
+  {
+    "id": "wrap-and-reorder",
+    "packets": [
+      {
+        "seq": 65534,
+        "timestamp": 0,
+        "header": 12,
+        "payload": 100,
+        "padding": 0
+      },
+      {
+        "seq": 0,
+        "timestamp": 1920,
+        "header": 12,
+        "payload": 80,
+        "padding": 0
+      },
+      {
+        "seq": 65535,
+        "timestamp": 960,
+        "header": 12,
+        "payload": 90,
+        "padding": 0
+      },
+      {
+        "seq": 1,
+        "timestamp": 2880,
+        "header": 12,
+        "payload": 110,
+        "padding": 0
+      }
+    ]
+  }
+]

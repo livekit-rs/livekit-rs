@@ -1,0 +1,90 @@
+--- a/src/candidate.rs
++++ b/src/candidate.rs
+@@ -634,6 +634,17 @@
+     }
+ }
+ 
++// A mapped host's base is an actual selected local interface, not a signaled
++// candidate address. Fixed Pion permits IPv4 link-local interfaces to be
++// rewritten to a valid public host. Keep advertised validation independent;
++// wildcard, multicast and broadcast are not physical connection identities.
++fn is_valid_physical_base(ip: IpAddr) -> bool {
++    match ip {
++        IpAddr::V4(v) => !v.is_broadcast() && !v.is_multicast() && !v.is_unspecified(),
++        IpAddr::V6(v) => !v.is_multicast() && !v.is_unspecified(),
++    }
++}
++
+ /// Serialize [Candidate] into candidate info.
+ ///
+ /// Always set `sdpMid` to null and `sdpMLineIndex` to 0, as we only support one media line.
+@@ -788,6 +799,15 @@
+         self.into_has_route(CandidateKind::Host, addr, addr, addr, None)
+     }
+ 
++    /// Configures a host candidate advertised at `addr` but backed by the
++    /// actual local socket `base`, for explicit NAT1:1 host address rewriting.
++    /// The advertised candidate remains `typ host`; base/local identify the
++    /// physical socket for received traffic and outgoing ICE/media packets.
++    /// Both addresses must be valid and use the same IP version.
++    pub fn mapped_host(self, addr: SocketAddr, base: SocketAddr) -> CandidateBuilder<HasProtocol<P>, HasRoute> {
++        self.into_has_route(CandidateKind::Host, addr, base, base, None)
++    }
++
+     /// Configures as a Server Reflexive (STUN) candidate.
+     /// `base` and `addr` must use the same IP version.
+     pub fn server_reflexive(
+@@ -857,6 +877,10 @@
+                 "Invalid IP: {}",
+                 route.addr.ip()
+             )));
++        }
++
++        if route.kind == CandidateKind::Host && !is_valid_physical_base(route.base.ip()) {
++            return Err(IceError::BadCandidate(format!("Invalid mapped host base IP: {}",route.base.ip())));
+         }
+ 
+         if route.addr.is_ipv4() != route.base.is_ipv4() {
+@@ -1196,4 +1220,30 @@
+         assert!(api_err.is_err());
+         assert!(builder_err.is_err());
+     }
+-}
++    #[test]
++    fn mapped_host_preserves_public_kind_and_actual_base() {
++        let advertised="203.0.113.1:5000".parse().unwrap();let base="10.0.0.1:5000".parse().unwrap();
++        let c=Candidate::builder().udp().mapped_host(advertised,base).build().unwrap();
++        assert_eq!(c.kind(),CandidateKind::Host);assert_eq!(c.addr(),advertised);assert_eq!(c.base(),base);assert_eq!(c.local(),base);assert!(c.to_sdp_string().contains("203.0.113.1 5000 typ host"));
++        assert!(Candidate::builder().udp().mapped_host(advertised,"[2001:db8::1]:5000".parse().unwrap()).build().is_err());
++        assert!(Candidate::builder().udp().mapped_host(advertised,"0.0.0.0:5000".parse().unwrap()).build().is_err());
++    }
++
++}
++
++#[cfg(test)]
++mod mapped_link_local_base_tests {
++    use super::*;
++    #[test]
++    fn rewritten_ipv4_link_local_base_is_not_an_advertised_link_local() {
++        let advertised = "198.51.100.8:5000".parse().unwrap();
++        let base = "169.254.20.30:5000".parse().unwrap();
++        let mapped = Candidate::builder().udp().mapped_host(advertised, base).build().unwrap();
++        assert_eq!(mapped.addr(), advertised);
++        assert_eq!(mapped.base(), base);
++        assert!(Candidate::host(base, "udp").is_err());
++        for bad in ["0.0.0.0:5000", "255.255.255.255:5000", "224.0.0.1:5000"] {
++            assert!(Candidate::builder().udp().mapped_host(advertised, bad.parse().unwrap()).build().is_err());
++        }
++    }
++}
+--- a/src/agent.rs
++++ b/src/agent.rs
+@@ -1447,7 +1447,7 @@
+         // for traffic that isn't actually directed at one of our interfaces.
+         let local_idx = match self.local_candidates.iter().position(|v| {
+             matches!(v.kind(), CandidateKind::Host | CandidateKind::Relayed)
+-                && v.addr() == req.destination
++                && (if v.kind() == CandidateKind::Host { v.base() } else { v.addr() }) == req.destination
+                 && v.proto() == req.proto
+         }) {
+             Some(i) => i,

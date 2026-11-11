@@ -1,0 +1,68 @@
+diff --git a/src/agent.rs b/src/agent.rs
+index dca44f29..503a9a54 100644
+--- a/src/agent.rs
++++ b/src/agent.rs
+@@ -1113,6 +1113,10 @@ impl IceAgent {
+         self.discovered_recv.clear();
+ 
+         if keep_local_candidates {
++            // Discarded server-reflexive candidates can belong to sockets
++            // retired by a previous gather. Pair indices were reset above.
++            self.local_candidates
++                .retain(|c| c.kind() != CandidateKind::ServerReflexive || !c.discarded());
+             // If we're keeping the candidates, we must update the ufrag to the new credentials.
+             // This is so anyone inspecting `.local_candidates()` will get the correct ufrag.
+             for c in &mut self.local_candidates {
+@@ -1607,7 +1611,7 @@ impl IceAgent {
+         // before doing anything else. We must not mutate state, send replies
+         // (including 487 Role Conflict) or create peer-reflexive candidates
+         // for traffic that isn't actually directed at one of our interfaces.
+-        let local_idx = match self.local_candidates.iter().position(|v| {
++        let direct = self.local_candidates.iter().position(|v| {
+             matches!(v.kind(), CandidateKind::Host | CandidateKind::Relayed)
+                 && (if v.kind() == CandidateKind::Host {
+                     v.base()
+@@ -1615,13 +1619,21 @@ impl IceAgent {
+                     v.addr()
+                 }) == req.destination
+                 && v.proto() == req.proto
++        });
++        let local_idx = match direct.or_else(|| {
++            // A server-side STUN gather can own a socket distinct from
++            // all host candidates. Match its physical base on ingress.
++            self.local_candidates.iter().position(|v| {
++                v.kind() == CandidateKind::ServerReflexive
++                    && !v.discarded()
++                    && v.base() == req.destination
++                    && v.proto() == req.proto
++            })
+         }) {
+             Some(i) => i,
+             None => {
+-                // Receiving traffic for an IP address that neither is a HOST nor RELAY
+-                // is most likely a configuration fault where the user forgot to add a
+-                // candidate for the local interface. We are network-connected application
+-                // so we need to handle this gracefully: Log a message and discard the packet.
++                // No candidate owns the receiving address. Drop the check
++                // rather than discovering a pair on an unregistered socket.
+                 debug!(
+                     "Discarding STUN request on unknown interface: {}",
+                     Pii(req.destination)
+diff --git a/src/candidate.rs b/src/candidate.rs
+index 895d9f35..41432dd7 100644
+--- a/src/candidate.rs
++++ b/src/candidate.rs
+@@ -869,6 +869,13 @@ impl<P> CandidateBuilder<HasProtocol<P>, NoRoute> {
+ 
+ // Step 3: Final General Configurations and Build
+ impl<P> CandidateBuilder<HasProtocol<P>, HasRoute> {
++    /// Sets the related address advertised in SDP, independently of the
++    /// socket used to send and receive ICE traffic.
++    pub fn related_address(mut self, address: SocketAddr) -> Self {
++        self.raddr = Some(address);
++        self
++    }
++
+     /// Consumes the builder and returns a [`Candidate`].
+     pub fn build(self) -> Result<Candidate, IceError> {
+         let route = &self.route_state;

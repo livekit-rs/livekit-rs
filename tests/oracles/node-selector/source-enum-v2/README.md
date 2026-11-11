@@ -1,0 +1,15 @@
+# Additive source-enum selector corpus and original comparator accounting
+
+NOT_COMPILED / NOT_RUN by this author. Original26 inputs, actual Go output and actual Rust terminal-count failure are preserved in `history/`; no original row was rewritten. Coordinator reported every original row's Rust value/error matched Go, followed by test exit101 only because observed26 was asserted equal25. Actual original Go result has25 ERROR/1 PASS: those are expected source errors on the supplied enum values, not25 successful serving-node policy profiles.
+
+Fixed protocol enum is STARTING_UP0 / SERVING1 / SHUTTING_DOWN2 / SUSPENDED3. This new30-row input clones all26 source cases into a distinct namespace, corrects intended serving0→1 and intended draining1→2, and appends four explicit non-serving-state controls (0,2,3,unknown99) against a serving alternative. No expected selected ID/error/status is hand-generated. A new Go driver uses the same actual fixed `selector.CreateNodeSelector`, `SelectNode` and `LimitsReached`; it additionally emits real source enum constant values. It does not port or mock the selector algorithm.
+
+`LimitsReached(nil)` is explicitly false in fixed source utils.go59–62. Availability admits nil Stats, while serving CPU/sort operations can then panic. The original corpus used STARTING_UP0, so the intended nil CPU panic never reached that consumer. The corrected input lets actual Go determine the result; Rust's existing recoverable error on a source panic stays a separately declared fatal-vs-error/API envelope gap, not panic compatibility PASS. The comparator accounts all source statuses dynamically and still compares every ordinary selected ID/error exactly. It also adds exact actual limits comparison to all rows, including invalid-selector configuration and nil Stats, without relying on selector construction succeeding.
+
+Coordinator commands (no execution here): from `oracle/`, `GOTOOLCHAIN=go1.26.3 GOMAXPROCS=2 go run . < vectors-source-enum-v2.json > /OWNED/actual-source-enum30.json`. The inherited go.mod/go.sum are exact original graph copies with the fixed server replacement. Installed public form can run `go run ./source-enum-v2 < source-enum-v2/vectors.json` from the existing tests/oracles/node-selector module.
+
+Original comparison remains `NODE_SELECTOR_VECTORS=ABS_ORIGINAL26 NODE_SELECTOR_GO_RESULTS=ABS_ACTUAL_ORIGINAL26 cargo test --release --locked -p lk-compat --lib room_control::selector::oracle_tests::actual_fixed_go_selector_corpus -- --ignored --exact`.
+
+Additional comparison: `NODE_SELECTOR_V2_VECTORS=ABS_CORRECTED30 NODE_SELECTOR_V2_GO_RESULTS=ABS_ACTUAL_GO30 cargo test --release --locked -p lk-compat --lib room_control::selector::oracle_tests::actual_fixed_go_source_enum_selector_corpus -- --ignored --exact`.
+
+Require actual one-test execution for each, preserve clock-boundary ambiguity as insufficient, and retain first failures. A source oracle comparison is not distributed routing activation, public nil-panic envelope certification or runtime CPU sampler verification.

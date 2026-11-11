@@ -1,0 +1,42 @@
+[
+  {
+    "name": "raw-parent",
+    "home_hex": "2f6f776e65642f686f6d652dff",
+    "path_hex": "7e2f2e2e2f6b6579732d61736369692e79616d6c"
+  },
+  {
+    "name": "backslash",
+    "home_hex": "2f6f776e6564",
+    "path_hex": "7e5c6b6579732d61736369692e79616d6c"
+  },
+  {
+    "name": "dots",
+    "home_hex": "2f6f776e65642f686f6d65",
+    "path_hex": "7e2f2f612f2e2f622f2e2e2f2e2e2f6b657973"
+  },
+  {
+    "name": "root-dotdot",
+    "home_hex": "2f",
+    "path_hex": "7e2f2e2e2f2e2e2f6b657973"
+  },
+  {
+    "name": "relative-home",
+    "home_hex": "72656c61746976652f686f6d65",
+    "path_hex": "7e2f2e2e2f6b657973"
+  },
+  {
+    "name": "relative-dotdot",
+    "home_hex": "2e2e",
+    "path_hex": "7e2f2e2e2f6b657973"
+  },
+  {
+    "name": "invalid-user",
+    "home_hex": "2f6f776e6564",
+    "path_hex": "7e736f6d656f6e652f6b657973"
+  },
+  {
+    "name": "only-home",
+    "home_hex": "2f6f776e65642f686f6d652f2e2e2f78",
+    "path_hex": "7e"
+  }
+]

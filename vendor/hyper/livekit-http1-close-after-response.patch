@@ -1,0 +1,29 @@
+--- a/src/ext/mod.rs
++++ b/src/ext/mod.rs
+@@ -53,6 +53,14 @@
+ mod h1_reason_phrase;
+ #[cfg(any(feature = "http1", feature = "ffi"))]
+ pub use h1_reason_phrase::ReasonPhrase;
++
++/// Retire an HTTP/1 server connection after flushing this response.
++///
++/// This extension does not add a Connection header. Use it when the
++/// response must reflect headers committed before deciding to close.
++#[cfg(feature = "http1")]
++#[derive(Clone, Copy, Debug)]
++pub struct CloseAfterResponse;
+ 
+ #[cfg(all(feature = "http1", feature = "client"))]
+ mod informational;
+--- a/src/proto/h1/role.rs
++++ b/src/proto/h1/role.rs
+@@ -467,6 +467,9 @@
+ 
+         let orig_headers;
+         let extensions = std::mem::take(&mut msg.head.extensions);
++        // The header block keeps its original persistence fields. Only the
++        // encoder's completion closes this response's connection.
++        let is_last = is_last || extensions.get::<crate::ext::CloseAfterResponse>().is_some();
+         let orig_headers = match extensions.get::<HeaderCaseMap>() {
+             None if msg.title_case_headers => {
+                 orig_headers = HeaderCaseMap::default();

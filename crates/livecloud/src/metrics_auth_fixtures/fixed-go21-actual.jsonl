@@ -1,0 +1,21 @@
+{"body_length":0,"content_type":"","downstream_called":true,"id":"canonical","status":200,"www_authenticate":""}
+{"body_length":0,"content_type":"","downstream_called":true,"id":"lowercase-scheme","status":200,"www_authenticate":""}
+{"body_length":0,"content_type":"","downstream_called":true,"id":"mixed-scheme","status":200,"www_authenticate":""}
+{"body_length":0,"content_type":"","downstream_called":true,"id":"nonzero-unused-pad-bits","status":200,"www_authenticate":""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"wrong-password","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"missing-header","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"wrong-scheme","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"tab-after-scheme","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"two-spaces","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"leading-space","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"padding-removed","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"padding-extra","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"space-in-base64","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"no-colon","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"invalid-b64","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":true,"id":"base64-CRLF-component-only","status":200,"www_authenticate":""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"duplicate-first-invalid","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":true,"id":"duplicate-first-valid","status":200,"www_authenticate":""}
+{"body_length":0,"content_type":"","downstream_called":true,"id":"password-colon-component","status":200,"www_authenticate":""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"username-colon-component","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}
+{"body_length":0,"content_type":"","downstream_called":false,"id":"decoded-invalid-utf8-password","status":401,"www_authenticate":"Basic realm=\"Protected Area\""}

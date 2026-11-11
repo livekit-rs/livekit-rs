@@ -1,0 +1,18 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/rtc/mediatrackreceiver.go": "cc6cc4f6b9686d0c3bfb48f080aea29afe6be626535745ce836b8aa94ac8e031",
+    "pkg/sfu/buffer/fps.go": "071d7bd0be947dbf52ea183119f2cfdc246afb7307c861f32f631931d4aaf276",
+    "pkg/sfu/buffer/buffer_base.go": "29d6e77102c60e6defd12550c3e9b2877325c339da2e008713ef1ff80303e403",
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "pkg/sfu/buffer/fps_test.go": "56c0e2ae2a14b61cce9ebc59310d97fa3da4dcea9f03e8db3ebd72b9b6b56391",
+    "pkg/sfu/buffer/videolayer.go": "5d93c24f3e3d84676a4cc1655291ba06fbc097e6c00bd11ddb140bd02246e44f",
+    "pkg/sfu/videolayerselector/base.go": "cb429f41b744363946160e4706a34aec1e75da281651cdec945add1036a40a71",
+    "pkg/sfu/videolayerselector/vp9.go": "194a073722a734e4770201bb892ef6c2aef1b6e1df17498eec2cd1acdc838072"
+  },
+  "observer_sha256": "5c849598198c81baa026da40a9d1551a0e0eb22fca4c542b3afc0197e624c1d0",
+  "observers": {
+    "temporal_observer_test.go": "5c849598198c81baa026da40a9d1551a0e0eb22fca4c542b3afc0197e624c1d0",
+    "calculator_observer_test.go": "ac02a15732bd844a6234048969ff29cc1c233063e25fe91d6d7bfc62c5cf2a58"
+  }
+}

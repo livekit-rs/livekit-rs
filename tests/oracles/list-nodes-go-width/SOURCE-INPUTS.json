@@ -1,0 +1,24 @@
+{
+  "repository": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/go-cli/github.com/olekukonko/tablewriter@v1.1.4/pkg/twwidth/width.go": "54ef890fb0371a82e0d1f28eabbb449a746370bd7f391f82b731c5581b50f251",
+    "references/go-cli/github.com/olekukonko/tablewriter@v1.1.4/pkg/twwidth/ea.go": "eecbd11413a4f5c0cb59f5ce4a042e6e656c163c371aeeedc5ad33339997885c",
+    "references/go-cli/github.com/olekukonko/tablewriter@v1.1.4/pkg/twwidth/tab.go": "42d3ecb43b1a9474d11728e4db7b87783e5852f6cfbfaee73181ec50405d7b4f",
+    "references/go-cli/github.com/olekukonko/tablewriter@v1.1.4/tablewriter.go": "2bd148833c56e74ed8d1ae3be557c63bf62484bd895c90b91847191ee3db258d",
+    "references/displaywidth-v0.11.0/go.mod": "643bf909351d7bc8ff29a8a7bb44cca11efe181ed66e5efe57d695bb023effb3",
+    "references/displaywidth-v0.11.0/go.sum": "fe8c717a6d315cf2e92cbc62e0bf97b2108053694dfd9ee801b4631b14f7bf5b",
+    "references/displaywidth-v0.11.0/trie.go": "554562d3092a9e3f2b604b2dfd65f7d8c59eab15181eb0d008d41e483ecd856d",
+    "references/displaywidth-v0.11.0/width.go": "c3f63ee6329bbce2919b404a5c76e37f60b28b89055544451f6f739e663bcec2",
+    "references/displaywidth-v0.11.0/options.go": "3dc21acc454f7f6779a8a3f47fd690fee00e722bed1d70bf7e8b40a717aaaf5e",
+    "references/displaywidth-v0.11.0/LICENSE": "fcdcc889a11c39c73d36019b838af41b418eb7811af12b746ace40c3074bb96c"
+  },
+  "displaywidth": {
+    "go.mod": "643bf909351d7bc8ff29a8a7bb44cca11efe181ed66e5efe57d695bb023effb3",
+    "go.sum": "fe8c717a6d315cf2e92cbc62e0bf97b2108053694dfd9ee801b4631b14f7bf5b",
+    "trie.go": "554562d3092a9e3f2b604b2dfd65f7d8c59eab15181eb0d008d41e483ecd856d",
+    "width.go": "c3f63ee6329bbce2919b404a5c76e37f60b28b89055544451f6f739e663bcec2",
+    "options.go": "3dc21acc454f7f6779a8a3f47fd690fee00e722bed1d70bf7e8b40a717aaaf5e",
+    "LICENSE": "fcdcc889a11c39c73d36019b838af41b418eb7811af12b746ace40c3074bb96c"
+  }
+}

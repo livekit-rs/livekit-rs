@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  deny:
+    name: Cargo Deny Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --all-features
+
+  lint:
+    name: Format and Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          components: rustfmt, clippy
+
+      - name: Install protobuf compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Run cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Run cargo clippy prost
+        run: cargo clippy --all-targets --features flamegraph,prost-codec -- -D warnings
+
+      - name: Run cargo clippy protobuf
+        run: cargo clippy --all-targets --features flamegraph,protobuf-codec -- -D warnings
+
+      - name: Run cargo clippy all features
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test (${{ matrix.os }}, ${{ matrix.toolchain }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        toolchain: [1.98.0, 1.88.0]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+
+      - name: Install protobuf compiler
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install protobuf compiler (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Run cargo test prost
+        run: cargo test --features flamegraph,prost-codec -- --test-threads 1
+
+      - name: Run cargo test protobuf
+        run: cargo test --features flamegraph,protobuf-codec -- --test-threads 1
+
+      - name: Run cargo test framehop
+        run: cargo test --features flamegraph,prost-codec,framehop-unwinder -- --test-threads 1
+

@@ -1,0 +1,15 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "pkg/sfu/receiver_base.go": "38620b025861461becd90a2c9c413bb1bd06e8f56cba686300a3c7e0b274832d",
+    "pkg/sfu/buffer/buffer.go": "a342e16f0a5672079b663dc5d66e8623c3c3afd39e92edcfa9bb1c5d15c516cb",
+    "pkg/sfu/buffer/buffer_base.go": "29d6e77102c60e6defd12550c3e9b2877325c339da2e008713ef1ff80303e403",
+    "pkg/sfu/buffer/dependencydescriptorparser.go": "c1e1f0c4112b8ba9815fa5e14796ef3b6ffe081a80fd8cb5f448bd792a56b5c4",
+    "pkg/sfu/buffer/fps.go": "071d7bd0be947dbf52ea183119f2cfdc246afb7307c861f32f631931d4aaf276"
+  },
+  "helpers": {
+    "receiver_observer_test.go": "f747c0a8ba291c0a9a73ea10bd35c0479d4152b797004e440df165dddbf736cd"
+  }
+}

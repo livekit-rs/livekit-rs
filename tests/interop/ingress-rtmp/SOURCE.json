@@ -1,0 +1,27 @@
+{
+  "status": "ACTUAL_REFERENCE_AND_RUST_SUBPROFILE_PASS",
+  "files": {
+    "run-rtmp.mjs": "b8b28c24c1f4156b4fceb790f29a28d59c2e4f133e2f70b4377b20d6c5436ed9",
+    "README.md": "53fee309d997557698e9ef558de5acd3cd775b660ce4cb96cc62c58b2234f1bb",
+    "../ingress-tone-window.mjs": "b727c3e90a8f2c0adfbc396b40a5739007074b87b6f7e2107e5b7414d52334c1",
+    "../ingress-tone-window.test.mjs": "240ad1ff4db7d236cc622f87a3e40e3333dd3cc647796ccea738e3490a6b815a"
+  },
+  "worker": {
+    "tag": "v1.5.0",
+    "commit": "363f6090d572db8eef5b60c273c0970826fb7ca6"
+  },
+  "static_correction": "deleted List-by-ID requires actual not_found, matching source and management fixture; no execution claimed",
+  "edit_scope": "Only new ingress fixture JS/docs/shared content helper; no production Rust, SDK/client or existing interoperability assertions changed",
+  "readiness": {
+    "window_samples": 96000,
+    "sample_rate": 48000,
+    "frequency": 440,
+    "rms_strictly_greater_than": 100,
+    "tone_power_strictly_greater_than": 0.5,
+    "original_wait_deadline_ms": 45000,
+    "first_window_preserved": true,
+    "skip_filter_repair_samples": false,
+    "actual_execution": "PASS actual unchanged worker and rtc-node, original content thresholds/deadlines",
+    "old_failures": "Preserved independently; diagnostic is not acceptance"
+  }
+}

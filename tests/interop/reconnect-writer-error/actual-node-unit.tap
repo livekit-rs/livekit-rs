@@ -1,0 +1,82 @@
+TAP version 13
+# Subtest: requested single/dual must match actual physical topology
+ok 1 - requested single/dual must match actual physical topology
+  ---
+  duration_ms: 0.728417
+  type: 'test'
+  ...
+# Subtest: old-session30frames/10samples plus new1/1 cannot satisfy recovery
+ok 2 - old-session30frames/10samples plus new1/1 cannot satisfy recovery
+  ---
+  duration_ms: 0.251458
+  type: 'test'
+  ...
+# Subtest: real new local session+nativePC+track generations allow exact30/10
+ok 3 - real new local session+nativePC+track generations allow exact30/10
+  ---
+  duration_ms: 4.9885
+  type: 'test'
+  ...
+# Subtest: new labels alone with old nativePC cannot credit media
+ok 4 - new labels alone with old nativePC cannot credit media
+  ---
+  duration_ms: 0.183458
+  type: 'test'
+  ...
+# Subtest: new nativePC without new participant session cannot credit media
+ok 5 - new nativePC without new participant session cannot credit media
+  ---
+  duration_ms: 0.103666
+  type: 'test'
+  ...
+# Subtest: new PC/session cannot credit old subscribed track generation
+ok 6 - new PC/session cannot credit old subscribed track generation
+  ---
+  duration_ms: 0.374
+  type: 'test'
+  ...
+# Subtest: receiver/nativePC binding is mandatory
+ok 7 - receiver/nativePC binding is mandatory
+  ---
+  duration_ms: 0.139542
+  type: 'test'
+  ...
+# Subtest: witness requires real new remote participant, not its own local reconnect
+ok 8 - witness requires real new remote participant, not its own local reconnect
+  ---
+  duration_ms: 0.114916
+  type: 'test'
+  ...
+# Subtest: inactive/ended and undersized frames cannot satisfy new media gate
+ok 9 - inactive/ended and undersized frames cannot satisfy new media gate
+  ---
+  duration_ms: 0.124875
+  type: 'test'
+  ...
+# Subtest: late true predicate fails after await, rather than resetting deadline
+ok 10 - late true predicate fails after await, rather than resetting deadline
+  ---
+  duration_ms: 36.599458
+  type: 'test'
+  ...
+# Subtest: late writer receipt fails the same absolute deadline
+ok 11 - late writer receipt fails the same absolute deadline
+  ---
+  duration_ms: 0.258083
+  type: 'test'
+  ...
+# Subtest: boundary and early-success deadline semantics are explicit
+ok 12 - boundary and early-success deadline semantics are explicit
+  ---
+  duration_ms: 0.222458
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 785.7695

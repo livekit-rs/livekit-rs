@@ -1,0 +1,66 @@
+{
+  "status": "INPUTS_ONLY_ACTUAL_GO_RESULTS_NOT_RUN",
+  "message": "livekit.SIPInboundTrunkInfo",
+  "vectors": [
+    {
+      "name": "invalid_key",
+      "hex": "ff"
+    },
+    {
+      "name": "truncated_varint",
+      "hex": "80"
+    },
+    {
+      "name": "zero_tag",
+      "hex": "00"
+    },
+    {
+      "name": "truncated_string",
+      "hex": "0a02ff"
+    },
+    {
+      "name": "utf8_id",
+      "hex": "0a01ff"
+    },
+    {
+      "name": "utf8_name",
+      "hex": "1201ff"
+    },
+    {
+      "name": "utf8_map_key",
+      "hex": "4a030a01ff"
+    },
+    {
+      "name": "utf8_map_value",
+      "hex": "4a031201ff"
+    },
+    {
+      "name": "malformed_before_utf8",
+      "hex": "000a01ff"
+    },
+    {
+      "name": "utf8_before_malformed",
+      "hex": "0a01ff00"
+    },
+    {
+      "name": "unknown_bytes_before_utf8",
+      "hex": "a20601ff0a01ff"
+    },
+    {
+      "name": "unknown_group_then_utf8",
+      "hex": "a3060a01ffa4060a01ff"
+    },
+    {
+      "name": "wrong_end_group_before_utf8",
+      "hex": "a306ac060a01ff"
+    },
+    {
+      "name": "nested_truncation_before_utf8",
+      "hex": "4a040a01ff0a01ff"
+    },
+    {
+      "name": "overlong_varint_before_utf8",
+      "hex": "ffffffffffffffffffff020a01ff"
+    }
+  ]
+}

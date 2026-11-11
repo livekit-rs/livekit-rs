@@ -1,0 +1,14 @@
+{"name": "f114-float-nan", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: NaN\n"}
+{"name": "f114-float-posinf", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: Inf\n"}
+{"name": "f114-float-neginf", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: -Inf\n"}
+{"name": "f114-float-signed-zero", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: -0.0\n"}
+{"name": "f114-float-positive-zero", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: 0.0\n"}
+{"name": "f114-float-overflow", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: 1e999\n"}
+{"name": "f114-float-yaml-dotnan", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: .nan\n"}
+{"name": "f114-float-hex-float", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          advanced:\n            key_frame_interval: 0x1p-1\n"}
+{"name": "f114-tag-custom-bool", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: !bool true\n"}
+{"name": "f114-tag-uri-bool", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: !<tag:example.invalid,2026:bool> true\n"}
+{"name": "f114-tag-core-bool", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: !!bool true\n"}
+{"name": "f114-tag-core-str", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: !!str true\n"}
+{"name": "f114-boundary-roomconfig-alias", "strict": true, "yaml": "room:\n  room_configurations:\n    first: &preset\n      metadata: hello\n      egress: {}\n    record: *preset\n"}
+{"name": "f114-inner-anchor-used-outside", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      metadata: &ownedmeta hello\nregion: *ownedmeta\n"}

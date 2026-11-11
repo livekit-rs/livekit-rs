@@ -1,0 +1,83 @@
+{
+  "scope": "Test-only fixed Go1.26.3 LiveKit DataChannelWriter plus actual Pion ICE/DTLS/SCTP; packaging revision NOT_RUN",
+  "source_versions": {
+    "server": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "protocol": "9bb708cdb81918a6c63dd25e915b4644310b45b6"
+  },
+  "inputs": {
+    "NOTICE.md": "960ec46e58e3a6de750d51926ae1ebe284e229d1ae1ad2394e2babdfec353709",
+    "README.md": "61453bbf8cccde6ae58ac12b7795296609423d12e2bb33a55fb449b470603011",
+    "licenses/LiveKit-protocol-LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/LiveKit-server-LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "licenses/Pion-LICENSE.txt": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "licenses/Pion-MIT.txt": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0",
+    "main.go": "448038c713923b01264f5167002dc5316558d7b720902867ee80980d9f228b81"
+  },
+  "selected_upstream_source_hashes": [
+    {
+      "path": "references/livekit-stable/pkg/rtc/transport.go",
+      "sha256": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/transportmanager.go",
+      "sha256": "b8d9ef2ef0bd2059a481ed93682141ee8514ec2d528e3394372324285bc80426"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/participant.go",
+      "sha256": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8"
+    },
+    {
+      "path": "references/livekit-stable/pkg/sfu/datachannel/datachannel_writer.go",
+      "sha256": "631a03eb252ec77bed9cdc29c4f3c3e8b544e5b842b0f1a262bbe6275b7a2eaa"
+    },
+    {
+      "path": "references/livekit-stable/go.mod",
+      "sha256": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5"
+    },
+    {
+      "path": "references/livekit-stable/go.sum",
+      "sha256": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85"
+    },
+    {
+      "path": "references/livekit-stable/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "module_cache_relative_path": "github.com/pion/sctp@v1.12.0/LICENSE",
+      "sha256": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f"
+    },
+    {
+      "module_cache_relative_path": "github.com/pion/sctp@v1.12.0/LICENSES/MIT.txt",
+      "sha256": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0"
+    },
+    {
+      "module_cache_relative_path": "github.com/pion/sctp@v1.12.0/stream.go",
+      "sha256": "d539f04f3170f7fd8aec2d0127be899190d13950f2bbd870acb7237bb3a52dd0"
+    },
+    {
+      "module_cache_relative_path": "github.com/pion/datachannel@v1.6.3/LICENSE",
+      "sha256": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f"
+    },
+    {
+      "module_cache_relative_path": "github.com/pion/datachannel@v1.6.3/LICENSES/MIT.txt",
+      "sha256": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0"
+    },
+    {
+      "module_cache_relative_path": "github.com/pion/datachannel@v1.6.3/datachannel.go",
+      "sha256": "954deeca2e684f4c23c215276605b7fe7f27868ebf38f3e45ac46ceaa82533d1"
+    },
+    {
+      "module_cache_relative_path": "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/LICENSE",
+      "sha256": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f"
+    },
+    {
+      "module_cache_relative_path": "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/LICENSES/MIT.txt",
+      "sha256": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0"
+    },
+    {
+      "module_cache_relative_path": "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/datachannel.go",
+      "sha256": "d52f2bfa58f19af5401665a6ef972cdd489b9a002c04c965b98783c42d779c9e"
+    }
+  ],
+  "source_retention": "Repository reference checkouts and Go checksum-verified module download/cache; no source-snapshot subdirectory claimed"
+}

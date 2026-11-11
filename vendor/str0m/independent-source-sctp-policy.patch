@@ -1,0 +1,20 @@
+--- a/src/sctp_options.rs
++++ b/src/sctp_options.rs
+@@ -7,6 +7,9 @@
+     pub min_cwnd: u32,
+     /// Fast-retransmission burst budget in bytes; individual packets remain MTU bound.
+     pub fast_rtx_wnd: u32,
++    /// Use source-compatible partial reliability independently of burst size.
++    /// Defaults to false for library callers; RTC Engine explicitly selects true.
++    pub source_partial_reliability: bool,
+     /// Congestion avoidance increment in bytes, with a floor of one MTU.
+     pub cwnd_ca_step: u32,
+ }
+@@ -15,6 +18,7 @@
+         TransportConfig::default()
+             .with_min_cwnd(self.min_cwnd)
+             .with_fast_rtx_wnd(self.fast_rtx_wnd)
++            .with_source_partial_reliability(self.source_partial_reliability)
+             .with_cwnd_ca_step(self.cwnd_ca_step)
+     }
+ }

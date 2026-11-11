@@ -1,0 +1,32 @@
+{
+  "status": "FROZEN_SOURCE_NOT_COMPILED_NOT_RUN",
+  "base_v2_source_sha256": "608067b1ee966393bae431bb18b69cd0696a63dd741a0553765ed8b4a408887f",
+  "base_sha256": {
+    "livekit-rs-server/vendor/sctp-proto/src/association/mod.rs": "56f5e07d86c964c86ccef5bdeccc57e09d3de1b5a7ea144dea140964398b578b",
+    "livekit-rs-server/vendor/sctp-proto/src/association/stream.rs": "0a9bd0d31290abfdf594d899df141b36ef989df9fdcaac07753477205e88360f"
+  },
+  "payload_sha256": {
+    "livekit-rs-server/vendor/sctp-proto/src/association/mod.rs": "b6c08daa60c577eef3aa6fce1f46a4818e343bdd5d1ea795fc8b6268723ae884",
+    "livekit-rs-server/vendor/sctp-proto/src/association/stream.rs": "3a1ab288db6b64dcf89fd597248cf695b966f4d52d583658f204af7336f4ef99"
+  },
+  "source_sha256": {
+    "references/go-modules/pion-sctp-v1.12.0/association.go": "d0b3200cb086dff512b34b2e2595a4575d78fd835bc8ed6749d7c4d912f00e1b",
+    "references/go-modules/pion-sctp-v1.12.0/stream.go": "d539f04f3170f7fd8aec2d0127be899190d13950f2bbd870acb7237bb3a52dd0"
+  },
+  "assets_sha256": {
+    "README.md": "a93c5b02cf84b717e4606a99d05862c8acf9b865f623a83b46bd73f83995808c",
+    "changes.patch": "b55995afd60daa80d8191e866686c3484a8f7dcd332843bcaf416039db44dcc7",
+    "gates/tests-only-against-v2.patch": "9ee76fffca8e94f4da2ca241f6c4d9f2c40a4647b157e1097a34a3f7edd47620",
+    "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "oracle/cases.jsonl": "775494a4959640f427ab012f4051baba68b3f5025deb1d0824209b3824f47a51",
+    "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "oracle/prepare.py": "04f580137c06c3980303b4ef2ca7e63f114d2382a815c5678838c28a26130ca8",
+    "oracle/stream_policy_test.go": "6fed4b5852e661d818408c8bc26f61a654587effaa67548d067ddb87990b7b1e",
+    "oracle/to_tsv.py": "99c63cb3c68611cdda92ce07eb80108eae434e692cfb534df4941ffd4b458a07",
+    "production-only.patch": "73e937032f86aa005351a2b428fb18cff5d2cbe45cf5beab32a9b4db132368fd"
+  },
+  "actual_go_new_cases": "PREPARED_8_NOT_RUN",
+  "actual_rust_red_green": "NOT_RUN",
+  "shared_edits": false,
+  "reconstruction_required_after_adoption": true
+}

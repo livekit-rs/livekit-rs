@@ -1,0 +1,110 @@
+diff --git a/src/error.rs b/src/error.rs
+index 02aaef28..1716799f 100644
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -232,6 +232,9 @@ pub enum ProtocolError {
+     /// Frame rejected by the opted-in LiveKit RTC/Gorilla wire policy.
+     #[error("LiveKit RTC frame: {0}")]
+     LivekitRtcProtocolViolation(std::sync::Arc<String>),
++    /// The RTC frame or aggregate message length cannot be represented by Gorilla's signed counter.
++    #[error("RTC WebSocket read length exceeds the signed range")]
++    LivekitRtcReadLengthOverflow,
+     /// The negotiated raw DEFLATE message was malformed or incomplete.
+     #[error("Invalid permessage-deflate payload")]
+     InvalidCompression,
+diff --git a/src/protocol/frame/mod.rs b/src/protocol/frame/mod.rs
+index e172fd9f..22545d22 100644
+--- a/src/protocol/frame/mod.rs
++++ b/src/protocol/frame/mod.rs
+@@ -166,7 +166,7 @@ impl FrameCodec {
+         accept_unmasked: bool,
+     ) -> Result<Option<Frame>> {
+         self.read_frame_with_header_check(
+-            stream, max_size, unmask, accept_unmasked, |_, _| Ok(()), |_, _| Ok(()),
++            stream, max_size, unmask, accept_unmasked, false, |_| Ok(()), |_, _| Ok(()),
+         )
+     }
+ 
+@@ -177,16 +177,15 @@ impl FrameCodec {
+         max_size: Option<usize>,
+         unmask: bool,
+         accept_unmasked: bool,
+-        mut check_start: impl FnMut(u8, u8) -> Result<()>,
++        stream_payload: bool,
++        mut check_start: impl FnMut(&[u8]) -> Result<()>,
+         mut check_header: impl FnMut(&FrameHeader, u64) -> Result<()>,
+     ) -> Result<Option<Frame>> {
+         let max_size = max_size.unwrap_or_else(usize::max_value);
+ 
+         let mut payload = loop {
+             if self.header.is_none() {
+-                if let [first, second, ..] = self.in_buffer.as_ref() {
+-                    check_start(*first, *second)?;
+-                }
++                check_start(&self.in_buffer)?;
+                 let mut cursor = Cursor::new(&mut self.in_buffer);
+                 self.header = FrameHeader::parse(&mut cursor)?;
+                 let advanced = cursor.position();
+@@ -204,9 +203,11 @@ impl FrameCodec {
+                         }));
+                     }
+ 
+-                    // Reserve full message length only once, even for multiple
+-                    // loops or if WouldBlock errors cause multiple fn calls.
+-                    self.in_buffer.reserve(len);
++                    // RTC can have an unlimited configured read limit. Grow its
++                    // buffer as bytes arrive instead of trusting the wire length.
++                    if !stream_payload {
++                        self.in_buffer.reserve(len);
++                    }
+                 } else {
+                     self.in_buffer.reserve(FrameHeader::MAX_SIZE);
+                 }
+@@ -220,6 +221,9 @@ impl FrameCodec {
+             }
+ 
+             // Not enough data in buffer.
++            if stream_payload {
++                self.in_buffer.reserve(self.in_buf_max_read);
++            }
+             if self.read_in(stream)? == 0 {
+                 trace!("no frame received");
+                 return Ok(None);
+diff --git a/src/protocol/mod.rs b/src/protocol/mod.rs
+index 44b40a95..421a3d7d 100644
+--- a/src/protocol/mod.rs
++++ b/src/protocol/mod.rs
+@@ -671,11 +671,19 @@ impl WebSocketContext {
+                 self.config.max_frame_size,
+                 true,
+                 accept_unmasked,
+-                |first, second| {
++                livekit_rtc_reserved_bits,
++                |bytes| {
+                     if livekit_rtc_reserved_bits && can_read {
+-                        check_livekit_rtc_header_start(
+-                            first, second, incomplete.is_some(), compressed, accept_unmasked,
+-                        )?;
++                        if let [first, second, ..] = bytes {
++                            check_livekit_rtc_header_start(
++                                *first, *second, incomplete.is_some(), compressed, accept_unmasked,
++                            )?;
++                            // Gorilla reads all eight length bytes and checks the
++                            // signed range before waiting for the masking key.
++                            if second & 0x7f == 127 && bytes.len() >= 10 && bytes[2] & 0x80 != 0 {
++                                return Err(ProtocolError::LivekitRtcReadLengthOverflow.into());
++                            }
++                        }
+                     }
+                     Ok(())
+                 },
+@@ -981,6 +989,9 @@ fn check_server_header_budget(
+     }
+     if let OpCode::Data(_) = header.opcode {
+         let preceding = incomplete.unwrap_or(0);
++        if livekit_rtc_reserved_bits && payload_len > (i64::MAX as u64).saturating_sub(preceding as u64) {
++            return Err(ProtocolError::LivekitRtcReadLengthOverflow.into());
++        }
+         let max_size = message_limit.unwrap_or(usize::MAX);
+         let remaining = max_size.saturating_sub(preceding);
+         if preceding > max_size || payload_len > remaining as u64 {

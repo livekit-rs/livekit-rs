@@ -1,0 +1,14 @@
+{
+  "status": "NOT_RUN",
+  "fixed_inputs_sha256": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/livekit-stable/pkg/service/turn.go": "5e41ad44dedba0f499b9295ab3252aecbf9ba50934188a8063607ff41ceb5184",
+    "references/livekit-stable/pkg/config/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "references/livekit-stable/cmd/server/main.go": "9006ed033eb2786629d950b08321206cdd0f1202fe89f999c9a331e1e0dc691f"
+  },
+  "assets_sha256": {
+    "prepare.py": "dd1adbdcc1f917e9f452b008bd9f019bfec232038a85e60f56d60b281f962f5e",
+    "source_test.go": "1cafde23c6e3d0cd8fbda10f9f584091701a01e8f2004d0bf851c776b0340139"
+  }
+}

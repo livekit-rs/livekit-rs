@@ -1,0 +1,722 @@
+[
+  {
+    "id": "caps-000",
+    "browser": "firefox",
+    "protocol": 0
+  },
+  {
+    "id": "caps-001",
+    "browser": "firefox",
+    "protocol": 5
+  },
+  {
+    "id": "caps-002",
+    "browser": "firefox",
+    "protocol": 6
+  },
+  {
+    "id": "caps-003",
+    "browser": "firefox",
+    "protocol": 9
+  },
+  {
+    "id": "caps-004",
+    "browser": "firefox",
+    "protocol": 10
+  },
+  {
+    "id": "caps-005",
+    "browser": "firefox",
+    "protocol": 17
+  },
+  {
+    "id": "caps-006",
+    "browser": "Firefox",
+    "protocol": 0
+  },
+  {
+    "id": "caps-007",
+    "browser": "Firefox",
+    "protocol": 5
+  },
+  {
+    "id": "caps-008",
+    "browser": "Firefox",
+    "protocol": 6
+  },
+  {
+    "id": "caps-009",
+    "browser": "Firefox",
+    "protocol": 9
+  },
+  {
+    "id": "caps-010",
+    "browser": "Firefox",
+    "protocol": 10
+  },
+  {
+    "id": "caps-011",
+    "browser": "Firefox",
+    "protocol": 17
+  },
+  {
+    "id": "caps-012",
+    "browser": "firefox mobile",
+    "protocol": 0
+  },
+  {
+    "id": "caps-013",
+    "browser": "firefox mobile",
+    "protocol": 5
+  },
+  {
+    "id": "caps-014",
+    "browser": "firefox mobile",
+    "protocol": 6
+  },
+  {
+    "id": "caps-015",
+    "browser": "firefox mobile",
+    "protocol": 9
+  },
+  {
+    "id": "caps-016",
+    "browser": "firefox mobile",
+    "protocol": 10
+  },
+  {
+    "id": "caps-017",
+    "browser": "firefox mobile",
+    "protocol": 17
+  },
+  {
+    "id": "caps-018",
+    "browser": "FIREFOX MOBILE",
+    "protocol": 0
+  },
+  {
+    "id": "caps-019",
+    "browser": "FIREFOX MOBILE",
+    "protocol": 5
+  },
+  {
+    "id": "caps-020",
+    "browser": "FIREFOX MOBILE",
+    "protocol": 6
+  },
+  {
+    "id": "caps-021",
+    "browser": "FIREFOX MOBILE",
+    "protocol": 9
+  },
+  {
+    "id": "caps-022",
+    "browser": "FIREFOX MOBILE",
+    "protocol": 10
+  },
+  {
+    "id": "caps-023",
+    "browser": "FIREFOX MOBILE",
+    "protocol": 17
+  },
+  {
+    "id": "caps-024",
+    "browser": "vendor-firefox",
+    "protocol": 0
+  },
+  {
+    "id": "caps-025",
+    "browser": "vendor-firefox",
+    "protocol": 5
+  },
+  {
+    "id": "caps-026",
+    "browser": "vendor-firefox",
+    "protocol": 6
+  },
+  {
+    "id": "caps-027",
+    "browser": "vendor-firefox",
+    "protocol": 9
+  },
+  {
+    "id": "caps-028",
+    "browser": "vendor-firefox",
+    "protocol": 10
+  },
+  {
+    "id": "caps-029",
+    "browser": "vendor-firefox",
+    "protocol": 17
+  },
+  {
+    "id": "caps-030",
+    "browser": "firefoxmobile",
+    "protocol": 0
+  },
+  {
+    "id": "caps-031",
+    "browser": "firefoxmobile",
+    "protocol": 5
+  },
+  {
+    "id": "caps-032",
+    "browser": "firefoxmobile",
+    "protocol": 6
+  },
+  {
+    "id": "caps-033",
+    "browser": "firefoxmobile",
+    "protocol": 9
+  },
+  {
+    "id": "caps-034",
+    "browser": "firefoxmobile",
+    "protocol": 10
+  },
+  {
+    "id": "caps-035",
+    "browser": "firefoxmobile",
+    "protocol": 17
+  },
+  {
+    "id": "caps-036",
+    "browser": "firefox mobile beta",
+    "protocol": 0
+  },
+  {
+    "id": "caps-037",
+    "browser": "firefox mobile beta",
+    "protocol": 5
+  },
+  {
+    "id": "caps-038",
+    "browser": "firefox mobile beta",
+    "protocol": 6
+  },
+  {
+    "id": "caps-039",
+    "browser": "firefox mobile beta",
+    "protocol": 9
+  },
+  {
+    "id": "caps-040",
+    "browser": "firefox mobile beta",
+    "protocol": 10
+  },
+  {
+    "id": "caps-041",
+    "browser": "firefox mobile beta",
+    "protocol": 17
+  },
+  {
+    "id": "caps-042",
+    "browser": " firefox",
+    "protocol": 0
+  },
+  {
+    "id": "caps-043",
+    "browser": " firefox",
+    "protocol": 5
+  },
+  {
+    "id": "caps-044",
+    "browser": " firefox",
+    "protocol": 6
+  },
+  {
+    "id": "caps-045",
+    "browser": " firefox",
+    "protocol": 9
+  },
+  {
+    "id": "caps-046",
+    "browser": " firefox",
+    "protocol": 10
+  },
+  {
+    "id": "caps-047",
+    "browser": " firefox",
+    "protocol": 17
+  },
+  {
+    "id": "caps-048",
+    "browser": "firefox ",
+    "protocol": 0
+  },
+  {
+    "id": "caps-049",
+    "browser": "firefox ",
+    "protocol": 5
+  },
+  {
+    "id": "caps-050",
+    "browser": "firefox ",
+    "protocol": 6
+  },
+  {
+    "id": "caps-051",
+    "browser": "firefox ",
+    "protocol": 9
+  },
+  {
+    "id": "caps-052",
+    "browser": "firefox ",
+    "protocol": 10
+  },
+  {
+    "id": "caps-053",
+    "browser": "firefox ",
+    "protocol": 17
+  },
+  {
+    "id": "caps-054",
+    "browser": "safari",
+    "protocol": 0
+  },
+  {
+    "id": "caps-055",
+    "browser": "safari",
+    "protocol": 5
+  },
+  {
+    "id": "caps-056",
+    "browser": "safari",
+    "protocol": 6
+  },
+  {
+    "id": "caps-057",
+    "browser": "safari",
+    "protocol": 9
+  },
+  {
+    "id": "caps-058",
+    "browser": "safari",
+    "protocol": 10
+  },
+  {
+    "id": "caps-059",
+    "browser": "safari",
+    "protocol": 17
+  },
+  {
+    "id": "caps-060",
+    "browser": "Safari",
+    "protocol": 0
+  },
+  {
+    "id": "caps-061",
+    "browser": "Safari",
+    "protocol": 5
+  },
+  {
+    "id": "caps-062",
+    "browser": "Safari",
+    "protocol": 6
+  },
+  {
+    "id": "caps-063",
+    "browser": "Safari",
+    "protocol": 9
+  },
+  {
+    "id": "caps-064",
+    "browser": "Safari",
+    "protocol": 10
+  },
+  {
+    "id": "caps-065",
+    "browser": "Safari",
+    "protocol": 17
+  },
+  {
+    "id": "caps-066",
+    "browser": "vendor-safari",
+    "protocol": 0
+  },
+  {
+    "id": "caps-067",
+    "browser": "vendor-safari",
+    "protocol": 5
+  },
+  {
+    "id": "caps-068",
+    "browser": "vendor-safari",
+    "protocol": 6
+  },
+  {
+    "id": "caps-069",
+    "browser": "vendor-safari",
+    "protocol": 9
+  },
+  {
+    "id": "caps-070",
+    "browser": "vendor-safari",
+    "protocol": 10
+  },
+  {
+    "id": "caps-071",
+    "browser": "vendor-safari",
+    "protocol": 17
+  },
+  {
+    "id": "caps-072",
+    "browser": "safari preview",
+    "protocol": 0
+  },
+  {
+    "id": "caps-073",
+    "browser": "safari preview",
+    "protocol": 5
+  },
+  {
+    "id": "caps-074",
+    "browser": "safari preview",
+    "protocol": 6
+  },
+  {
+    "id": "caps-075",
+    "browser": "safari preview",
+    "protocol": 9
+  },
+  {
+    "id": "caps-076",
+    "browser": "safari preview",
+    "protocol": 10
+  },
+  {
+    "id": "caps-077",
+    "browser": "safari preview",
+    "protocol": 17
+  },
+  {
+    "id": "caps-078",
+    "browser": "ſafari",
+    "protocol": 0
+  },
+  {
+    "id": "caps-079",
+    "browser": "ſafari",
+    "protocol": 5
+  },
+  {
+    "id": "caps-080",
+    "browser": "ſafari",
+    "protocol": 6
+  },
+  {
+    "id": "caps-081",
+    "browser": "ſafari",
+    "protocol": 9
+  },
+  {
+    "id": "caps-082",
+    "browser": "ſafari",
+    "protocol": 10
+  },
+  {
+    "id": "caps-083",
+    "browser": "ſafari",
+    "protocol": 17
+  },
+  {
+    "id": "caps-084",
+    "browser": "ſAFARI",
+    "protocol": 0
+  },
+  {
+    "id": "caps-085",
+    "browser": "ſAFARI",
+    "protocol": 5
+  },
+  {
+    "id": "caps-086",
+    "browser": "ſAFARI",
+    "protocol": 6
+  },
+  {
+    "id": "caps-087",
+    "browser": "ſAFARI",
+    "protocol": 9
+  },
+  {
+    "id": "caps-088",
+    "browser": "ſAFARI",
+    "protocol": 10
+  },
+  {
+    "id": "caps-089",
+    "browser": "ſAFARI",
+    "protocol": 17
+  },
+  {
+    "id": "caps-090",
+    "browser": "SAFARİ",
+    "protocol": 0
+  },
+  {
+    "id": "caps-091",
+    "browser": "SAFARİ",
+    "protocol": 5
+  },
+  {
+    "id": "caps-092",
+    "browser": "SAFARİ",
+    "protocol": 6
+  },
+  {
+    "id": "caps-093",
+    "browser": "SAFARİ",
+    "protocol": 9
+  },
+  {
+    "id": "caps-094",
+    "browser": "SAFARİ",
+    "protocol": 10
+  },
+  {
+    "id": "caps-095",
+    "browser": "SAFARİ",
+    "protocol": 17
+  },
+  {
+    "id": "caps-096",
+    "browser": "safarI",
+    "protocol": 0
+  },
+  {
+    "id": "caps-097",
+    "browser": "safarI",
+    "protocol": 5
+  },
+  {
+    "id": "caps-098",
+    "browser": "safarI",
+    "protocol": 6
+  },
+  {
+    "id": "caps-099",
+    "browser": "safarI",
+    "protocol": 9
+  },
+  {
+    "id": "caps-100",
+    "browser": "safarI",
+    "protocol": 10
+  },
+  {
+    "id": "caps-101",
+    "browser": "safarI",
+    "protocol": 17
+  },
+  {
+    "id": "caps-102",
+    "browser": "firefox mobİle",
+    "protocol": 0
+  },
+  {
+    "id": "caps-103",
+    "browser": "firefox mobİle",
+    "protocol": 5
+  },
+  {
+    "id": "caps-104",
+    "browser": "firefox mobİle",
+    "protocol": 6
+  },
+  {
+    "id": "caps-105",
+    "browser": "firefox mobİle",
+    "protocol": 9
+  },
+  {
+    "id": "caps-106",
+    "browser": "firefox mobİle",
+    "protocol": 10
+  },
+  {
+    "id": "caps-107",
+    "browser": "firefox mobİle",
+    "protocol": 17
+  },
+  {
+    "id": "caps-108",
+    "browser": "firefoK",
+    "protocol": 0
+  },
+  {
+    "id": "caps-109",
+    "browser": "firefoK",
+    "protocol": 5
+  },
+  {
+    "id": "caps-110",
+    "browser": "firefoK",
+    "protocol": 6
+  },
+  {
+    "id": "caps-111",
+    "browser": "firefoK",
+    "protocol": 9
+  },
+  {
+    "id": "caps-112",
+    "browser": "firefoK",
+    "protocol": 10
+  },
+  {
+    "id": "caps-113",
+    "browser": "firefoK",
+    "protocol": 17
+  },
+  {
+    "id": "caps-114",
+    "browser": "safKri",
+    "protocol": 0
+  },
+  {
+    "id": "caps-115",
+    "browser": "safKri",
+    "protocol": 5
+  },
+  {
+    "id": "caps-116",
+    "browser": "safKri",
+    "protocol": 6
+  },
+  {
+    "id": "caps-117",
+    "browser": "safKri",
+    "protocol": 9
+  },
+  {
+    "id": "caps-118",
+    "browser": "safKri",
+    "protocol": 10
+  },
+  {
+    "id": "caps-119",
+    "browser": "safKri",
+    "protocol": 17
+  },
+  {
+    "id": "caps-120",
+    "browser": "chrome",
+    "protocol": 0
+  },
+  {
+    "id": "caps-121",
+    "browser": "chrome",
+    "protocol": 5
+  },
+  {
+    "id": "caps-122",
+    "browser": "chrome",
+    "protocol": 6
+  },
+  {
+    "id": "caps-123",
+    "browser": "chrome",
+    "protocol": 9
+  },
+  {
+    "id": "caps-124",
+    "browser": "chrome",
+    "protocol": 10
+  },
+  {
+    "id": "caps-125",
+    "browser": "chrome",
+    "protocol": 17
+  },
+  {
+    "id": "caps-126",
+    "browser": "",
+    "protocol": 0
+  },
+  {
+    "id": "caps-127",
+    "browser": "",
+    "protocol": 5
+  },
+  {
+    "id": "caps-128",
+    "browser": "",
+    "protocol": 6
+  },
+  {
+    "id": "caps-129",
+    "browser": "",
+    "protocol": 9
+  },
+  {
+    "id": "caps-130",
+    "browser": "",
+    "protocol": 10
+  },
+  {
+    "id": "caps-131",
+    "browser": "",
+    "protocol": 17
+  },
+  {
+    "id": "caps-132",
+    "browser": "safari\u0000",
+    "protocol": 0
+  },
+  {
+    "id": "caps-133",
+    "browser": "safari\u0000",
+    "protocol": 5
+  },
+  {
+    "id": "caps-134",
+    "browser": "safari\u0000",
+    "protocol": 6
+  },
+  {
+    "id": "caps-135",
+    "browser": "safari\u0000",
+    "protocol": 9
+  },
+  {
+    "id": "caps-136",
+    "browser": "safari\u0000",
+    "protocol": 10
+  },
+  {
+    "id": "caps-137",
+    "browser": "safari\u0000",
+    "protocol": 17
+  },
+  {
+    "id": "caps-138",
+    "browser": "firefox\u0000",
+    "protocol": 0
+  },
+  {
+    "id": "caps-139",
+    "browser": "firefox\u0000",
+    "protocol": 5
+  },
+  {
+    "id": "caps-140",
+    "browser": "firefox\u0000",
+    "protocol": 6
+  },
+  {
+    "id": "caps-141",
+    "browser": "firefox\u0000",
+    "protocol": 9
+  },
+  {
+    "id": "caps-142",
+    "browser": "firefox\u0000",
+    "protocol": 10
+  },
+  {
+    "id": "caps-143",
+    "browser": "firefox\u0000",
+    "protocol": 17
+  }
+]

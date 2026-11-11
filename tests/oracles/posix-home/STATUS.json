@@ -1,0 +1,10 @@
+{
+  "status": "HISTORICAL_GO_CAPTURE_WITH_LATER_FINITE_DARWIN_CONSUMER_ACCEPTANCE",
+  "fixed_go": "1.26.3",
+  "source_reference": "references/deps/golang--go-1.26.3",
+  "production_home_fallback": "IMPLEMENTED_F90_FINITE_SCOPE",
+  "production_raw_env_names": "IMPLEMENTED_F90_FINITE_SCOPE",
+  "capture_evidence": "livekit-rs-docs/evidence/2026-10-26/f69-darwin-home-oracle-capture.json",
+  "later_evidence": "livekit-rs-docs/evidence/2026-10-26/f90-f92-cli-real-process-red-green-checkpoint.json",
+  "non_claim": "Linux actual process and all CLI consumer completeness remain independent"
+}

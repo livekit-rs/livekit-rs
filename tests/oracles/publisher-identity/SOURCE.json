@@ -1,0 +1,22 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "pkg/rtc/participant_data_track.go": "82994ac736d70f80cf2eab55c6170f5c65f776c0ac8966b65f75081d4ca1a7d0",
+    "pkg/rtc/transport.go": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d",
+    "pkg/rtc/transportmanager.go": "b8d9ef2ef0bd2059a481ed93682141ee8514ec2d528e3394372324285bc80426",
+    "pkg/rtc/participant_internal_test.go": "8b6f5a12359e116585505b79b102e0f39c0d19539aa8ec3cb20b3a9034035ccc",
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85"
+  },
+  "observer_sha256": "826530237b9c29f5a10b7a7087dc66e2793eed0be1af3b9d330fafb3dced4ef5",
+  "pion_input": {
+    "path": "/Users/zoujiaqing/go/pkg/mod/github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/peerconnection.go",
+    "sha256": "ed16faf84a4bc813d68a8f119c38f56c50dc5e826d9970ff1d727ad2634fb708",
+    "module": "github.com/livekit/webrtc-pion/v4",
+    "version": "v4.2.18-warp.6",
+    "consumer": "peerconnection.go833-869 actual PC aggregate state"
+  },
+  "command": "go test -mod=readonly ./pkg/rtc -docker=false -run '^TestOriginalPublisherIdentityLifecycle$' -count=1 -v",
+  "not_run": true
+}

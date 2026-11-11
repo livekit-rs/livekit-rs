@@ -1,0 +1,2 @@
+limit:
+  signal_message_size_limit: 1024

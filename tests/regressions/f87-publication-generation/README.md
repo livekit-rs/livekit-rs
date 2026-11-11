@@ -1,0 +1,7 @@
+# F87 publication registration source regression
+
+The two ordinary `publication_generation_` tests create real encrypted native RTC peers. The held old primary RTP packet is first delivered after an inactive/unpublish/new-CID cycle; current source success is also an independent test. The event pump follows real command ordering. Both cases keep the original logical bounds and incomplete-video-frame requirement.
+
+The checked-in patch removes only the production current-source registration guard. It preserves tests, SDP parsing, native crypto and transport implementation. From `livekit-rs-server`, apply with `patch -p1 < tests/regressions/f87-publication-generation/remove-registration-source-guard.patch`, run `cargo test --locked -p rtc-media --lib publication_generation_ -- --nocapture`, then reverse the exact patch before building or releasing. Require the new-source positive control PASS and old-source proof assertion FAIL; compile failures and zero tests are not a behavioral RED. Record actual execution before claiming the mutation replay passes.
+
+Restore the guarded production source and run the same two tests: both must PASS. The old-source case must prove successful authentication rather than silently pass because the old datagram was rejected. This scope only covers publication readiness registration for current SDP declared non-RID sources. Full frame forwarding, same-SSRC reuse, RID source replacement and complete peer lifecycle remain separate open gates.

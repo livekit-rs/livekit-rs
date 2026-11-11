@@ -1,0 +1,23 @@
+{
+  "status": "IMPLEMENTED_PENDING_ACTUAL24_ORACLE_AND_RUST_RETEST",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "go_protobuf_version": "v1.36.12",
+  "sources": {
+    "references/crates/prost-reflect-0.16.5/src/dynamic/message.rs": "6159be4643c3ce28cb3d9c9559d0a49705796cbf390ab714219322b5f7bb2afb",
+    "references/crates/prost-0.14.4/src/encoding.rs": "2262da48addaf0544bb7c1f38ae617160fc4fba1781bd9c99fdc96b0dd6288d4",
+    "references/go-cli/google.golang.org/protobuf@v1.36.12/internal/impl/decode.go": "12b24500e3708913ecba846287a84f413e36ca496bfb713b931102e0041621d3",
+    "references/go-cli/google.golang.org/protobuf@v1.36.12/internal/impl/codec_gen.go": "4eed98966d930db1855cadf0972d255cd89733e29815ef4d3904e3fe0e473a25",
+    "references/go-cli/google.golang.org/protobuf@v1.36.12/internal/impl/codec_map.go": "85f1d364d793344cf724b7204110f79c77d9a75e1b2d3e8ced3a7a0a42f7aa9a"
+  },
+  "rust_source_sha256": "9715187c24ba169f2febaa211ad4e24171d49dbb56eb7dbd2408046b07585f8f",
+  "oracle_files_sha256": {
+    "main.go": "2e92ad38f159956cb8e6ef05c69b146a403ad081af3ef4522444271327d2e6ec",
+    "go.mod": "940ab75d050080fb14a781362bcedbb82805c4e2dde6beb9115f6ca4664dbd6c",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "cases.jsonl": "bf1502931181d5a7ad831f56e40f5ec90c4a24012e2cd1a9ee532248f07a51f0",
+    "http-cases.json": "3745b673fb9f717eafb13883b16751046d900a05fba67e32b73a9748b9e7ca26"
+  },
+  "actual_initial23_go_results_sha256": "10d1a45f18f2f4939c0ec16f0d58b6ed92e426ca8fe5d0f0dd398e861e5f9a6a",
+  "fixture_correction_evidence": "livekit-rs-docs/evidence/2026-10-25/f05-wire-optional-fixture-red.json"
+}

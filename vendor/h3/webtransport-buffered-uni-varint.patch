@@ -1,0 +1,56 @@
+--- a/src/stream.rs
++++ b/src/stream.rs
+@@ -308,6 +308,25 @@
+         let mut stream_stopped = None;
+ 
+         loop {
++            // The stream type and its following session/push ID can arrive in
++            // the same QUIC chunk, while the peer leaves the stream open.
++            // Consume the buffered varint before waiting on the underlying stream.
++            {
++                let mut buf = self.stream.buf_mut();
++                if self.expected.is_none() && buf.has_remaining() {
++                    self.expected = Some(VarInt::encoded_size(buf.chunk()[0]));
++                }
++                if self.expected.is_some_and(|expected| buf.remaining() >= expected) {
++                    let value = VarInt::decode(&mut buf).map_err(|_| {
++                        PollTypeError::InternalError(InternalConnectionError::new(
++                            Code::H3_INTERNAL_ERROR,
++                            "Unexpected end parsing varint".to_string(),
++                        ))
++                    })?;
++                    self.expected = None;
++                    return Poll::Ready(Ok((value, stream_stopped)));
++                }
++            }
+             if stream_stopped.is_some() {
+                 return Poll::Ready(Err(PollTypeError::EndOfStream));
+             }
+@@ -332,27 +351,6 @@
+                 }
+             };
+ 
+-            let mut buf = self.stream.buf_mut();
+-            if self.expected.is_none() && buf.remaining() >= 1 {
+-                self.expected = Some(VarInt::encoded_size(buf.chunk()[0]));
+-            }
+-
+-            if let Some(expected) = self.expected {
+-                if buf.remaining() < expected {
+-                    continue;
+-                }
+-            } else {
+-                continue;
+-            }
+-
+-            let reult = VarInt::decode(&mut buf).map_err(|_| {
+-                PollTypeError::InternalError(InternalConnectionError::new(
+-                    Code::H3_INTERNAL_ERROR,
+-                    "Unexpected end parsing varint".to_string(),
+-                ))
+-            })?;
+-
+-            return Poll::Ready(Ok((reult, stream_stopped)));
+         }
+     }
+ 

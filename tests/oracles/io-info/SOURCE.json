@@ -1,0 +1,27 @@
+{
+  "status": "IMPLEMENTED_NOT_BUILT_NOT_RUN_BY_IMPLEMENTING_AGENT",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "psrpc_commit": "e9701ee1b5a981cfa3c7c69503d4775ddff13729",
+  "source_files_sha256": {
+    "references/livekit-stable/pkg/service/ioservice.go": "73360d78bb03f2706f757ab2b5bfffd6fc72a7225ef01fab57e0c263f53156c1",
+    "references/livekit-stable/pkg/service/ioservice_ingress.go": "f23b1aa4f71c02f11e71e6b28dfa9ea25ad8c8d4cf82c4ba4731dd55fa36a733",
+    "references/livekit-stable/pkg/service/redisstore.go": "70c2e0ba92361665d896f2cbd1fbd1a7ce6256d630c5a7fdc6183f0a92fa5569",
+    "references/protocol/rpc/io.psrpc.go": "3c72536ce2fc7025955121a8f20b3b5f6d95001ef56433935eb4147eca3109c5",
+    "references/protocol/protobufs/rpc/io.proto": "d37089dd59ee772374c86a0b0ea2e58b0d9153b9001adf86a1b281117e4ad91e",
+    "references/psrpc/pkg/client/options.go": "26587357533144f90ed155ea11a83196e79744f55a24539e3e9cd8ea66480097"
+  },
+  "inputs_sha256": {
+    "main.go": "c178a931b53cd2b2ce2785911368726de8b8843839318fefd9ddc56bc494ca50",
+    "go.mod": "0ea7bd579c2519fc42561ed0628b36467dea4939fe389b0b1bb0a74819efa485",
+    "go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "callback-cases.jsonl": "4c12dad4b897398b07ae40e436566684e86e9d55de70eaeb9886e76ca86f173c",
+    "store-cases.jsonl": "5d0e475fe119bab7845ffc4bc7ed11cba951a735a572f5838704b4c8a1ea79e9",
+    "run-cross.py": "ad91e987152c774dde2a64852900c71d6c83931d4c32af80ab2971ccd60de9cd",
+    "README.md": "74f80b1bcfc918d0bbcc63158554561d3e062cc2121da17780bac12890d09190",
+    "diagnose-corrupt-state.py": "4e97b9ee8ed954cbeed06eb52d6c96a90fa179cc6c5338ebdc89dc151d2dad97",
+    "test_error_comparison.py": "37eafa62116f6d92ca305491f4d1d000bc2a93bbb817f4a6113e4ca4364b2206"
+  },
+  "rust_probe_path": "livekit-rs-server/crates/lk-compat/examples/io_store_probe.rs",
+  "rust_probe_sha256": "65f4b0121e0f0229e9ce755934c1af12d04ad294addedd4f53b75443a991e95b"
+}

@@ -1,0 +1,24 @@
+# Local-only native HTTPS/WSS fixture. Generate the ignored development PEMs
+# with `npm run tls:fixture` from tests/interop before starting this server.
+port: 8380
+bind_addresses: [127.0.0.1]
+rtc:
+  tcp_port: 8381
+  udp_port: 8382
+  node_ip: 127.0.0.1
+  use_external_ip: false
+  enable_loopback_candidate: true
+  ips:
+    includes: [127.0.0.1/32]
+livecloud:
+  schema_version: 1
+  https:
+    port: 8443
+    bind_addresses: [127.0.0.1]
+    cert_file: tests/interop/output/tls/server.pem
+    key_file: tests/interop/output/tls/server-key.pem
+    http_enabled: true
+    max_connections: 64
+    handshake_timeout_ms: 3000
+logging:
+  level: info

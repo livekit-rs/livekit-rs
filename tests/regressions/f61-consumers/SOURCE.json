@@ -1,0 +1,11 @@
+{
+  "scope": "Production-only historical F61 correction; reverse in isolated checkout retains current real consumer tests. No shared source mutation executed by this fixture generation.",
+  "current_guards": {
+    "livekit-rs-server/crates/lk-config/src/cli.rs": "2455ccd213c43088904c60975af419c52c7e4be44ed61899a659e220891f5dd7",
+    "livekit-rs-server/crates/lk-config/src/cli_os.rs": "653328f1763cc45e4bc3bb5a9d5d2c19932495c8d8c0217592cdb1df3b15a703",
+    "livekit-rs-server/crates/lk-config/src/load.rs": "a26e9c79baa78a862c4edfd934e44435d5834af4ef28a83ec25cae7295f930b9"
+  },
+  "production_fix_patch_sha256": "5aeef49bd6a005afbee0335ac8545bdcabc7e7785d59613533d750fcc9c25917",
+  "reverse_strict_apply_check": "PASS",
+  "actual_historical_red_evidence": "livekit-rs-docs/evidence/2026-10-26/f61-actual-consumer-red.json"
+}

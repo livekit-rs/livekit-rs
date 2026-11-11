@@ -1,0 +1,26 @@
+[
+  {
+    "id": 0,
+    "tail": "  bind_addresses: [not-an-ip]\n"
+  },
+  {
+    "id": 1,
+    "tail": "  tls_port: 70000\n"
+  },
+  {
+    "id": 2,
+    "tail": "  udp_port: 70000\n"
+  },
+  {
+    "id": 3,
+    "tail": "  allow_restricted_peer_cidrs: [not-a-cidr]\n"
+  },
+  {
+    "id": 4,
+    "tail": "  deny_peer_cidrs: [not-a-cidr]\n"
+  },
+  {
+    "id": 5,
+    "tail": "  bind_addresses: [not-an-ip]\n  tls_port: 70000\n  udp_port: 70000\n  allow_restricted_peer_cidrs: [not-a-cidr]\n  deny_peer_cidrs: [not-a-cidr]\n"
+  }
+]

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "worker-ping-string",
+    "json": "{\"ping\":{\"timestamp\":\"991\"}}"
+  },
+  {
+    "id": "worker-ping-exponent",
+    "json": "{\"ping\":{\"timestamp\":9.91e2}}"
+  },
+  {
+    "id": "worker-ping-string-exponent",
+    "json": "{\"ping\":{\"timestamp\":\"9.91e2\"}}"
+  },
+  {
+    "id": "worker-unknown-root",
+    "json": "{\"ping\":{\"timestamp\":991},\"future\":1}"
+  },
+  {
+    "id": "worker-unknown-nested",
+    "json": "{\"ping\":{\"timestamp\":991,\"future\":1}}"
+  },
+  {
+    "id": "worker-duplicate-ping",
+    "json": "{\"ping\":{},\"ping\":{}}"
+  },
+  {
+    "id": "worker-alias-duplicate",
+    "json": "{\"updateWorker\":{},\"update_worker\":{}}"
+  },
+  {
+    "id": "worker-unknown-enum-name",
+    "json": "{\"updateWorker\":{\"status\":\"FUTURE\"}}"
+  },
+  {
+    "id": "worker-unknown-enum-number",
+    "json": "{\"updateWorker\":{\"status\":399}}"
+  },
+  {
+    "id": "worker-numeric-enum-string",
+    "json": "{\"updateWorker\":{\"status\":\"399\"}}"
+  },
+  {
+    "id": "worker-oneof-two",
+    "json": "{\"ping\":{},\"updateWorker\":{}}"
+  },
+  {
+    "id": "worker-oneof-null",
+    "json": "{\"ping\":null,\"updateWorker\":{\"load\":0}}"
+  },
+  {
+    "id": "worker-null-scalar",
+    "json": "{\"ping\":{\"timestamp\":null}}"
+  },
+  {
+    "id": "worker-wrong-message-kind",
+    "json": "{\"ping\":1}"
+  },
+  {
+    "id": "worker-map-null",
+    "json": "{\"availability\":{\"participantAttributes\":{\"x\":null}}}"
+  },
+  {
+    "id": "worker-map-duplicate",
+    "json": "{\"availability\":{\"participantAttributes\":{\"x\":\"a\",\"x\":\"b\"}}}"
+  },
+  {
+    "id": "worker-trailing-value",
+    "json": "{\"ping\":{}} {}"
+  },
+  {
+    "id": "worker-trailing-garbage",
+    "json": "{\"ping\":{}} x"
+  },
+  {
+    "id": "worker-duplicate-null",
+    "json": "{\"ping\":null,\"ping\":{}}"
+  },
+  {
+    "id": "worker-fractional-int",
+    "json": "{\"ping\":{\"timestamp\":1.1}}"
+  }
+]

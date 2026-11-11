@@ -1,0 +1,30 @@
+[package]
+name = "sctp-config-consumers-conformance"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+lk-config = { path = "../../../crates/lk-config" }
+rtc-core = { path = "../../../crates/rtc-core" }
+rtc-crypto = { path = "../../../crates/rtc-crypto" }
+rtc-media = { path = "../../../crates/rtc-media" }
+str0m = { path = "../../../vendor/str0m", default-features = false }
+
+[patch.crates-io]
+str0m = { path = "../../../vendor/str0m" }
+dimpl = { path = "../../../vendor/dimpl" }
+prost-derive = { path = "../../../vendor/prost-derive" }
+prost-reflect = { path = "../../../vendor/prost-reflect" }
+is = { path = "../../../vendor/is" }
+
+smallvec-wrapper = { path = "../../../vendor/smallvec-wrapper" }
+tungstenite = { path = "../../../vendor/tungstenite" }
+
+sctp-proto = { path = "../../../vendor/sctp-proto" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

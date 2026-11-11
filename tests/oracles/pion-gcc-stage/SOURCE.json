@@ -1,0 +1,16 @@
+{
+  "id": "F119_PION_GCC_ACTUAL_STAGE_SOURCE_ORACLE",
+  "status": "PUBLIC_FIXTURE_SEPARATE_ACTUAL_SOURCE_RESULTS",
+  "case_count": 9,
+  "stage_event_count": 576,
+  "reference_path": "references/go-modules/pion-interceptor-v0.1.49",
+  "inputs": {
+    "oracle_test.go": "a1919373804479328cfffa1e90892ec2ee1c1ed49505b0625350b362230652a4",
+    "prepare.py": "5aad7f50c097fe47f257d2ee4cb1fcfb6cdec8e5a2ecfac2b7e3a6590d49b718",
+    "cases.jsonl": "a5fb147e015490aeed17cb881f6dd364b7e6e8c840e751ae2d8ff09543369705",
+    "README.md": "40863ddc18a3a5317b508c9236aac8f3f4eeef0fd9fb342c1097fde48d2925b6"
+  },
+  "transformations": "time.Now/time.Since references only in4clock-consuming stage files; actual original source methods execute",
+  "expected_results": "None prefilled; actual Go execution required",
+  "source_lock": "livekit-rs-docs/specs/0018-go-module-archives-lock.json"
+}

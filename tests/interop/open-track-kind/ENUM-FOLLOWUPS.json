@@ -1,0 +1,75 @@
+{
+  "status": "SOURCE_AUDIT_ONLY_NO_ACTUAL_NEW_VECTOR_EXECUTION",
+  "scope": "Concrete reachable consumers, not a blanket assertion that every enum_map default is a bug. These changes are NOT in TrackKind production patch.",
+  "rows": [
+    {
+      "priority": "P1",
+      "field": "AddTrackRequest.encryption",
+      "trigger": "Authorized AUDIO/VIDEO request with encryption99 or-1; permission/type valid",
+      "rust_chain": "signal/params.rs444 -> encryption_from_proto defaults None -> core build_track_info req.encryption -> convert.TrackInfo0 and published_spec encrypted=(encryption!=None) false",
+      "source_chain": "fixed participant.go3147-3153 copies req.Encryption unchanged; mediatrackreceiver.go510-511 IsEncrypted is Encryption!=NONE; subscribedtrack.go129 and downtrack.go471 consume that flag",
+      "observable": "TrackPublished.encryption loses numeric value and the produced PublishedTrackSpec.encrypted flag becomes false. Whether the current Rust media engine actually consumes that flag requires a separate native audit; no payload decryption or plaintext-exposure claim is made.",
+      "next_gate": "Original Go and old/candidate positive WS TrackPublished numeric encryption; old API PublishedTrackSpec.encrypted assertion; genuine encrypted native codec/RED/silence/transceiver-reuse consumer separately."
+    },
+    {
+      "priority": "P1",
+      "field": "SendDataRequest.kind",
+      "trigger": "Admin SendData kind99/-1 to real participant, including joining vs ACTIVE states",
+      "rust_chain": "twirp/room_service.rs614 -> data_kind_from_proto defaults Reliable -> manager sends reliable delivery class; original packet raw enum may still be serialized, which does not fix channel selection",
+      "source_chain": "roommanager.go977-994 copies req.Kind; room.go843/BroadcastDataPacketForRoom preserves raw kind; participant.go4176+ non-RELIABLE branch requires ACTIVE and bypasses reliable joining cache; transport.go1503-1520 routes kind!=RELIABLE to lossyDC",
+      "observable": "Unknown kind becomes reliable instead of source non-reliable behavior, potentially changing joining buffer/drop and actual channel delivery.",
+      "next_gate": "Actual original public SendData and unmodified SDK/data-channel label observation, plus old API joining-vs-active delivery effect. No success claim from HTTP200 alone."
+    },
+    {
+      "priority": "P2",
+      "field": "AddTrackRequest.audio_features and UpdateLocalAudioTrack.features",
+      "trigger": "Authorized AUDIO request/features [99,1,99] or legal unknown signed values",
+      "rust_chain": "audio_feature_from_proto_opt returns None for unknown values; params.rs448-452 and update adapters filter them. This is filtering, NOT fallback to Stereo.",
+      "source_chain": "participant.go3154 uses DedupeSlice(req.AudioFeatures), retaining unknown values once; pending update participant.go4364 uses DedupeSlice(update.Features), then known-only switch changes Stereo/DisableDtx flags",
+      "observable": "TrackInfo audioFeatures loses unknown values and order-relative retention; source ignores unknown flag effects but preserves metadata.",
+      "next_gate": "Actual Go positive AUDIO TrackPublished features, actual update/replayed TrackInfo, old public actor metadata comparison retaining unknown values and source dedup order."
+    },
+    {
+      "priority": "P2",
+      "field": "VideoLayer.quality and UpdateTrackSettings.quality",
+      "trigger": "Authorized VIDEO AddTrack layer quality99/-1; separately a real subscribed multilayer track with settings quality99 and no width override",
+      "rust_chain": "video_quality_from_proto defaults Low in convert/models.rs65 and signal/encode.rs181; layer metadata and later spatial index become LOW0",
+      "source_chain": "participant.go3119-3135 clones and numerically sorts raw layer qualities; no early rejection. subscribedtrack.go353-364 preserves raw quality; videolayerutils.go448-466 delegates multilayer unknown quality to VideoQualityToSpatialLayer281-349 default InvalidLayerSpatial",
+      "observable": "Immediate TrackPublished.layers quality loses numeric identity; on the stated multilayer premise, settings can select low instead of invalid/no layer.",
+      "important_boundary": "No-layer source GetSpatialLayerForVideoQuality returns0 even for unknown quality; do not use that domain as a false counterexample.",
+      "next_gate": "Real Go positive VIDEO layer metadata; actual original layered forwarding/settings effect with source multilayer premise, not timer/private state simulation."
+    },
+    {
+      "priority": "P2",
+      "field": "SimulcastCodec.video_layer_mode",
+      "trigger": "Authorized VIDEO, enabled known codec, mode99/-1",
+      "rust_chain": "params.rs438 -> layer_mode_from_proto defaults Unused0 -> build_track_info auto-selects mode1/2",
+      "source_chain": "participant.go3192+ copies codec.VideoLayerMode and auto-selects only when exactly MODE_UNUSED0; codecs stored at3246+ retain unknown numeric mode",
+      "observable": "TrackPublished.codecs.videoLayerMode differs even before media; actual layer tracker semantics require another consumer gate.",
+      "next_gate": "Original Go positive VIDEO with enabled codec and unknown mode, strict TrackPublished codec metadata comparison, then tracker behavior separately."
+    },
+    {
+      "priority": "P2",
+      "field": "AddTrackRequest.backup_codec_policy",
+      "trigger": "Authorized VIDEO unknown policy99/-1, default DisableCodecRegression=false",
+      "rust_chain": "params.rs446 -> backup_policy_from_proto defaults PreferRegression0; VIDEO retains0",
+      "source_chain": "participant.go3118-3125 normalizes AUDIO and explicit disable-regression cases, otherwise retains numeric req.BackupCodecPolicy; TrackInfo3153 copies resulting value; mediatrack.go121/664 consumes policy",
+      "observable": "VIDEO TrackPublished policy becomes0 instead of source unknown numeric policy, with possible later regression selection effects.",
+      "important_boundary": "Default AUDIO unknown policy is normalized to SIMULCAST by Go and can already agree with Rust. Do not use that as a claimed mismatch.",
+      "next_gate": "Actual fixed Go positive VIDEO metadata first, then genuine backup-codec regression consumer."
+    },
+    {
+      "priority": "P2",
+      "field": "TrackInfo.packet_trailer_features (related omitted field, not enum_map default)",
+      "trigger": "Authorized AddTrack with nonempty known or unknown packetTrailerFeatures",
+      "rust_chain": "neutral AddTrack/TrackInfo have no packet-trailer field; positive convert/models.rs uses ..Default::default, so output list empty. Cached rejected request echo is correct and does not certify positive publication.",
+      "source_chain": "participant.go3155 dedupes/preserves features; mediatrackreceiver.go514-515 HasPacketTrailer is any nonempty list",
+      "observable": "Positive TrackPublished loses even known features. Existing full rejection echo test does not close this consumer.",
+      "next_gate": "Actual source positive TrackPublished features before native packet-trailer parsing and forwarding qualification."
+    }
+  ],
+  "not_claimed_as_bugs": [
+    "Unknown client Leave.reason is intentionally mapped to CLIENT_INITIATED by fixed signalhandler.go87-101; Rust client_leave_reason whitelist matches that source fallback.",
+    "ParticipantState/ConnectionQuality/StreamState/RoomEndReason/SubscriptionError roundtrip defaults need a concrete reachable external producer before promotion to a public functional finding. Enum-map presence alone is insufficient."
+  ]
+}

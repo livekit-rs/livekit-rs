@@ -1,0 +1,22 @@
+--- a/run.py
++++ b/run.py
+@@ -40,8 +40,8 @@
+           ('raw-name-first-empty',b'F92_DUP\xff',[(b'F92_DUP\xff',b''),(b'F92_DUP\xff',b'second')],0,None),
+           ('distinct-ascii-case',b'F92_DUP',[(b'F92_DUP',b'first'),(b'f92_dup',b'second')],1,None),
+           ('raw-known-looking-name',b'LIVEKIT_PORT\xff',[(b'LIVEKIT_PORT\xff',b'first'),(b'LIVEKIT_PORT\xff',b'second')],1,None),
+-          ('declared-env-first',b'LIVEKIT_CONFIG',[(b'LIVEKIT_CONFIG',b'port: 17881\n'),(b'LIVEKIT_CONFIG',b'port: 17882\n')],None,17881),
+-          ('explicit-argv-over-first-env',b'LIVEKIT_CONFIG',[(b'LIVEKIT_CONFIG',b'port: 17881\n'),(b'LIVEKIT_CONFIG',b'port: 17882\n')],None,17883),
++          ('declared-env-first',b'LIVEKIT_PORT',[(b'LIVEKIT_PORT',b'17881'),(b'LIVEKIT_PORT',b'17882')],None,17881),
++          ('explicit-argv-over-first-env',b'LIVEKIT_PORT',[(b'LIVEKIT_PORT',b'17881'),(b'LIVEKIT_PORT',b'17882')],None,17883),
+         ]
+         for label,key,pairs,index,port in cases:
+             row={'id':label,'status':'RUNNING','source':{},'consumers':{}}
+@@ -60,7 +60,7 @@
+                     path=cwd+b'/${'+key+b'}/keys.yaml'
+                     args=[b'--node-ip=127.0.0.1',b'--key-file',path,b'--config-body',b'keys: {}',b'create-join-token',b'--room=f92-room',b'--identity=f92-identity']
+                 else:
+-                    args=[b'--node-ip=127.0.0.1']+([b'--config-body',b'port: 17883\n']if label=='explicit-argv-over-first-env'else[])+[b'ports']
++                    args=[b'--node-ip=127.0.0.1']+([b'--port=17883']if label=='explicit-argv-over-first-env'else[])+[b'ports']
+                 outputs={}
+                 for side in ['official','rust']:
+                     result=execute(bins[side],args,entries,cwd);entry=summary(result);row['consumers'][side]=entry

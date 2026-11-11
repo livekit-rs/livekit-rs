@@ -1,0 +1,79 @@
+--- v1/redis_address.rs
++++ v2/redis_address.rs
+@@ -185,22 +185,68 @@
+ 
+ #[cfg(test)]
+ mod source_port_controls {
++    // Byte-for-byte canonical ID/address pairs from immutable oracle/ports/cases.json.
++    // This only validates the input domain, never supplies expected results.
++    const CASES: &[(&str, &str)] = &[
++        ("missing-port", "127.0.0.1"),
++        ("missing-close-bracket", "[::1:6379"),
++        ("unbracketed-ipv6", "::1:6379"),
++        ("unexpected-open-bracket", "x[:6379"),
++        ("empty-port-zero", "127.0.0.1:"),
++        ("bare-plus-zero", "127.0.0.1:+"),
++        ("bare-minus-zero", "127.0.0.1:-"),
++        ("signed-leading-zero", "127.0.0.1:+00080"),
++        ("invalid-negative", "127.0.0.1:-1"),
++        ("invalid-range", "127.0.0.1:65536"),
++        ("source-uint32-multiplication", "127.0.0.1:4294967300"),
++        ("source-addition-overflow", "127.0.0.1:4294967296"),
++        ("empty-host", ":80"),
++        ("ipv6-literal", "[0:0:0:0:0:0:0:1]:6379"),
++        ("ipv4-mapped", "[::ffff:127.0.0.1]:6379"),
++        ("ipv6-zone", "[0:0:0:0:0:0:0:1%lo0]:6379"),
++        ("named-service-case", "127.0.0.1:HTTP"),
++        ("named-service-unknown", "127.0.0.1:owned_unknown_service"),
++    ];
++    fn checked_rows(data: &[u8]) -> Vec<serde_json::Value> {
++        let rows: Vec<serde_json::Value> = data.split(|b| *b == b'\n')
++            .filter(|line| !line.is_empty())
++            .map(|line| serde_json::from_slice(line).expect("actual Go18 JSONL row"))
++            .collect();
++        assert_eq!(rows.len(), CASES.len(), "complete actual Go18 inventory");
++        for (row, (id, address)) in rows.iter().zip(CASES) {
++            assert_eq!(row["id"].as_str(), Some(*id), "ordered unique source case ID");
++            assert_eq!(row["address"].as_str(), Some(*address), "original source input address for {id}");
++        }
++        rows
++    }
++    #[test]
++    fn actual_source_inventory_rejects_duplicate_reordered_truncated_or_changed_addresses() {
++        // Input inventory validation only, not fabricated source result rows.
++        let rows: Vec<_> = CASES.iter().map(|(id,address)| serde_json::json!({"id":id,"address":address})).collect();
++        let bytes = |rows: &[serde_json::Value]| -> Vec<u8> {
++            rows.iter().map(|row| format!("{row}\n")).collect::<String>().into_bytes()
++        };
++        assert_eq!(checked_rows(&bytes(&rows)).len(), CASES.len());
++        let mut duplicate=rows.clone();duplicate[1]=duplicate[0].clone();
++        assert!(std::panic::catch_unwind(|| checked_rows(&bytes(&duplicate))).is_err());
++        let mut reordered=rows.clone();reordered.swap(0,1);
++        assert!(std::panic::catch_unwind(|| checked_rows(&bytes(&reordered))).is_err());
++        let mut changed=rows.clone();changed[0]["address"]=serde_json::json!("127.0.0.1:6379");
++        assert!(std::panic::catch_unwind(|| checked_rows(&bytes(&changed))).is_err());
++        assert!(std::panic::catch_unwind(|| checked_rows(&bytes(&rows[..rows.len()-1]))).is_err());
++    }
+     #[tokio::test]
+     #[ignore = "requires independently executed fixed Go18 ResolveTCPAddr rows"]
+     async fn actual_go_resolve_tcp_addr_controls() {
+         let path = std::env::var_os("LIVEKIT_REDIS_PORT_GO_ACTUAL").expect("actual Go18 output");
+         let data = std::fs::read(path).unwrap();
+-        let mut count = 0;
+-        for line in data.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
+-            let row: serde_json::Value = serde_json::from_slice(line).unwrap();
++        for row in checked_rows(&data) {
+             let actual = super::parse(row["address"].as_str().unwrap()).await;
+             assert_eq!(actual.is_ok(), row["accepted"].as_bool().unwrap(), "{}", row["id"]);
+             match actual {
+                 Ok(address) => assert_eq!(address.endpoint, row["endpoint"].as_str().unwrap(), "{}", row["id"]),
+                 Err(error) => assert_eq!(error, row["error"].as_str().unwrap(), "{}", row["id"]),
+             }
+-            count += 1;
+-        }
+-        assert_eq!(count, 18);
+-    }
+-}
++        }
++    }
++}

@@ -1,0 +1,99 @@
+{
+  "status": "SOURCE_INPUT_RETENTION_ONLY",
+  "observers": [
+    {
+      "name": "current-stream",
+      "files_sha256": {
+        "ORIGINAL-FROZEN-SOURCE.json": "2490d427ee834698db15a07b20964f21debed150d2ee9da30b1bb803caff8b05",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/cases.jsonl": "775494a4959640f427ab012f4051baba68b3f5025deb1d0824209b3824f47a51",
+        "oracle/to_tsv.py": "99c63cb3c68611cdda92ce07eb80108eae434e692cfb534df4941ffd4b458a07",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/stream_policy_test.go": "6fed4b5852e661d818408c8bc26f61a654587effaa67548d067ddb87990b7b1e",
+        "oracle/prepare.py": "04f580137c06c3980303b4ef2ca7e63f114d2382a815c5678838c28a26130ca8"
+      },
+      "note": "Exact isolated frozen source observer retained. Original NOT_RUN metadata is historical; actual coordinator executions are separately archived. Prepare base with repository prepare_oracle.py then add observer via its oracle/prepare.py. No Go production runtime."
+    },
+    {
+      "name": "physical-timer",
+      "files_sha256": {
+        "ORIGINAL-FROZEN-SOURCE.json": "d6885ce5e93c81b2bf5ea87a3f0518cf64c30df9e878fa7f8a055e1a796b6179",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/to_tsv.py": "82ea5d5d51fa956dc064e6d3664c505c8e359c60dd722a04411dffcf51da885c",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/prepare.py": "4098359f52bb5ab38d53f9adaef7eb8e52e34d274de036eefcd76bc20d1e30f5",
+        "oracle/physical_timer_test.go": "d4bc2ff64203171d68ecbae47e2ecefe780df7d1f3512e6c0dfb212a962f7a61"
+      },
+      "note": "Exact isolated frozen source observer retained. Original NOT_RUN metadata is historical; actual coordinator executions are separately archived. Prepare base with repository prepare_oracle.py then add observer via its oracle/prepare.py. No Go production runtime."
+    },
+    {
+      "name": "first-data-loss",
+      "files_sha256": {
+        "ORIGINAL-FROZEN-SOURCE.json": "f4d8864a187dc2119e822478fd4d81fda3ba6b9e71a855916e5d25c34ce07c2e",
+        "oracle/first_data_loss_test.go": "f18a7a5bdb238da73c2abdae50a0d635a901e0bee8508c17670d867b5af091ef",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/prepare.py": "de6056b134a4ddd5a87d267e51bae0947cacf5965e8b8e08b3a3d6b27749ee89"
+      },
+      "note": "Exact isolated frozen source observer retained. Original NOT_RUN metadata is historical; actual coordinator executions are separately archived. Prepare base with repository prepare_oracle.py then add observer via its oracle/prepare.py. No Go production runtime."
+    },
+    {
+      "name": "first-data-loss-branch",
+      "files_sha256": {
+        "ORIGINAL-FROZEN-SOURCE.json": "843ac30831f4174cea09a432c166cb0cfdfe7a5984eb5bd3d9c70508193e3d38",
+        "oracle/first_data_loss_test.go": "d3de0e412165f3673ae5a23ee55a2ac7061ada224873198fcfbb988a66ee5a4d",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/prepare.py": "de6056b134a4ddd5a87d267e51bae0947cacf5965e8b8e08b3a3d6b27749ee89"
+      },
+      "note": "Exact isolated frozen source observer retained. Original NOT_RUN metadata is historical; actual coordinator executions are separately archived. Prepare base with repository prepare_oracle.py then add observer via its oracle/prepare.py. No Go production runtime."
+    },
+    {
+      "name": "ack-rack-caller-lock",
+      "files_sha256": {
+        "SOURCE.json": "1bf7778205c16b091c1418a5055ca18325deba129f3c06bad241d91c54fa67d8",
+        "README.md": "3798964ef843b130c23542811cd147b0523f8ac37c3d99221881cba0a25bafca",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/cases.jsonl": "ec824182a63791042af151d5001eda266d6f60b5f9286565fb6e36472c74785c",
+        "oracle/ack_rack_test.go": "92f01c830926640490edbb3e6983ff3e14c0257506e0a219b162f846bfe90945",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/prepare.py": "a63ab3dd5b6acebce395b2f19be494bd5ab0f59083bb6389bc818be52e3c9382"
+      },
+      "note": "Original v2 fixture holding the actual caller mutex, identical nine original inputs. Earlier unheld-lock crash is a fixture failure, not a behavior RED. Actual source9 output is separate."
+    },
+    {
+      "name": "adaptive-window",
+      "files_sha256": {
+        "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "SOURCE.json": "0095ebdf84a54680ee12ea82e7e845a2bccad73fc529e4acbd5fb508bcf68494",
+        "cases.jsonl": "ab6f4226a26e38f5811b31fe0fda353bce161fd7068b4b41e28646ef4eb4fccb",
+        "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "prepare.py": "daa6d6a379c6fefd15df4f7fcd0e6ddacabde519c66fd484b816c0cca4164147",
+        "adaptive_rack_test.go": "1f88f94633339f7dfa0da57f468fcfe73018882677f43a3d847851f6d3e55926"
+      },
+      "note": "Actual original private source functions with narrowly enumerated clock-read substitutions only; controlled-history component observation, not wall timer/UDP/Rust acceptance. Frozen status is historical; actual execution receipt is separate."
+    },
+    {
+      "name": "real-ack-rtt",
+      "files_sha256": {
+        "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "SOURCE.json": "69e46b8da07147f985340b303d469c3ef924cfca0c333f8f7b00ffcfc215c1c2",
+        "ack_rtt_history_test.go": "a8d60e3cc3154619e6b8745d994a700e6b7458d432f3a01b3cab4f2cd1add121",
+        "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "prepare.py": "5d6613f8e863c9f4dc058e995e6275cc66c04dacc5a6b01ebd0b2a19c4cb4fca"
+      },
+      "note": "Actual original private source functions with narrowly enumerated clock-read substitutions only; controlled-history component observation, not wall timer/UDP/Rust acceptance. Frozen status is historical; actual execution receipt is separate."
+    }
+  ],
+  "actual_evidence_root": "livekit-rs-docs/evidence/2026-10-27",
+  "actual_results": [
+    "policy8-source-actual.jsonl",
+    "sctp-physical-source-go4-actual.jsonl",
+    "sctp-first-loss-source-go2-actual.jsonl",
+    "rackbranch2-source-actual.jsonl",
+    "sctp-ack-rack9-v2-source-actual.tsv",
+    "adaptive20-source-actual.tsv",
+    "sctp-real-ack12-source-actual.tsv"
+  ],
+  "acceptance": "Finite source observation only; no Rust full-equivalence inference."
+}

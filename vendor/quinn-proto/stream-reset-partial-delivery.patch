@@ -1,0 +1,1936 @@
+diff --git a/src/connection/assembler.rs b/src/connection/assembler.rs
+index 93268e1..cb47229 100644
+--- a/src/connection/assembler.rs
++++ b/src/connection/assembler.rs
+@@ -1,6 +1,6 @@
+ use std::{
+-    cmp::{Ordering, max},
+-    collections::{BinaryHeap, binary_heap::PeekMut},
++    cmp::{max, Ordering},
++    collections::{binary_heap::PeekMut, BinaryHeap},
+     mem,
+ };
+ 
+@@ -234,6 +234,55 @@ impl Assembler {
+         self.buffered = 0;
+         self.allocated = 0;
+     }
++
++    /// The offset up to which the stream data is contiguous
++    ///
++    /// Bytes that have already been read count as contiguous, and so do buffered chunks that
++    /// follow them without a gap. This is what tells a partial-delivery reset whether the
++    /// promised prefix has arrived in full.
++    pub(super) fn contiguous_end(&self) -> u64 {
++        let mut end = self.bytes_read;
++        let mut chunks: Vec<&Buffer> = self.data.iter().collect();
++        chunks.sort_by_key(|chunk| chunk.offset);
++        for chunk in chunks {
++            if chunk.offset > end {
++                break;
++            }
++            end = end.max(chunk.offset + chunk.bytes.len() as u64);
++        }
++        end
++    }
++
++    /// Discard buffered data at or past `limit`, retaining the prefix below it
++    ///
++    /// Used for `RESET_STREAM_AT` partial delivery, where the sender abandons the stream
++    /// but promises that everything before `limit` was transmitted reliably.
++    pub(super) fn truncate(&mut self, limit: u64) {
++        if self.end <= limit {
++            // Nothing buffered lies past the reliable size
++            return;
++        }
++        let old = mem::take(&mut self.data);
++        self.buffered = 0;
++        self.allocated = 0;
++        let mut kept = BinaryHeap::with_capacity(old.len());
++        // `into_sorted_vec` yields ascending offsets, so chunks entirely past the limit can be
++        // dropped without inspecting the rest of the heap.
++        for mut buffer in old.into_sorted_vec() {
++            if buffer.offset >= limit {
++                break;
++            }
++            let retain = (limit - buffer.offset) as usize;
++            if retain < buffer.bytes.len() {
++                buffer.bytes.truncate(retain);
++            }
++            self.buffered += buffer.bytes.len();
++            self.allocated += buffer.allocation_size;
++            kept.push(buffer);
++        }
++        self.data = kept;
++        self.end = limit;
++    }
+ }
+ 
+ /// A chunk of data from the receive stream
+diff --git a/src/connection/streams/mod.rs b/src/connection/streams/mod.rs
+index fe41e73..1f80af9 100644
+--- a/src/connection/streams/mod.rs
++++ b/src/connection/streams/mod.rs
+@@ -17,6 +17,7 @@ use crate::{
+ mod recv;
+ use recv::Recv;
+ pub use recv::{Chunks, ReadError, ReadableError};
++use recv::ResetOutcome;
+ 
+ mod send;
+ pub(crate) use send::{ByteSlice, BytesArray};
+diff --git a/src/connection/streams/recv.rs b/src/connection/streams/recv.rs
+index 5361a22..083f8eb 100644
+--- a/src/connection/streams/recv.rs
++++ b/src/connection/streams/recv.rs
+@@ -8,7 +8,7 @@ use super::state::get_or_insert_recv;
+ use super::{ClosedStream, Retransmits, ShouldTransmit, StreamId, StreamsState};
+ use crate::connection::assembler::{Assembler, Chunk, IllegalOrderedRead};
+ use crate::connection::streams::state::StreamRecv;
+-use crate::{TransportError, VarInt, frame};
++use crate::{frame, TransportError, VarInt};
+ 
+ #[derive(Debug, Default)]
+ pub(super) struct Recv {
+@@ -45,7 +45,7 @@ impl Recv {
+     /// Return value is `(number_of_new_bytes_ingested, stream_is_closed)`
+     pub(super) fn ingest(
+         &mut self,
+-        frame: frame::Stream,
++        mut frame: frame::Stream,
+         payload_len: usize,
+         received: u64,
+         max_data: u64,
+@@ -78,9 +78,32 @@ impl Recv {
+         // Don't bother storing data or releasing stream-level flow control credit if the stream's
+         // already stopped
+         if !self.stopped {
+-            self.assembler
+-                .insert(frame.offset, frame.data, payload_len)
+-                .map_err(|_| TransportError::INTERNAL_ERROR("too many gaps in stream buffer"))?;
++            match self.reliable_limit() {
++                None => {
++                    self.assembler
++                        .insert(frame.offset, frame.data, payload_len)
++                        .map_err(|_| TransportError::INTERNAL_ERROR("too many gaps in stream buffer"))?;
++                }
++                Some(limit) => {
++                    // The peer abandoned everything past the reliable prefix, so those bytes are
++                    // dropped as they arrive; the prefix itself may still be in flight and is
++                    // kept for the application.
++                    if frame.offset < limit {
++                        let keep = (limit - frame.offset) as usize;
++                        let data = if frame.data.len() > keep {
++                            frame.data.split_to(keep)
++                        } else {
++                            frame.data
++                        };
++                        let len = data.len();
++                        self.assembler
++                            .insert(frame.offset, data, len)
++                            .map_err(|_| {
++                                TransportError::INTERNAL_ERROR("too many gaps in stream buffer")
++                            })?;
++                    }
++                }
++            }
+         }
+ 
+         Ok((new_bytes, frame.fin && self.stopped))
+@@ -143,7 +166,13 @@ impl Recv {
+     /// need to issue connection-level flow control updates due to flow control budget use by this
+     /// stream in the future, even if it's been stopped.
+     pub(super) fn final_offset_unknown(&self) -> bool {
+-        matches!(self.state, RecvState::Recv { size: None })
++        match self.state {
++            RecvState::Recv { size: None } => true,
++            // A partial-delivery reset still owes us the rest of the reliable prefix, so the
++            // peer may keep sending and stream-level flow control updates stay useful.
++            RecvState::ResetAtRecvd { reliable, .. } => !self.reliable_prefix_complete(reliable),
++            RecvState::Recv { size: Some(_) } | RecvState::ResetRecvd { .. } => false,
++        }
+     }
+ 
+     /// Whether stream-level flow control updates should be sent for this stream
+@@ -155,24 +184,54 @@ impl Recv {
+ 
+     /// Whether data is still being accepted from the peer
+     pub(super) fn is_receiving(&self) -> bool {
+-        matches!(self.state, RecvState::Recv { .. })
++        match self.state {
++            RecvState::Recv { .. } => true,
++            // Keep accepting the reliable prefix until it has arrived in full.
++            RecvState::ResetAtRecvd { reliable, .. } => !self.reliable_prefix_complete(reliable),
++            RecvState::ResetRecvd { .. } => false,
++        }
++    }
++
++    /// Whether the prefix that the peer promised to deliver has been received in full
++    ///
++    /// The peer may deliver the prefix out of order, so it is the *contiguous* end of the
++    /// buffered data that decides whether the promise is fulfilled. The highest received offset
++    /// would consider the prefix complete while a hole in the middle is still missing, and the
++    /// frames filling that hole would then be dropped, stranding the application on a prefix
++    /// that never completes.
++    fn reliable_prefix_complete(&self, reliable: u64) -> bool {
++        self.assembler.contiguous_end() >= reliable
+     }
+ 
+     fn final_offset(&self) -> Option<u64> {
+         match self.state {
+             RecvState::Recv { size } => size,
+             RecvState::ResetRecvd { size, .. } => Some(size),
++            RecvState::ResetAtRecvd { size, .. } => Some(size),
+         }
+     }
+ 
+-    /// Returns `false` iff the reset was redundant
++    /// The end of the prefix the peer promised to deliver, if this stream was reset partially
++    pub(super) fn reliable_limit(&self) -> Option<u64> {
++        match self.state {
++            RecvState::ResetAtRecvd { reliable, .. } => Some(reliable),
++            _ => None,
++        }
++    }
++
++    /// Applies an incoming reset to this stream.
++    ///
++    /// `reliable_size` is `Some` for a `RESET_STREAM_AT`, whose first `reliable_size` bytes
++    /// stay readable per draft-ietf-quic-reliable-stream-reset; `None` is a plain
++    /// `RESET_STREAM`, which abandons everything that has not been read already.
+     pub(super) fn reset(
+         &mut self,
+         error_code: VarInt,
+         final_offset: VarInt,
++        reliable_size: Option<VarInt>,
+         received: u64,
+         max_data: u64,
+-    ) -> Result<bool, TransportError> {
++    ) -> Result<ResetOutcome, TransportError> {
+         // Validate final_offset
+         if let Some(offset) = self.final_offset() {
+             if offset != final_offset.into_inner() {
+@@ -183,26 +242,72 @@ impl Recv {
+                 "lower than high water mark",
+             ));
+         }
++        let reliable = reliable_size.map_or(0, u64::from);
++        if reliable > u64::from(final_offset) {
++            return Err(TransportError::FRAME_ENCODING_ERROR(
++                "RESET_STREAM_AT reliable size exceeds final size",
++            ));
++        }
+         self.credit_consumed_by(final_offset.into(), received, max_data)?;
+ 
+-        if matches!(self.state, RecvState::ResetRecvd { .. }) {
+-            return Ok(false);
++        match self.state {
++            RecvState::ResetRecvd { .. } => return Ok(ResetOutcome::Redundant),
++            RecvState::ResetAtRecvd {
++                reliable: previous,
++                error_code: previous_code,
++                ..
++            } => {
++                // A repeated reset may only shrink the reliable prefix; frames can be
++                // reordered, so a larger one is redundant, exactly as quic-go treats it.
++                if reliable >= previous {
++                    return Ok(ResetOutcome::Redundant);
++                }
++                self.assembler.truncate(reliable);
++                self.state = RecvState::ResetAtRecvd {
++                    size: final_offset.into(),
++                    // The first reset decides the error the application sees; a later, narrower
++                    // reset only shrinks the prefix, like quic-go's `handleResetStreamFrameImpl`.
++                    error_code: previous_code,
++                    reliable,
++                };
++                return Ok(ResetOutcome::Narrowed { reliable, previous });
++            }
++            RecvState::Recv { .. } => {}
+         }
+-        self.state = RecvState::ResetRecvd {
+-            size: final_offset.into(),
+-            error_code,
++
++        self.state = match reliable_size {
++            None => RecvState::ResetRecvd {
++                size: final_offset.into(),
++                error_code,
++            },
++            // A zero reliable size promises nothing, so it degenerates into a plain reset.
++            Some(_) if reliable == 0 => RecvState::ResetRecvd {
++                size: final_offset.into(),
++                error_code,
++            },
++            Some(_) => RecvState::ResetAtRecvd {
++                size: final_offset.into(),
++                error_code,
++                reliable,
++            },
+         };
+-        // Nuke buffers so that future reads fail immediately, which ensures future reads don't
+-        // issue flow control credit redundant to that already issued. We could instead special-case
+-        // reset streams during read, but it's unclear if there's any benefit to retaining data for
+-        // reset streams.
+-        self.assembler.clear();
+-        Ok(true)
++        match reliable_size {
++            // Nuke buffers so that future reads fail immediately, which ensures future reads don't
++            // issue flow control credit redundant to that already issued. We could instead special-case
++            // reset streams during read, but it's unclear if there's any benefit to retaining data for
++            // reset streams.
++            None => self.assembler.clear(),
++            // The sender promised the prefix, so keep exactly that much buffered: reads drain it and
++            // then surface the reset error.
++            Some(_) => self.assembler.truncate(reliable),
++        }
++        Ok(ResetOutcome::Applied { reliable })
+     }
+ 
+     pub(super) fn reset_code(&self) -> Option<VarInt> {
+         match self.state {
+             RecvState::ResetRecvd { error_code, .. } => Some(error_code),
++            RecvState::ResetAtRecvd { error_code, .. } => Some(error_code),
+             _ => None,
+         }
+     }
+@@ -215,7 +320,9 @@ impl Recv {
+         received: u64,
+         max_data: u64,
+     ) -> Result<u64, TransportError> {
+-        let prev_end = self.end;
++        // Once the final size is known, the peer's whole stream is already accounted for, so
++        // late arrivals (the reliable prefix of a partial reset) consume nothing new.
++        let prev_end = self.end.max(self.final_offset().unwrap_or(0));
+         let new_bytes = offset.saturating_sub(prev_end);
+         if offset > self.sent_max_stream_data || received + new_bytes > max_data {
+             debug!(
+@@ -304,7 +411,25 @@ impl<'a> Chunks<'a> {
+ 
+         match rs.state {
+             RecvState::ResetRecvd { error_code, .. } => {
+-                debug_assert_eq!(self.read, 0, "reset streams have empty buffers");
++                let state = mem::replace(&mut self.state, ChunksState::Reset(error_code));
++                // At this point if we have `rs` self.state must be `ChunksState::Readable`
++                let recv = match state {
++                    ChunksState::Readable(recv) => StreamRecv::Open(recv),
++                    _ => unreachable!("state must be ChunkState::Readable"),
++                };
++                self.streams.stream_recv_freed(self.id, recv);
++                Err(ReadError::Reset(error_code))
++            }
++            RecvState::ResetAtRecvd {
++                error_code,
++                reliable,
++                ..
++            } => {
++                if !rs.reliable_prefix_complete(reliable) {
++                    // The promised prefix has not arrived in full yet; wait for it instead of
++                    // reporting the reset, which would drop data the peer guaranteed.
++                    return Err(ReadError::Blocked);
++                }
+                 let state = mem::replace(&mut self.state, ChunksState::Reset(error_code));
+                 // At this point if we have `rs` self.state must be `ChunksState::Readable`
+                 let recv = match state {
+@@ -434,6 +559,24 @@ impl From<IllegalOrderedRead> for ReadableError {
+ enum RecvState {
+     Recv { size: Option<u64> },
+     ResetRecvd { size: u64, error_code: VarInt },
++    /// A `RESET_STREAM_AT`: the peer abandoned the stream but promised that the first
++    /// `reliable` bytes are delivered, so those bytes stay readable and may still arrive.
++    ResetAtRecvd {
++        size: u64,
++        error_code: VarInt,
++        reliable: u64,
++    },
++}
++
++/// What an incoming reset did to the receive state
++pub(super) enum ResetOutcome {
++    /// The first reset on this stream; the caller performs the connection-level accounting.
++    Applied { reliable: u64 },
++    /// A repeated reset that only shrank the reliable prefix; the caller releases the credit
++    /// for the newly abandoned bytes.
++    Narrowed { reliable: u64, previous: u64 },
++    /// The reset carried no new information.
++    Redundant,
+ }
+ 
+ impl Default for RecvState {
+diff --git a/src/connection/streams/state.rs b/src/connection/streams/state.rs
+index 7a5908d..53c2ffa 100644
+--- a/src/connection/streams/state.rs
++++ b/src/connection/streams/state.rs
+@@ -1,5 +1,5 @@
+ use std::{
+-    collections::{VecDeque, hash_map},
++    collections::{hash_map, VecDeque},
+     convert::TryFrom,
+     mem,
+ };
+@@ -9,15 +9,15 @@ use rustc_hash::FxHashMap;
+ use tracing::{debug, error, trace};
+ 
+ use super::{
+-    PendingStreamsQueue, Recv, Retransmits, Send, SendState, ShouldTransmit, StreamEvent,
++    PendingStreamsQueue, Recv, ResetOutcome, Retransmits, Send, SendState, ShouldTransmit, StreamEvent,
+     StreamHalf, ThinRetransmits,
+ };
+ use crate::{
+-    Dir, MAX_STREAM_COUNT, Side, StreamId, TransportError, VarInt,
+     coding::BufMutExt,
+     connection::stats::FrameStats,
+     frame::{self, FrameStruct, StreamMetaVec},
+     transport_parameters::TransportParameters,
++    Dir, Side, StreamId, TransportError, VarInt, MAX_STREAM_COUNT,
+ };
+ 
+ /// Wrapper around `Recv` that facilitates reusing `Recv` instances
+@@ -303,7 +303,7 @@ impl StreamsState {
+         Ok(self.add_read_credits(new_bytes))
+     }
+ 
+-    /// Process incoming RESET_STREAM frame
++    /// Process incoming RESET_STREAM or RESET_STREAM_AT frame
+     ///
+     /// If successful, returns whether a `MAX_DATA` frame needs to be transmitted
+     #[allow(unreachable_pub)] // fuzzing only
+@@ -315,10 +315,17 @@ impl StreamsState {
+             id,
+             error_code,
+             final_offset,
++            reliable_size,
+         } = frame;
+         self.validate_receive_id(id).inspect_err(|_e| {
+             debug!("received illegal RESET_STREAM frame");
+         })?;
++        if let Some(reliable) = reliable_size {
++            trace!(
++                "received RESET_STREAM_AT on {id} with reliable size {}",
++                u64::from(reliable)
++            );
++        }
+ 
+         let rs = match self
+             .recv
+@@ -333,37 +340,49 @@ impl StreamsState {
+         };
+ 
+         // State transition
+-        if !rs.reset(
++        let outcome = rs.reset(
+             error_code,
+             final_offset,
++            reliable_size,
+             self.data_recvd,
+             self.local_max_data,
+-        )? {
+-            // Redundant reset
+-            return Ok(ShouldTransmit(false));
+-        }
++        )?;
+         let bytes_read = rs.assembler.bytes_read();
+         let stopped = rs.stopped;
+         let end = rs.end;
+-        // Stopped streams have already returned read credits up to their highest offset.
+-        let credited = if stopped { end } else { bytes_read };
+-        if stopped {
+-            // Stopped streams should be disposed immediately on reset
+-            let rs = self.recv.remove(&id).flatten().unwrap();
+-            self.stream_recv_freed(id, rs);
++        match outcome {
++            ResetOutcome::Redundant => return Ok(ShouldTransmit(false)),
++            ResetOutcome::Narrowed { reliable, previous } => {
++                // The final size was already accounted for by the first reset, so only the
++                // bytes that just became unreliable are credited back.
++                let released = bytes_read.max(previous) - bytes_read.max(reliable);
++                return Ok(self.add_read_credits(released));
++            }
++            ResetOutcome::Applied { reliable } => {
++                // Stopped streams have already returned read credits up to their highest offset.
++                // A `RESET_STREAM_AT` instead keeps the reliable prefix buffered for the
++                // application, so credit for everything from `bytes_read` up to that prefix's end
++                // is still owed and only comes back once the reads finalize it.
++                let credited = if stopped { end } else { bytes_read.max(reliable) };
++                if stopped {
++                    // Stopped streams should be disposed immediately on reset
++                    let rs = self.recv.remove(&id).flatten().unwrap();
++                    self.stream_recv_freed(id, rs);
++                }
++                self.on_stream_frame(!stopped, id);
++
++                // Update connection-level flow control
++                Ok(if credited != final_offset.into_inner() {
++                    // Both `end` and `credited` are bounded by the final offset, so this won't underflow.
++                    self.data_recvd = self
++                        .data_recvd
++                        .saturating_add(u64::from(final_offset) - end);
++                    self.add_read_credits(u64::from(final_offset) - credited)
++                } else {
++                    ShouldTransmit(false)
++                })
++            }
+         }
+-        self.on_stream_frame(!stopped, id);
+-
+-        // Update connection-level flow control
+-        Ok(if credited != final_offset.into_inner() {
+-            // credited is always <= end, so this won't underflow.
+-            self.data_recvd = self
+-                .data_recvd
+-                .saturating_add(u64::from(final_offset) - end);
+-            self.add_read_credits(u64::from(final_offset) - credited)
+-        } else {
+-            ShouldTransmit(false)
+-        })
+     }
+ 
+     /// Process incoming `STOP_SENDING` frame
+@@ -461,6 +480,7 @@ impl StreamsState {
+                 id,
+                 error_code,
+                 final_offset: VarInt::try_from(stream.offset()).expect("impossibly large offset"),
++                reliable_size: None,
+             }
+             .encode(buf);
+             stats.reset_stream += 1;
+@@ -550,7 +570,8 @@ impl StreamsState {
+             self.sent_max_remote[dir as usize] = self.max_remote[dir as usize];
+             trace!(
+                 value = self.max_remote[dir as usize],
+-                "MAX_STREAMS ({:?})", dir
++                "MAX_STREAMS ({:?})",
++                dir
+             );
+             buf.write(match dir {
+                 Dir::Uni => frame::FrameType::MAX_STREAMS_UNI,
+@@ -1056,8 +1077,8 @@ pub(super) fn get_or_insert_recv(
+ mod tests {
+     use super::*;
+     use crate::{
+-        ReadableError, RecvStream, SendStream, TransportErrorCode, WriteError,
+-        connection::State as ConnState, connection::Streams,
++        connection::State as ConnState, connection::Streams, ReadableError, RecvStream, SendStream,
++        TransportErrorCode, WriteError,
+     };
+     use bytes::Bytes;
+ 
+@@ -1072,6 +1093,19 @@ mod tests {
+         )
+     }
+ 
++    /// Like [`make`], but with a stream receive window small enough for the stream level
++    /// window updates to be observable.
++    fn make_with_stream_window(side: Side, stream_receive_window: u32) -> StreamsState {
++        StreamsState::new(
++            side,
++            128u32.into(),
++            128u32.into(),
++            1024 * 1024,
++            (1024 * 1024u32).into(),
++            stream_receive_window.into(),
++        )
++    }
++
+     #[test]
+     fn send_window_retains_selectively_acked_data() {
+         let mut server = make(Side::Server);
+@@ -1294,6 +1328,7 @@ mod tests {
+                     id,
+                     error_code: 0u32.into(),
+                     final_offset: 4096u32.into(),
++                    reliable_size: None,
+                 })
+                 .unwrap(),
+             ShouldTransmit(false)
+@@ -1345,6 +1380,7 @@ mod tests {
+                     id,
+                     error_code: 0u32.into(),
+                     final_offset: 4096u32.into(),
++                    reliable_size: None,
+                 })
+                 .unwrap(),
+             ShouldTransmit(false)
+@@ -1363,6 +1399,7 @@ mod tests {
+                     id,
+                     error_code: 0u32.into(),
+                     final_offset: 4096u32.into(),
++                    reliable_size: None,
+                 })
+                 .unwrap(),
+             ShouldTransmit(false)
+@@ -1374,6 +1411,7 @@ mod tests {
+                     id,
+                     error_code: 0u32.into(),
+                     final_offset: 4096u32.into(),
++                    reliable_size: None,
+                 })
+                 .unwrap(),
+             ShouldTransmit(false)
+@@ -1478,6 +1516,7 @@ mod tests {
+                         id,
+                         error_code: 0u32.into(),
+                         final_offset: final_offset.into(),
++                        reliable_size: None,
+                     })
+                     .unwrap(),
+                 ShouldTransmit(false)
+@@ -1519,12 +1558,10 @@ mod tests {
+ 
+         let error_code = 0u32.into();
+         stream.state.received_stop_sending(id, error_code);
+-        assert!(
+-            stream
+-                .state
+-                .events
+-                .contains(&StreamEvent::Stopped { id, error_code })
+-        );
++        assert!(stream
++            .state
++            .events
++            .contains(&StreamEvent::Stopped { id, error_code }));
+         stream.state.events.clear();
+ 
+         assert_eq!(stream.write(&[]), Err(WriteError::Stopped(error_code)));
+@@ -1546,6 +1583,7 @@ mod tests {
+                     id: StreamId::new(Side::Server, Dir::Uni, 0),
+                     error_code: 0u32.into(),
+                     final_offset: VarInt::MAX,
++                    reliable_size: None,
+                 })
+                 .unwrap_err()
+                 .code,
+@@ -2051,6 +2089,7 @@ mod tests {
+                 id: StreamId::new(Side::Server, Dir::Uni, 126),
+                 error_code: 0u32.into(),
+                 final_offset: 0u32.into(),
++                reliable_size: None,
+             }),
+             Ok(ShouldTransmit(false))
+         );
+@@ -2325,4 +2364,1212 @@ mod tests {
+             server.next_remote[Dir::Bi as usize]
+         );
+     }
++
++    /// Wire shape of `RESET_STREAM_AT` (type 0x24, StreamID/ErrorCode/FinalSize/ReliableSize),
++    /// which is what an advertisement of the `reset_stream_at` transport parameter commits us
++    /// to parsing.
++    #[test]
++    fn reset_stream_at_round_trips() {
++        let id = StreamId::new(Side::Server, Dir::Uni, 3);
++        let frame = frame::ResetStream {
++            id,
++            error_code: 9u32.into(),
++            final_offset: 1024u32.into(),
++            reliable_size: Some(512u32.into()),
++        };
++        let mut buf = Vec::new();
++        frame.encode(&mut buf);
++        assert_eq!(buf[0], 0x24);
++
++        let mut iter = frame::Iter::new(Bytes::from(buf)).unwrap();
++        match iter.next().unwrap().unwrap() {
++            frame::Frame::ResetStream(x) => {
++                assert_eq!(x.id, id);
++                assert_eq!(x.error_code, 9u32.into());
++                assert_eq!(x.final_offset, 1024u32.into());
++                assert_eq!(x.reliable_size, Some(512u32.into()));
++            }
++            _ => panic!("expected a reset frame"),
++        }
++        assert!(iter.next().is_none());
++    }
++
++    /// The reliable prefix is a subrange of the abandoned stream, so naming more reliable data
++    /// than the stream holds is a frame encoding error, matching what quic-go rejects.
++    #[test]
++    fn reset_stream_at_reliable_size_past_final_size_is_rejected() {
++        let payload = Bytes::from_static(&[0x24, 0x00, 0x09, 0x0a, 0x14]);
++        let error = frame::Iter::new(payload)
++            .unwrap()
++            .next()
++            .unwrap()
++            .expect_err("reliable size above final size must not decode");
++        assert_eq!(
++            TransportError::from(error).code,
++            TransportErrorCode::FRAME_ENCODING_ERROR
++        );
++    }
++
++    /// Partial delivery: everything below the reliable size still reaches the application, the
++    /// rest is dropped, and the read then fails with the reset code. Flow control credit is only
++    /// reclaimed for the abandoned tail, since the retained prefix is still owed to reads.
++    #[test]
++    fn reset_stream_at_delivers_the_reliable_prefix() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[7; 1024]),
++                    },
++                    1024,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 42u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512,
++            "only the abandoned tail may be credited back before it is read"
++        );
++
++        let mut pending = Retransmits::default();
++        let mut recv = RecvStream {
++            id,
++            state: &mut client,
++            pending: &mut pending,
++        };
++        let mut chunks = recv.read(true).unwrap();
++        let chunk = chunks
++            .next(usize::MAX)
++            .unwrap()
++            .expect("the reliable prefix must stay readable");
++        assert_eq!(chunk.offset, 0);
++        assert_eq!(&chunk.bytes[..], &[7u8; 512][..]);
++        assert_eq!(
++            chunks.next(usize::MAX).unwrap_err(),
++            crate::ReadError::Reset(42u32.into())
++        );
++        let _ = chunks.finalize();
++        assert_eq!(
++            recv.state.local_max_data - initial_max,
++            1024,
++            "reading the prefix must return exactly the credit it consumed"
++        );
++    }
++
++    /// A plain `RESET_STREAM` still abandons the whole buffer, so a reset stream reads nothing
++    /// before the error and the entire final size is credited back up front.
++    #[test]
++    fn plain_reset_stream_discards_buffered_data() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[7; 1024]),
++                    },
++                    1024,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 42u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: None,
++            })
++            .unwrap();
++        assert_eq!(client.local_max_data - initial_max, 1024);
++
++        let mut pending = Retransmits::default();
++        let mut recv = RecvStream {
++            id,
++            state: &mut client,
++            pending: &mut pending,
++        };
++        let mut chunks = recv.read(true).unwrap();
++        assert_eq!(
++            chunks.next(usize::MAX).unwrap_err(),
++            crate::ReadError::Reset(42u32.into())
++        );
++    }
++
++    /// The peer may abandon the stream before the promised prefix has arrived: the reset must
++    /// not discard data that is still in flight, and the prefix stays readable once it shows up.
++    #[test]
++    fn reset_stream_at_delivers_a_prefix_that_arrives_after_the_reset() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        // The reset arrives first and promises 512 reliable bytes that are still in flight.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 7u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the final size is charged to the connection window"
++        );
++
++        // The prefix arrives afterwards and must still be readable.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[3; 512]),
++                    },
++                    512,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the late prefix was already accounted for by the final size"
++        );
++
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let chunk = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the late prefix must be readable");
++            assert_eq!(chunk.offset, 0);
++            assert_eq!(chunk.bytes.len(), 512);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(7u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// A read must not report the reset while the promised prefix is still incomplete: the
++    /// application is told that the stream is blocked until the rest of the prefix arrives.
++    #[test]
++    fn reset_stream_at_blocks_until_the_reliable_prefix_is_complete() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 11u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++
++        // Nothing has arrived yet, so the read blocks instead of failing.
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Blocked
++            );
++            let _ = chunks.finalize();
++        }
++
++        // Half of the prefix arrives: the delivered part is readable, the read still blocks.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[5; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let chunk = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the delivered part of the prefix is readable");
++            assert_eq!(chunk.offset, 0);
++            assert_eq!(chunk.bytes.len(), 256);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Blocked
++            );
++            let _ = chunks.finalize();
++        }
++
++        // The rest of the prefix arrives, and only then the reset is reported.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 256,
++                        fin: false,
++                        data: Bytes::from_static(&[6; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let chunk = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the remaining prefix is readable");
++            assert_eq!(chunk.offset, 256);
++            assert_eq!(chunk.bytes.len(), 256);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(11u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// A prefix that was partially read before the reset arrived stays readable up to the
++    /// reliable size, and only the abandoned tail is dropped.
++    #[test]
++    fn reset_stream_at_keeps_the_partially_read_prefix() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[8; 1024]),
++                    },
++                    1024,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        // The application consumes the first 100 bytes before the reset arrives.
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            assert_eq!(chunks.next(100).unwrap().unwrap().bytes.len(), 100);
++            let _ = chunks.finalize();
++        }
++        assert_eq!(client.local_max_data - initial_max, 100);
++
++        // The reset keeps the first 512 bytes reliable and abandons the rest.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 13u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            100 + 512,
++            "the abandoned tail is credited back"
++        );
++
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let chunk = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the rest of the reliable prefix is readable");
++            assert_eq!(chunk.offset, 100);
++            assert_eq!(chunk.bytes.len(), 412);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(13u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// A repeated reset may only shrink the reliable prefix; a wider one is redundant, and the
++    /// bytes that just became unreliable are credited back.
++    #[test]
++    fn reset_stream_at_shrinks_the_reliable_prefix_on_repeated_resets() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[9; 1024]),
++                    },
++                    1024,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 17u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(client.local_max_data - initial_max, 512);
++
++        // A repeated reset that shrinks the prefix gives up the newly unreliable bytes.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 19u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(256u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512 + 256,
++            "the newly abandoned bytes are credited back"
++        );
++
++        // A repeated reset that does not shrink the prefix changes nothing.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 21u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(256u32.into()),
++            })
++            .unwrap();
++        assert_eq!(client.local_max_data - initial_max, 512 + 256);
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 23u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(1024u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512 + 256,
++            "a wider reliable prefix must not be honoured"
++        );
++
++        // Only the shrunk prefix is delivered, and the first error code is the one reported.
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let chunk = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the shrunk prefix is readable");
++            assert_eq!(chunk.offset, 0);
++            assert_eq!(chunk.bytes.len(), 256);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(17u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// A partially delivered reset keeps both flow control levels honest: the abandoned tail is
++    /// credited back, the reliable prefix stays charged until it is read, and the stream window
++    /// keeps growing while the peer may still be sending the prefix.
++    #[test]
++    fn reset_stream_at_accounts_for_connection_and_stream_flow_control() {
++        let mut client = make_with_stream_window(Side::Client, 1024);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        // Only part of the promised prefix has arrived so far.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[4; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        assert_eq!(client.data_recvd, 256);
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 29u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the final size is charged to the connection window"
++        );
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512,
++            "the abandoned tail is credited back, the prefix stays charged"
++        );
++
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            assert_eq!(chunks.next(usize::MAX).unwrap().unwrap().bytes.len(), 256);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Blocked
++            );
++            let should_transmit = chunks.finalize();
++            assert!(
++                should_transmit.should_transmit(),
++                "the stream window must be updated while the prefix is outstanding"
++            );
++            assert!(
++                pending.max_stream_data.contains(&id),
++                "a MAX_STREAM_DATA frame must be queued for the outstanding prefix"
++            );
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512 + 256,
++            "reading the delivered part of the prefix returns its credit"
++        );
++
++        // The rest of the prefix arrives and is delivered as well.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 256,
++                        fin: false,
++                        data: Bytes::from_static(&[4; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            assert_eq!(chunks.next(usize::MAX).unwrap().unwrap().bytes.len(), 256);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(29u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// The promised prefix may arrive out of order: the upper half first, the lower half
++    /// second. The application must still receive the prefix in offset order, and the reset
++    /// must only be reported once the whole prefix has arrived.
++    #[test]
++    fn reset_stream_at_delivers_an_out_of_order_prefix() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        // The reset arrives first and promises 512 reliable bytes.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 31u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the final size is charged to the connection window"
++        );
++
++        // The upper half of the prefix arrives first.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 256,
++                        fin: false,
++                        data: Bytes::from_static(&[2; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        // The prefix is still incomplete, so the read blocks instead of reporting the reset.
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Blocked
++            );
++            let _ = chunks.finalize();
++        }
++
++        // The lower half arrives and completes the prefix.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[1; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the late prefix was already accounted for by the final size"
++        );
++
++        // The prefix is handed out in offset order, and only then the reset is reported.
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let first = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the lower half of the prefix must be readable");
++            assert_eq!(first.offset, 0);
++            assert_eq!(first.bytes.len(), 256);
++            assert_eq!(&first.bytes[..], &[1u8; 256][..]);
++            let second = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the upper half of the prefix must be readable");
++            assert_eq!(second.offset, 256);
++            assert_eq!(second.bytes.len(), 256);
++            assert_eq!(&second.bytes[..], &[2u8; 256][..]);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(31u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// A `RESET_STREAM_AT` that promises nothing (`reliable size == 0`) degenerates into a plain
++    /// reset: nothing stays readable and the whole final size is credited back at once.
++    #[test]
++    fn reset_stream_at_with_zero_reliable_size_abandons_everything() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[7; 1024]),
++                    },
++                    1024,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 33u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(0u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "nothing is reliable, so the whole final size is credited back"
++        );
++
++        let mut pending = Retransmits::default();
++        let mut recv = RecvStream {
++            id,
++            state: &mut client,
++            pending: &mut pending,
++        };
++        let mut chunks = recv.read(true).unwrap();
++        assert_eq!(
++            chunks.next(usize::MAX).unwrap_err(),
++            crate::ReadError::Reset(33u32.into())
++        );
++        let _ = chunks.finalize();
++    }
++
++    /// A plain `RESET_STREAM` that follows a `RESET_STREAM_AT` narrows the reliable prefix to
++    /// zero, exactly like quic-go's `handleResetStreamFrameImpl` does (a repeated reset may only
++    /// shrink the reliable size). The error code the application sees stays the one of the
++    /// *first* reset.
++    #[test]
++    fn a_plain_reset_after_a_partial_reset_narrows_the_prefix_to_zero() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[6; 1024]),
++                    },
++                    1024,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 41u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(client.local_max_data - initial_max, 512);
++
++        // The peer abandons everything after all.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 43u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: None,
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the bytes that just became unreliable are credited back"
++        );
++
++        // Nothing stays readable, and the first reset's error code is the one reported.
++        let mut pending = Retransmits::default();
++        let mut recv = RecvStream {
++            id,
++            state: &mut client,
++            pending: &mut pending,
++        };
++        let mut chunks = recv.read(true).unwrap();
++        assert_eq!(
++            chunks.next(usize::MAX).unwrap_err(),
++            crate::ReadError::Reset(41u32.into())
++        );
++        let _ = chunks.finalize();
++    }
++
++    /// Data that arrives past the reliable prefix is dropped instead of being buffered: the peer
++    /// abandoned it, and the connection-level accounting must not be disturbed by it.
++    #[test]
++    fn reset_stream_at_discards_data_beyond_the_reliable_prefix() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[5; 1024]),
++                    },
++                    1024,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 45u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(client.local_max_data - initial_max, 512);
++
++        // The abandoned tail is retransmitted: it must be dropped, not buffered.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 512,
++                        fin: false,
++                        data: Bytes::from_static(&[4; 512]),
++                    },
++                    512,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the abandoned tail must not be charged to the connection window twice"
++        );
++
++        // Only the reliable prefix is delivered.
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let chunk = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the reliable prefix must stay readable");
++            assert_eq!(chunk.offset, 0);
++            assert_eq!(chunk.bytes.len(), 512);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(45u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// A repeated reset may shrink the reliable prefix before the prefix has arrived. The
++    /// application must then wait for the *smaller* prefix, and the bytes between the two
++    /// reliable sizes must never be delivered.
++    #[test]
++    fn reset_stream_at_narrowing_before_the_prefix_arrived_waits_for_the_smaller_prefix() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 47u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(client.local_max_data - initial_max, 512);
++
++        // The peer shrinks the promise before a single byte arrived.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 49u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(256u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512 + 256,
++            "the newly abandoned bytes are credited back"
++        );
++
++        // The bytes between the two reliable sizes arrive and must be dropped.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 256,
++                        fin: false,
++                        data: Bytes::from_static(&[3; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        // The smaller prefix arrives and completes the promise.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[2; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let chunk = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the shrunk prefix must be readable");
++            assert_eq!(chunk.offset, 0);
++            assert_eq!(chunk.bytes.len(), 256);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(47u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++    }
++
++    /// An out-of-order prefix keeps the stream alive: the peer may still send the bytes that
++    /// fill the hole, so the stream must not be treated as finished, the read must not report
++    /// the reset, and the prefix must be delivered in offset order once the hole is filled.
++    #[test]
++    fn reset_stream_at_keeps_an_out_of_order_prefix_open() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        // The upper half of the promised prefix arrives first.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 256,
++                        fin: false,
++                        data: Bytes::from_static(&[2; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        assert_eq!(client.data_recvd, 512);
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 51u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the final size is charged to the connection window"
++        );
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512,
++            "the abandoned tail is credited back, the prefix stays charged"
++        );
++
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Blocked,
++                "the prefix has a hole, so the reset must not be reported yet"
++            );
++            let _ = chunks.finalize();
++        }
++        assert!(
++            client.can_send_flow_control(id),
++            "the peer may still send the missing prefix bytes"
++        );
++
++        // The missing lower half arrives and completes the prefix.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[1; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the late prefix was already accounted for by the final size"
++        );
++
++        {
++            let mut pending = Retransmits::default();
++            let mut recv = RecvStream {
++                id,
++                state: &mut client,
++                pending: &mut pending,
++            };
++            let mut chunks = recv.read(true).unwrap();
++            let first = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the lower half of the prefix must be readable");
++            assert_eq!(first.offset, 0);
++            assert_eq!(&first.bytes[..], &[1u8; 256][..]);
++            let second = chunks
++                .next(usize::MAX)
++                .unwrap()
++                .expect("the upper half of the prefix must be readable");
++            assert_eq!(second.offset, 256);
++            assert_eq!(&second.bytes[..], &[2u8; 256][..]);
++            assert_eq!(
++                chunks.next(usize::MAX).unwrap_err(),
++                crate::ReadError::Reset(51u32.into())
++            );
++            let _ = chunks.finalize();
++        }
++        assert_eq!(
++            client.local_max_data - initial_max,
++            1024,
++            "the whole final size is credited back once the prefix has been read"
++        );
++        assert!(
++            !client.can_send_flow_control(id),
++            "the prefix is complete, so no further stream data is expected"
++        );
++    }
++
++    /// Once a repeated reset has shrunk the reliable prefix to nothing, data that still arrives
++    /// for the abandoned prefix is dropped and the reset is reported right away.
++    #[test]
++    fn reset_stream_at_narrowed_to_zero_drops_late_prefix_data() {
++        let mut client = make(Side::Client);
++        let id = StreamId::new(Side::Server, Dir::Uni, 0);
++        let initial_max = client.local_max_data;
++
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 53u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(512u32.into()),
++            })
++            .unwrap();
++
++        // The peer shrinks the promise to nothing.
++        let _ = client
++            .received_reset(frame::ResetStream {
++                id,
++                error_code: 55u32.into(),
++                final_offset: 1024u32.into(),
++                reliable_size: Some(0u32.into()),
++            })
++            .unwrap();
++        assert_eq!(
++            client.local_max_data - initial_max,
++            512 + 512,
++            "the bytes that just became unreliable are credited back"
++        );
++
++        // Data for the abandoned prefix arrives late and must be dropped.
++        assert_eq!(
++            client
++                .received(
++                    frame::Stream {
++                        id,
++                        offset: 0,
++                        fin: false,
++                        data: Bytes::from_static(&[1; 256]),
++                    },
++                    256,
++                )
++                .unwrap(),
++            ShouldTransmit(false)
++        );
++        assert_eq!(
++            client.data_recvd, 1024,
++            "the abandoned bytes must not be charged to the connection window twice"
++        );
++
++        // The read reports the error of the first reset right away.
++        let mut pending = Retransmits::default();
++        let mut recv = RecvStream {
++            id,
++            state: &mut client,
++            pending: &mut pending,
++        };
++        let mut chunks = recv.read(true).unwrap();
++        assert_eq!(
++            chunks.next(usize::MAX).unwrap_err(),
++            crate::ReadError::Reset(53u32.into())
++        );
++        let _ = chunks.finalize();
++    }
+ }
+diff --git a/src/frame.rs b/src/frame.rs
+index 01d9a02..57dccd8 100644
+--- a/src/frame.rs
++++ b/src/frame.rs
+@@ -8,11 +8,11 @@ use bytes::{Buf, BufMut, Bytes};
+ use tinyvec::TinyVec;
+ 
+ use crate::{
+-    Dir, MAX_CID_SIZE, RESET_TOKEN_SIZE, ResetToken, StreamId, TransportError, TransportErrorCode,
+-    VarInt,
+     coding::{self, BufExt, BufMutExt, UnexpectedEnd},
+     range_set::ArrayRangeSet,
+     shared::{ConnectionId, EcnCodepoint},
++    Dir, ResetToken, StreamId, TransportError, TransportErrorCode, VarInt, MAX_CID_SIZE,
++    RESET_TOKEN_SIZE,
+ };
+ 
+ #[cfg(feature = "arbitrary")]
+@@ -130,6 +130,8 @@ frame_types! {
+     CONNECTION_CLOSE = 0x1c,
+     APPLICATION_CLOSE = 0x1d,
+     HANDSHAKE_DONE = 0x1e,
++    // draft-ietf-quic-reliable-stream-reset: RESET_STREAM with a reliable prefix
++    RESET_STREAM_AT = 0x24,
+     // ACK Frequency
+     ACK_FREQUENCY = 0xaf,
+     IMMEDIATE_ACK = 0x1f,
+@@ -171,7 +173,10 @@ impl Frame {
+         use Frame::*;
+         match *self {
+             Padding => FrameType::PADDING,
+-            ResetStream(_) => FrameType::RESET_STREAM,
++            ResetStream(ref x) => match x.reliable_size {
++                Some(_) => FrameType::RESET_STREAM_AT,
++                None => FrameType::RESET_STREAM,
++            },
+             Close(self::Close::Connection(_)) => FrameType::CONNECTION_CLOSE,
+             Close(self::Close::Application(_)) => FrameType::APPLICATION_CLOSE,
+             MaxData(_) => FrameType::MAX_DATA,
+@@ -581,12 +586,36 @@ impl Iter {
+                 id: self.bytes.get()?,
+                 error_code: self.bytes.get()?,
+                 final_offset: self.bytes.get()?,
++                reliable_size: None,
+             }),
++            FrameType::RESET_STREAM_AT => {
++                let frame = ResetStream {
++                    id: self.bytes.get()?,
++                    error_code: self.bytes.get()?,
++                    final_offset: self.bytes.get()?,
++                    reliable_size: Some(self.bytes.get()?),
++                };
++                // The reliable prefix is a subrange of the abandoned stream, so a frame
++                // naming more reliable data than the stream holds is malformed. quic-go
++                // rejects it while parsing the frame (`reset_stream_frame.go`), which
++                // surfaces here as a frame encoding error carrying this frame type.
++                if frame
++                    .reliable_size
++                    .is_some_and(|reliable| reliable > frame.final_offset)
++                {
++                    return Err(IterErr::Malformed);
++                }
++                Frame::ResetStream(frame)
++            }
+             FrameType::CONNECTION_CLOSE => Frame::Close(Close::Connection(ConnectionClose {
+                 error_code: self.bytes.get()?,
+                 frame_type: {
+                     let x = self.bytes.get_var()?;
+-                    if x == 0 { None } else { Some(FrameType(x)) }
++                    if x == 0 {
++                        None
++                    } else {
++                        Some(FrameType(x))
++                    }
+                 },
+                 reason: self.take_len()?,
+             })),
+@@ -832,18 +861,33 @@ pub struct ResetStream {
+     pub(crate) id: StreamId,
+     pub(crate) error_code: VarInt,
+     pub(crate) final_offset: VarInt,
++    /// Bytes below this offset are still expected to be delivered to the application,
++    /// per draft-ietf-quic-reliable-stream-reset. `None` is a plain `RESET_STREAM`,
++    /// i.e. nothing beyond what has already been read is reliable.
++    pub(crate) reliable_size: Option<VarInt>,
+ }
+ 
+ impl FrameStruct for ResetStream {
+-    const SIZE_BOUND: usize = 1 + 8 + 8 + 8;
++    const SIZE_BOUND: usize = 1 + 8 + 8 + 8 + 8;
+ }
+ 
+ impl ResetStream {
+     pub(crate) fn encode<W: BufMut>(&self, out: &mut W) {
+-        out.write(FrameType::RESET_STREAM); // 1 byte
++        out.write(self.ty()); // 1 byte
+         out.write(self.id); // <= 8 bytes
+         out.write(self.error_code); // <= 8 bytes
+         out.write(self.final_offset); // <= 8 bytes
++        if let Some(reliable_size) = self.reliable_size {
++            out.write(reliable_size); // <= 8 bytes
++        }
++    }
++
++    /// Wire frame type implied by whether a reliable prefix is named.
++    pub(crate) fn ty(&self) -> FrameType {
++        match self.reliable_size {
++            Some(_) => FrameType::RESET_STREAM_AT,
++            None => FrameType::RESET_STREAM,
++        }
+     }
+ }
+ 

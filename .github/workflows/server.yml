@@ -1,0 +1,373 @@
+name: Rust server
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install frozen Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Verify locked protocol schema snapshots
+        run: python3 scripts/check-protocol-schema.py
+      - name: Verify pinned WebSocket transport source and narrow compatibility patch
+        run: python3 scripts/check-tungstenite-reconstruction.py --restore-reference
+      - name: Verify exact Protobuf numeric compatibility patches
+        run: python3 scripts/check-protobuf-reconstruction.py --restore-reference
+      - name: Formatting
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --locked --workspace
+      - name: WebSocket close policy feature-off and feature-on conformance
+        run: |
+          CARGO_TARGET_DIR=target/websocket-close-policy cargo test --locked --manifest-path tests/conformance/websocket-close-policy/Cargo.toml --no-default-features
+          CARGO_TARGET_DIR=target/websocket-close-policy cargo test --locked --manifest-path tests/conformance/websocket-close-policy/Cargo.toml --no-default-features --features livekit-policy
+      - name: Independent OpenSSL TLS 1.3 interoperability
+        run: RTC_TLS_OPENSSL=openssl cargo test -p rtc-tls --locked --test handshake independent_openssl_client_negotiates_tls13_and_verifies_certificate -- --ignored
+      - name: Independent OpenSSL expanded TLS, key formats and RSA tampering regressions
+        run: RTC_TLS_OPENSSL=openssl cargo test -p rtc-tls --locked --test expanded -- --ignored
+      - name: RSA public-only dependency boundary and mutation regressions
+        run: python3 crates/rtc-tls/scripts/check-rsa-boundary.py --self-test
+      - name: Dependency gate regression tests
+        run: python3 scripts/test-check-dependencies.py
+      - name: Architecture and production dependency graphs
+        run: python3 scripts/check-dependencies.py
+      - name: Upload dependency evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dependency-graph
+          path: target/evidence/dependency-graph.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Clean Rust build products after evidence upload
+        if: always()
+        run: cargo clean
+
+  dependency-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install frozen Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.20.2 --locked
+      - name: Check advisories, licenses, duplicate versions and sources
+        run: cargo deny --locked --exclude-dev check
+      - name: Clean Rust build products
+        if: always()
+        run: cargo clean
+
+  linux-compilation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install frozen Rust toolchain and target standard library
+        run: rustup toolchain install 1.99.0 --profile minimal --target ${{ matrix.target }}
+      - name: Compile-check target (does not link or run target executables)
+        run: cargo check --locked --workspace --target ${{ matrix.target }}
+      - name: Clean Rust build products
+        if: always()
+        run: cargo clean
+
+  browser-interoperability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      BROWSER_CHANNEL: chromium
+      LIVEKIT_URL: ws://127.0.0.1:7980
+      SERVER_LABEL: rust
+      DURATION_MS: "10000"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6, verified SHA
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: tests/interop/package-lock.json
+      - name: Install frozen Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install locked interoperability dependencies
+        working-directory: tests/interop
+        run: npm ci
+      - name: Install Playwright Chromium and operating-system dependencies
+        working-directory: tests/interop
+        run: npx playwright install --with-deps chromium
+      - name: Generate short-lived local TLS certificates
+        working-directory: tests/interop
+        run: |
+          npm run tls:fixture
+          TLS_KEY_TYPE=rsa TLS_FIXTURE_NAME=tls-rsa npm run tls:fixture
+      - name: Build Rust server binaries
+        run: cargo build --locked --bins
+      - name: Start standalone Rust server
+        run: |
+          mkdir -p tests/interop/output
+          ./target/debug/livecloud --dev --bind 127.0.0.1 --port 7980 --rtc.tcp_port 7981 --udp-port 7982 >tests/interop/output/server.log 2>&1 &
+          interop_server_pid=$!
+          echo "INTEROP_SERVER_PID=$interop_server_pid" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import socket
+          import time
+          for attempt in range(60):
+              try:
+                  with socket.create_connection(("127.0.0.1", 7980), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("Rust server did not become ready on 127.0.0.1:7980")
+          PY
+      - name: Recorded fixture consistency and redaction
+        working-directory: tests/interop
+        run: npm run test:fixtures
+      - name: Network impairment proxy regression tests
+        working-directory: tests/interop
+        run: node --test network-proxy.test.mjs bandwidth-accounting.test.mjs bandwidth-timeline-gate.test.mjs
+      - name: Single-PC audio and reliable data, two independent runs
+        working-directory: tests/interop
+        env:
+          RUNS: "2"
+        run: npm test
+      - name: Reconnect, republish, mute, metadata and RPC
+        working-directory: tests/interop
+        env:
+          EXTENDED: "true"
+          RUNS: "1"
+        run: npm test
+      - name: VP8 video with extended operations, audio and reliable data
+        working-directory: tests/interop
+        env:
+          VIDEO: "true"
+          EXTENDED: "true"
+          RUNS: "1"
+        run: npm test
+      - name: VP9 L3T3_KEY spatial and temporal subscription switching
+        working-directory: tests/interop
+        env:
+          VIDEO: "true"
+          VIDEO_CODEC: vp9
+          SCALABILITY_MODE: L3T3_KEY
+          SVC_SWITCH: "true"
+          SVC_TEMPORAL: "true"
+          RUNS: "1"
+        run: npm test
+      - name: Dual-PC audio and reliable data
+        working-directory: tests/interop
+        env:
+          SINGLE_PC: "false"
+          RUNS: "1"
+        run: npm test
+      - name: Start independent TURN TLS Rust server
+        run: |
+          ./target/debug/livecloud --dev --config tests/interop/turn-tls-config.yaml >tests/interop/output/turn-tls-server.log 2>&1 &
+          turn_tls_server_pid=$!
+          echo "TURN_TLS_SERVER_PID=$turn_tls_server_pid" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import socket
+          import time
+          for attempt in range(60):
+              try:
+                  with socket.create_connection(("127.0.0.1", 8080), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("TURN TLS server did not become ready on 127.0.0.1:8080")
+          PY
+      - name: Original SDK audio and reliable data through authenticated TURN TLS
+        working-directory: tests/interop
+        env:
+          LIVEKIT_URL: ws://127.0.0.1:8080
+          SERVER_LABEL: rust-turn-tls
+          FORCE_RELAY: "true"
+          TURN_TLS: "true"
+          RUNS: "1"
+          DURATION_MS: "10000"
+        # Trust only this generated local certificate, never disable all certificate verification.
+        run: TLS_SPKI="$(cat output/tls/spki-sha256.txt)" npm test
+      - name: HTTPS Webhook signature, certificate trust and retry through production binary
+        working-directory: tests/interop
+        run: node webhook-tls.mjs
+      - name: Stop legacy TURN TLS instance before reusing port 5349
+        run: |
+          kill -TERM "$TURN_TLS_SERVER_PID" 2>/dev/null || true
+          for attempt in {1..20}; do
+            if ! kill -0 "$TURN_TLS_SERVER_PID" 2>/dev/null; then break; fi
+            sleep 0.25
+          done
+          kill -KILL "$TURN_TLS_SERVER_PID" 2>/dev/null || true
+          echo "TURN_TLS_SERVER_PID=" >> "$GITHUB_ENV"
+      - name: Start native HTTPS-only EC and RSA PKCS1 servers
+        run: |
+          ./target/debug/livecloud --dev --config tests/interop/native-https-config.yaml >tests/interop/output/native-https-ec-server.log 2>&1 &
+          echo "NATIVE_HTTPS_EC_PID=$!" >> "$GITHUB_ENV"
+          ./target/debug/livecloud --dev --config tests/interop/native-https-rsa-config.yaml >tests/interop/output/native-https-rsa-server.log 2>&1 &
+          echo "NATIVE_HTTPS_RSA_PID=$!" >> "$GITHUB_ENV"
+          python3 - <<'PYWAIT'
+          import socket
+          import time
+          for port in (8443, 9443):
+              for attempt in range(60):
+                  try:
+                      with socket.create_connection(("127.0.0.1", port), timeout=1):
+                          break
+                  except OSError:
+                      time.sleep(0.5)
+              else:
+                  raise SystemExit(f"Native HTTPS server did not become ready on {port}")
+          PYWAIT
+      - name: EC native HTTPS CA trust, wrong hostname, untrusted CA and disabled plaintext
+        working-directory: tests/interop
+        env:
+          LIVEKIT_URL: wss://127.0.0.1:8443
+          PLAIN_HTTP_PORT: "8480"
+          PROBE_LABEL: ec
+        run: node probe-native-https.mjs
+      - name: RSA PKCS1 native HTTPS trust and disabled plaintext
+        working-directory: tests/interop
+        env:
+          LIVEKIT_URL: wss://127.0.0.1:9443
+          TLS_CA_FILE: output/tls-rsa/root.pem
+          PLAIN_HTTP_PORT: "9480"
+          PROBE_LABEL: rsa
+        run: node probe-native-https.mjs
+      - name: Original SDK native EC WSS, HTTPS API, TURN TLS and AV1 L3T3_KEY switching
+        working-directory: tests/interop
+        env:
+          LIVEKIT_URL: wss://127.0.0.1:8443
+          SERVER_LABEL: rust-native-https-av1
+          FORCE_RELAY: "true"
+          TURN_TLS: "true"
+          VIDEO: "true"
+          VIDEO_CODEC: av1
+          SCALABILITY_MODE: L3T3_KEY
+          SVC_SWITCH: "true"
+          SVC_TEMPORAL: "true"
+          RUNS: "1"
+        # Node validates the HTTPS API with the test CA; Chromium gets only this leaf SPKI exception.
+        run: NODE_EXTRA_CA_CERTS="$PWD/output/tls/root.pem" TLS_SPKI="$(cat output/tls/spki-sha256.txt)" npm test
+      - name: Original SDK native RSA PKCS1 WSS, HTTPS API and TURN TLS
+        working-directory: tests/interop
+        env:
+          LIVEKIT_URL: wss://127.0.0.1:9443
+          SERVER_LABEL: rust-native-https-rsa
+          FORCE_RELAY: "true"
+          TURN_TLS: "true"
+          RUNS: "1"
+        run: NODE_EXTRA_CA_CERTS="$PWD/output/tls-rsa/root.pem" TLS_SPKI="$(cat output/tls-rsa/spki-sha256.txt)" npm test
+      - name: Start congestion recovery Rust server
+        run: |
+          ./target/debug/livecloud --dev --config tests/interop/congestion-config.yaml >tests/interop/output/congestion-server.log 2>&1 &
+          echo "CONGESTION_SERVER_PID=$!" >> "$GITHUB_ENV"
+          python3 - <<'PYWAIT'
+          import socket
+          import time
+          for attempt in range(60):
+              try:
+                  with socket.create_connection(("127.0.0.1", 8180), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("Congestion test server did not become ready")
+          PYWAIT
+      - name: Real TURN bottleneck and sustained media recovery
+        working-directory: tests/interop
+        env:
+          LIVEKIT_URL: ws://127.0.0.1:8180
+          SERVER_LABEL: rust-congestion
+          RUNS: "5"
+          VIDEO: "true"
+          COMPLEX_VIDEO: "true"
+          FORCE_RELAY: "true"
+          NETWORK_PROFILE: congest-recover
+          BANDWIDTH_ACCURACY: "true"
+          METRICS_URL: http://127.0.0.1:9191/metrics
+          DURATION_MS: "5000"
+        run: npm test
+      - name: Stop only job-owned standalone servers
+        if: always()
+        run: |
+          owned_pids=("${CONGESTION_SERVER_PID:-}" "${NATIVE_HTTPS_RSA_PID:-}" "${NATIVE_HTTPS_EC_PID:-}" "${TURN_TLS_SERVER_PID:-}" "${INTEROP_SERVER_PID:-}")
+          for pid in "${owned_pids[@]}"; do
+            if [ -n "$pid" ]; then kill -TERM "$pid" 2>/dev/null || true; fi
+          done
+          for attempt in {1..20}; do
+            alive=false
+            for pid in "${owned_pids[@]}"; do
+              if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then alive=true; fi
+            done
+            if [ "$alive" = false ]; then break; fi
+            sleep 0.25
+          done
+          for pid in "${owned_pids[@]}"; do
+            if [ -n "$pid" ]; then kill -KILL "$pid" 2>/dev/null || true; fi
+          done
+      - name: Upload interoperability evidence and server log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chromium-interoperability
+          path: |
+            tests/interop/output/
+            !tests/interop/output/**/*key*.pem
+            !tests/interop/output/**/*.key
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove generated TLS materials and raw output after evidence upload
+        if: always()
+        run: rm -rf tests/interop/output
+      - name: Clean Rust build products after evidence upload
+        if: always()
+        run: cargo clean
+
+  official-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install frozen Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Fetch and build exact official LiveKit test reference
+        run: |
+          official_source="$RUNNER_TEMP/livekit-official-source"
+          official_binary="$RUNNER_TEMP/livekit-server-official"
+          git init "$official_source"
+          git -C "$official_source" remote add origin https://github.com/livekit/livekit.git
+          git -C "$official_source" fetch --depth 1 origin e5655ac20267fa5005dccaf3f0e3bfc3ea688c07
+          git -C "$official_source" checkout --detach FETCH_HEAD
+          test "$(git -C "$official_source" rev-parse HEAD)" = e5655ac20267fa5005dccaf3f0e3bfc3ea688c07
+          (
+            cd "$official_source"
+            GOTOOLCHAIN=go1.26.0 go build -o "$official_binary" ./cmd/server
+          )
+          echo "LIVEKIT_OFFICIAL_BIN=$official_binary" >> "$GITHUB_ENV"
+      - name: Run opt-in official CLI and configuration differential tests
+        run: cargo test -p lk-config --locked --test official_cli -- --ignored
+      - name: Remove temporary official reference and binary
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/livekit-official-source" "$RUNNER_TEMP/livekit-server-official"
+      - name: Clean Rust build products
+        if: always()
+        run: cargo clean

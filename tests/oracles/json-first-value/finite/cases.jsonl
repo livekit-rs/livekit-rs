@@ -1,0 +1,47 @@
+{"name": "object/eof", "parts": ["{", "}"], "final_error": false, "limit": 0}
+{"name": "object/error", "parts": ["{", "}"], "final_error": true, "limit": 0}
+{"name": "object/trailing", "parts": ["{", "}", "X"], "final_error": false, "limit": 0}
+{"name": "array/eof", "parts": ["[", "1", "]"], "final_error": false, "limit": 0}
+{"name": "array/error", "parts": ["[", "1", "]"], "final_error": true, "limit": 0}
+{"name": "array/trailing", "parts": ["[", "1", "]", "X"], "final_error": false, "limit": 0}
+{"name": "string/eof", "parts": ["\"x\""], "final_error": false, "limit": 0}
+{"name": "string/error", "parts": ["\"x\""], "final_error": true, "limit": 0}
+{"name": "string/trailing", "parts": ["\"x\"", "X"], "final_error": false, "limit": 0}
+{"name": "true/eof", "parts": ["t", "rue"], "final_error": false, "limit": 0}
+{"name": "true/error", "parts": ["t", "rue"], "final_error": true, "limit": 0}
+{"name": "true/trailing", "parts": ["t", "rue", "X"], "final_error": false, "limit": 0}
+{"name": "null/eof", "parts": ["null"], "final_error": false, "limit": 0}
+{"name": "null/error", "parts": ["null"], "final_error": true, "limit": 0}
+{"name": "null/trailing", "parts": ["null", "X"], "final_error": false, "limit": 0}
+{"name": "number/eof", "parts": ["1", "e", "+2"], "final_error": false, "limit": 0}
+{"name": "number/error", "parts": ["1", "e", "+2"], "final_error": true, "limit": 0}
+{"name": "number/trailing", "parts": ["1", "e", "+2", "X"], "final_error": false, "limit": 0}
+{"name": "zero-prefix/eof", "parts": ["0", "1"], "final_error": false, "limit": 0}
+{"name": "zero-prefix/error", "parts": ["0", "1"], "final_error": true, "limit": 0}
+{"name": "zero-prefix/trailing", "parts": ["0", "1", "X"], "final_error": false, "limit": 0}
+{"name": "bad-number/eof", "parts": ["1", "e"], "final_error": false, "limit": 0}
+{"name": "bad-number/error", "parts": ["1", "e"], "final_error": true, "limit": 0}
+{"name": "bad-number/trailing", "parts": ["1", "e", "X"], "final_error": false, "limit": 0}
+{"name": "incomplete/eof", "parts": ["{\"x\":"], "final_error": false, "limit": 0}
+{"name": "incomplete/error", "parts": ["{\"x\":"], "final_error": true, "limit": 0}
+{"name": "incomplete/trailing", "parts": ["{\"x\":", "X"], "final_error": false, "limit": 0}
+{"name": "duplicate/eof", "parts": ["{\"name\":\"a\",\"name\":\"b\"}"], "final_error": false, "limit": 0}
+{"name": "duplicate/error", "parts": ["{\"name\":\"a\",\"name\":\"b\"}"], "final_error": true, "limit": 0}
+{"name": "duplicate/trailing", "parts": ["{\"name\":\"a\",\"name\":\"b\"}", "X"], "final_error": false, "limit": 0}
+{"name": "escape/eof", "parts": ["[\"\\\"}\",{}]"], "final_error": false, "limit": 0}
+{"name": "escape/error", "parts": ["[\"\\\"}\",{}]"], "final_error": true, "limit": 0}
+{"name": "escape/trailing", "parts": ["[\"\\\"}\",{}]", "X"], "final_error": false, "limit": 0}
+{"name": "leading/eof", "parts": [" \t", "{}"], "final_error": false, "limit": 0}
+{"name": "leading/error", "parts": [" \t", "{}"], "final_error": true, "limit": 0}
+{"name": "leading/trailing", "parts": [" \t", "{}", "X"], "final_error": false, "limit": 0}
+{"name": "largeint/eof", "parts": ["18446744073709551615"], "final_error": false, "limit": 0}
+{"name": "largeint/error", "parts": ["18446744073709551615"], "final_error": true, "limit": 0}
+{"name": "largeint/trailing", "parts": ["18446744073709551615", "X"], "final_error": false, "limit": 0}
+{"name": "prefix/256", "parts": ["{}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                "], "final_error": false, "limit": 256}
+{"name": "inside/256", "parts": ["{\"x\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}"], "final_error": false, "limit": 256}
+{"name": "scalar-cap/2", "parts": ["123"], "final_error": false, "limit": 2}
+{"name": "scalar-cap/3", "parts": ["123"], "final_error": false, "limit": 3}
+{"name": "scalar-delimiter-cap/2", "parts": ["123 "], "final_error": false, "limit": 2}
+{"name": "scalar-delimiter-cap/3", "parts": ["123 "], "final_error": false, "limit": 3}
+{"name": "container-cap/2", "parts": ["{}"], "final_error": false, "limit": 2}
+{"name": "container-cap/3", "parts": ["{}"], "final_error": false, "limit": 3}

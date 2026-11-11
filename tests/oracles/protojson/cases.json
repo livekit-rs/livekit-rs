@@ -1,0 +1,116 @@
+{
+  "status": "NOT_RUN",
+  "scope": "Independent next-cut typed oracle inputs, not current F02a HTTP requirements. type uses full protobuf message name. All bodies are literal JSON strings retaining duplicate tokens.",
+  "cases": [
+    {
+      "case": "null-scalar",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"name\":null}"
+    },
+    {
+      "case": "null-then-known-duplicate",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"name\":null,\"name\":\"r\"}"
+    },
+    {
+      "case": "null-alias-duplicate",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":null,\"empty_timeout\":1}"
+    },
+    {
+      "case": "null-message-duplicate",
+      "type": "livekit.CreateSIPInboundTrunkRequest",
+      "body": "{\"trunk\":null,\"trunk\":{\"name\":\"r\"}}"
+    },
+    {
+      "case": "null-optional-duplicate",
+      "type": "livekit.CreateIngressRequest",
+      "body": "{\"enabled\":null,\"enabled\":false}"
+    },
+    {
+      "case": "different-oneof-null",
+      "type": "livekit.StartEgressRequest",
+      "body": "{\"web\":null,\"template\":{}}"
+    },
+    {
+      "case": "unknown-numeric-enum",
+      "type": "livekit.CreateIngressRequest",
+      "body": "{\"inputType\":12345}"
+    },
+    {
+      "case": "unknown-symbolic-enum",
+      "type": "livekit.CreateIngressRequest",
+      "body": "{\"inputType\":\"FUTURE_INPUT\"}"
+    },
+    {
+      "case": "unknown-enum-then-alias-duplicate",
+      "type": "livekit.CreateIngressRequest",
+      "body": "{\"inputType\":\"FUTURE_INPUT\",\"input_type\":\"WHIP_INPUT\"}"
+    },
+    {
+      "case": "unquoted-integral-exponent",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e2}"
+    },
+    {
+      "case": "quoted-integral-exponent",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e2\"}"
+    },
+    {
+      "case": "integral-decimal",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1.0}"
+    },
+    {
+      "case": "fractional-int-reject",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1.5}"
+    },
+    {
+      "case": "integer-whitespace-reject",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\" 1\"}"
+    },
+    {
+      "case": "uint32-overflow",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":4294967296}"
+    },
+    {
+      "case": "duration-over-max",
+      "type": "livekit.CreateSIPParticipantRequest",
+      "body": "{\"ringingTimeout\":\"315576000001s\"}"
+    },
+    {
+      "case": "duration-empty-seconds",
+      "type": "livekit.CreateSIPParticipantRequest",
+      "body": "{\"ringingTimeout\":\".5s\"}"
+    },
+    {
+      "case": "duration-leading-plus",
+      "type": "livekit.CreateSIPParticipantRequest",
+      "body": "{\"ringingTimeout\":\"+1s\"}"
+    },
+    {
+      "case": "duration-negative-subsecond",
+      "type": "livekit.CreateSIPParticipantRequest",
+      "body": "{\"ringingTimeout\":\"-0.000000001s\"}"
+    },
+    {
+      "case": "duration-overprecision",
+      "type": "livekit.CreateSIPParticipantRequest",
+      "body": "{\"ringingTimeout\":\"1.0000000001s\"}"
+    },
+    {
+      "case": "timestamp-offset",
+      "type": "livekit.CreateSIPInboundTrunkRequest",
+      "body": "{\"trunk\":{\"createdAt\":\"2020-01-01T00:00:00+01:00\"}}"
+    },
+    {
+      "case": "timestamp-over-max",
+      "type": "livekit.CreateSIPInboundTrunkRequest",
+      "body": "{\"trunk\":{\"createdAt\":\"10000-01-01T00:00:00Z\"}}"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{"name": "f119-room-ancestor-alias", "strict": false, "yaml": "holder: &r\n  room_configurations:\n    record: {egress: {room: {audioMixing: DUAL_CHANNEL_ALTERNATE}}}\nroom: *r\n"}
+{"name": "f119-configurations-ancestor-alias", "strict": false, "yaml": "holder: &c\n  record: {egress: {room: {audioMixing: DUAL_CHANNEL_ALTERNATE}}}\nroom: {room_configurations: *c}\n"}
+{"name": "f119-room-field-from-merge", "strict": false, "yaml": "holder: &r\n  room_configurations:\n    record: {egress: {room: {audioMixing: DUAL_CHANNEL_ALTERNATE}}}\nroom: {<<: *r}\n"}
+{"name": "f119-configurations-entries-from-merge", "strict": false, "yaml": "holder: &c\n  record: {egress: {room: {audioMixing: DUAL_CHANNEL_ALTERNATE}}}\nroom: {room_configurations: {<<: *c}}\n"}
+{"name": "f119-root-room-from-merge", "strict": false, "yaml": "holder: &r\n  room:\n    room_configurations:\n      record: {egress: {room: {audioMixing: DUAL_CHANNEL_ALTERNATE}}}\n<<: *r\n"}
+{"name": "f119-merge-direct-overrides", "strict": false, "yaml": "holder: &c\n  record: {egress: {room: {audio_mixing: 0}}}\nroom:\n  room_configurations:\n    <<: *c\n    record: {egress: {room: {audioMixing: DUAL_CHANNEL_ALTERNATE}}}\n"}
+{"name": "f119-inner-proto-merge-still-rejected", "strict": false, "yaml": "holder: &x {audio_only: true}\nroom: {room_configurations: {record: {egress: {room: {<<: *x}}}}}\n"}
+{"name": "f119-message-tagged-null-map", "strict": true, "yaml": "room: {room_configurations: {record: {egress: !!null {room: {audio_only: true}}}}}\n"}
+{"name": "f119-message-tagged-null-sequence", "strict": true, "yaml": "room: {room_configurations: {record: {egress: !!null [bad]}}}\n"}
+{"name": "f119-outer-duplicate-before-custom-error", "strict": true, "yaml": "port: 1000\nroom: {room_configurations: {record: {egress: {room: {audio_only: nope}}}}}\nport: 2000\n"}

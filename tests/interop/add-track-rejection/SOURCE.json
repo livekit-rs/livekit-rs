@@ -1,0 +1,22 @@
+{
+  "status": "FROZEN_FUTURE_WS_FIXTURE_NOT_RUN_NOT_SYNTAX_CHECKED",
+  "source_sha256": {
+    "livekit-rs-server/tests/interop/participant-attributes/run.mjs": "d8cbad7cdd3dc6fca43894bb7ea479d9ccac9038f14098d5b7953d10fc3fb2f6",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/livekit-stable/pkg/rtc/signalling/signalhandler.go": "eff1fea4244de08865ecfd0e54b346f03ddf6799448fd532b3c7791e3fd104ea",
+    "references/livekit-stable/pkg/rtc/participant_signal.go": "8a3ae07330888bd6737409ffc02a07820458b3de7f48dc825c22bcf17fbe59ac",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/protocol-stable/protobufs/livekit_rtc.proto": "b15cdd37f7a3c84caed7c00b8177bd196235ced118e31a64511a9811d56ae928",
+    "references/protocol-stable/protobufs/livekit_models.proto": "ff577c4b4906511b94c3398f9762cab89bdd350249510c6f7b99959f08daf4e6"
+  },
+  "assets_sha256": {
+    "run.mjs": "66b400987e58cef12700e7452bf7261c20ac9f5d5eb7ec69fa69c76387c029f2",
+    "CONTRACT.md": "c4d9661a4faf2c05e13c28d41a1058aa413ab26fb26293586aea9bd6092bd60e"
+  },
+  "raw16_inputs_changed": false,
+  "new_production_change": false,
+  "scope": "source explicit refusal reason/empty message/requestId0/full typed echo, true pending-track positive and owner completion; no media",
+  "parent_v1_source_sha256": "95036edc7ed9ee7c3268453e9b96e87cbb06779e9a2536a50a8e46771c76d821"
+}

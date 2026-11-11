@@ -1,0 +1,187 @@
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -213,6 +213,14 @@
+ /// Actual authenticated receive timing of an original RTP packet.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub struct ForwardingPacket {
++    /// Extended original media sequence, independent of RTX transport sequence.
++    pub sequence: u64,
++    /// Spatial ID parsed from this original packet when present.
++    pub spatial: Option<u8>,
++    /// Temporal ID parsed from this original packet when present.
++    pub temporal: Option<u8>,
++    /// Index in this frame's original non-empty extension metadata vector.
++    pub extension_index: usize,
+     /// Actual input datagram arrival, before codec frame assembly.
+     pub received: Instant,
+     /// Original receiver sequence/timestamp admission classified it out of order.
+--- a/src/media/mod.rs
++++ b/src/media/mod.rs
+@@ -361,15 +361,23 @@
+                 let audio_start_of_talk_spurt =
+                     codec.spec().codec.kind().is_audio() && dep.start_of_talkspurt();
+                 let mut ext_vals = dep.ext_vals();
++                let mut extension_index = 0;
+                 let forwarding_packets = dep
+                     .meta
+                     .iter()
+                     .filter_map(|meta| {
+-                        meta.header
++                        let current = extension_index;
++                        if !meta.header.ext_vals.user_values.is_empty() {
++                            extension_index += 1;
++                        }
++                        let mut timing = meta
++                            .header
+                             .ext_vals
+                             .user_values
+                             .get::<ForwardingPacketMeta>()
+-                            .and_then(|value| value.0)
++                            .and_then(|value| value.0)?;
++                        timing.extension_index = current;
++                        Some(timing)
+                     })
+                     .collect::<Vec<_>>();
+                 if !forwarding_packets.is_empty() {
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -562,7 +562,29 @@
+         for entry in self.queue.range_mut(start..=stop) {
+             self.depack
+                 .depacketize(entry.remaining(), &mut data, &mut codec_extra)?;
+-            meta.push(entry.meta.clone());
++            let mut packet_meta = entry.meta.clone();
++            // Read the descriptor state just parsed for this packet, before
++            // the next packet can replace it or the frame merges layers.
++            if let CodecDepacketizer::Vp9(vp9) = &self.depack {
++                if vp9.l {
++                    if let Some(mut timing) = packet_meta
++                        .header
++                        .ext_vals
++                        .user_values
++                        .get::<crate::media::ForwardingPacketMeta>()
++                        .and_then(|value| value.0)
++                    {
++                        timing.spatial = Some(vp9.sid);
++                        timing.temporal = Some(vp9.tid);
++                        packet_meta
++                            .header
++                            .ext_vals
++                            .user_values
++                            .set(crate::media::ForwardingPacketMeta(Some(timing)));
++                    }
++                }
++            }
++            meta.push(packet_meta);
+         }
+ 
+         Ok(Depacketized {
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1033,6 +1033,10 @@
+                 .user_values
+                 .set(crate::media::ForwardingPacketMeta(admitted_flow.map(
+                     |flow| crate::media::ForwardingPacket {
++                        sequence: flow.seq,
++                        spatial: None,
++                        temporal: None,
++                        extension_index: 0,
+                         received: now,
+                         out_of_order: !flow.in_order,
+                         // Codec assembly is real work, not prebinding replay.
+@@ -2231,6 +2235,95 @@
+                 "retirement releases bounded packet/metadata owners together"
+             );
+         }
++    }
++
++    #[test]
++    fn actual_srtp_vp9_packet_layers_survive_assembly_without_last_packet_aliasing() {
++        let start = Instant::now();
++        let crypto = crate::crypto::test_default_provider();
++        let profile = SrtpProfile::AES128_CM_SHA1_80;
++        let material = vec![0x63; profile.keying_material_len()];
++        let key = KeyingMaterial::new(&material);
++        let mut tx = SrtpContext::new(crypto, profile, &key, true);
++        let mut session = Session::new(&RtcConfig::default());
++        session.forwarding_timing_enabled = true;
++        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++        let params = session
++            .codec_config
++            .params()
++            .iter()
++            .find(|p| p.spec().codec == crate::format::Codec::Vp9)
++            .copied()
++            .unwrap();
++        let mid = Mid::from("v");
++        let mut media = Media::from_direct_api(
++            mid,
++            0,
++            crate::media::MediaKind::Video,
++            ExtensionMap::empty(),
++        );
++        media.set_remote_pts(vec![params.pt()]);
++        session.add_media(media);
++        session
++            .streams
++            .expect_stream_rx(101.into(), None, MidRid(mid, None), false);
++        for (spatial, ms) in [(0u16, 0u64), (2, 40), (1, 60)] {
++            let sn = 1000 + spatial;
++            let mut bytes = vec![
++                0x80,
++                *params.pt() | if spatial == 2 { 0x80 } else { 0 },
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                101,
++            ];
++            bytes[2..4].copy_from_slice(&sn.to_be_bytes());
++            bytes[4..8].copy_from_slice(&3000u32.to_be_bytes());
++            bytes.extend_from_slice(&[
++                0x3c,
++                0x20 | ((spatial as u8) << 1) | u8::from(spatial > 0),
++                0x80 + spatial as u8,
++                0,
++            ]);
++            let header = RtpHeader::parse(&bytes, &ExtensionMap::empty()).unwrap();
++            let encrypted = tx.protect_rtp(&bytes, &header, u64::from(sn));
++            session.handle_rtp_receive(start + Duration::from_millis(ms), &encrypted);
++        }
++        let Event::MediaData(data) = session
++            .poll_event_fallible(start + Duration::from_secs(1))
++            .unwrap()
++            .expect("real encrypted VP9 spatial frame")
++        else {
++            panic!("expected media")
++        };
++        let actual = data
++            .forwarding_packets()
++            .iter()
++            .map(|p| {
++                (
++                    p.sequence,
++                    p.spatial,
++                    p.temporal,
++                    p.extension_index,
++                    p.out_of_order,
++                )
++            })
++            .collect::<Vec<_>>();
++        assert_eq!(
++            actual,
++            vec![
++                (1000, Some(0), Some(1), 0, false),
++                (1001, Some(1), Some(1), 1, true),
++                (1002, Some(2), Some(1), 2, false)
++            ]
++        );
++        assert_eq!(data.data.as_ref(), &[0x80, 0, 0x81, 0, 0x82, 0]);
+     }
+ 
+     #[test]

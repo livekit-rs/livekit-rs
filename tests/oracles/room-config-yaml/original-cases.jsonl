@@ -1,0 +1,12 @@
+{"name": "absent", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      {}\n"}
+{"name": "null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: null\n"}
+{"name": "empty", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: {}\n"}
+{"name": "room-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioonly: true\n          audiomixing: 2\n          fileoutputs:\n            - filepath: room.ogg\n              filetype: 1\n              disablemanifest: true\n"}
+{"name": "participant-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          fileoutputs:\n            - filepath: participant.ogg\n              filetype: 1\n"}
+{"name": "track-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          filepath: dir.with.dot/track.ogg\n          disablemanifest: true\n"}
+{"name": "nil-outputs", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          fileoutputs: [null, {}]\n"}
+{"name": "composite-filter", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          webhooks:\n            - url: http://127.0.0.1:1\n              signingkey: synthetic-api\n              filterparams:\n                includeevents: [egress_ended]\n"}
+{"name": "wrong-protojson-key", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: true\n"}
+{"name": "composite-oneof-preset-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          options:\n            preset: 0\n"}
+{"name": "track-oneof-storage-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          output:\n            s3:\n              bucket: synthetic\n"}
+{"name": "participant-top-preset", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: 0\n"}

@@ -1,0 +1,95 @@
+--- a/src/receive_traffic.rs
++++ b/src/receive_traffic.rs
+@@ -148,6 +148,9 @@
+             policy: Default::default(),
+         }
+     }
++    pub(crate) fn source_id(&self) -> u64 {
++        self.value.source_id
++    }
+     pub(crate) fn is_started(&self) -> bool {
+         self.value.first_at.is_some()
+     }
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -469,6 +469,9 @@
+ /// packet is boxed so enabling this path does not enlarge the Event union.
+ #[derive(Debug)]
+ pub struct MediaPacket {
++    /// Actual receiving RTP lifetime, distinct across reuse or detected restart.
++    pub source_id: u64,
++
+     /// Negotiated media identifier bound to the actual authenticated SSRC.
+     pub mid: Mid,
+     /// Negotiated stream RID, if present.
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1060,6 +1060,7 @@
+             && receipt.is_new_packet
+         {
+             self.pending_media_packet = Some(crate::media::MediaPacket {
++                source_id: stream.receive_traffic.source_id(),
+                 mid,
+                 rid: stream.rid(),
+                 params: packet_params,
+@@ -2212,6 +2213,7 @@
+         session
+             .streams
+             .expect_stream_rx(101.into(), None, MidRid(mid, None), false);
++        let mut actual_source = None;
+         for sequence in 100u16..103 {
+             let mut bytes = vec![0x80, *params.pt(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 101];
+             bytes[2..4].copy_from_slice(&sequence.to_be_bytes());
+@@ -2266,6 +2268,14 @@
+             );
+             let packet =
+                 observed.expect("every accepted original packet emits before a final fragment");
++            assert_ne!(packet.source_id, 0);
++            if let Some(first) = actual_source {
++                assert_eq!(
++                    packet.source_id, first,
++                    "one actual receiver lifetime remains stable across original fragments"
++                );
++            }
++            actual_source = Some(packet.source_id);
+             assert_eq!(*packet.packet.seq_no, u64::from(sequence));
+             assert_eq!(packet.packet.payload.as_ref(), &payload);
+             assert!(!packet.packet.header.marker);
+@@ -2278,6 +2288,37 @@
+         session.remove_media(mid);
+         assert!(session.pending_media_packet.is_none());
+         assert!(session.streams.stream_rx(&101.into()).is_none());
++        let previous_source = actual_source.unwrap();
++        let mut media = Media::from_direct_api(
++            mid,
++            0,
++            crate::media::MediaKind::Video,
++            ExtensionMap::empty(),
++        );
++        media.set_remote_pts(vec![params.pt()]);
++        session.add_media(media);
++        session
++            .streams
++            .expect_stream_rx(101.into(), None, MidRid(mid, None), false);
++        let mut bytes = vec![0x80, *params.pt(), 0, 200, 0, 0, 0x17, 0x70, 0, 0, 0, 101];
++        bytes.extend_from_slice(&[0xac, 7, 0, 7, 0x80]);
++        let header = RtpHeader::parse(&bytes, &ExtensionMap::empty()).unwrap();
++        let encrypted = tx.protect_rtp(&bytes, &header, 200);
++        session.handle_rtp_receive(now + Duration::from_millis(1), &encrypted);
++        let fresh = session
++            .pending_media_packet
++            .as_ref()
++            .expect("same SSRC/MID reuse receives real authenticated media in its new lifetime");
++        assert_ne!(
++            fresh.source_id, previous_source,
++            "actual source identity, not merely SSRC, fences retired rate parsers"
++        );
++        assert!(
++            session.ready_for_srtp(),
++            "source receiver retirement retained the real transport crypto"
++        );
++        session.remove_media(mid);
++        assert!(session.pending_media_packet.is_none());
+     }
+ 
+     #[test]

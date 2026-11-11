@@ -1,0 +1,14 @@
+{
+  "status": "FROZEN_SOURCE_OBSERVER_NOT_COMPILED_NOT_RUN",
+  "assets_sha256": {
+    "README.md": "182b6bf0b34e13c22b1257b8c7c038b3f25d7f9f9ad34afe8e00093c23489746",
+    "oracle/first_data_loss_test.go": "d3de0e412165f3673ae5a23ee55a2ac7061ada224873198fcfbb988a66ee5a4d",
+    "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "oracle/prepare.py": "de6056b134a4ddd5a87d267e51bae0947cacf5965e8b8e08b3a3d6b27749ee89"
+  },
+  "prior_source_go2_actual_sha256": "22e83edf9f5f48c4ff8490e85f5978df25a1e455eaed951c049a0203fd09ad14",
+  "original_source_modified": false,
+  "shared_edits": false,
+  "assertions_and_loss_policy": "UNCHANGED"
+}

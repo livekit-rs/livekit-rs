@@ -1,0 +1,281 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -726,7 +726,7 @@
+ use dtls::Dtls;
+ pub use media_telemetry::MediaTraffic;
+ pub use receive_traffic::ReceiveTraffic;
+-pub use receiver_report_rtt::ReceiverReportRtt;
++pub use receiver_report_rtt::{ReceiverReportLoss, ReceiverReportRtt};
+ 
+ use is::IceAgent;
+ use is::IceAgentEvent;
+@@ -1449,6 +1449,7 @@
+         self.session.receiver_report_rtt_enabled = enabled;
+         if !enabled {
+             self.session.receiver_report_rtt.clear();
++            self.session.receiver_report_loss.clear();
+         }
+     }
+     /// Drain actual authenticated receiver-report RTT observations in arrival
+@@ -1473,6 +1474,23 @@
+     /// Default false; transport crypto, ICE and SCTP are retained on restart.
+     pub fn set_rtp_stream_restart_detection(&mut self, enabled: bool) {
+         self.session.rtp_stream_restart_detection = enabled;
++    }
++
++    /// Actual ICE state, independent of DTLS/application establishment.
++    pub fn ice_connection_state(&self) -> IceConnectionState {
++        self.ice.state()
++    }
++
++    /// Actual nominated ICE protocol and remote TURN classification. No API
++    /// preference or periodic byte counter is treated as a selected route.
++    pub fn selected_ice_transport(&self) -> Option<(net::Protocol, bool)> {
++        self.ice.nominated_transport()
++    }
++
++    /// Drain authenticated Receiver Report fraction loss for live primary
++    /// senders. Enabled with receiver-report observation; drain after each input.
++    pub fn take_receiver_report_loss(&mut self) -> Vec<ReceiverReportLoss> {
++        self.session.receiver_report_loss.drain(..).collect()
+     }
+ 
+     /// Checks ICE connection, DTLS and installed SRTP key material.
+--- a/src/receiver_report_rtt.rs
++++ b/src/receiver_report_rtt.rs
+@@ -25,6 +25,21 @@
+     /// Fixed Go GetRttMs result, rounded upwards, without the NACK 70ms fallback.
+     pub rtt_ms: u32,
+ }
++/// Fraction loss from an actual authenticated RR block for a live primary
++/// sender. Unlike RTT, this is observed even when RTT is unchanged/no LSR.
++#[derive(Clone, Copy, Debug)]
++pub struct ReceiverReportLoss {
++    /// Current native sender lifetime, fenced by the application on rebind.
++    pub source_id: u64,
++    /// Authenticated RTCP datagram receipt timestamp.
++    pub received_at: Instant,
++    /// Current negotiated native sender MID.
++    pub mid: Mid,
++    /// Primary sender SSRC (never an RTX report).
++    pub ssrc: u32,
++    /// Actual eight-bit fraction loss from this report.
++    pub fraction_lost: u8,
++}
+ static NEXT_SOURCE: AtomicU64 = AtomicU64::new(1);
+ #[derive(Debug)]
+ pub(crate) struct Tracker {
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -89,6 +89,7 @@
+     probe_payload_params: Option<PayloadParams>,
+ 
+     pub(crate) receiver_report_rtt_enabled: bool,
++    pub(crate) receiver_report_loss: VecDeque<crate::ReceiverReportLoss>,
+     pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
+     pub(crate) rtp_stream_restart_detection: bool,
+     pub(crate) forwarding_timing_enabled: bool,
+@@ -211,6 +212,7 @@
+             probe_payload_params: None,
+ 
+             receiver_report_rtt_enabled: false,
++            receiver_report_loss: VecDeque::new(),
+             receiver_report_rtt: VecDeque::new(),
+             rtp_stream_restart_detection: false,
+             forwarding_timing_enabled: false,
+@@ -1133,10 +1135,11 @@
+             self.feedback_rx
+                 .iter()
+                 .filter_map(|packet| match packet {
+-                    Rtcp::ReceiverReport(report) => Some(report.reports.iter().copied()),
++                    Rtcp::ReceiverReport(report) => {
++                        Some(report.reports.iter().copied().collect::<Vec<_>>())
++                    }
+                     _ => None,
+                 })
+-                .flatten()
+                 .collect::<Vec<_>>()
+         } else {
+             Vec::new()
+@@ -1225,10 +1228,38 @@
+             }
+         }
+ 
+-        for report in rtt_reports {
+-            if let Some(stream) = self.streams.stream_tx(&report.ssrc) {
+-                stream.observe_receiver_report_rtt(now, report);
+-            }
++        for reports in rtt_reports {
++            let mut report_losses: Vec<crate::ReceiverReportLoss> = Vec::new();
++            for report in reports {
++                if let Some(stream) = self.streams.stream_tx(&report.ssrc) {
++                    if stream.ssrc() != report.ssrc {
++                        continue;
++                    }
++                    // RTT change/LSR gates must not erase loss feedback. Bind to the
++                    // real primary SSRC, retaining its current logical lifetime.
++                    let sample = crate::ReceiverReportLoss {
++                        source_id: stream.receiver_report_source_id(),
++                        received_at: now,
++                        mid: stream.mid(),
++                        ssrc: *report.ssrc,
++                        fraction_lost: report.fraction_lost,
++                    };
++                    // Fixed DownTrack filters each real RR to its primary SSRC,
++                    // then MediaLossProxy takes max across that RR's valid blocks
++                    // BEFORE its strict one-second callback. Preserve this cohort;
++                    // the first low block cannot consume the callback prematurely.
++                    if let Some(existing) = report_losses
++                        .iter_mut()
++                        .find(|old| old.ssrc == sample.ssrc && old.source_id == sample.source_id)
++                    {
++                        existing.fraction_lost = existing.fraction_lost.max(sample.fraction_lost);
++                    } else {
++                        report_losses.push(sample);
++                    }
++                    stream.observe_receiver_report_rtt(now, report);
++                }
++            }
++            self.receiver_report_loss.extend(report_losses);
+         }
+ 
+         // DownTrack.handleRTCP reports at most one final changed RTT per
+@@ -3004,3 +3035,7 @@
+         );
+     }
+ }
++
++#[cfg(test)]
++#[path = "transport_fallback_tests.rs"]
++mod transport_fallback_tests;
+--- /dev/null
++++ b/src/transport_fallback_tests.rs
+@@ -0,0 +1,128 @@
++use super::*;
++use crate::streams::RtpWrite;
++
++#[test]
++fn actual_authenticated_rr_loss_survives_missing_lsr_and_rtt_no_change_but_not_auth_unknown_or_rtx()
++{
++    let start = Instant::now();
++    let crypto = crate::crypto::test_default_provider();
++    let profile = SrtpProfile::AES128_CM_SHA1_80;
++    let material = vec![0x41; profile.keying_material_len()];
++    let key = KeyingMaterial::new(&material);
++    let mut peer = SrtpContext::new(crypto, profile, &key, true);
++    let mut session = Session::new(&crate::RtcConfig::default());
++    session.receiver_report_rtt_enabled = true;
++    session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++    let params = session.codec_config.params().to_vec();
++    let pt = params
++        .iter()
++        .find(|p| p.spec().codec == crate::format::Codec::Vp8)
++        .unwrap()
++        .pt();
++    let codec = session.codec_config.clone();
++    let media = Media::from_direct_api(
++        "v".into(),
++        0,
++        crate::media::MediaKind::Video,
++        ExtensionMap::empty(),
++    );
++    let stream =
++        session
++            .streams
++            .declare_stream_tx(101.into(), Some(201.into()), MidRid("v".into(), None));
++    stream.write_rtp(RtpWrite::new(pt, 100.into(), 3000, start, vec![0x10, 0, 1]));
++    stream.handle_timeout(start, || (&media, &codec));
++    let mut wire = Vec::new();
++    let packet = stream
++        .poll_packet(start, &ExtensionMap::empty(), None, &params, &mut wire)
++        .expect("real primary RTP write/poll");
++    let mut primary = SrtpContext::new(crypto, profile, &key, false);
++    assert!(primary.protect_rtp(&wire, &packet.header, 100).len() > wire.len());
++    let source = stream.receiver_report_source_id();
++    let send = |session: &mut Session,
++                peer: &mut SrtpContext,
++                ssrc: u32,
++                loss: u8,
++                bad_auth: bool,
++                at: Instant| {
++        let mut bytes = vec![0u8; 32];
++        bytes[..4].copy_from_slice(&[0x81, 201, 0, 7]);
++        bytes[4..8].copy_from_slice(&999u32.to_be_bytes());
++        bytes[8..12].copy_from_slice(&ssrc.to_be_bytes());
++        bytes[12] = loss;
++        bytes[16..20].copy_from_slice(&100u32.to_be_bytes());
++        // No LSR/DLSR: this is valid loss feedback, never a fabricated RTT.
++        let mut encrypted = peer.protect_rtcp(&bytes);
++        if bad_auth {
++            *encrypted.last_mut().unwrap() ^= 1;
++        }
++        session.handle_rtcp_receive(at, &encrypted);
++    };
++    for (ssrc, loss, bad) in [(101, 250, true), (999, 250, false), (201, 250, false)] {
++        send(&mut session, &mut peer, ssrc, loss, bad, start);
++        assert!(session.receiver_report_loss.is_empty());
++        assert!(session.receiver_report_rtt.is_empty());
++    }
++    for (offset, loss) in [(1, 70), (2, 90), (3, 0)] {
++        let at = start + Duration::from_millis(offset);
++        send(&mut session, &mut peer, 101, loss, false, at);
++        let sample = session
++            .receiver_report_loss
++            .pop_front()
++            .expect("actual authenticated primary RR");
++        assert_eq!(sample.source_id, source);
++        assert_eq!(sample.ssrc, 101);
++        assert_eq!(sample.fraction_lost, loss);
++        assert_eq!(sample.received_at, at);
++        assert!(
++            session.receiver_report_rtt.is_empty(),
++            "no-LSR/unchanged RTT cannot erase independently emitted loss"
++        );
++        assert!(session.receiver_report_loss.is_empty());
++    }
++    // Actual encrypted RR message with two blocks for the SAME live primary.
++    // Source DownTrack filters then MediaLossProxy takes their maximum before
++    // its first/strict-one-second callback; do not emit the first low block.
++    let mut report = vec![0u8; 56];
++    report[..4].copy_from_slice(&[0x82, 201, 0, 13]);
++    report[4..8].copy_from_slice(&999u32.to_be_bytes());
++    for (offset, loss) in [(8, 5), (32, 90)] {
++        report[offset..offset + 4].copy_from_slice(&101u32.to_be_bytes());
++        report[offset + 4] = loss;
++        report[offset + 8..offset + 12].copy_from_slice(&100u32.to_be_bytes());
++    }
++    session.handle_rtcp_receive(
++        start + Duration::from_millis(4),
++        &peer.protect_rtcp(&report),
++    );
++    assert_eq!(
++        session
++            .receiver_report_loss
++            .pop_front()
++            .unwrap()
++            .fraction_lost,
++        90
++    );
++    assert!(
++        session.receiver_report_loss.is_empty(),
++        "one genuine RR/primary produces exactly one max callback observation"
++    );
++    let changed = session
++        .streams
++        .stream_tx(&101.into())
++        .unwrap()
++        .reset_receiver_report_source();
++    assert_ne!(changed, source);
++    send(
++        &mut session,
++        &mut peer,
++        101,
++        99,
++        false,
++        start + Duration::from_secs(1),
++    );
++    assert_eq!(
++        session.receiver_report_loss.pop_front().unwrap().source_id,
++        changed
++    );
++}

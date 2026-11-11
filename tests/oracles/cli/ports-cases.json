@@ -1,0 +1,93 @@
+{
+  "status": "NOT_RUN",
+  "cases": [
+    {
+      "name": "default",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  node_ip: 127.0.0.1\n"
+      ]
+    },
+    {
+      "name": "tcp-disabled",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  tcp_port: 0\n  node_ip: 127.0.0.1\n"
+      ]
+    },
+    {
+      "name": "udp-single",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  udp_port: 9002\n  node_ip: 127.0.0.1\n"
+      ]
+    },
+    {
+      "name": "udp-range",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  udp_port: 9002-9004\n  node_ip: 127.0.0.1\n"
+      ]
+    },
+    {
+      "name": "ice-range",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  port_range_start: 40000\n  port_range_end: 40100\n  node_ip: 127.0.0.1\n"
+      ]
+    },
+    {
+      "name": "turn-disabled-populated",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  node_ip: 127.0.0.1\nturn:\n  enabled: false\n  tls_port: 5349\n  udp_port: 3478\n"
+      ]
+    },
+    {
+      "name": "turn-tls-only",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  node_ip: 127.0.0.1\nturn:\n  enabled: true\n  tls_port: 5349\n  udp_port: 0\n"
+      ]
+    },
+    {
+      "name": "turn-udp-only",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  node_ip: 127.0.0.1\nturn:\n  enabled: true\n  tls_port: 0\n  udp_port: 3478\n"
+      ]
+    },
+    {
+      "name": "turn-both",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  node_ip: 127.0.0.1\nturn:\n  enabled: true\n  tls_port: 5349\n  udp_port: 3478\n"
+      ]
+    },
+    {
+      "name": "non-output-listeners",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  node_ip: 127.0.0.1\nprometheus_port: 8999\nwebtransport:\n  port: 8443\n"
+      ]
+    },
+    {
+      "name": "turn-relay-range",
+      "args": [
+        "ports",
+        "--config-body",
+        "rtc:\n  node_ip: 127.0.0.1\nturn:\n  enabled: true\n  relay_range_start: 30000\n  relay_range_end: 30100\n"
+      ]
+    }
+  ]
+}

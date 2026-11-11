@@ -1,0 +1,1122 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -717,6 +717,7 @@
+ 
+ mod dtls;
+ mod media_telemetry;
++mod receive_policy;
+ mod receive_traffic;
+ mod receiver_report_rtt;
+ use crate::crypto::dtls::DtlsOutput;
+@@ -1450,6 +1451,12 @@
+     /// order, without periodic sampling, TWCC or ICE fallback.
+     pub fn take_receiver_report_rtt(&mut self) -> Vec<ReceiverReportRtt> {
+         self.session.receiver_report_rtt.drain(..).collect()
++    }
++
++    /// Enable the fixed Go five-rejected-packet source restart detector.
++    /// Default false; transport crypto, ICE and SCTP are retained on restart.
++    pub fn set_rtp_stream_restart_detection(&mut self, enabled: bool) {
++        self.session.rtp_stream_restart_detection = enabled;
+     }
+ 
+     /// Checks ICE connection, DTLS and installed SRTP key material.
+--- /dev/null
++++ b/src/receive_policy.rs
+@@ -0,0 +1,351 @@
++//! Fixed LiveKit RTPStatsReceiver sequence/timestamp admission, after SRTP auth.
++//! Ported from Apache-2.0 LiveKit v1.13.10 and mediatransportutil WrapAround.
++use std::{collections::VecDeque, time::Instant};
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum Rejected {
++    Unconfigured,
++    PaddingOnly,
++    PreStartTimestamp,
++    OldTimestamp,
++    PreStartSequence,
++    OldSequence,
++    Restart,
++}
++#[derive(Clone, Copy, Debug)]
++pub(crate) struct Flow {
++    pub seq: u64,
++    pub timestamp: u64,
++    pub in_order: bool,
++}
++#[derive(Clone, Copy, Debug)]
++struct Update {
++    unhandled: bool,
++    previous: u64,
++    value: u64,
++}
++#[derive(Clone, Copy, Debug)]
++struct Wrap {
++    bits: u32,
++    initialized: bool,
++    start: u64,
++    highest: u64,
++    cycles: u64,
++}
++impl Wrap {
++    fn new(bits: u32) -> Self {
++        Self {
++            bits,
++            initialized: false,
++            start: 0,
++            highest: 0,
++            cycles: 0,
++        }
++    }
++    fn range(self) -> u64 {
++        1u64 << self.bits
++    }
++    fn mask(self) -> u64 {
++        self.range() - 1
++    }
++    fn ext(self) -> u64 {
++        self.cycles.wrapping_add(self.highest)
++    }
++    fn gap(self, a: u64, b: u64) -> u64 {
++        a.wrapping_sub(b) & self.mask()
++    }
++    fn update(&mut self, value: u64, rollovers: Option<u64>) -> Update {
++        let value = value & self.mask();
++        if !self.initialized {
++            self.initialized = true;
++            self.start = value;
++            self.highest = value;
++            return Update {
++                unhandled: false,
++                previous: value.wrapping_sub(1),
++                value,
++            };
++        }
++        let previous = self.ext();
++        if let Some(rollovers) = rollovers {
++            self.cycles = self.cycles.wrapping_add(rollovers * self.range());
++            self.highest = value;
++            return Update {
++                unhandled: false,
++                previous,
++                value: self.ext(),
++            };
++        }
++        if self.gap(value, self.highest) > self.range() / 2 {
++            let mut cycles = self.cycles;
++            let total = self.ext().wrapping_sub(self.start).wrapping_add(1);
++            let wrapback = self.highest < self.range() / 2 && value >= self.range() / 2;
++            if total > self.range() / 2 {
++                if wrapback {
++                    cycles = cycles.wrapping_sub(self.range());
++                }
++            } else if self.gap(value, self.start) > self.range() / 2 {
++                return Update {
++                    unhandled: true,
++                    previous,
++                    value: cycles.wrapping_add(value),
++                };
++            } else if wrapback {
++                cycles = cycles.wrapping_sub(self.range());
++            }
++            return Update {
++                unhandled: false,
++                previous,
++                value: cycles.wrapping_add(value),
++            };
++        }
++        if value < self.highest {
++            self.cycles = self.cycles.wrapping_add(self.range());
++        }
++        self.highest = value;
++        Update {
++            unhandled: false,
++            previous,
++            value: self.ext(),
++        }
++    }
++}
++#[derive(Debug)]
++pub(crate) struct Policy {
++    sn: Wrap,
++    ts: Wrap,
++    highest_at: Option<Instant>,
++    restart: VecDeque<(u16, u32)>,
++}
++impl Default for Policy {
++    fn default() -> Self {
++        Self {
++            sn: Wrap::new(16),
++            ts: Wrap::new(32),
++            highest_at: None,
++            restart: VecDeque::new(),
++        }
++    }
++}
++impl Policy {
++    pub fn admit(
++        &mut self,
++        sn: u16,
++        ts: u32,
++        media: bool,
++        clock_rate: u32,
++        now: Instant,
++    ) -> Result<Flow, Rejected> {
++        if clock_rate == 0 {
++            return Err(Rejected::Unconfigured);
++        }
++        let previous_sn = self.sn;
++        let previous_ts = self.ts;
++        if !self.sn.initialized {
++            if !media {
++                return Err(Rejected::PaddingOnly);
++            }
++            let s = self.sn.update(u64::from(sn), None);
++            let t = self.ts.update(u64::from(ts), None);
++            self.highest_at = Some(now);
++            self.restart.clear();
++            return Ok(Flow {
++                seq: s.value,
++                timestamp: t.value,
++                in_order: true,
++            });
++        }
++        let mut s = self.sn.update(u64::from(sn), None);
++        let mut gap_sn = s.value.wrapping_sub(s.previous) as i64;
++        let highest_at = self.highest_at.unwrap();
++        let elapsed = if now >= highest_at {
++            now.duration_since(highest_at).as_nanos() as i128
++        } else {
++            -(highest_at.duration_since(now).as_nanos() as i128)
++        };
++        let expected = elapsed * i128::from(clock_rate) / 1_000_000_000;
++        let threshold = (1i128 << 31) * 1_000_000_000 / i128::from(clock_rate);
++        let rollovers = if elapsed < threshold {
++            None
++        } else {
++            let excess = (elapsed - threshold * 2) * i128::from(clock_rate) / 1_000_000_000;
++            let mut cycles = (excess / (1i128 << 32)).max(0) as u64;
++            if self.ts.highest > u64::from(ts) {
++                cycles += 1;
++            }
++            Some(cycles)
++        };
++        let t = self.ts.update(u64::from(ts), rollovers);
++        let gap_ts = t.value.wrapping_sub(t.previous) as i64;
++        let rejection = if t.unhandled {
++            Some(Rejected::PreStartTimestamp)
++        } else if !s.unhandled
++            && gap_sn < 0
++            && gap_ts > 0
++            && (gap_ts as f64) > (expected as f64) * 1.5
++        {
++            Some(Rejected::OldTimestamp)
++        } else if !s.unhandled && gap_ts < 0 && gap_sn > 0 {
++            Some(Rejected::OldSequence)
++        } else {
++            None
++        };
++        if let Some(reason) = rejection {
++            self.sn = previous_sn;
++            self.ts = previous_ts;
++            return Err(self.rejected(sn, ts, media, reason));
++        }
++        if (gap_sn < 0 || gap_sn > (1 << 15)) && gap_ts > 0 && media {
++            let cycles = u64::from(u64::from(sn) < self.sn.highest);
++            s = self.sn.update(u64::from(sn), Some(cycles));
++        }
++        if s.unhandled {
++            self.sn = previous_sn;
++            self.ts = previous_ts;
++            return Err(self.rejected(sn, ts, media, Rejected::PreStartSequence));
++        }
++        gap_sn = s.value.wrapping_sub(s.previous) as i64;
++        if gap_sn > 0 && ts != t.previous as u32 {
++            self.highest_at = Some(now);
++        }
++        self.restart.clear();
++        Ok(Flow {
++            seq: s.value,
++            timestamp: t.value,
++            in_order: gap_sn > 0,
++        })
++    }
++    fn rejected(&mut self, sn: u16, ts: u32, media: bool, reason: Rejected) -> Rejected {
++        if media {
++            if self.restart.len() == 5 {
++                self.restart.pop_front();
++            }
++            self.restart.push_back((sn, ts));
++        }
++        if self.restart.len() == 5
++            && self
++                .restart
++                .iter()
++                .zip(self.restart.iter().skip(1))
++                .all(|(a, b)| b.0 == a.0.wrapping_add(1) && b.1.wrapping_sub(a.1) <= 1 << 31)
++        {
++            self.restart.clear();
++            Rejected::Restart
++        } else {
++            reason
++        }
++    }
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn rejects_timestamp_and_sequence_without_poisoning_the_next_real_packet() {
++        let now = Instant::now();
++        let mut p = Policy::default();
++        assert_eq!(p.admit(100, 3000, true, 90000, now).unwrap().seq, 100);
++        assert_eq!(
++            p.admit(
++                100,
++                1,
++                true,
++                90000,
++                now + std::time::Duration::from_millis(10)
++            )
++            .unwrap_err(),
++            Rejected::PreStartTimestamp
++        );
++        assert_eq!(
++            p.admit(
++                101,
++                9000,
++                true,
++                90000,
++                now + std::time::Duration::from_millis(33)
++            )
++            .unwrap()
++            .seq,
++            101
++        );
++        assert_eq!(
++            p.admit(
++                102,
++                6000,
++                true,
++                90000,
++                now + std::time::Duration::from_millis(40)
++            )
++            .unwrap_err(),
++            Rejected::OldSequence
++        );
++        assert_eq!(
++            p.admit(
++                100,
++                12000,
++                true,
++                90000,
++                now + std::time::Duration::from_millis(50)
++            )
++            .unwrap_err(),
++            Rejected::OldTimestamp
++        );
++        assert_eq!(
++            p.admit(
++                102,
++                9000,
++                true,
++                90000,
++                now + std::time::Duration::from_millis(70)
++            )
++            .unwrap()
++            .seq,
++            102
++        );
++    }
++    #[test]
++    #[ignore = "requires actual original Go SOURCE_RTP_ADMISSION rows"]
++    fn original_go_admission_packets_match_native_source_policy() {
++        let path = std::env::var("GO_RTP_ADMISSION_RESULTS").expect("original observer log");
++        let log = std::fs::read_to_string(path).unwrap();
++        let mut cases = std::collections::HashMap::<String, Policy>::new();
++        let start = Instant::now();
++        let mut rows = 0;
++        for line in log.lines() {
++            let Some((_, row)) = line.split_once("SOURCE_RTP_ADMISSION ") else {
++                continue;
++            };
++            let v: serde_json::Value = serde_json::from_str(row).unwrap();
++            let p = cases
++                .entry(v["case"].as_str().unwrap().to_owned())
++                .or_default();
++            let out = p.admit(
++                v["sn"].as_u64().unwrap() as u16,
++                v["ts"].as_u64().unwrap() as u32,
++                v["payload"].as_u64().unwrap() > 0,
++                90000,
++                start + std::time::Duration::from_millis(v["ms"].as_u64().unwrap()),
++            );
++            let reason = match &out {
++                Ok(_) => "NONE",
++                Err(Rejected::Unconfigured) => "UNCONFIGURED",
++                Err(Rejected::PaddingOnly) => "PADDING_ONLY",
++                Err(Rejected::PreStartTimestamp) => "PRE_START_TIMESTAMP",
++                Err(Rejected::OldTimestamp) => "OLD_TIMESTAMP",
++                Err(Rejected::PreStartSequence) => "PRE_START_SEQUENCE_NUMBER",
++                Err(Rejected::OldSequence) => "OLD_SEQUENCE_NUMBER",
++                Err(Rejected::Restart) => "RESTART",
++            };
++            assert_eq!(reason, v["reason"].as_str().unwrap(), "{v}");
++            if let Ok(f) = out {
++                assert_eq!(f.seq, v["seq"].as_u64().unwrap(), "{v}");
++                assert_eq!(f.timestamp, v["timestamp"].as_u64().unwrap(), "{v}");
++                assert_eq!(!f.in_order, v["out_of_order"].as_bool().unwrap(), "{v}");
++            }
++            rows += 1;
++        }
++        assert!(
++            rows >= 26,
++            "must execute actual original packet rows, got {rows}"
++        );
++        assert_eq!(cases.len(), 6);
++    }
++}
+--- a/src/receive_traffic.rs
++++ b/src/receive_traffic.rs
+@@ -44,6 +44,10 @@
+     pub nacks: u64,
+     /// Final source snapshot; its owning logical receiver may still be alive.
+     pub retired: bool,
++    /// Stopped generation discarded by an automatic restart; no partial flush.
++    pub discarded_on_restart: bool,
++    /// Previous receive-source identity superseded by this detected restart.
++    pub restarted_from: Option<u64>,
+ }
+ #[derive(Debug, Default)]
+ struct Pending {
+@@ -67,6 +71,46 @@
+     }
+ }
+ static NEXT_SOURCE: AtomicU64 = AtomicU64::new(1);
++#[derive(Clone, Copy, Debug)]
++pub(crate) enum Admission {
++    Rejected,
++    Bypass,
++    Accepted {
++        flow: crate::receive_policy::Flow,
++        duplicate: bool,
++        restarted: bool,
++    },
++}
++impl Admission {
++    pub fn flow(self) -> Option<crate::receive_policy::Flow> {
++        if let Self::Accepted { flow, .. } = self {
++            Some(flow)
++        } else {
++            None
++        }
++    }
++    pub fn restarted(self) -> bool {
++        matches!(
++            self,
++            Self::Accepted {
++                restarted: true,
++                ..
++            }
++        )
++    }
++    pub fn rejected(self) -> bool {
++        matches!(self, Self::Rejected)
++    }
++    pub fn duplicated(self) -> bool {
++        matches!(
++            self,
++            Self::Accepted {
++                duplicate: true,
++                ..
++            }
++        )
++    }
++}
+ #[derive(Debug)]
+ pub(crate) struct Tracker {
+     pub registry: Registry,
+@@ -74,6 +118,7 @@
+     highest_primary: Option<u64>,
+     start_sequence: Option<u64>,
+     seen: BTreeSet<u64>,
++    policy: crate::receive_policy::Policy,
+ }
+ impl Tracker {
+     pub fn new(mid: Mid, ssrc: u32, registry: Registry) -> Self {
+@@ -94,10 +139,13 @@
+                 duplicates: 0,
+                 nacks: 0,
+                 retired: false,
++                discarded_on_restart: false,
++                restarted_from: None,
+             },
+             highest_primary: None,
+             start_sequence: None,
+             seen: BTreeSet::new(),
++            policy: Default::default(),
+         }
+     }
+     pub(crate) fn is_started(&self) -> bool {
+@@ -113,16 +161,56 @@
+         seq: u64,
+         original_sequence: Option<u16>,
+         has_media: bool,
++        timestamp: u32,
++        clock_rate: u32,
++        restart_enabled: bool,
+         now: Instant,
+-    ) {
+-        let seq = original_sequence
+-            .map(|original| crate::rtp_::extend_u16(self.highest_primary, original))
+-            .unwrap_or(seq);
++    ) -> Admission {
++        let original = original_sequence.unwrap_or(seq as u16);
++        if self.value.first_at.is_none() && repair {
++            return Admission::Rejected;
++        }
++        let mut restarted = false;
++        let flow = match self
++            .policy
++            .admit(original, timestamp, has_media, clock_rate, now)
++        {
++            Ok(flow) => flow,
++            Err(crate::receive_policy::Rejected::Restart) if restart_enabled => {
++                let old = self.value.source_id;
++                self.value.retired = true;
++                self.value.discarded_on_restart = true;
++                self.publish();
++                self.value.source_id = NEXT_SOURCE.fetch_add(1, Ordering::Relaxed);
++                self.value.first_at = None;
++                self.value.codec = None;
++                self.value.payload_type = None;
++                self.value.bytes = 0;
++                self.value.packets = 0;
++                self.value.expected_packets = 0;
++                self.value.duplicates = 0;
++                self.value.nacks = 0;
++                self.value.codec_changed = false;
++                self.value.retired = false;
++                self.value.discarded_on_restart = false;
++                self.value.restarted_from = Some(old);
++                self.policy = Default::default();
++                self.seen.clear();
++                self.highest_primary = None;
++                self.start_sequence = None;
++                restarted = true;
++                self.policy
++                    .admit(original, timestamp, has_media, clock_rate, now)
++                    .expect("detected restart replays its real media packet")
++            }
++            Err(_) => return Admission::Rejected,
++        };
++        let seq = flow.seq;
+         if self.value.first_at.is_none() {
+             // Fixed Buffer.calc rejects pre-start RTX; RTPStatsReceiver.Update
+             // does not start on padding-only packets either.
+-            if repair || !has_media {
+-                return;
++            if !has_media {
++                return Admission::Rejected;
+             }
+             self.start_sequence = Some(seq);
+             self.value.first_at = Some(now);
+@@ -132,36 +220,48 @@
+         } else if !repair
+             && has_media
+             && codec.is_video()
+-            && self.highest_primary.is_none_or(|highest| seq > highest)
++            && flow.in_order
+             && self.value.payload_type != Some(pt)
+         {
+             self.value.codec_changed = true;
+         }
+-        if seq < self.start_sequence.unwrap() {
+-            return;
+-        }
+-        let in_history = self
+-            .highest_primary
+-            .is_none_or(|highest| highest.saturating_sub(seq) < 8192);
+-        if in_history && !self.seen.insert(seq) {
++        let in_history = flow.in_order
++            || self.highest_primary.is_none_or(|highest| {
++                let distance = highest.wrapping_sub(seq) as i64;
++                (0..8192).contains(&distance)
++            });
++        let duplicate = in_history && !self.seen.insert(seq);
++        if duplicate {
+             self.value.duplicates = self.value.duplicates.saturating_add(1);
+         }
+-        if self.highest_primary.is_none_or(|highest| seq > highest) {
++        if flow.in_order || self.highest_primary.is_none() {
+             self.highest_primary = Some(seq);
+             self.value.expected_packets = seq
+-                .saturating_sub(self.start_sequence.unwrap())
+-                .saturating_add(1);
++                .wrapping_sub(self.start_sequence.unwrap())
++                .wrapping_add(1);
+             while self
+                 .seen
+                 .first()
+-                .is_some_and(|oldest| seq.saturating_sub(*oldest) >= 8192)
++                .is_some_and(|old| seq.wrapping_sub(*old) as i64 >= 8192)
+             {
+                 self.seen.pop_first();
++            }
++            while self
++                .seen
++                .last()
++                .is_some_and(|old| seq.wrapping_sub(*old) as i64 >= 8192)
++            {
++                self.seen.pop_last();
+             }
+         }
+         self.value.bytes = self.value.bytes.saturating_add(bytes as u64);
+         self.value.packets = self.value.packets.saturating_add(1);
+         self.publish();
++        Admission::Accepted {
++            flow,
++            duplicate,
++            restarted,
++        }
+     }
+     pub fn nack(&mut self, count: u64) {
+         let mut pending = self.registry.0.lock().unwrap_or_else(|p| p.into_inner());
+@@ -198,8 +298,34 @@
+         let mut tracker = Tracker::new(Mid::from("v"), 101, registry.clone());
+         let now = Instant::now();
+         let pt = Pt::from(98);
+-        tracker.receive(16, Codec::Vp9, pt, false, false, 65000, None, false, now);
+-        tracker.receive(20, Codec::Vp9, pt, true, false, 9, Some(1), true, now);
++        tracker.receive(
++            16,
++            Codec::Vp9,
++            pt,
++            false,
++            false,
++            65000,
++            None,
++            false,
++            3000,
++            90000,
++            false,
++            now,
++        );
++        tracker.receive(
++            20,
++            Codec::Vp9,
++            pt,
++            true,
++            false,
++            9,
++            Some(1),
++            true,
++            3000,
++            90000,
++            false,
++            now,
++        );
+         tracker.nack(1);
+         assert!(
+             registry.take().is_empty(),
+@@ -210,12 +336,64 @@
+             1,
+             "raw diagnostic does not invent a started source"
+         );
+-        tracker.receive(20, Codec::Vp9, pt, false, false, 100, None, true, now);
+-        tracker.receive(20, Codec::Vp9, pt, false, false, 102, None, true, now);
++        tracker.receive(
++            20,
++            Codec::Vp9,
++            pt,
++            false,
++            false,
++            100,
++            None,
++            true,
++            3000,
++            90000,
++            false,
++            now,
++        );
++        tracker.receive(
++            20,
++            Codec::Vp9,
++            pt,
++            false,
++            false,
++            102,
++            None,
++            true,
++            3000,
++            90000,
++            false,
++            now,
++        );
+         // Original sequence from RTX recovers the missing packet, not the
+         // independent repair sequence 50000 (which would invent a huge gap).
+-        tracker.receive(20, Codec::Vp9, pt, true, false, 50000, Some(101), true, now);
+-        tracker.receive(20, Codec::Vp9, pt, true, false, 50001, Some(101), true, now);
++        tracker.receive(
++            20,
++            Codec::Vp9,
++            pt,
++            true,
++            false,
++            50000,
++            Some(101),
++            true,
++            3000,
++            90000,
++            false,
++            now,
++        );
++        tracker.receive(
++            20,
++            Codec::Vp9,
++            pt,
++            true,
++            false,
++            50001,
++            Some(101),
++            true,
++            3000,
++            90000,
++            false,
++            now,
++        );
+         let row = registry.take().pop().unwrap();
+         assert_eq!(
+             (row.bytes, row.packets, row.expected_packets, row.duplicates),
+@@ -232,6 +410,9 @@
+             102,
+             None,
+             true,
++            3000,
++            90000,
++            false,
+             now,
+         );
+         assert!(
+@@ -247,6 +428,9 @@
+             103,
+             None,
+             true,
++            3000,
++            90000,
++            false,
+             now,
+         );
+         assert!(registry.take().pop().unwrap().codec_changed);
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -90,6 +90,7 @@
+ 
+     pub(crate) receiver_report_rtt_enabled: bool,
+     pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
++    pub(crate) rtp_stream_restart_detection: bool,
+     srtp_rx: Option<SrtpContext>,
+     srtp_tx: Option<SrtpContext>,
+     last_nack: Instant,
+@@ -208,6 +209,7 @@
+ 
+             receiver_report_rtt_enabled: false,
+             receiver_report_rtt: VecDeque::new(),
++            rtp_stream_restart_detection: false,
+             srtp_rx: None,
+             srtp_tx: None,
+             last_nack: already_happened(),
+@@ -772,11 +774,14 @@
+         let is_red = params.red() == Some(header.payload_type);
+         let is_repair = !is_red && pt != header.payload_type;
+ 
+-        let max_seq_lookup = make_max_seq_lookup(&self.max_rx_seq_lookup);
++        // Copy the authenticated SSRC nonce watermark rather than retain a
++        // map-borrowing closure across the later authenticated commit.
++        let previous_crypto_seq = self.max_rx_seq_lookup.get(&header.ssrc).copied();
+ 
+         // is_repair controls whether update is updating the main register or the RTX register.
+         // Either way we get a seq_no_outer which is used to decrypt the SRTP.
+-        let mut seq_no = stream.extend_seq(&header, is_repair, max_seq_lookup);
++        let (mut seq_no, reset_crypto_roc) =
++            stream.extend_crypto_seq(&header, is_repair, previous_crypto_seq);
+ 
+         let is_new_wire_packet = stream.is_new_packet(is_repair, seq_no);
+ 
+@@ -819,11 +824,12 @@
+         // Media admission must not suppress transport-wide feedback: Pion's
+         // TWCC interceptor sees authenticated blank RTX padding before its
+         // repair parser discards a payload without a complete OSN.
++        let mut media_admission = crate::receive_traffic::Admission::Bypass;
+         if !header.ssrc.is_probe() && (!is_repair || data.len() >= 2) {
+             let logical_bytes =
+                 authenticated_rtp_bytes.saturating_sub(if is_repair { 2 } else { 0 });
+             self.node_traffic.receive_rtp(logical_bytes);
+-            stream.receive_traffic.receive(
++            media_admission = stream.receive_traffic.receive(
+                 logical_bytes,
+                 params.spec().codec,
+                 params.pt(),
+@@ -836,13 +842,18 @@
+                 } else {
+                     !data.is_empty()
+                 },
++                header.timestamp,
++                clock_rate.get(),
++                self.rtp_stream_restart_detection,
+                 now,
+             );
+         }
++        let source_restarted = media_admission.restarted();
++        let admitted_flow = media_admission.flow();
+         // Preserve delivery replay rejection, but authenticated duplicates still
+         // contribute the source's duplicate/RTX traffic total. Never count an
+         // unverified sequence number or a failed SRTP tag.
+-        if !is_new_wire_packet {
++        if media_admission.duplicated() || (admitted_flow.is_none() && !is_new_wire_packet) {
+             return;
+         }
+         if let Some(raw_packets) = &mut self.raw_packets {
+@@ -866,8 +877,35 @@
+ 
+         // Store largest seen seq_no for the SSRC. This is used in case we get SSRC changes
+         // like A -> B -> A. When we go back to A, we must keep the ROC.
+-        update_max_seq(&mut self.max_rx_seq_lookup, header.ssrc, seq_no);
+-
++        if reset_crypto_roc {
++            self.max_rx_seq_lookup.insert(header.ssrc, seq_no);
++        } else {
++            update_max_seq(&mut self.max_rx_seq_lookup, header.ssrc, seq_no);
++        }
++
++        if media_admission.rejected() {
++            if is_repair {
++                stream.ensure_media_register(true);
++                stream.update_register(now, &header, clock_rate, true, seq_no);
++            }
++            return;
++        }
++        if source_restarted {
++            // Keep DTLS/SRTP, ICE, SCTP and logical subscription alive. Only
++            // this source's packet history, jitter/reorder and NACK state reset.
++            stream.reset_detected_source();
++            if let Some(media) = self.medias.iter_mut().find(|media| media.mid() == mid) {
++                media.reset_depayloaders_for_rid(stream.rid());
++            }
++        }
++
++        stream.ensure_media_register(is_repair);
++        if !is_repair {
++            if let Some(flow) = admitted_flow {
++                seq_no = flow.seq.into();
++                stream.set_admitted_timestamp(flow.timestamp);
++            }
++        }
+         // Register reception in nack registers.
+         let receipt_outer = stream.update_register(now, &header, clock_rate, is_repair, seq_no);
+         // This is the media parser boundary, after TWCC/transport reception.
+@@ -893,15 +931,17 @@
+             // Rewrite the header, and strip the resent seq_no prefix from the body.
+             let data = stream.un_rtx(&mut header, data, pt);
+ 
+-            let max_seq_lookup = make_max_seq_lookup(&self.max_rx_seq_lookup);
+-
+-            // Header has changed, which means we extend a new seq_no. This time
+-            // without is_repair since this is the wrapped resend. This is the
+-            // extended number of the main stream.
+-            seq_no = stream.extend_seq(&header, false, max_seq_lookup);
+-
+-            // header.ssrc is changed by un_rtx() above to be main SSRC.
+-            update_max_seq(&mut self.max_rx_seq_lookup, header.ssrc, seq_no);
++            // Buffer media sequence/timestamp extension is independent of the
++            // authenticated repair transport's SRTP ROC. A recovered OSN must
++            // never advance the primary cipher watermark.
++            stream.ensure_media_register(false);
++            if let Some(flow) = admitted_flow {
++                seq_no = flow.seq.into();
++                stream.set_admitted_timestamp(flow.timestamp);
++            } else {
++                seq_no =
++                    stream.extend_seq(&header, false, make_max_seq_lookup(&self.max_rx_seq_lookup));
++            }
+ 
+             // Now update the "main" register with the repaired packet info.
+             let receipt = stream.update_register(now, &header, clock_rate, false, seq_no);
+@@ -2066,6 +2106,148 @@
+         let cfg = RtcConfig::default().set_mtu(900..=1280);
+         let s = Session::new(&cfg);
+         assert_eq!(s.mtu(), 900);
++    }
++
++    #[test]
++    fn authenticated_timestamp_rejection_and_restart_keep_crypto_and_twcc_alive() {
++        for enabled in [false, true] {
++            let now = Instant::now();
++            let crypto = crate::crypto::test_default_provider();
++            let profile = SrtpProfile::AES128_CM_SHA1_80;
++            let material = vec![0x51; profile.keying_material_len()];
++            let key = KeyingMaterial::new(&material);
++            let mut tx = SrtpContext::new(crypto, profile, &key, true);
++            let mut session = Session::new(&RtcConfig::default().set_rtp_mode(true));
++            session.rtp_stream_restart_detection = enabled;
++            session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++            let params = session
++                .codec_config
++                .params()
++                .iter()
++                .find(|p| p.spec().codec == crate::format::Codec::Vp8)
++                .copied()
++                .unwrap();
++            let mid = Mid::from("v");
++            session
++                .streams
++                .expect_stream_rx(101.into(), None, MidRid(mid, None), false);
++            let mut exts = ExtensionMap::empty();
++            exts.set(3, Extension::TransportSequenceNumber);
++            session.exts = exts.clone();
++            let mut feed = |session: &mut Session, sn: u16, ts: u32, transport: u16, ms: u64| {
++                let mut bytes = vec![0u8; 12];
++                bytes[0] = 0x90;
++                bytes[1] = *params.pt();
++                bytes[2..4].copy_from_slice(&sn.to_be_bytes());
++                bytes[4..8].copy_from_slice(&ts.to_be_bytes());
++                bytes[8..12].copy_from_slice(&101u32.to_be_bytes());
++                bytes.extend_from_slice(&[
++                    0xbe,
++                    0xde,
++                    0,
++                    1,
++                    0x31,
++                    (transport >> 8) as u8,
++                    transport as u8,
++                    0,
++                ]);
++                bytes.extend_from_slice(&[0x10, 0, 1]);
++                let header = RtpHeader::parse(&bytes, &exts).unwrap();
++                let protected = tx.protect_rtp(&bytes, &header, u64::from(sn));
++                session.handle_rtp_receive(now + Duration::from_millis(ms), &protected);
++            };
++            feed(&mut session, 1000, 90000, 400, 0);
++            assert!(session.pending_packet.take().is_some());
++            let old = session.streams.take_receive_traffic().pop().unwrap();
++            for i in 1..=5 {
++                feed(
++                    &mut session,
++                    1000 + i,
++                    i as u32 * 1000,
++                    400 + i,
++                    i as u64 * 10,
++                );
++                assert_eq!(
++                    session.twcc_rx_register.max_seq().map(|s| *s),
++                    Some(u64::from(400 + i))
++                );
++                assert_eq!(
++                    session.pending_packet.take().is_some(),
++                    enabled && i == 5,
++                    "fifth rejected packet must replay only when enabled"
++                );
++            }
++            let snapshots = session.streams.take_receive_traffic();
++            if enabled {
++                assert!(
++                    snapshots.iter().any(|s| s.source_id == old.source_id
++                        && s.discarded_on_restart
++                        && s.retired)
++                );
++                let new = snapshots
++                    .iter()
++                    .find(|s| s.restarted_from == Some(old.source_id))
++                    .unwrap();
++                assert_eq!((new.packets, new.expected_packets, new.bytes), (1, 1, 23));
++                assert_ne!(new.source_id, old.source_id);
++            } else {
++                assert!(
++                    snapshots.is_empty(),
++                    "disabled detector cannot commit rejected packets"
++                );
++            }
++            feed(
++                &mut session,
++                1006,
++                if enabled { 8000 } else { 93000 },
++                406,
++                60,
++            );
++            assert!(
++                session.pending_packet.take().is_some(),
++                "future authenticated media must continue without a new DTLS/transport"
++            );
++            assert!(session.srtp_rx.is_some());
++        }
++        // Media's forced sequence rollover must never change the SRTP nonce ROC.
++        let now = Instant::now();
++        let crypto = crate::crypto::test_default_provider();
++        let profile = SrtpProfile::AES128_CM_SHA1_80;
++        let bytes = vec![0x52; profile.keying_material_len()];
++        let key = KeyingMaterial::new(&bytes);
++        let mut tx = SrtpContext::new(crypto, profile, &key, true);
++        let mut session = Session::new(&RtcConfig::default().set_rtp_mode(true));
++        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++        let pt = session
++            .codec_config
++            .params()
++            .iter()
++            .find(|p| p.spec().codec == crate::format::Codec::Vp8)
++            .unwrap()
++            .pt();
++        session
++            .streams
++            .expect_stream_rx(101.into(), None, MidRid("v".into(), None), false);
++        for (index, (sn, ts)) in [(30000u16, 100000u32), (1000, 103000), (1001, 106000)]
++            .into_iter()
++            .enumerate()
++        {
++            let mut bytes = vec![0x80, *pt, 0, 0, 0, 0, 0, 0, 0, 0, 0, 101];
++            bytes[2..4].copy_from_slice(&sn.to_be_bytes());
++            bytes[4..8].copy_from_slice(&ts.to_be_bytes());
++            bytes.extend_from_slice(&[0x10, 0, 1]);
++            let header = RtpHeader::parse(&bytes, &ExtensionMap::empty()).unwrap();
++            let encrypted = tx.protect_rtp(&bytes, &header, u64::from(sn));
++            session.handle_rtp_receive(now + Duration::from_millis(index as u64 * 33), &encrypted);
++            assert!(
++                session.pending_packet.take().is_some(),
++                "media forced rollover must not poison next SRTP nonce"
++            );
++        }
++        let source = session.streams.take_receive_traffic().pop().unwrap();
++        assert_eq!(source.expected_packets, 66538 - 30000);
++        assert_eq!(source.packets, 3);
++        assert_eq!(session.max_rx_seq_lookup[&101.into()], SeqNo::from(30000));
+     }
+ 
+     #[test]
+--- a/src/streams/receive.rs
++++ b/src/streams/receive.rs
+@@ -36,6 +36,7 @@
+     /// If the remote changes the SSRC, we will create a new stream, not change this id.
+     ssrc: Ssrc,
+     pub(crate) receive_traffic: crate::receive_traffic::Tracker,
++    admitted_timestamp: Option<u64>,
+ 
+     /// Identifier of a resend (RTX) stream. This can be set later, once we discover it.
+     rtx: Option<Ssrc>,
+@@ -183,6 +184,7 @@
+                 *ssrc,
+                 Default::default(),
+             ),
++            admitted_timestamp: None,
+             ssrc,
+             rtx: None,
+             previous_ssrc: None,
+@@ -378,6 +380,34 @@
+         self.need_paused_event = true;
+     }
+ 
++    pub(crate) fn extend_crypto_seq(
++        &mut self,
++        header: &RtpHeader,
++        is_repair: bool,
++        previous: Option<SeqNo>,
++    ) -> (SeqNo, bool) {
++        if !is_repair {
++            if let Some(roc) = self.reset_roc.take() {
++                return (
++                    ((roc << 16) | u64::from(header.sequence_number)).into(),
++                    true,
++                );
++            }
++        }
++        (header.sequence_number(previous), false)
++    }
++    pub(crate) fn ensure_media_register(&mut self, is_repair: bool) {
++        let register = if is_repair {
++            &mut self.register_rtx
++        } else {
++            &mut self.register
++        };
++        register.get_or_insert_with(|| ReceiverRegister::new(None));
++    }
++    pub(crate) fn set_admitted_timestamp(&mut self, timestamp: u64) {
++        self.admitted_timestamp = Some(timestamp);
++    }
++
+     pub(crate) fn extend_seq(
+         &mut self,
+         header: &RtpHeader,
+@@ -408,7 +438,14 @@
+         if let Some(reset_seq_no) = reset_seq_no {
+             reset_seq_no
+         } else {
+-            header.sequence_number(register.max_seq())
++            // Crypto ROC follows every authenticated wire packet, even when
++            // original Buffer admission rejects its media timestamp/sequence.
++            let crypto_max = max_seq_lookup(header.ssrc);
++            let maximum = match (register.max_seq(), crypto_max) {
++                (Some(a), Some(b)) => Some(a.max(b)),
++                (a, b) => a.or(b),
++            };
++            header.sequence_number(maximum)
+         }
+     }
+ 
+@@ -420,7 +457,7 @@
+         };
+ 
+         // Unwrap is OK because we always call extend_seq() for the same is_repair flag beforehand
+-        register_ref.unwrap().accepts(seq_no)
++        register_ref.is_none_or(|register| register.accepts(seq_no))
+     }
+ 
+     fn remember_recent(&mut self, seq_no: SeqNo, time: u64) {
+@@ -559,9 +596,11 @@
+         let previous_time = self.last_time.map(|t| t.numer());
+ 
+         // Calculate the extended timestamp
+-        let mut time_u32 = extend_u32(previous_time, header.timestamp);
+-
+-        if was_paused && Some(time_u32) < previous_time {
++        let admitted_timestamp = self.admitted_timestamp.take();
++        let mut time_u32 =
++            admitted_timestamp.unwrap_or_else(|| extend_u32(previous_time, header.timestamp));
++
++        if admitted_timestamp.is_none() && was_paused && Some(time_u32) < previous_time {
+             // In 32-bit RTP timestamps, adding 2^31 (MAX/2) flips to the other half of timestamp space
+             // This forces extend_u32 to produce a value in the next cycle
+             const HALF_CYCLE: u32 = 1u32 << 31;
+@@ -890,6 +929,20 @@
+         i.emitted = true;
+ 
+         Some((i.info, i.received_at))
++    }
++
++    pub(crate) fn reset_detected_source(&mut self) {
++        // Keep an empty register object: constructing it from the crypto ROC
++        // watermark would mark the very restart packet already received.
++        self.register = Some(ReceiverRegister::new(None));
++        self.admitted_timestamp = None;
++        self.red_recent.clear();
++        self.last_time = None;
++        self.last_clock_rate = None;
++        self.sender_info = None;
++        self.last_receiver_report = already_happened();
++        self.pending_request_keyframe = None;
++        self.pending_request_remb = None;
+     }
+ 
+     pub(crate) fn reset_buffers(&mut self, max_seq_lookup: impl Fn(Ssrc) -> Option<SeqNo>) {
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -1437,6 +1437,13 @@
+     /// Discard retransmission state when a sender codec loses NACK feedback.
+     /// Pending primary packets remain queued and sequence numbering is retained.
+     pub(crate) fn clear_retransmissions(&mut self) {
++        self.rtx_cache.clear();
++        self.resends.clear();
++    }
++
++    /// Flush old receiver retransmission history without resetting this
++    /// subscriber's outgoing RTP sequence, clock, crypto or logical binding.
++    pub fn flush_receiver_restart_history(&mut self) {
+         self.rtx_cache.clear();
+         self.resends.clear();
+     }

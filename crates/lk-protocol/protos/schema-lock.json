@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/livekit/protocol",
+  "commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "sha256": {
+    "livekit_agent.proto": "60b189a51a1b2701bab7b5319fd2d81fcb824aa4f2ed2287f628f7f828327aa5",
+    "livekit_agent_dispatch.proto": "d7d513a303ae4a468d0e70029f464ba5b52065e907f495e25db1e7ef83bd7b59",
+    "livekit_egress.proto": "20c87b9d0a798fe4176720af0acb5471d6fd7bf654c0b15b11a9cbe765bc4290",
+    "livekit_ingress.proto": "c04ed0c0deb05c76c1d9ac1dc64e4284ec88b92441ec08be846173cf7dceb86b",
+    "livekit_internal.proto": "7b99b4093409e1ad9ce5a7c4849223dce6a4296451e9e5f8cdad85d4385d8814",
+    "livekit_metrics.proto": "e36174bc6ac5e6fcd9faab8e9c889edccf630d04af349a85c2e3165fdd4edd22",
+    "livekit_models.proto": "ff577c4b4906511b94c3398f9762cab89bdd350249510c6f7b99959f08daf4e6",
+    "livekit_phone_number.proto": "4ff165cabc33fa2a51ee2e10fa549e32ba847f0fcc43c1598da82abfb0178b0e",
+    "livekit_room.proto": "5135d7f8cd0b0c76362448ec3d6a0c52aee6c276a92c128369b15c5dc0393481",
+    "livekit_rtc.proto": "b15cdd37f7a3c84caed7c00b8177bd196235ced118e31a64511a9811d56ae928",
+    "livekit_sip.proto": "eab546a338a218b1eb9351265171506654b10b854d17e0f829081035bbc19009",
+    "livekit_webhook.proto": "55aa4a3e04d219e130b6bcf4b4363d1792784392460c26a86ab000bf3116086f",
+    "logger/options.proto": "72fcda94abf7870ac8868f455825787d86a14ff8df8ef8ef131850b9668e1b21",
+    "rpc/agent.proto": "24bcb71ccf43fd17dc9d7d8b3ee94950c87e840a98177c0e9a247ad4166b776d",
+    "rpc/egress.proto": "a166b66ca543ee62cd0c4e91df60db9263b36e9f6a82ebceef4f56b641ab533b",
+    "rpc/ingress.proto": "9a6f772b8ca7c73cd8fce7318afc39f5c9ca4add3b9164415dfd08761450d799",
+    "rpc/io.proto": "f647e42b6579b8a7c3491af84d335a52e63779dcaef525b8a7eaec4c6a50bf39",
+    "rpc/keepalive.proto": "57b7de5b12cf77971f8c7ea7f31b7b70a22173822a4fa8ae21126dc726b2228c",
+    "rpc/signal.proto": "17c996564d64c1c51e147ea936d3d9c1a16341ac4acac0af14b280164a499d30",
+    "rpc/sip.proto": "6886e42073aa2e5be71937444398e732c72699fe291df06c580f82b19ef88681",
+    "rpc/whip_signal.proto": "1e5d8ab6d52a038697a571248a8dcbd4e5ab38e7c215c51dd28cd30988f3699a"
+  }
+}

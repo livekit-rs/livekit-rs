@@ -1,0 +1,37 @@
+diff --git a/src/streams/receive.rs b/src/streams/receive.rs
+index 0dae8cdc..54b19f19 100644
+--- a/src/streams/receive.rs
++++ b/src/streams/receive.rs
+@@ -140,6 +140,9 @@ pub(crate) struct StreamRxStats {
+     bytes: u64,
+     /// count of packets received, including retransmissions
+     packets: u64,
++    /// count of received packets that carry media payload (not padding-only),
++    /// including repaired packets: fixed LiveKit stream trackers observe these
++    media_packets: u64,
+     /// count of FIR requests sent
+     firs: u64,
+     /// count of PLI requests sent
+@@ -271,6 +274,12 @@ impl StreamRx {
+         self.pending_request_remb = Some(bitrate);
+     }
+ 
++    /// Received packets with media payload (padding-only packets excluded),
++    /// counted on arrival whether or not the frame they belong to is complete.
++    pub fn media_packets_received(&self) -> u64 {
++        self.stats.media_packets
++    }
++
+     /// Suppress NACK sending.
+     ///
+     /// Normally NACK is disabled by not having an RTX SSRC set. In some situations it might be
+@@ -649,6 +658,9 @@ impl StreamRx {
+         // block); count what was received, matching the sender's egress accounting.
+         self.stats.bytes += wire_payload_len as u64;
+         self.stats.packets += 1;
++        if !packet.payload.is_empty() {
++            self.stats.media_packets += 1;
++        }
+ 
+         packet
+     }

@@ -1,0 +1,836 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -5,6 +5,7 @@
+ use crate::{Rtc, rtp_::Mid};
+ 
+ pub use crate::bwe_::probe::ProbeKind;
++pub use crate::bwe_::validation::{BweValidationObservation, BweValidationStatus};
+ 
+ pub use crate::rtp_::Bitrate;
+ 
+@@ -112,6 +113,8 @@
+     pub latest_scheduled_probe: Option<BweProbeObservation>,
+     /// Whether the native application-limited-region detector is active.
+     pub application_limited: bool,
++    /// Latest bounded sustained validation; short probe results never populate this.
++    pub last_validation: Option<BweValidationObservation>,
+     /// Legacy classic-path diagnostic, retained for observation compatibility.
+     /// Always zero on the default robust throughput path, whose ALR hooks are no-ops.
+     pub ack_fast_rate_changes: u64,
+@@ -121,6 +124,18 @@
+ pub struct Bwe<'a>(pub(crate) &'a mut Rtc);
+ 
+ impl<'a> Bwe<'a> {
++    /// Start a bounded sustained validation at the required target. Returns its
++    /// identity only if transport capabilities and current congestion permit it.
++    /// Repeated requests while one is active never extend the fixed deadline.
++    pub fn start_validation(&mut self, target: Bitrate, now: Instant) -> Option<u64> {
++        self.0.session.start_bwe_validation(target, now)
++    }
++
++    /// Cancel this validation and its generated padding, preserving media/RTX.
++    pub fn cancel_validation(&mut self, now: Instant) {
++        self.0.session.cancel_bwe_validation(now);
++    }
++
+     /// Read native state without changing the estimator or generating feedback.
+     pub fn snapshot(&self) -> Option<BweSnapshot> {
+         self.0.session.bwe_snapshot()
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -33,6 +33,7 @@
+ mod robust_throughput_estimator;
+ mod smoother;
+ mod time;
++mod validation;
+ 
+ use alr_detector::AlrDetector;
+ use api::{BweEstimateCause, BweFeedbackObservation, BweProbeObservation, BweSnapshot};
+@@ -42,6 +43,7 @@
+ use macros::log_loss;
+ use robust_throughput_estimator::RobustThroughputEstimator as AckedBitrateEstimator;
+ use smoother::EstimateSmoother;
++use validation::{BweValidationStatus, Validation};
+ 
+ pub(crate) use macros::{log_pacer_media_debt, log_pacer_padding_debt};
+ #[cfg(test)]
+@@ -120,6 +122,41 @@
+         // Google GoogCC OnSentPacket accounts every tracked RTP send, including
+         // padding/probe packets. They consume link capacity and can end ALR.
+         self.bwe.on_media_sent(payload_size, now);
++    }
++
++    pub fn begin_validation(
++        &mut self,
++        target: Bitrate,
++        now: Instant,
++    ) -> Option<ProbeClusterConfig> {
++        if self.bwe.validation.as_ref().is_some_and(Validation::active) {
++            return None;
++        }
++        let estimate = self.bwe.last_estimate()?;
++        let cause = self.bwe.bandwidth_limited_cause();
++        // Explicitly prime after reset; this does not disable/reinitialize the
++        // normal controller or depend on cached propagate_estimate equality.
++        self.bwe
++            .probe_control
++            .set_estimated_bitrate(estimate, cause);
++        let config = self.bwe.probe_control.validation_config(target, now)?;
++        self.bwe.validation = Some(Validation::new(*config.cluster(), target, now));
++        Some(config)
++    }
++    pub fn cancel_validation(&mut self, now: Instant) {
++        if let Some(v) = &mut self.bwe.validation {
++            v.terminate(BweValidationStatus::Cancelled, now);
++        }
++    }
++    pub fn is_validation_cluster(&self, id: Option<TwccClusterId>) -> bool {
++        self.bwe
++            .validation
++            .as_ref()
++            .is_some_and(|v| id.is_some_and(|id| *id == v.snapshot().id))
++    }
++
++    pub fn validation_should_stop(&self) -> bool {
++        self.bwe.validation.as_ref().is_some_and(|v| !v.active())
+     }
+ 
+     pub fn is_overusing(&self) -> bool {
+@@ -145,6 +182,7 @@
+     latest_feedback: Option<BweFeedbackObservation>,
+     last_successful_probe: Option<BweProbeObservation>,
+     latest_scheduled_probe: Option<BweProbeObservation>,
++    validation: Option<Validation>,
+ }
+ 
+ impl SendSideBandwidthEstimator {
+@@ -169,6 +207,7 @@
+             latest_feedback: None,
+             last_successful_probe: None,
+             latest_scheduled_probe: None,
++            validation: None,
+         }
+     }
+ 
+@@ -195,6 +234,27 @@
+         let send_records: Vec<_> = records.collect();
+         if !send_records.is_empty() {
+             self.last_twcc_feedback_at = Some(now);
++        }
++
++        let mut validation_feedback = false;
++        if let Some(v) = &mut self.validation {
++            let request = v.snapshot();
++            for record in &send_records {
++                if record.cluster().is_some_and(|id| *id == request.id)
++                    && record.local_send_time() >= request.requested_at
++                {
++                    validation_feedback = true;
++                    if let Some(bytes) = record.validation_packet_size() {
++                        v.record(
++                            *record.seq(),
++                            record.local_send_time(),
++                            record.remote_recv_time(),
++                            bytes,
++                            now,
++                        );
++                    }
++                }
++            }
+         }
+ 
+         // Google's default robust throughput path has no ALR variance hook.
+@@ -265,6 +325,7 @@
+                 .update(&acked_packets, acked_bitrate, probe_result, now);
+ 
+         let Some(delay_estimate) = maybe_estimate else {
++            self.finish_validation_feedback(validation_feedback, now);
+             return;
+         };
+ 
+@@ -278,6 +339,7 @@
+         // During startup with no loss, use delay-based estimate directly
+         if in_startup_phase(self.started_at, now) && loss <= 0.001 {
+             self.loss_controller.set_bandwidth_estimate(delay_estimate);
++            self.finish_validation_feedback(validation_feedback, now);
+             return;
+         }
+ 
+@@ -304,13 +366,34 @@
+             }
+         }
+ 
++        self.finish_validation_feedback(validation_feedback, now);
++
+         // Feed the (possibly combined) estimate into subcomponents wanting it.
+         self.propagate_estimate();
+     }
+ 
++    fn finish_validation_feedback(&mut self, matching: bool, now: Instant) {
++        if !matching {
++            return;
++        }
++        // Matching loss is rejected by Validation::record itself. Do not use a
++        // lingering global loss-controller state to attribute old, pre-request
++        // lost records to a new validation generation.
++        let overuse = self.delay_controller.is_overusing();
++        if let Some(v) = &mut self.validation {
++            if overuse {
++                v.terminate(BweValidationStatus::Failed, now);
++            }
++            v.finish_batch(now);
++        }
++    }
++
+     pub fn poll_timeout(&self) -> (Option<Instant>, Reason) {
+         let delay_timeout = Some(self.delay_controller.poll_timeout());
+-        let probe_timeout = Some(self.probe_control.poll_timeout());
++        let validation = self.validation.as_ref().filter(|v| v.active());
++        let probe_timeout = validation
++            .map(|v| v.snapshot().requested_at + Duration::from_secs(3))
++            .or_else(|| Some(self.probe_control.poll_timeout()));
+         let probe_estimator_timeout = Some(self.probe_estimator.poll_timeout());
+         (delay_timeout, Reason::BweDelayControl)
+             .soonest((probe_timeout, Reason::BweProbeControl))
+@@ -363,6 +446,18 @@
+         }
+ 
+         self.probe_control.enable(do_probe);
++
++        if let Some(v) = &mut self.validation {
++            v.timeout(now);
++            if !do_probe {
++                v.terminate(BweValidationStatus::Failed, now);
++            }
++            // Preserve the ordinary controller state while serializing probe
++            // transmission. A timeout or terminal feedback resumes it naturally.
++            if v.active() {
++                return None;
++            }
++        }
+ 
+         // Timeout-driven probe logic (WebRTC `Process()` equivalent).
+         let cluster = self.probe_control.handle_timeout(now);
+@@ -398,6 +493,7 @@
+             application_limited: self.alr_detector.alr_start_time().is_some(),
+             // Legacy classic-path diagnostic. Robust ALR setters are no-ops.
+             ack_fast_rate_changes: 0,
++            last_validation: self.validation.as_ref().map(Validation::snapshot),
+         }
+     }
+ 
+--- a/src/bwe/probe/cluster.rs
++++ b/src/bwe/probe/cluster.rs
+@@ -55,6 +55,8 @@
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ #[non_exhaustive]
+ pub enum ProbeKind {
++    /// Bounded sustained validation, independent of short-probe estimation.
++    Validation,
+     /// Startup discovery cluster.
+     Initial,
+     /// Further discovery after a successful preceding cluster.
+@@ -190,6 +192,7 @@
+     /// When the last packet was sent
+     /// Used to calculate actual send duration (first to last packet)
+     last_packet_at: Option<Instant>,
++    validation_next_at: Option<Instant>,
+ 
+     /// When we last created a padding request
+     /// Used to prevent creating multiple padding packets for the same instant
+@@ -205,6 +208,7 @@
+             packets_sent: 0,
+             started_at: None,
+             last_packet_at: None,
++            validation_next_at: None,
+             last_padding_at: already_happened(),
+         }
+     }
+@@ -227,6 +231,12 @@
+             return not_happening();
+         }
+ 
++        if self.config.kind == ProbeKind::Validation {
++            // Packet deadlines and padding-request burst spacing are distinct.
++            // Already queued packets may use at most one 2ms burst of credit.
++            return self.validation_next_at.unwrap_or(started_at);
++        }
++
+         // Packet-level pacing: schedule based on bytes sent at the target bitrate.
+         // next_time = start_time + (bytes_sent / target_bitrate)
+         let send_duration = self.bytes_sent / self.config.target_bitrate;
+@@ -240,7 +250,8 @@
+     /// than Google's default maximum probe delay. Queued, unsent clusters do
+     /// not have a finite send deadline and must not expire through this guard.
+     pub(crate) fn is_late(&self, now: Instant) -> bool {
+-        self.last_packet_at.is_some()
++        self.config.kind != ProbeKind::Validation
++            && self.last_packet_at.is_some()
+             && now.saturating_duration_since(self.next_probe_time()) > MAX_PROBE_DELAY
+     }
+ 
+@@ -264,7 +275,14 @@
+         let bytes_met = self.bytes_sent >= self.config.target_bytes();
+         let packets_met = self.packets_sent >= self.config.min_packet_count;
+ 
+-        bytes_met && packets_met
++        let validation_span_met = self.config.kind != ProbeKind::Validation
++            || self
++                .started_at
++                .zip(self.last_packet_at)
++                .is_some_and(|(first, last)| {
++                    last.saturating_duration_since(first) >= Duration::from_secs(1)
++                });
++        bytes_met && packets_met && validation_span_met
+     }
+ 
+     /// Check if it's time to send the next probe packet.
+@@ -366,12 +384,40 @@
+         self.bytes_sent += size;
+         self.packets_sent += 1;
+         self.last_packet_at = Some(now);
++        if self.config.kind == ProbeKind::Validation {
++            let credit = self.config.min_probe_delta();
++            let floor = now.checked_sub(credit).unwrap_or(now);
++            let base = self.validation_next_at.unwrap_or(floor).max(floor);
++            self.validation_next_at = Some(base + size / self.config.target_bitrate);
++        }
+     }
+ }
+ 
+ #[cfg(test)]
+ mod test {
+     use super::*;
++
++    #[test]
++    fn long_validation_stall_credit_is_bounded_to_one_burst_plus_packet() {
++        let start = Instant::now();
++        for rate in [Bitrate::mbps(2), Bitrate::mbps(10), Bitrate::mbps(20)] {
++            let config = ProbeClusterConfig::new(0.into(), rate, ProbeKind::Validation)
++                .with_duration(Duration::from_secs(2));
++            for delay in [Duration::from_millis(50), Duration::from_secs(1)] {
++                let mut state = ProbeClusterState::new(config);
++                state.record_packet(start, DataSize::bytes(240));
++                let resumed = start + delay;
++                let mut sent = DataSize::ZERO;
++                while state.next_probe_time() <= resumed {
++                    state.record_packet(resumed, DataSize::bytes(240));
++                    sent += DataSize::bytes(240);
++                    assert!(sent <= rate * Duration::from_millis(2) + DataSize::bytes(240));
++                }
++                assert!(sent > DataSize::ZERO);
++                assert!(state.next_probe_time() > resumed);
++            }
++        }
++    }
+ 
+     #[test]
+     fn late_probe_boundary_is_strict_and_uses_actual_send_progress() {
+--- a/src/bwe/probe/control.rs
++++ b/src/bwe/probe/control.rs
+@@ -125,6 +125,22 @@
+ impl ProbeControl {
+     pub fn new() -> Self {
+         Self::default()
++    }
++
++    pub(crate) fn validation_config(
++        &mut self,
++        target: Bitrate,
++        now: Instant,
++    ) -> Option<ProbeClusterConfig> {
++        if target < Bitrate::kbps(5) || !self.can_probe(self.last_estimate?) {
++            return None;
++        }
++        let id = self.next_cluster_id.inc();
++        Some(
++            ProbeClusterConfig::new(id, target, ProbeKind::Validation)
++                .with_duration(Duration::from_secs(2))
++                .with_requested_at(now),
++        )
+     }
+ 
+     pub fn enable(&mut self, v: bool) {
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -185,6 +185,19 @@
+         }
+     }
+ 
++    pub(crate) fn cancel_probes(&mut self, validation_only: bool) {
++        let mut keep = VecDeque::new();
++        while let Some(probe) = self.probe_queue.pop_front() {
++            if !validation_only || probe.config().kind() == crate::bwe::ProbeKind::Validation {
++                self.completed_probes.push_back(probe.config().cluster());
++                self.next_poll_queue = None;
++            } else {
++                keep.push_back(probe);
++            }
++        }
++        self.probe_queue = keep;
++    }
++
+     /// Start executing a probe cluster.
+     ///
+     /// The pacer will pace at the probe's target bitrate and track packets sent.
+--- a/src/pacer/mod.rs
++++ b/src/pacer/mod.rs
+@@ -29,6 +29,12 @@
+ 
+     pub fn null() -> PacerImpl {
+         PacerImpl::Null(NullPacer::default())
++    }
++
++    pub fn cancel_probes(&mut self, validation_only: bool) {
++        if let PacerImpl::LeakyBucket(pacer) = self {
++            pacer.cancel_probes(validation_only);
++        }
+     }
+ 
+     pub fn start_probe(&mut self, config: ProbeClusterConfig) {
+--- a/src/rtp/rtcp/twcc.rs
++++ b/src/rtp/rtcp/twcc.rs
+@@ -1065,6 +1065,8 @@
+ 
+     /// Size in bytes of the payload sent.
+     size: u16,
++    // Actual protected RTP datagram bytes, independent of payload-byte GCC units.
++    validation_packet_size: Option<u16>,
+ 
+     recv_report: Option<TwccRecvReport>,
+ }
+@@ -1092,6 +1094,11 @@
+ 
+     pub fn size(&self) -> usize {
+         self.size as usize
++    }
++
++    /// Actual encrypted RTP datagram size recorded at send time, if known.
++    pub(crate) fn validation_packet_size(&self) -> Option<usize> {
++        self.validation_packet_size.map(usize::from)
+     }
+ 
+     /// The time indicated by the remote side for when they received the packet.
+@@ -1123,6 +1130,7 @@
+             packet_id,
+             local_send_time,
+             size: size as u16,
++            validation_packet_size: None,
+             recv_report: Some(TwccRecvReport {
+                 local_recv_time,
+                 remote_recv_time,
+@@ -1163,11 +1171,26 @@
+             // In practice the max sizes is constrained by the MTU and will max out around 1200
+             // bytes, hence this cast is fine.
+             size: size as u16,
++            validation_packet_size: None,
+             // The recv report, derived from TWCC feedback later.
+             recv_report: None,
+         });
+         while self.queue.len() > self.keep {
+             self.queue.pop_front();
++        }
++    }
++
++    /// Preserve the actual protected size without changing GCC payload units.
++    pub(crate) fn register_seq_with_packet_size(
++        &mut self,
++        packet_id: TwccPacketId,
++        now: Instant,
++        size: usize,
++        packet_size: usize,
++    ) {
++        self.register_seq(packet_id, now, size);
++        if let Some(record) = self.queue.back_mut() {
++            record.validation_packet_size = u16::try_from(packet_size).ok();
+         }
+     }
+ 
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -371,6 +371,10 @@
+             }
+         }
+ 
++        if bwe.validation_should_stop() {
++            self.pacer.cancel_probes(true);
++        }
++
+         // Drain completion/cancellation events before rebuilding the probe
+         // binding. Clear generated padding from regular RTX sources as well as
+         // the fallback stream, preserving queued media and retransmissions.
+@@ -1194,13 +1198,24 @@
+             crate::log_stat!("PACKET_SENT", header.ssrc, payload_size, kind);
+         }
+ 
+-        self.pacer.register_send(now, payload_size.into(), midrid);
+-
+         if let Some(raw_packets) = &mut self.raw_packets {
+             raw_packets.push_back(Box::new(RawPacket::RtpTx(header.clone(), buf.clone())));
+         }
+ 
+         let protected = srtp_tx.protect_rtp(buf, &header, *seq_no);
++
++        // Validation budgets and measures the same actually protected datagram
++        // bytes. Preserve payload-byte pacing for ordinary Google probes/media.
++        let validation = self
++            .bwe
++            .as_ref()
++            .is_some_and(|bwe| bwe.is_validation_cluster(cluster_id));
++        let paced_bytes = if validation {
++            protected.len()
++        } else {
++            payload_size
++        };
++        self.pacer.register_send(now, paced_bytes.into(), midrid);
+ 
+         if twcc_enabled {
+             let packet_id = if let Some(cluster) = cluster_id {
+@@ -1208,8 +1223,12 @@
+             } else {
+                 TwccPacketId::new(twcc_seq)
+             };
+-            self.twcc_tx_register
+-                .register_seq(packet_id, now, payload_size);
++            self.twcc_tx_register.register_seq_with_packet_size(
++                packet_id,
++                now,
++                payload_size,
++                protected.len(),
++            );
+         }
+ 
+         // Update BWE subsystem
+@@ -1337,7 +1356,41 @@
+         }
+     }
+ 
++    pub fn start_bwe_validation(&mut self, target: Bitrate, now: Instant) -> Option<u64> {
++        if self.srtp_tx.is_none() || self.probe_media().is_none() {
++            return None;
++        }
++        let bwe = self.bwe.as_mut()?;
++        let config = bwe.begin_validation(target, now)?;
++        self.pacer.cancel_probes(false);
++        while let Some(id) = self.pacer.check_probe_complete(now) {
++            bwe.end_probe(now, id);
++        }
++        self.streams.clear_pending_padding();
++        self.streams.set_probe_media(None);
++        self.pacer.start_probe(config);
++        Some(*config.cluster())
++    }
++
++    pub fn cancel_bwe_validation(&mut self, now: Instant) {
++        if let Some(bwe) = self.bwe.as_mut() {
++            bwe.cancel_validation(now);
++        }
++        self.pacer.cancel_probes(true);
++        self.streams.clear_pending_padding();
++    }
++
+     pub fn reset_bwe(&mut self, init_bitrate: Bitrate) {
++        // New estimator IDs must never attach to an old train. This resets only
++        // probe/padding state, preserving queued real media, RTX and SRTP keys.
++        self.pacer.cancel_probes(false);
++        while self
++            .pacer
++            .check_probe_complete(already_happened())
++            .is_some()
++        {}
++        self.streams.clear_pending_padding();
++        self.streams.set_probe_media(None);
+         if let Some(bwe) = self.bwe.as_mut() {
+             bwe.reset(init_bitrate);
+         }
+--- /dev/null
++++ b/src/bwe/validation.rs
+@@ -0,0 +1,288 @@
++//! Bounded sustained delivery validation, separate from Google short probe math.
++//! Only actual unique TWCC acknowledgments for this validation are evidence.
++use crate::Bitrate;
++use std::collections::HashSet;
++use std::time::{Duration, Instant};
++
++/// Lifecycle of a bounded sustained validation train.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum BweValidationStatus {
++    /// Requested, without any matched acknowledgment yet.
++    Pending,
++    /// Receiving actual matched feedback, not yet a sufficient proof.
++    Running,
++    /// Both raw spans cover at least one second and measured rate meets target.
++    Passed,
++    /// Loss, congestion, resource bound or fixed deadline rejected validation.
++    Failed,
++    /// Application cancelled this request.
++    Cancelled,
++}
++/// Actual encrypted RTP datagram delivery, excluding IP/UDP overhead.
++/// These measured bytes are a lower bound on wire traffic, independent of the
++/// payload-byte units used by the unchanged Google short-probe/GCC estimators.
++#[derive(Debug, Clone, Copy)]
++pub struct BweValidationObservation {
++    /// Cluster/request identity; never compare results across resets.
++    pub id: u64,
++    /// Time of the latest actual matching feedback or terminal transition.
++    pub at: Instant,
++    /// Immutable request time, used for the fixed three-second deadline.
++    pub requested_at: Instant,
++    /// Earliest actual local send timestamp in matching feedback.
++    pub started_at: Option<Instant>,
++    /// Required measured bitrate, not a measured result.
++    pub target_bitrate: Bitrate,
++    /// Current validation lifecycle.
++    pub status: BweValidationStatus,
++    /// Actual first-to-last send span.
++    pub send_span: Duration,
++    /// Actual first-to-last remote receive span, never compared to local clocks.
++    pub recv_span: Duration,
++    /// Actual protected datagram bytes, excluding the last sent packet.
++    pub send_bytes: u64,
++    /// Actual protected datagram bytes, excluding the first received packet.
++    pub recv_bytes: u64,
++    /// Unique matched received packets.
++    pub received_packets: u64,
++    /// Unique matched packets reported lost; any such record rejects this train.
++    pub lost_packets: u64,
++    /// Minimum of raw send/receive rates; absent until both spans cover one second.
++    pub measured_bitrate: Option<Bitrate>,
++}
++pub(super) struct Validation {
++    observation: BweValidationObservation,
++    seen: HashSet<u64>,
++    first_send: Option<Instant>,
++    last_send: Option<Instant>,
++    first_receive: Option<Instant>,
++    last_receive: Option<Instant>,
++    last_send_size: u64,
++    first_receive_size: u64,
++    total_bytes: u64,
++}
++impl Validation {
++    pub(super) fn new(id: u64, target: Bitrate, now: Instant) -> Self {
++        Self {
++            observation: BweValidationObservation {
++                id,
++                at: now,
++                requested_at: now,
++                started_at: None,
++                target_bitrate: target,
++                status: BweValidationStatus::Pending,
++                send_span: Duration::ZERO,
++                recv_span: Duration::ZERO,
++                send_bytes: 0,
++                recv_bytes: 0,
++                received_packets: 0,
++                lost_packets: 0,
++                measured_bitrate: None,
++            },
++            seen: HashSet::new(),
++            first_send: None,
++            last_send: None,
++            first_receive: None,
++            last_receive: None,
++            last_send_size: 0,
++            first_receive_size: 0,
++            total_bytes: 0,
++        }
++    }
++    pub(super) fn snapshot(&self) -> BweValidationObservation {
++        self.observation
++    }
++    pub(super) fn active(&self) -> bool {
++        matches!(
++            self.observation.status,
++            BweValidationStatus::Pending | BweValidationStatus::Running
++        )
++    }
++    pub(super) fn terminate(&mut self, status: BweValidationStatus, now: Instant) {
++        if self.active() {
++            self.observation.status = status;
++            self.observation.at = now;
++            tracing::debug!(id = self.observation.id, status = ?status,
++                requested_at = ?self.observation.requested_at, started_at = ?self.observation.started_at,
++                terminal_at = ?now, target_bps = self.observation.target_bitrate.as_u64(),
++                send_span_us = self.observation.send_span.as_micros(), recv_span_us = self.observation.recv_span.as_micros(),
++                send_bytes = self.observation.send_bytes, recv_bytes = self.observation.recv_bytes,
++                received_packets = self.observation.received_packets, lost_packets = self.observation.lost_packets,
++                measured_bps = ?self.observation.measured_bitrate.map(|v| v.as_f64()),
++                "native sustained validation terminal");
++        }
++    }
++    pub(super) fn timeout(&mut self, now: Instant) {
++        if now.saturating_duration_since(self.observation.requested_at) >= Duration::from_secs(3) {
++            self.terminate(BweValidationStatus::Failed, now);
++        }
++    }
++    pub(super) fn record(
++        &mut self,
++        seq: u64,
++        sent: Instant,
++        received: Option<Instant>,
++        bytes: usize,
++        now: Instant,
++    ) {
++        self.timeout(now);
++        if !self.active() || sent < self.observation.requested_at || !self.seen.insert(seq) {
++            return;
++        }
++        if self.seen.len() > 8192 {
++            self.terminate(BweValidationStatus::Failed, now);
++            return;
++        }
++        self.observation.at = now;
++        let Some(received) = received else {
++            self.observation.lost_packets += 1;
++            self.terminate(BweValidationStatus::Failed, now);
++            return;
++        };
++        self.observation.status = BweValidationStatus::Running;
++        self.observation.received_packets += 1;
++        let bytes = bytes as u64;
++        if self.first_send.is_none_or(|v| sent < v) {
++            self.first_send = Some(sent);
++        }
++        if self.last_send.is_none_or(|v| sent >= v) {
++            self.last_send = Some(sent);
++            self.last_send_size = bytes;
++        }
++        if self.first_receive.is_none_or(|v| received <= v) {
++            self.first_receive = Some(received);
++            self.first_receive_size = bytes;
++        }
++        if self.last_receive.is_none_or(|v| received > v) {
++            self.last_receive = Some(received);
++        }
++        self.total_bytes += bytes;
++        self.observation.started_at = self.first_send;
++        self.observation.send_span = self
++            .last_send
++            .unwrap()
++            .duration_since(self.first_send.unwrap());
++        self.observation.recv_span = self
++            .last_receive
++            .unwrap()
++            .duration_since(self.first_receive.unwrap());
++        self.observation.send_bytes = self.total_bytes.saturating_sub(self.last_send_size);
++        self.observation.recv_bytes = self.total_bytes.saturating_sub(self.first_receive_size);
++    }
++    pub(super) fn finish_batch(&mut self, now: Instant) {
++        self.timeout(now);
++        if !self.active() {
++            return;
++        }
++        if self.observation.send_span >= Duration::from_secs(1)
++            && self.observation.recv_span >= Duration::from_secs(1)
++        {
++            let send_rate =
++                self.observation.send_bytes as f64 * 8.0 / self.observation.send_span.as_secs_f64();
++            let recv_rate =
++                self.observation.recv_bytes as f64 * 8.0 / self.observation.recv_span.as_secs_f64();
++            let rate: Bitrate = send_rate.min(recv_rate).into();
++            self.observation.measured_bitrate = Some(rate);
++            if rate >= self.observation.target_bitrate {
++                self.terminate(BweValidationStatus::Passed, now);
++            }
++        }
++    }
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn short_burst_and_requested_rate_cannot_pass_sustained_validation() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(200), start);
++        for i in 0..5 {
++            let at = start + Duration::from_millis(i * 4);
++            v.record(i, at, Some(at), 1100, at);
++        }
++        v.finish_batch(start + Duration::from_millis(20));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Running);
++        assert!(v.snapshot().measured_bitrate.is_none());
++        v.timeout(start + Duration::from_secs(3));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++    }
++    #[test]
++    fn actual_full_raw_window_passes_without_gap_correction_or_fake_target_bytes() {
++        let start = Instant::now();
++        let remote = start + Duration::from_secs(60);
++        let mut v = Validation::new(8, Bitrate::kbps(160), start);
++        for i in 0..=100 {
++            let sent = start + Duration::from_millis(i * 10);
++            let recv = remote + Duration::from_millis(i * 10);
++            v.record(i, sent, Some(recv), 200, sent + Duration::from_millis(20));
++        }
++        v.finish_batch(start + Duration::from_millis(1020));
++        let o = v.snapshot();
++        assert_eq!(o.status, BweValidationStatus::Passed);
++        assert_eq!(o.send_bytes, 20000);
++        assert_eq!(o.recv_bytes, 20000);
++        assert_eq!(o.measured_bitrate.unwrap(), Bitrate::kbps(160));
++    }
++    #[test]
++    fn slow_receive_gaps_remain_in_denominator_and_do_not_prove_fast_train() {
++        let start = Instant::now();
++        let remote = start + Duration::from_secs(60);
++        let mut v = Validation::new(8, Bitrate::kbps(160), start);
++        for i in 0..=100 {
++            v.record(
++                i,
++                start + Duration::from_millis(i * 10),
++                Some(remote + Duration::from_millis(i * 20)),
++                200,
++                start + Duration::from_millis(i * 20),
++            );
++        }
++        v.finish_batch(start + Duration::from_secs(2));
++        assert_eq!(v.snapshot().measured_bitrate.unwrap(), Bitrate::kbps(80));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Running);
++        v.timeout(start + Duration::from_secs(3));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++    }
++    #[test]
++    fn old_loss_duplicate_and_timer_cannot_refresh_or_extend_fixed_request() {
++        let start = Instant::now();
++        let mut v = Validation::new(1, Bitrate::kbps(100), start);
++        v.record(9, start - Duration::from_millis(1), None, 200, start);
++        assert_eq!(v.snapshot().lost_packets, 0);
++        v.record(1, start, Some(start), 200, start);
++        let before = v.snapshot();
++        v.record(1, start, Some(start), 200, start + Duration::from_secs(1));
++        assert_eq!(v.snapshot().at, before.at);
++        v.timeout(start + Duration::from_secs(2));
++        assert_eq!(v.snapshot().at, before.at);
++        v.record(
++            2,
++            start + Duration::from_secs(1),
++            None,
++            200,
++            start + Duration::from_secs(1),
++        );
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++        assert_eq!(v.snapshot().requested_at, start);
++    }
++    #[test]
++    fn loss_later_in_same_batch_rejects_earlier_full_span_before_publication() {
++        let start = Instant::now();
++        let mut v = Validation::new(2, Bitrate::kbps(160), start);
++        for i in 0..=100 {
++            let at = start + Duration::from_millis(i * 10);
++            v.record(i, at, Some(at), 200, at);
++        }
++        assert_ne!(v.snapshot().status, BweValidationStatus::Passed);
++        v.record(
++            101,
++            start + Duration::from_millis(1010),
++            None,
++            200,
++            start + Duration::from_millis(1050),
++        );
++        v.finish_batch(start + Duration::from_millis(1050));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++        assert_eq!(v.snapshot().lost_packets, 1);
++    }
++}

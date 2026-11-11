@@ -1,0 +1,64 @@
+{
+  "status": "ACTUAL_SCOPED_PROFILE_PASS_FIXED_GO_AND_RUST",
+  "sip_worker_commit": "ee19da1a7ef178593e232a27365de7b4ba8f8829",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "source_sha256": {
+    "references/sip/pkg/sip/outbound.go": "20321a13a33cde83290f553b9fe163b367a4e2c9bd9711564ef168920556fef5",
+    "references/sip/pkg/sip/protocol.go": "833267fe4593268631a9691d126b78f84c409bd4a6c4cf9c47430c74b7a4b656",
+    "references/protocol-stable/livekit/sip.go": "0aab27de0f34e1dccfc8d5cbe2c58b65d83069f36f33d9c1eae9a68c20e17098",
+    "livekit-rs-server/tests/interop/sip-media/peer.mjs": "904e1cf522c2e7d1267de00e406b51b1aa33a66a602b48f1ee1deb2904ab7591",
+    "livekit-rs-server/tests/interop/node_modules/livekit-server-sdk/dist/TwirpRPC.js": "160ecae532944f6fcda5faf1c09f60832bd176aa6d183083315a659352f30b0e",
+    "livekit-rs-server/tests/interop/node_modules/livekit-server-sdk/dist/SipClient.js": "cc49090fd66ec92831e18f45a7c136240eea1551f19bb5d56d1fd5e7ccb16391",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b"
+  },
+  "real_status_profiles": [
+    486,
+    503
+  ],
+  "expected_real_call_count": 4,
+  "error_comparison": "actual complete HTTP body and SDK name/message/status/code/full metadata; only explicitly structured generated IDs normalized; raw retained",
+  "repo_inputs_changed": [
+    "tests/interop/sip-failures new files only",
+    "independent spec addendum/review metadata"
+  ],
+  "temporary_directory": "/tmp/f07-sip-failures retained for coordinator final cleanup",
+  "date": "2026-10-25",
+  "source_scope": "No Rust/SDK/sip-media input change; independent local protocol peer snapshot and real public SIP rejection runner",
+  "peer_input": {
+    "copied_from": "livekit-rs-server/tests/interop/sip-media/peer.mjs",
+    "copied_source_sha256": "904e1cf522c2e7d1267de00e406b51b1aa33a66a602b48f1ee1deb2904ab7591",
+    "own_path": "peer-base.mjs",
+    "own_sha256": "904e1cf522c2e7d1267de00e406b51b1aa33a66a602b48f1ee1deb2904ab7591",
+    "copy_byte_identical": true,
+    "runtime_import": "./peer-base.mjs; no external mutable peer dependency"
+  },
+  "file_sha256": {
+    "README.md": "da17efebee6de3798213a81d280f4ba1184ccd1265480ed82a4d77d9aabba1cd",
+    "peer-base.mjs": "904e1cf522c2e7d1267de00e406b51b1aa33a66a602b48f1ee1deb2904ab7591",
+    "rejecting-peer.mjs": "680cda7bdbc5f17ea3c182f6a7f77f7cd233a0872e31d02cbed07ff0e129f07d",
+    "run.mjs": "a81427f25c85acf41d6521af85182fb5b6e10a4937b0d821791a72c0e46a27d6"
+  },
+  "historical_draft_source_sha256": "61ccc35239478b4274ed95e55db6882b0e3e88f0cf49d79f6f5e6492f5d20698",
+  "static_checks": {
+    "node_check": {
+      "status": "PASS",
+      "files": [
+        "run.mjs",
+        "rejecting-peer.mjs",
+        "peer-base.mjs"
+      ],
+      "scope": "syntax parsing only; no module evaluation, server, sockets, SDK call or worker executed"
+    }
+  },
+  "spec_addendum": {
+    "path": "livekit-rs-docs/specs/0019-sip-failure-acceptance-plan.json",
+    "sha256": "8dd2a24b3efdb2f24d181cfbcc5b690df7473edffdbb6cfe85f303adfdeb30d1"
+  },
+  "fixture_sha256": {
+    "README.md": "b0679e75fd9e4b43f8b9577e3431212cc355deb2ac13e462e571444fffac8703",
+    "peer-base.mjs": "904e1cf522c2e7d1267de00e406b51b1aa33a66a602b48f1ee1deb2904ab7591",
+    "rejecting-peer.mjs": "680cda7bdbc5f17ea3c182f6a7f77f7cd233a0872e31d02cbed07ff0e129f07d",
+    "run.mjs": "a81427f25c85acf41d6521af85182fb5b6e10a4937b0d821791a72c0e46a27d6"
+  },
+  "evidence_scope": "See SPEC0019/0020 and f07-functional-delivery.json; no whole-service or performance claim."
+}

@@ -1,0 +1,1026 @@
+--- a/src/_internal_test_exports/mod.rs
++++ b/src/_internal_test_exports/mod.rs
+@@ -14,6 +14,13 @@
+ mod setup;
+ 
+ impl Rtc {
++    /// UNSTABLE: test-only authenticated RTCP fixture. Uses this real peer's
++    /// established DTLS-SRTP send context; returns None before key installation.
++    /// No key bytes are exported and no production feature enables this API.
++    pub fn _protect_rtcp(&mut self, plain: &[u8]) -> Option<Vec<u8>> {
++        self.session.protect_rtcp_test(plain)
++    }
++
+     /// UNSTABLE: not public API!
+     pub fn _mids(&self) -> Vec<Mid> {
+         self.session.medias.iter().map(Media::mid).collect()
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -34,6 +34,15 @@
+         /// supporting TWCC feedback and the transport sequence extension.
+         /// This does not guarantee that feedback is arriving.
+         can_probe: bool,
++    },
++    /// A real received REMB with its complete source identity, enabled by the
++    /// explicit remote feedback meter. One event per received RTCP report;
++    /// unknown source identities must be ignored by the application.
++    ReceiverEstimate {
++        /// Actual receiver-reported available bitrate, never a requested rate.
++        estimate: Bitrate,
++        /// Complete actual report SSRC list, in its original wire order.
++        ssrcs: Vec<u32>,
+     },
+     /// REMB (Receiver Estimated Maximum Bitrate)
+     Remb {
+--- a/src/change/direct.rs
++++ b/src/change/direct.rs
+@@ -54,6 +54,38 @@
+         self.rtc.session.set_send_transport_cc(enabled);
+     }
+ 
++    /// Set an optional whole-datagram RTCP admission policy. Default is None,
++    /// preserving native parsing behavior. Called only after successful SRTCP
++    /// authentication/decryption, before any RTCP handler or feedback/statistic
++    /// mutation. Returning false discards the complete datagram, never a prefix.
++    /// The function must be synchronous and must not re-enter this Rtc.
++    pub fn set_rtcp_admission(&mut self, admission: Option<fn(&[u8]) -> bool>) {
++        self.rtc.session.set_rtcp_admission(admission);
++    }
++
++    /// Enable the actual RTP-send/authenticated-RTCP boundary for an external
++    /// estimator, before first RTP output. Default false; does not enable native
++    /// BWE, pacing, TWCC receiver feedback or raw media payload logging.
++    pub fn set_send_side_feedback(&mut self, enabled: bool) {
++        self.rtc.session.set_send_side_feedback(enabled);
++    }
++
++    /// Enable explicit output/repeated-packet-NACK observations. Default false.
++    pub fn set_remote_feedback_meter(&mut self, enabled: bool) {
++        self.rtc.session.set_remote_feedback_meter(enabled);
++    }
++
++    /// Number of oldest receiver estimates dropped by the explicit256-report
++    /// bounded queue. Diagnostic only; no omitted report is invented or replayed.
++    pub fn receiver_estimate_drops(&self) -> u64 {
++        self.rtc.session.receiver_estimate_drops()
++    }
++
++    /// Return per-stream actual emitted RTP observations, never capacity proof.
++    pub fn remote_feedback_stats(&self) -> Vec<crate::RemoteFeedbackStats> {
++        self.rtc.session.remote_feedback_stats()
++    }
++
+     /// Request local blank RTX padding independently of GCC. Requires DTLS/SRTP
+     /// and an existing negotiated sending RTX source. One request at a time;
+     /// 512B..16MiB protected budget, finite1..100_000_000bps rate, duration(0,5s].
+@@ -70,6 +102,21 @@
+             .request_padding(max_protected_bytes, rate, duration, now)
+     }
+ 
++    /// Authorize a bounded immediate probe burst, independent of normal pacing.
++    /// Actual protected-byte budget is512B..16MiB, fixed duration(0,5s]. At most
++    ///16packets can be output at the same logical Instant, then a real1ms yield
++    /// is required. Media/RTX queues are preserved; no receive proof is produced.
++    pub fn request_padding_burst(
++        &mut self,
++        max_protected_bytes: u64,
++        duration: std::time::Duration,
++        now: std::time::Instant,
++    ) -> Result<u64, crate::PaddingRequestError> {
++        self.rtc
++            .session
++            .request_padding_burst(max_protected_bytes, duration, now)
++    }
++
+     /// Cancel only this active identity; repeated/old cancellation is a no-op.
+     pub fn cancel_padding(&mut self, id: u64) -> bool {
+         self.rtc.session.cancel_padding(id)
+--- a/src/change/sdp.rs
++++ b/src/change/sdp.rs
+@@ -1192,7 +1192,9 @@
+                 .update_params(&m.rtp_params(), m.direction());
+ 
+             // Remap the extension to that of the answer.
+-            session.exts.remap(&m.extmaps());
++            session
++                .exts
++                .remap_with_type(&m.extmaps(), media.kind().is_audio());
+ 
+             update_media(
+                 &mut media,
+@@ -1340,7 +1342,7 @@
+         // means the ID are matching in the session to the remote.
+ 
+         // Does the ID exist in session?
+-        let in_session = match exts.lookup(id) {
++        let in_session = match exts.lookup_for_media(id, media.kind().is_audio()) {
+             Some(v) => v,
+             None => continue,
+         };
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -779,7 +779,10 @@
+ 
+     /// Video Layers Allocation RTP Header Extension
+     pub mod vla;
+-    pub use crate::rtp_::{AbsCaptureTime, ExtensionValues, UserExtensionValues, FrameUserExtensions, FramePacketization};
++    pub use crate::rtp_::{
++        AbsCaptureTime, ExtensionValues, FramePacketization, FrameUserExtensions,
++        UserExtensionValues,
++    };
+     pub use crate::rtp_::{Extension, ExtensionMap, ExtensionSerializer};
+ 
+     pub use crate::packet::{
+@@ -842,8 +845,12 @@
+ mod util;
+ use util::{Soonest, not_happening};
+ 
++mod remote_feedback;
++mod send_side_feedback;
++pub use send_side_feedback::{SendSideFeedback, SendSidePacket};
+ mod remote_padding;
+-pub use remote_padding::{PaddingObservation, PaddingRequestError, PaddingStatus};
++pub use remote_feedback::RemoteFeedbackStats;
++pub use remote_padding::{PaddingMode, PaddingObservation, PaddingRequestError, PaddingStatus};
+ mod session;
+ use session::Session;
+ 
+@@ -1015,6 +1022,9 @@
+     /// A new estimate from the bandwidth estimation subsystem.
+     EgressBitrateEstimate(BweKind),
+ 
++    /// Explicit application estimator boundary; default-off and independent of native BWE.
++    SendSideFeedback(SendSideFeedback),
++
+     // =================== RTP related events ===================
+ 
+     /// Incoming keyframe request for media that we are sending to the remote peer.
+@@ -1581,6 +1591,7 @@
+                 | Event::PeerStats(_)
+                 | Event::ChannelBufferedAmountLow(_)
+                 | Event::EgressBitrateEstimate(_)
++                | Event::SendSideFeedback(_)
+                 | Event::KeyframeRequest(_) => {
+                     trace!("{:?}", e)
+                 }
+--- /dev/null
++++ b/src/remote_feedback.rs
+@@ -0,0 +1,165 @@
++//! Output-side observations for receiver/interceptor policy. Never a capacity estimate.
++use crate::rtp_::Mid;
++use std::collections::{HashMap, VecDeque};
++use std::time::{Duration, Instant};
++
++/// Actual locally emitted RTP counters for one negotiated sender.
++#[derive(Clone, Copy, Debug)]
++pub struct RemoteFeedbackStats {
++    /// Negotiated media identity. The application must still select its video tracks.
++    pub mid: Mid,
++    /// Actual primary SSRC of this local sender.
++    pub ssrc: u32,
++    /// Negotiated retransmission SSRC, when configured.
++    pub rtx_ssrc: Option<u32>,
++    /// Local sender reset generation, preventing counter/sequence aliasing.
++    pub generation: u64,
++    /// Cumulative primary non-padding packets (wrapping like Go uint32).
++    pub packets_primary: u32,
++    /// Cumulative accepted repeat packet-NACK requests, not RTCP message count.
++    pub repeated_nacks: u32,
++    /// Actual output primary RTP bytes, including RTP header, excluding SRTP tag.
++    pub bytes_primary: u64,
++    /// Actual output non-padding RTX RTP bytes, including RTP header/OSN.
++    pub bytes_rtx: u64,
++    /// Actual output non-padding RTX packet count.
++    pub packets_rtx: u64,
++    /// Actual output padding RTP bytes, excluding SRTP tag.
++    pub bytes_padding: u64,
++    /// Actual output padding packets.
++    pub packets_padding: u64,
++    /// Last actual local RTP output; None until output exists.
++    pub last_output_at: Option<Instant>,
++}
++#[derive(Debug)]
++struct Entry {
++    last_nack: Instant,
++    count: u8,
++}
++#[derive(Debug)]
++pub(crate) struct RemoteFeedbackMeter {
++    pub stats: RemoteFeedbackStats,
++    sent: HashMap<u64, Entry>,
++    order: VecDeque<u64>,
++    capacity: usize,
++}
++impl RemoteFeedbackMeter {
++    pub fn new(mid: Mid, capacity: usize) -> Self {
++        Self {
++            stats: RemoteFeedbackStats {
++                mid,
++                ssrc: 0,
++                rtx_ssrc: None,
++                generation: 0,
++                packets_primary: 0,
++                repeated_nacks: 0,
++                bytes_primary: 0,
++                bytes_rtx: 0,
++                packets_rtx: 0,
++                bytes_padding: 0,
++                packets_padding: 0,
++                last_output_at: None,
++            },
++            sent: HashMap::new(),
++            order: VecDeque::new(),
++            capacity: capacity.max(1),
++        }
++    }
++    pub fn sent(&mut self, seq: u64, bytes: usize, primary: bool, padding: bool, now: Instant) {
++        self.stats.last_output_at = Some(now);
++        if padding {
++            self.stats.bytes_padding += bytes as u64;
++            self.stats.packets_padding += 1;
++        } else if primary {
++            self.stats.packets_primary = self.stats.packets_primary.wrapping_add(1);
++            self.stats.bytes_primary += bytes as u64;
++            // Extended sequence identity, not uint16 aliasing across wrap.
++            if self.sent.contains_key(&seq) {
++                return;
++            }
++            while self.order.len() >= self.capacity {
++                if let Some(old) = self.order.pop_front() {
++                    self.sent.remove(&old);
++                }
++            }
++            self.order.push_back(seq);
++            self.sent.insert(
++                seq,
++                Entry {
++                    last_nack: now,
++                    count: 0,
++                },
++            );
++        } else {
++            self.stats.bytes_rtx += bytes as u64;
++            self.stats.packets_rtx += 1;
++        }
++    }
++    // Fixed Go sequencer.go:385 + downtrack.go:2489. Call only after actual
++    // retransmission-cache lookup succeeded; don't count NACK message length.
++    pub fn nack(&mut self, seq: u64, rtt: Duration, now: Instant) -> bool {
++        let Some(highest) = self.order.back().copied() else {
++            return false;
++        };
++        if seq > highest || highest - seq >= self.capacity as u64 {
++            return false;
++        }
++        let Some(entry) = self.sent.get_mut(&seq) else {
++            return false;
++        };
++        let minimum_ms = 100_u128.min(rtt.as_millis().saturating_mul(2));
++        let Some(elapsed) = now.checked_duration_since(entry.last_nack) else {
++            return false;
++        };
++        if entry.count < 3 && elapsed.as_millis() > minimum_ms {
++            entry.count += 1;
++            entry.last_nack = now;
++            if entry.count > 1 {
++                self.stats.repeated_nacks = self.stats.repeated_nacks.wrapping_add(1);
++            }
++            return true;
++        }
++        false
++    }
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn repeated_packet_not_message_counter_strict_boundary_and_bounded_generation() {
++        let now = Instant::now();
++        let mid = Mid::new();
++        let mut m = RemoteFeedbackMeter::new(mid, 2);
++        m.sent(65535, 100, true, false, now);
++        for ms in [100, 101, 201, 202, 303, 404] {
++            m.nack(
++                65535,
++                Duration::from_millis(70),
++                now + Duration::from_millis(ms),
++            );
++        }
++        assert_eq!(m.stats.repeated_nacks, 2); // first accepted101; repeat202,303; max3.
++        m.sent(65536, 100, true, false, now);
++        m.sent(65537, 100, true, false, now);
++        m.nack(65535, Duration::ZERO, now + Duration::from_secs(2));
++        assert_eq!(m.stats.repeated_nacks, 2); // evicted, never resurrected.
++        assert_eq!(m.sent.len(), 2);
++    }
++    #[test]
++    fn actual_primary_rtx_padding_are_separate_and_wrapping_is_source_semantic() {
++        let now = Instant::now();
++        let mut m = RemoteFeedbackMeter::new(Mid::new(), 2);
++        m.stats.packets_primary = u32::MAX;
++        m.stats.repeated_nacks = u32::MAX;
++        m.sent(1, 100, true, false, now);
++        m.sent(2, 110, false, false, now);
++        m.sent(3, 80, false, true, now);
++        assert_eq!(m.stats.packets_primary, 0);
++        assert_eq!(m.stats.bytes_primary, 100);
++        assert_eq!(m.stats.bytes_rtx, 110);
++        assert_eq!(m.stats.bytes_padding, 80);
++        m.nack(1, Duration::ZERO, now + Duration::from_millis(1));
++        m.nack(1, Duration::ZERO, now + Duration::from_millis(2));
++        assert_eq!(m.stats.repeated_nacks, 0);
++    }
++}
+--- a/src/remote_padding.rs
++++ b/src/remote_padding.rs
+@@ -34,11 +34,21 @@
+     /// Monotonic request identities cannot advance without reuse.
+     IdentityExhausted,
+ }
++/// Explicit local execution behavior. Neither mode is received-capacity proof.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum PaddingMode {
++    /// Original byte/rate-paced execution; unchanged by burst requests.
++    Paced,
++    /// Owner-authorized bounded burst, at most16packets per logical wake.
++    Burst,
++}
+ /// Actual local protected RTP output counters, never receiver acknowledgement.
+ #[derive(Clone, Copy, Debug)]
+ pub struct PaddingObservation {
+     /// Monotonic local execution identity.
+     pub id: u64,
++    /// Actual selected local scheduling behavior.
++    pub mode: PaddingMode,
+     /// Local authorization/execution status, never receipt proof.
+     pub status: PaddingStatus,
+     /// Owner-supplied monotonic request time.
+@@ -47,7 +57,8 @@
+     pub deadline: Instant,
+     /// Maximum total protected RTP bytes authorized for this request.
+     pub max_protected_bytes: u64,
+-    /// Local protected-byte pacing rate, not estimated capacity.
++    /// Paced-mode local protected-byte rate, not estimated capacity. Burst mode
++    /// does not infer a bitrate from the request; this stores the API ceiling only.
+     pub rate: Bitrate,
+     /// Protected RTP bytes actually produced as local datagram output.
+     pub sent_protected_bytes: u64,
+@@ -65,6 +76,7 @@
+     next_id: u64,
+     observation: Option<PaddingObservation>,
+     next_at: Option<Instant>,
++    burst_at: Option<(Instant, u8)>,
+ }
+ impl PaddingExecutor {
+     pub(crate) fn start(
+@@ -102,6 +114,7 @@
+         self.next_id = id;
+         self.observation = Some(PaddingObservation {
+             id,
++            mode: PaddingMode::Paced,
+             status: PaddingStatus::Active,
+             requested_at: now,
+             deadline,
+@@ -113,6 +126,22 @@
+             last_output_at: None,
+         });
+         self.next_at = Some(now);
++        Ok(id)
++    }
++    pub(crate) fn start_burst(
++        &mut self,
++        bytes: u64,
++        duration: Duration,
++        now: Instant,
++    ) -> Result<u64, PaddingRequestError> {
++        let id = self.start(bytes, Bitrate::bps(100_000_000), duration, now)?;
++        self.observation.as_mut().unwrap().mode = PaddingMode::Burst;
++        if self
++            .burst_at
++            .is_some_and(|(at, count)| at == now && count >= 16)
++        {
++            self.next_at = Some(now + Duration::from_millis(1));
++        }
+         Ok(id)
+     }
+     pub(crate) fn observation(&self) -> Option<PaddingObservation> {
+@@ -165,8 +194,24 @@
+         o.sent_packets += 1;
+         o.first_output_at.get_or_insert(now);
+         o.last_output_at = Some(now);
++        let burst_count = if o.mode == PaddingMode::Burst {
++            let count = match self.burst_at {
++                Some((at, count)) if at == now => count + 1,
++                _ => 1,
++            };
++            self.burst_at = Some((now, count));
++            Some(count)
++        } else {
++            None
++        };
+         if o.max_protected_bytes - o.sent_protected_bytes < MAX_PADDING_PACKET as u64 {
+             self.stop(PaddingStatus::Completed);
++        } else if let Some(count) = burst_count {
++            self.next_at = Some(if count < 16 {
++                now
++            } else {
++                now + Duration::from_millis(1)
++            });
+         } else {
+             // No stored credit: scheduler stalls never authorize a catch-up burst.
+             self.next_at = now.checked_add(Duration::from_nanos(
+@@ -265,3 +310,37 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod burst_tests {
++    use super::*;
++    #[test]
++    fn actual_budget_and_fair_yield_hold_across_same_clock_request_generations() {
++        let now = Instant::now();
++        let mut e = PaddingExecutor::default();
++        for _ in 0..16 {
++            let id = e.start_burst(512, Duration::from_secs(1), now).unwrap();
++            assert!(e.due(now));
++            e.sent(now, 512);
++            let o = e.observation().unwrap();
++            assert_eq!(o.id, id);
++            assert_eq!(o.sent_protected_bytes, 512);
++            assert_eq!(o.status, PaddingStatus::Completed);
++        }
++        e.start_burst(1024, Duration::from_secs(1), now).unwrap();
++        assert!(!e.due(now));
++        assert!(e.due(now + Duration::from_millis(1)));
++        e.sent(now + Duration::from_millis(1), 512);
++        assert_eq!(e.observation().unwrap().sent_protected_bytes, 512);
++    }
++    #[test]
++    fn old_paced_api_does_not_gain_burst_credit() {
++        let now = Instant::now();
++        let mut e = PaddingExecutor::default();
++        e.start(4096, Bitrate::bps(100_000), Duration::from_secs(1), now)
++            .unwrap();
++        e.sent(now, 256);
++        assert!(!e.due(now));
++        assert_eq!(e.observation().unwrap().mode, PaddingMode::Paced);
++    }
++}
+--- a/src/rtp/ext.rs
++++ b/src/rtp/ext.rs
+@@ -356,6 +356,9 @@
+ struct MapEntry {
+     ext: Extension,
+     locked: bool,
++    audio: bool,
++    video: bool,
++    custom_applicability: bool,
+ }
+ 
+ impl ExtensionMap {
+@@ -398,9 +401,31 @@
+         }
+         let idx = id as usize - 1;
+ 
+-        let m = MapEntry { ext, locked: false };
++        let m = MapEntry {
++            audio: ext.is_audio(),
++            video: ext.is_video(),
++            ext,
++            locked: false,
++            custom_applicability: false,
++        };
+ 
+         self.0[idx] = Some(m);
++    }
++
++    /// Restrict a configured extension to the selected media kinds. Existing
++    /// set() defaults retain the extension's normal audio/video applicability.
++    /// This affects both offer generation and remote offer/answer acceptance.
++    pub fn set_media_applicability(&mut self, extension: Extension, audio: bool, video: bool) {
++        for entry in self.0.iter_mut().flatten().filter(|e| e.ext == extension) {
++            entry.audio = audio;
++            entry.video = video;
++            entry.custom_applicability = true;
++        }
++    }
++    pub(crate) fn lookup_for_media(&self, id: u8, audio: bool) -> Option<&Extension> {
++        let entry = self.0.get(usize::from(id).checked_sub(1)?)?.as_ref()?;
++        (!entry.custom_applicability || if audio { entry.audio } else { entry.video })
++            .then_some(&entry.ext)
+     }
+ 
+     /// Look up the extension for the id.
+@@ -436,12 +461,9 @@
+ 
+     /// Returns an iterator over the audio or video elements of the extension map
+     pub fn iter_by_media_type(&self, audio: bool) -> impl Iterator<Item = (u8, &Extension)> + '_ {
+-        self.iter().filter(move |(_id, ext)| {
+-            if audio {
+-                ext.is_audio()
+-            } else {
+-                ext.is_video()
+-            }
++        self.0.iter().enumerate().filter_map(move |(index, entry)| {
++            let entry = entry.as_ref()?;
++            (if audio { entry.audio } else { entry.video }).then_some((index as u8 + 1, &entry.ext))
+         })
+     }
+ 
+@@ -568,6 +590,20 @@
+         }
+ 
+         orig_len - b.len()
++    }
++
++    pub(crate) fn remap_with_type(&mut self, remote_exts: &[(u8, &Extension)], audio: bool) {
++        let allowed: Vec<_> = remote_exts
++            .iter()
++            .copied()
++            .filter(|(_, ext)| {
++                self.0.iter().flatten().any(|e| {
++                    e.ext == **ext
++                        && (!e.custom_applicability || if audio { e.audio } else { e.video })
++                })
++            })
++            .collect();
++        self.remap(&allowed);
+     }
+ 
+     pub(crate) fn remap(&mut self, remote_exts: &[(u8, &Extension)]) {
+@@ -1303,6 +1339,26 @@
+     use super::*;
+ 
+     #[test]
++    fn explicit_per_kind_policy_does_not_remap_video_ids_from_disallowed_audio() {
++        let mut map = ExtensionMap::empty();
++        map.set(3, Extension::TransportSequenceNumber);
++        map.set(4, Extension::AbsoluteSendTime);
++        map.set_media_applicability(Extension::TransportSequenceNumber, false, true);
++        map.set_media_applicability(Extension::AbsoluteSendTime, false, true);
++        assert!(map.cloned_with_type(true).lookup(3).is_none());
++        assert!(map.cloned_with_type(false).lookup(3).is_some());
++        map.remap_with_type(&[(7, &Extension::TransportSequenceNumber)], true);
++        assert!(map.lookup(3).is_some());
++        assert!(map.lookup_for_media(3, true).is_none());
++        map.remap_with_type(&[(7, &Extension::TransportSequenceNumber)], false);
++        assert!(map.lookup_for_media(7, false).is_some());
++        assert!(map.lookup_for_media(7, true).is_none());
++        let mut native = ExtensionMap::empty();
++        native.set(3, Extension::TransportSequenceNumber);
++        native.remap_with_type(&[(7, &Extension::TransportSequenceNumber)], true);
++        assert!(native.lookup_for_media(7, true).is_some());
++    }
++    #[test]
+     fn abs_send_time() {
+         let now = Instant::now() + Duration::from_secs(1000);
+ 
+--- /dev/null
++++ b/src/send_side_feedback.rs
+@@ -0,0 +1,125 @@
++//! Explicit, default-off raw boundary for an application-owned estimator.
++use std::collections::VecDeque;
++use std::time::Instant;
++
++/// Metadata from one actually emitted RTP datagram, after protection/size checks.
++#[derive(Clone, Copy, Debug)]
++pub struct SendSidePacket {
++    /// Local monotonic time used for this actual output.
++    pub at: Instant,
++    /// Actual RTP sequence number, independent of the transport-wide sequence.
++    pub sequence: u16,
++    /// Actual sender SSRC (including RTX when this is a retransmission).
++    pub ssrc: u32,
++    /// RTP header bytes, including actual negotiated extensions.
++    pub header_bytes: usize,
++    /// RTP payload bytes, excluding RTP padding and SRTP authentication bytes.
++    pub payload_bytes: usize,
++    /// Whether this media negotiated the transport sequence extension.
++    pub twcc_negotiated: bool,
++    /// Transport sequence actually encoded in this packet, when present.
++    pub transport_sequence: Option<u16>,
++}
++/// Actual send/authenticated-feedback inputs for a separate estimator owner.
++#[derive(Clone)]
++pub enum SendSideFeedback {
++    /// One real RTP output; contains no media payload.
++    Sent(SendSidePacket),
++    /// Authenticated original SRTCP datagram; the owner validates the complete compound before delivering any feedback.
++    Report {
++        /// Actual local authenticated receive time.
++        at: Instant,
++        /// Original complete RTCP datagram bytes (not native matched records).
++        packet: Vec<u8>,
++    },
++    /// Explicit local observation discontinuity. The owner must retire its
++    /// estimator instead of silently continuing with incomplete sent history.
++    Discontinuity,
++}
++impl std::fmt::Debug for SendSideFeedback {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            Self::Sent(v) => f.debug_tuple("Sent").field(v).finish(),
++            Self::Report { at, packet } => f
++                .debug_struct("Report")
++                .field("at", at)
++                .field("bytes", &packet.len())
++                .finish(),
++            Self::Discontinuity => f.write_str("Discontinuity"),
++        }
++    }
++}
++#[derive(Debug, Default)]
++pub(crate) struct SendSideObserver {
++    queue: VecDeque<SendSideFeedback>,
++    discontinuity: bool,
++    queued_bytes: usize,
++}
++impl SendSideObserver {
++    const CAPACITY: usize = 512;
++    const BYTE_CAPACITY: usize = 256 * 1024;
++    fn bytes(item: &SendSideFeedback) -> usize {
++        match item {
++            SendSideFeedback::Report { packet, .. } => packet.len(),
++            _ => 0,
++        }
++    }
++    pub fn push(&mut self, item: SendSideFeedback) {
++        if self.discontinuity {
++            return;
++        }
++        let bytes = Self::bytes(&item);
++        if self.queue.len() == Self::CAPACITY || bytes > Self::BYTE_CAPACITY - self.queued_bytes {
++            self.queue.clear();
++            self.queued_bytes = 0;
++            self.queue.push_back(SendSideFeedback::Discontinuity);
++            self.discontinuity = true;
++        } else {
++            self.queued_bytes += bytes;
++            self.queue.push_back(item);
++        }
++    }
++    pub fn report(&mut self, at: Instant, raw: &[u8]) {
++        if !self.discontinuity {
++            self.push(SendSideFeedback::Report {
++                at,
++                packet: raw.to_vec(),
++            });
++        }
++    }
++    pub fn poll(&mut self) -> Option<SendSideFeedback> {
++        let item = self.queue.pop_front()?;
++        self.queued_bytes -= Self::bytes(&item);
++        Some(item)
++    }
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn compound_feedback_keeps_original_datagram_and_overflow_retires_once() {
++        let now = Instant::now();
++        let mut meter = SendSideObserver::default();
++        let a = [0x8f, 205, 0, 1, 1, 2, 3, 4];
++        let ignored = [0x80, 200, 0, 1, 5, 6, 7, 8];
++        let b = [0x8b, 205, 0, 1, 9, 10, 11, 12];
++        let bytes = [a.as_slice(), ignored.as_slice(), b.as_slice()].concat();
++        meter.report(now, &bytes);
++        let Some(SendSideFeedback::Report { at, packet }) = meter.poll() else {
++            panic!("original authenticated datagram expected")
++        };
++        assert_eq!(at, now);
++        assert_eq!(packet, bytes);
++        assert!(meter.poll().is_none());
++        for _ in 0..=SendSideObserver::CAPACITY {
++            meter.push(SendSideFeedback::Discontinuity);
++        }
++        assert!(matches!(
++            meter.poll(),
++            Some(SendSideFeedback::Discontinuity)
++        ));
++        assert!(meter.poll().is_none());
++        meter.report(now, &a);
++        assert!(meter.poll().is_none());
++    }
++}
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -102,6 +102,12 @@
+ 
+     enable_twcc_feedback: bool,
+     send_transport_cc: bool,
++    rtp_output_started: bool,
++    remote_feedback_enabled: bool,
++    send_side_observer: Option<crate::send_side_feedback::SendSideObserver>,
++    rtcp_admission: Option<fn(&[u8]) -> bool>,
++    pending_receiver_estimates: VecDeque<(Bitrate, Vec<u32>)>,
++    receiver_estimate_drops: u64,
+     remote_padding: crate::remote_padding::PaddingExecutor,
+ 
+     /// A pacer for sending RTP at specific rate.
+@@ -209,6 +215,12 @@
+             bwe_last_event: None,
+             enable_twcc_feedback: false,
+             send_transport_cc: true,
++            rtp_output_started: false,
++            remote_feedback_enabled: false,
++            send_side_observer: None,
++            rtcp_admission: None,
++            pending_receiver_estimates: VecDeque::new(),
++            receiver_estimate_drops: 0,
+             remote_padding: Default::default(),
+             pacer,
+             pacer_control: PacerControl::new(),
+@@ -284,6 +296,23 @@
+         self.remote_padding.start(bytes, rate, duration, now)
+     }
+ 
++    pub(crate) fn request_padding_burst(
++        &mut self,
++        bytes: u64,
++        duration: Duration,
++        now: Instant,
++    ) -> Result<u64, crate::PaddingRequestError> {
++        if self.bwe.is_some() {
++            return Err(crate::PaddingRequestError::NativeBweEnabled);
++        }
++        if self.rtp_closing || !self.ready_for_srtp() {
++            return Err(crate::PaddingRequestError::NotReady);
++        }
++        if self.independent_padding_source().is_none() {
++            return Err(crate::PaddingRequestError::NoSource);
++        }
++        self.remote_padding.start_burst(bytes, duration, now)
++    }
+     pub(crate) fn cancel_padding(&mut self, id: u64) -> bool {
+         self.remote_padding.cancel(id)
+     }
+@@ -952,6 +981,18 @@
+         let srtp: &mut SrtpContext = self.srtp_rx.as_mut()?;
+         let unprotected = srtp.unprotect_rtcp(buf)?;
+ 
++        // Validate the whole authenticated datagram before *any* native RTCP
++        // dispatch, including REMB, repeated NACK, TWCC, stats and raw events.
++        // The optional application policy is independent of native GCC.
++        if self
++            .rtcp_admission
++            .is_some_and(|admit| !admit(&unprotected))
++        {
++            return None;
++        }
++        if let Some(observer) = &mut self.send_side_observer {
++            observer.report(now, &unprotected);
++        }
+         Rtcp::read_packet(&unprotected, &mut self.feedback_rx);
+         let mut need_configure_pacer = false;
+ 
+@@ -962,6 +1003,19 @@
+         }
+ 
+         for fb in RtcpFb::from_rtcp(self.feedback_rx.drain(..)) {
++            if self.remote_feedback_enabled
++                && let RtcpFb::Remb(report) = fb
++            {
++                // Preserve the actual full identity; old dispatch used only first
++                // SSRC and could discard a valid RTX-only/subset report.
++                if self.pending_receiver_estimates.len() >= 256 {
++                    self.pending_receiver_estimates.pop_front();
++                    self.receiver_estimate_drops = self.receiver_estimate_drops.saturating_add(1);
++                }
++                self.pending_receiver_estimates
++                    .push_back((Bitrate::from(report.bitrate as f64), report.ssrcs));
++                continue;
++            }
+             if let RtcpFb::AppSpecificFeedback(asf) = fb {
+                 self.pending_app_feedback = Some(AppSpecificFeedback {
+                     sender_ssrc: asf.sender_ssrc,
+@@ -1031,6 +1085,13 @@
+     }
+ 
+     pub fn poll_event(&mut self) -> Option<Event> {
++        if let Some(event) = self
++            .send_side_observer
++            .as_mut()
++            .and_then(|observer| observer.poll())
++        {
++            return Some(Event::SendSideFeedback(event));
++        }
+         #[cfg(feature = "_internal_test_exports")]
+         {
+             if let Some(probe) = self.pending_probe.take() {
+@@ -1094,6 +1155,12 @@
+             return Some(Event::SenderFeedback(report));
+         }
+ 
++        if let Some((estimate, ssrcs)) = self.pending_receiver_estimates.pop_front() {
++            return Some(Event::EgressBitrateEstimate(BweKind::ReceiverEstimate {
++                estimate,
++                ssrcs,
++            }));
++        }
+         if let Some((mid, bitrate)) = self.streams.poll_remb_request() {
+             return Some(Event::EgressBitrateEstimate(BweKind::Remb {
+                 estimate: bitrate,
+@@ -1305,6 +1372,16 @@
+             raw_packets.push_back(Box::new(RawPacket::RtpTx(header.clone(), buf.clone())));
+         }
+ 
++        let primary = header.ssrc == stream.ssrc();
++        let plain_size = buf.len();
++        let pion_payload_size =
++            plain_size
++                .saturating_sub(header.header_len)
++                .saturating_sub(if header.has_padding {
++                    usize::from(buf.last().copied().unwrap_or(0))
++                } else {
++                    0
++                });
+         let protected = srtp_tx.protect_rtp(buf, &header, *seq_no);
+ 
+         if independent_padding
+@@ -1318,6 +1395,29 @@
+         }
+         if independent_padding && let Some(raw_packets) = &mut self.raw_packets {
+             raw_packets.push_back(Box::new(RawPacket::RtpTx(header.clone(), buf.clone())));
++        }
++
++        self.rtp_output_started = true;
++        if let Some(observer) = &mut self.send_side_observer {
++            observer.push(crate::SendSideFeedback::Sent(crate::SendSidePacket {
++                at: now,
++                sequence: header.sequence_number,
++                ssrc: *header.ssrc,
++                header_bytes: header.header_len,
++                payload_bytes: pion_payload_size,
++                twcc_negotiated: twcc_enabled,
++                transport_sequence: header.ext_vals.transport_cc,
++            }));
++        }
++        if self.remote_feedback_enabled {
++            stream.observe_remote_output(
++                *seq_no,
++                plain_size,
++                primary,
++                is_padding,
++                self.send_buffer_video,
++                now,
++            );
+         }
+ 
+         // Validation budgets and measures the same actually protected datagram
+@@ -1501,6 +1601,40 @@
+         }
+     }
+ 
++    #[cfg(feature = "_internal_test_exports")]
++    pub(crate) fn protect_rtcp_test(&mut self, plain: &[u8]) -> Option<Vec<u8>> {
++        // Caller supplies at least a complete RTCP header and sender SSRC.
++        if plain.len() < 8 {
++            return None;
++        }
++        Some(self.srtp_tx.as_mut()?.protect_rtcp(plain))
++    }
++
++    pub(crate) fn set_rtcp_admission(&mut self, admission: Option<fn(&[u8]) -> bool>) {
++        self.rtcp_admission = admission;
++    }
++
++    pub(crate) fn set_send_side_feedback(&mut self, enabled: bool) {
++        if enabled && self.send_side_observer.is_none() {
++            assert!(
++                !self.rtp_output_started,
++                "select application estimator before first RTP output"
++            );
++            self.send_side_observer = Some(crate::send_side_feedback::SendSideObserver::default());
++        } else if !enabled {
++            self.send_side_observer = None;
++        }
++    }
++    pub(crate) fn set_remote_feedback_meter(&mut self, enabled: bool) {
++        self.remote_feedback_enabled = enabled;
++    }
++    pub(crate) fn receiver_estimate_drops(&self) -> u64 {
++        self.receiver_estimate_drops
++    }
++    pub(crate) fn remote_feedback_stats(&self) -> Vec<crate::RemoteFeedbackStats> {
++        self.streams.remote_feedback_stats()
++    }
++
+     pub fn configured_bwe_pacing_rate(&self) -> Option<Bitrate> {
+         self.bwe.as_ref()?;
+         self.pacer.configured_pacing_rate()
+--- a/src/streams/mod.rs
++++ b/src/streams/mod.rs
+@@ -365,6 +365,13 @@
+ 
+     pub fn stream_rx(&mut self, ssrc: &Ssrc) -> Option<&mut StreamRx> {
+         self.streams_rx.get_mut(ssrc)
++    }
++
++    pub(crate) fn remote_feedback_stats(&self) -> Vec<crate::RemoteFeedbackStats> {
++        self.streams_tx
++            .values()
++            .filter_map(StreamTx::remote_feedback_stats)
++            .collect()
+     }
+ 
+     pub fn stream_tx(&mut self, ssrc: &Ssrc) -> Option<&mut StreamTx> {
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -132,6 +132,10 @@
+     /// Audio defaults to not being paced.
+     unpaced: Option<bool>,
+ 
++    /// Receiver-policy counters are explicitly enabled, independent of native RTX behavior.
++    remote_feedback: Option<crate::remote_feedback::RemoteFeedbackMeter>,
++    remote_feedback_rtt: Duration,
++    remote_feedback_generation: u64,
+     /// Scheduled resends due to NACK or spurious padding.
+     resends: VecDeque<Resend>,
+ 
+@@ -321,6 +325,9 @@
+             queue_info: None,
+             unpaced: None,
+             resends: VecDeque::new(),
++            remote_feedback: None,
++            remote_feedback_rtt: Duration::from_millis(70),
++            remote_feedback_generation: 0,
+             padding: 0,
+             blank_packet: RtpPacket::blank(),
+             rtx_cache: RtxCache::new(2000, DEFAULT_RTX_CACHE_DURATION),
+@@ -353,6 +360,28 @@
+         debug_assert!(self.ssrc.is_probe());
+         self.midrid = MidRid(mid, None);
+         self.pt_for_padding = Some(pt);
++    }
++
++    // Record actual output for the explicitly enabled receiver-feedback owner.
++    pub(crate) fn observe_remote_output(
++        &mut self,
++        seq: u64,
++        bytes: usize,
++        primary: bool,
++        padding: bool,
++        capacity: usize,
++        now: Instant,
++    ) {
++        let meter = self.remote_feedback.get_or_insert_with(|| {
++            crate::remote_feedback::RemoteFeedbackMeter::new(self.midrid.mid(), capacity)
++        });
++        meter.stats.generation = self.remote_feedback_generation;
++        meter.stats.ssrc = *self.ssrc;
++        meter.stats.rtx_ssrc = self.rtx.map(|ssrc| *ssrc);
++        meter.sent(seq, bytes, primary, padding, now);
++    }
++    pub(crate) fn remote_feedback_stats(&self) -> Option<crate::RemoteFeedbackStats> {
++        self.remote_feedback.as_ref().map(|m| m.stats)
+     }
+ 
+     /// The (primary) SSRC of this encoded stream.
+@@ -1031,6 +1060,18 @@
+                     self.remote_acked_ssrc = true;
+                 }
+ 
++                // Same receiver-report RTT source as the upstream downtrack sequencer.
++                if let Some(rtt) = crate::util::calculate_rtt(
++                    now.to_ntp_duration(),
++                    r.last_sr_delay,
++                    r.last_sr_time,
++                ) {
++                    self.remote_feedback_rtt = if rtt.is_zero() {
++                        Duration::from_millis(70)
++                    } else {
++                        rtt
++                    };
++                }
+                 self.stats.update_with_rr(now, self.last_sent_seq_no, r)
+             }
+             Nack(_, list) => {
+@@ -1071,6 +1112,13 @@
+                 continue;
+             };
+ 
++            if let Some(meter) = &mut self.remote_feedback {
++                // Only explicit Remote/interceptor owners select source-style
++                // packet eligibility. Native RTX behavior stays unchanged.
++                if !meter.nack(*seq_no, self.remote_feedback_rtt, now) {
++                    continue;
++                }
++            }
+             let resend = Resend {
+                 seq_no,
+                 queued_at: now,
+@@ -1346,6 +1394,12 @@
+         self.ssrc = new_ssrc;
+         self.rtx = new_rtx;
+ 
++        self.remote_feedback = None;
++        self.remote_feedback_generation = self
++            .remote_feedback_generation
++            .checked_add(1)
++            .expect("sender generation exhausted");
++        self.remote_feedback_rtt = Duration::from_millis(70);
+         // Reset sequence numbers
+         self.seq_no = SeqNo::default();
+         self.seq_no_rtx = SeqNo::default();

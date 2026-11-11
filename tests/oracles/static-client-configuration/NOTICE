@@ -1,0 +1,1 @@
+Version syntax validation adapted from golang.org/x/mod/semver v0.41.0 under BSD3; original source and LICENSE retained in oracle. Static rule behavior from fixed LiveKit Server v1.13.10 clientconfiguration under Apache2, LICENSE retained. Go simple-lower ASCII-target mapping bound to fixed Go1.26.3 unicode source.

@@ -1,0 +1,31 @@
+[package]
+name = "rtc-runtime"
+description = "Room tasks, room manager and media socket I/O (protocol agnostic, ARCH-01)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rtc-core.workspace = true
+rtc-media.workspace = true
+rtc-turn.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+socket2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+getifs.workspace = true
+
+# SPEC-0074 C21: sendmmsg batch writer (Linux-only path in net/batch_tx.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+lk-config.workspace = true
+str0m.workspace = true
+rtc-crypto.workspace = true
+
+# Deterministic real Room model timer consumers; no production feature change.
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,15 @@
+{
+  "status": "NOT_RUN_NO_EXPECTED_VALUES",
+  "reference_inputs": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/go-modules/mediatransportutil-f234b534b095/pkg/rtcconfig/webrtc_config.go": "9314905fef010cb6d647d153d66365e56d2e894d4b845ee3b24d058a77248e16",
+    "references/go-modules/mediatransportutil-f234b534b095/go.mod": "4d43ee74fb8e20460b1dc6fad7ad45d2882d8aa6b2da13592b42f6832a9effa4"
+  },
+  "oracle_inputs": {
+    "oracle/cases.jsonl": "668978af8b6145ce47f25962cd8827bda87943b5eb2dda3e35f66d47cd678370",
+    "oracle/knobs_test.go": "e3133a99b89154428ad9fe8d947e26e758123f58a035150166b1dbdae391722e",
+    "oracle/settings/main.go": "78054132d97459664a99505df12e7d7ad4c9f1095b8dde4773b318509ecf79fd",
+    "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53"
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "source": "fixed server main.go139\u2013188 plus urfave ensureHelp/buildHelpCommand",
+  "root": {
+    "local_flags": [
+      "help/h",
+      "version/v"
+    ],
+    "children": [
+      {
+        "name": "generate-keys",
+        "children": [
+          {
+            "name": "help",
+            "aliases": [
+              "h"
+            ],
+            "HideHelp": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "ports",
+        "children": [
+          {
+            "name": "help",
+            "aliases": [
+              "h"
+            ],
+            "HideHelp": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "create-join-token",
+        "children": [
+          {
+            "name": "help",
+            "aliases": [
+              "h"
+            ],
+            "HideHelp": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "list-nodes",
+        "children": [
+          {
+            "name": "help",
+            "aliases": [
+              "h"
+            ],
+            "HideHelp": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "help-verbose",
+        "children": [
+          {
+            "name": "help",
+            "aliases": [
+              "h"
+            ],
+            "HideHelp": true,
+            "children": []
+          }
+        ]
+      },
+      {
+        "name": "help",
+        "aliases": [
+          "h"
+        ],
+        "HideHelp": true,
+        "children": []
+      }
+    ]
+  },
+  "required_flags_stage": "checkAllRequiredFlags after child dispatch; builtin help bypasses ancestor required checks",
+  "exact_actual_pending": true
+}

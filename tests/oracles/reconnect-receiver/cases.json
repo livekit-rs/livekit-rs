@@ -1,0 +1,50 @@
+[
+  {
+    "name": "audio-primary",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\na=sendonly\r\na=rtpmap:111 opus/48000/2\r\na=msid:s t\r\na=ssrc:7 cname:x\r\n"
+  },
+  {
+    "name": "video-primary",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc:7 cname:x\r\n"
+  },
+  {
+    "name": "video-zero",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc:0 cname:x\r\n"
+  },
+  {
+    "name": "video-absent",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\n"
+  },
+  {
+    "name": "rid-send",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc:7 cname:x\r\na=rid:f send\r\n"
+  },
+  {
+    "name": "rid-recv-source-guard",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc:7 cname:x\r\na=rid:f recv\r\n"
+  },
+  {
+    "name": "rid-without-msid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=ssrc:7 cname:x\r\na=rid:f send\r\n"
+  },
+  {
+    "name": "simulcast-without-rid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc:7 cname:x\r\na=simulcast:send q;h;f\r\n"
+  },
+  {
+    "name": "repair-before-fid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc:8 cname:r\r\na=ssrc:7 cname:x\r\na=ssrc-group:FID 7 8\r\n"
+  },
+  {
+    "name": "repair-before-fec",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc:8 cname:r\r\na=ssrc:7 cname:x\r\na=ssrc-group:FEC-FR 7 8\r\n"
+  },
+  {
+    "name": "only-repair-declared",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=msid:s t\r\na=ssrc-group:FID 7 8\r\na=ssrc:8 cname:r\r\n"
+  },
+  {
+    "name": "legacy-ssrc-msid-rid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=sendonly\r\na=rtpmap:96 VP8/90000\r\na=ssrc:7 msid:s t\r\na=rid:f send\r\n"
+  }
+]

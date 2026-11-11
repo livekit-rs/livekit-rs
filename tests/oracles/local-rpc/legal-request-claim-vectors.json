@@ -1,0 +1,11 @@
+{
+  "status": "SOURCE_DERIVED_NOT_EXECUTED",
+  "explanation": "0807 is field1/wire0, a legal unknown wire-kind collision beside valid request_id field1/wire2. Fixed generated Go retains it as unknown; generated prost rejects it. Both clean and mutated known values are identical in Go. Msg NONE wrappers use source-canonical internal type URLs; expiry2030 is a fixed illustrative future deadline, actual tests should derive now+original30s.",
+  "AgentDispatch_hex": "0a0741445f77697265120a7265616c2d6167656e741a09776972652d726f6f6d",
+  "Request_clean_hex": "0a0d726571756573745f6c6567616c120b776972652d636c69656e74208080f889effd89af1a42200a0741445f77697265120a7265616c2d6167656e741a09776972652d726f6f6d5001",
+  "Request_legal_unknown_hex": "0a0d726571756573745f6c6567616c120b776972652d636c69656e74208080f889effd89af1a42200a0741445f77697265120a7265616c2d6167656e741a09776972652d726f6f6d50010807",
+  "Request_NONE_envelope_hex": "0a24747970652e676f6f676c65617069732e636f6d2f696e7465726e616c2e52657175657374124c0a0d726571756573745f6c6567616c120b776972652d636c69656e74208080f889effd89af1a42200a0741445f77697265120a7265616c2d6167656e741a09776972652d726f6f6d50010807",
+  "ClaimResponse_template_clean_hex": "0a0d726571756573745f6c6567616c121041435455414c5f5345525645525f4944",
+  "ClaimResponse_template_legal_unknown_hex": "0a0d726571756573745f6c6567616c121041435455414c5f5345525645525f49440807",
+  "ClaimResponse_server_note": "Replace ACTUAL_SERVER_ID with observed actual ClaimRequest.server_id before sending; preserve request_id and originalexpiry. Same append0807 unknown remains legal."
+}

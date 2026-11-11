@@ -1,0 +1,506 @@
+[
+  {
+    "id": "empty-e0-b0",
+    "text": "",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-alone-e0-b0",
+    "text": "\u0000",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-multi-e0-b0",
+    "text": "x\u0000",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-del-alone-e0-b0",
+    "text": "",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "soft-hyphen-e0-b0",
+    "text": "­",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "accent-e0-b0",
+    "text": "é",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "combining-e0-b0",
+    "text": "é",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "zwj-e0-b0",
+    "text": "👩‍👩",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "regional-pair-e0-b0",
+    "text": "🇺🇸",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "line-separator-e0-b0",
+    "text": " ",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "paragraph-separator-e0-b0",
+    "text": " ",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "tab-e0-b0",
+    "text": "a\tb",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-csi-e0-b0",
+    "text": "\u001b[31mred\u001b[0m",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-osc-bel-e0-b0",
+    "text": "\u001b]8;;https://owned.invalid\u0007label\u001b]8;;\u0007",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "osc-newline-invalid-e0-b0",
+    "text": "\u001b]owned\nnotclosed",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ambiguous-e0-b0",
+    "text": "·",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "box-drawing-e0-b0",
+    "text": "─",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "cjk-e0-b0",
+    "text": "中",
+    "east_asian": false,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "empty-e0-b1",
+    "text": "",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-alone-e0-b1",
+    "text": "\u0000",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-multi-e0-b1",
+    "text": "x\u0000",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-del-alone-e0-b1",
+    "text": "",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "soft-hyphen-e0-b1",
+    "text": "­",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "accent-e0-b1",
+    "text": "é",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "combining-e0-b1",
+    "text": "é",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "zwj-e0-b1",
+    "text": "👩‍👩",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "regional-pair-e0-b1",
+    "text": "🇺🇸",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "line-separator-e0-b1",
+    "text": " ",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "paragraph-separator-e0-b1",
+    "text": " ",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "tab-e0-b1",
+    "text": "a\tb",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-csi-e0-b1",
+    "text": "\u001b[31mred\u001b[0m",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-osc-bel-e0-b1",
+    "text": "\u001b]8;;https://owned.invalid\u0007label\u001b]8;;\u0007",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "osc-newline-invalid-e0-b1",
+    "text": "\u001b]owned\nnotclosed",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ambiguous-e0-b1",
+    "text": "·",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "box-drawing-e0-b1",
+    "text": "─",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "cjk-e0-b1",
+    "text": "中",
+    "east_asian": false,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "empty-e1-b0",
+    "text": "",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-alone-e1-b0",
+    "text": "\u0000",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-multi-e1-b0",
+    "text": "x\u0000",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-del-alone-e1-b0",
+    "text": "",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "soft-hyphen-e1-b0",
+    "text": "­",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "accent-e1-b0",
+    "text": "é",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "combining-e1-b0",
+    "text": "é",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "zwj-e1-b0",
+    "text": "👩‍👩",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "regional-pair-e1-b0",
+    "text": "🇺🇸",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "line-separator-e1-b0",
+    "text": " ",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "paragraph-separator-e1-b0",
+    "text": " ",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "tab-e1-b0",
+    "text": "a\tb",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-csi-e1-b0",
+    "text": "\u001b[31mred\u001b[0m",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-osc-bel-e1-b0",
+    "text": "\u001b]8;;https://owned.invalid\u0007label\u001b]8;;\u0007",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "osc-newline-invalid-e1-b0",
+    "text": "\u001b]owned\nnotclosed",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "ambiguous-e1-b0",
+    "text": "·",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "box-drawing-e1-b0",
+    "text": "─",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "cjk-e1-b0",
+    "text": "中",
+    "east_asian": true,
+    "force_narrow_borders": false,
+    "tab_width": 4
+  },
+  {
+    "id": "empty-e1-b1",
+    "text": "",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-alone-e1-b1",
+    "text": "\u0000",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-nul-multi-e1-b1",
+    "text": "x\u0000",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ascii-del-alone-e1-b1",
+    "text": "",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "soft-hyphen-e1-b1",
+    "text": "­",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "accent-e1-b1",
+    "text": "é",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "combining-e1-b1",
+    "text": "é",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "zwj-e1-b1",
+    "text": "👩‍👩",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "regional-pair-e1-b1",
+    "text": "🇺🇸",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "line-separator-e1-b1",
+    "text": " ",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "paragraph-separator-e1-b1",
+    "text": " ",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "tab-e1-b1",
+    "text": "a\tb",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-csi-e1-b1",
+    "text": "\u001b[31mred\u001b[0m",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ansi-osc-bel-e1-b1",
+    "text": "\u001b]8;;https://owned.invalid\u0007label\u001b]8;;\u0007",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "osc-newline-invalid-e1-b1",
+    "text": "\u001b]owned\nnotclosed",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "ambiguous-e1-b1",
+    "text": "·",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "box-drawing-e1-b1",
+    "text": "─",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  },
+  {
+    "id": "cjk-e1-b1",
+    "text": "中",
+    "east_asian": true,
+    "force_narrow_borders": true,
+    "tab_width": 4
+  }
+]

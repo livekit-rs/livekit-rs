@@ -1,0 +1,33 @@
+diff --git a/src/sctp/mod.rs b/src/sctp/mod.rs
+--- a/src/sctp/mod.rs
++++ b/src/sctp/mod.rs
+@@ -304,6 +304,15 @@
+         let max_payload = mtu
+             .saturating_sub(crate::io::MAX_DTLS_OVERHEAD)
+             .saturating_sub(SCTP_OVERHEAD);
++        // Pion maxPayloadSizeForMTU rounds DATA payload down to four bytes.
++        // Retransmission selection includes padded chunk bytes; an unaligned
++        // fragment must never exceed the association's inferred packet budget.
++        // Keep the native library default unchanged for existing callers.
++        let max_payload = if options.source_partial_reliability || options.fast_rtx_wnd > 0 {
++            max_payload & !3
++        } else {
++            max_payload
++        };
+         config.max_payload_size(max_payload as u32);
+         #[cfg(test)]
+         let max_payload_size = max_payload;
+@@ -1454,10 +1463,9 @@
+         init_data.local_init_chunk().unwrap();
+ 
+         let err = sctp.init(true, now, Some(init_data), None).unwrap_err();
+-        assert!(
+-            err.to_string()
+-                .contains("SNAP requires both local and remote SCTP INIT chunks")
+-        );
++        assert!(err
++            .to_string()
++            .contains("SNAP requires both local and remote SCTP INIT chunks"));
+     }
+ 
+     #[test]

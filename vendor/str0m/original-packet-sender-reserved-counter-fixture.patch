@@ -1,0 +1,33 @@
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -1577,17 +1577,18 @@
+     fn explicit_original_packet_holes_and_late_repair_preserve_sender_clock_anchor() {
+         let now = Instant::now();
+         let mut stream = StreamTx::new(101.into(), None, MidRid(Mid::from("v"), None), true, 1200);
+-        stream.write_rtp(RtpWrite::new(98.into(), 1000.into(), 30000, now, vec![1]));
++        let base = *stream.next_seq_no();
++        stream.write_rtp(RtpWrite::new(98.into(), base.into(), 30000, now, vec![1]));
+         stream.write_rtp(RtpWrite::new(
+             98.into(),
+-            1004.into(),
++            (base + 4).into(),
+             48000,
+             now + Duration::from_millis(200),
+             vec![2],
+         ));
+         stream.write_rtp(RtpWrite::new(
+             98.into(),
+-            1003.into(),
++            (base + 3).into(),
+             45000,
+             now + Duration::from_millis(300),
+             vec![3],
+@@ -1599,7 +1600,7 @@
+         );
+         assert_eq!(
+             *stream.next_seq_no(),
+-            1005,
++            base + 5,
+             "reserved unknown holes are never reused after late repair"
+         );
+     }

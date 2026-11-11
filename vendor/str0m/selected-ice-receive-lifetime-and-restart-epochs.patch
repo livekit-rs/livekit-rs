@@ -1,0 +1,16 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1489,6 +1489,13 @@
+     pub fn ice_connection_state(&self) -> IceConnectionState {
+         self.ice.state()
+     }
++    /// Opt in to selected-pair retention from actual incoming STUN/data. The
++    /// owning compatibility transport must enforce its own failure timeout.
++    /// None leaves the generic native timing and pruning behavior unchanged.
++    pub fn set_ice_selected_receive_timeout(&mut self, timeout: Option<Duration>) {
++        self.ice.set_selected_receive_timeout(timeout);
++    }
++
+     /// Actual last inbound packet on the currently nominated ICE remote tuple.
+     /// Includes authenticated STUN and matching data at the ICE socket boundary,
+     /// before DTLS/SRTP validation, exactly separate from media/RTT statistics.

@@ -1,0 +1,73 @@
+--- a/src/change/sdp.rs
++++ b/src/change/sdp.rs
+@@ -115,8 +115,15 @@ impl<'a> SdpApi<'a> {
+         let client = self.rtc.dtls.is_active().expect("DTLS active to be set");
+ 
+         // Generate local sctp-init for the answer:
+-        // When the remote included a=sctp-init, we reciprocate (§5.4).
+-        if has_snap && !self.rtc.sctp.is_inited() && !self.rtc.sctp.ensure_local_snap_init() {
++        // When the remote included a=sctp-init, we reciprocate (§5.4) — but only
++        // if this side opted in. Upstream LiveKit/pion gates the answer's
++        // `a=sctp-init` on its own `EnableSctpSnap` (peerconnection.go:3014), so
++        // a peer that did not enable WARP never silently negotiates SNAP.
++        if has_snap
++            && self.rtc.sctp.snap_enabled()
++            && !self.rtc.sctp.is_inited()
++            && !self.rtc.sctp.ensure_local_snap_init()
++        {
+             warn!("Failed to generate SNAP INIT chunk, degrading to non-SNAP");
+         }
+ 
+@@ -788,9 +795,10 @@ fn init_dtls(rtc: &mut Rtc, remote_sdp: &Sdp) -> Result<(), RtcError> {
+ /// The remote init bytes are stored in `RtcSctp.snap_init` for §5.6
+ /// re-offer validation.
+ ///
+-/// When the remote includes `a=sctp-init`, we always accept and reciprocate —
+-/// Section 5.4 of draft-hancke-tsvwg-snap says the answerer MAY include the
+-/// attribute, and doing so is beneficial.
++/// When the remote includes `a=sctp-init`, we accept (Section 5.4 of
++/// draft-hancke-tsvwg-snap says the answerer MAY include the attribute, and
++/// doing so is beneficial). Whether the answer actually carries our own INIT
++/// chunk depends on the local `set_snap_enabled` opt-in — see `accept_offer`.
+ ///
+ /// When an initial answer omits or rejects `a=sctp-init`, callers are expected
+ /// to fall back to a regular SCTP handshake.
+--- a/tests/sdp-negotiation.rs
++++ b/tests/sdp-negotiation.rs
+@@ -922,11 +922,12 @@ fn snap_sdp_both_sides_enabled() -> Result<(), RtcError> {
+     Ok(())
+ }
+ 
+-/// Only the offerer enables SNAP. The answerer should reciprocate by including
+-/// `a=sctp-init` in its answer (per the draft, an endpoint that receives
+-/// `a=sctp-init` should respond with one).
++/// Only the offerer enables SNAP. An answerer that did not opt in must not
++/// reciprocate: upstream pion emits the answer's `a=sctp-init` only when its own
++/// `EnableSctpSnap` is set (`peerconnection.go:3014`), and the offerer then falls
++/// back to the regular SCTP handshake.
+ #[test]
+-fn snap_sdp_offerer_only_enabled() -> Result<(), RtcError> {
++fn snap_sdp_offerer_only_enabled_answerer_does_not_reciprocate() -> Result<(), RtcError> {
+     init_log();
+     init_crypto_default();
+ 
+@@ -956,8 +957,8 @@ fn snap_sdp_offerer_only_enabled() -> Result<(), RtcError> {
+     let answer = r.rtc.sdp_api().accept_offer(offer)?;
+     let answer_sdp = answer.to_sdp_string();
+     assert!(
+-        extract_sctp_init(&answer_sdp).is_some(),
+-        "Answerer should reciprocate a=sctp-init even without snap_enabled"
++        extract_sctp_init(&answer_sdp).is_none(),
++        "Answerer must not reciprocate a=sctp-init without snap_enabled"
+     );
+ 
+     l.rtc.sdp_api().accept_answer(pending, answer)?;
+@@ -983,7 +984,7 @@ fn snap_sdp_offerer_only_enabled() -> Result<(), RtcError> {
+         .events
+         .iter()
+         .any(|(_, e)| matches!(e, Event::ChannelData(data) if data.data == b"offerer-snap"));
+-    assert!(received, "Data channel must work with offerer-only SNAP");
++    assert!(received, "Data channel must work when the answerer declines SNAP");
+ 
+     Ok(())
+ }

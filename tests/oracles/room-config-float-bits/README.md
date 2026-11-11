@@ -1,0 +1,5 @@
+# Fixed-source neutral-float consumer oracle
+
+Stage via ../prepare-locked-server-oracle.py with --oracle this directory. GOTOOLCHAIN=go1.26.3 GOMAXPROCS=2 go run -mod=readonly . < cases.jsonl > actual.jsonl. The input is passed to actual fixed server config.NewConfig, and output bits come from the generated typed EncodingOptions.KeyFrameInterval after the real YAML wrapper/protoyaml consumer. No pre-authored expected values. This proves data bits rather than JSON parsed -0 == +0. Current47 independent rows leave original84 and F11414 untouched. Run candidate ignored test protoyaml::v2_consumer_tests::actual_fixed_go_float_consumer_bits_match with F111_FLOAT_CONSUMER_RESULTS pointing at actual.jsonl. Nonfinite Go payload is source-defined (internal/strconv/deps.go nan), not guessed from Rust's f64::NAN. No services.
+
+Actual47 Go source-consumer outputs and Rust bit/error comparison are recorded in livekit-rs-docs/evidence/2026-10-27/protoyaml-v2-component-float47-acceptance.json. These finite results do not establish all YAML, API, or CLI behavior.

@@ -1,0 +1,12 @@
+{"name": "source-key-absent", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      {}\n"}
+{"name": "source-key-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: null\n"}
+{"name": "source-key-empty", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: {}\n"}
+{"name": "source-key-room-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: true\n          audio_mixing: 2\n          file_outputs:\n            - filepath: room.ogg\n              file_type: 1\n              disable_manifest: true\n"}
+{"name": "source-key-participant-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs:\n            - filepath: participant.ogg\n              file_type: 1\n"}
+{"name": "source-key-track-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          filepath: dir.with.dot/track.ogg\n          disable_manifest: true\n"}
+{"name": "source-key-nil-outputs", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs: [null, {}]\n"}
+{"name": "source-key-composite-filter", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          webhooks:\n            - url: http://127.0.0.1:1\n              signing_key: synthetic-api\n              filter_params:\n                include_events: [egress_ended]\n"}
+{"name": "source-key-wrong-protojson-key", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: true\n"}
+{"name": "source-key-composite-oneof-preset-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          options:\n            preset: 0\n"}
+{"name": "source-key-track-oneof-storage-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          output:\n            s3:\n              bucket: synthetic\n"}
+{"name": "source-key-participant-top-preset", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: 0\n"}

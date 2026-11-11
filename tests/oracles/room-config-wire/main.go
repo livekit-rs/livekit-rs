@@ -1,0 +1,5 @@
+package main
+import("bufio";"encoding/json";"os";"time";"github.com/livekit/protocol/auth";"github.com/golang-jwt/jwt/v5")
+type In struct{ID string `json:"id"`;Config json.RawMessage `json:"config"`}
+func text(e error)string{if e==nil{return ""};return e.Error()}
+func main(){s:=bufio.NewScanner(os.Stdin);s.Buffer(make([]byte,4096),1<<20);enc:=json.NewEncoder(os.Stdout);for s.Scan(){var in In;if e:=json.Unmarshal(s.Bytes(),&in);e!=nil{panic(e)};var c auth.RoomConfiguration;direct:=c.UnmarshalJSON(in.Config);now:=time.Now().Unix();claims:=jwt.MapClaims{"iss":"f102-owned-api","sub":"f102-actor","nbf":now,"exp":now+600,"unknownTopLevel":map[string]any{"nested":1},"roomConfig":in.Config};signed,e:=jwt.NewWithClaims(jwt.SigningMethodHS256,claims).SignedString([]byte("f102-owned-secret"));if e!=nil{panic(e)};p,e:=auth.ParseAPIToken(signed);if e!=nil{panic(e)};_,_,verify:=p.Verify("f102-owned-secret");if e:=enc.Encode(map[string]any{"id":in.ID,"direct_error":text(direct),"verified":verify==nil,"verify_error":text(verify)});e!=nil{panic(e)}};if e:=s.Err();e!=nil{panic(e)}}

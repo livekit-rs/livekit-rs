@@ -1,0 +1,26 @@
+{
+  "status": "ACTUAL_SCOPED_PROFILE_PASS_FIXED_GO_AND_RUST",
+  "reference_server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "source_sha256": {
+    "references/livekit-stable/pkg/service/sip.go": "3df44eb29477053061f1b7c15040ac9bff2fe89fdd9f7788c028bd6ec7e60a13",
+    "references/protocol-stable/livekit/sip.go": "0aab27de0f34e1dccfc8d5cbe2c58b65d83069f36f33d9c1eae9a68c20e17098",
+    "livekit-rs-server/crates/lk-protocol/protos/livekit_sip.proto": "eab546a338a218b1eb9351265171506654b10b854d17e0f829081035bbc19009",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b",
+    "livekit-rs-server/tests/interop/node_modules/livekit-server-sdk/dist/AccessToken.d.ts": "00422903cb62e7f5884287061ab80a9828fb93b68e412153d14cc21dbb0d00ae"
+  },
+  "expected_case_count_with_actual_nonsip_participant": {
+    "redis": 82,
+    "none": 84
+  },
+  "exact_expected_error_codes": "NONE; measured public official outcomes preserved",
+  "owned_resources": "two uniquely named RTC rooms and local observer browser/static HTTP only; no SIP workers/trunks/catalog writes",
+  "repo_inputs_changed": true,
+  "fixture_sha256": {
+    "README.md": "6d8b78627636ac0b93df696906cf7da131fc2676a5214bc8874f9dec0c750dad",
+    "participant.html": "f1b13fde7a30c9ce184b825b01f5d5e2fee115bdcf98394645824ceb3f8c9251",
+    "run.mjs": "dc7e6ea2254802bcd2db30cc489bcfce6416462b852164ef2293795811a378a2"
+  },
+  "evidence_scope": "See SPEC0019/0020 and f07-functional-delivery.json; no whole-service or performance claim."
+}

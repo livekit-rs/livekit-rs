@@ -1,0 +1,7 @@
+# Public source and licenses
+
+The driver imports unchanged fixed sources; it does not copy ICE/DTLS/SCTP algorithms. `references/livekit-stable` is v1.13.10 commit e5655ac20267fa5005dccaf3f0e3bfc3ea688c07. `references/protocol-stable` is commit 9bb708cdb81918a6c63dd25e915b4644310b45b6. Their original Apache-2.0 licenses are retained in licenses/LiveKit-{server,protocol}-LICENSE.txt. Original source is retained in those repository reference checkouts, not in a nonexistent source-snapshot directory under this oracle.
+
+The fixed Go module lock selects github.com/pion/sctp v1.12.0, github.com/pion/datachannel v1.6.3 and github.com/livekit/webrtc-pion/v4 v4.2.18-warp.6 (replacing github.com/pion/webrtc/v4 v4.2.18). These Pion sources carry SPDX license notices and the original MIT notice, retained as licenses/Pion-LICENSE.txt and licenses/Pion-MIT.txt; module source is supplied by Go's checksum-verified download/cache, not developer-specific absolute paths. The driver itself remains project test glue. No complete Pion source snapshot or offline dependency archive is claimed.
+
+SOURCE.json preserves selected exact upstream source hashes for audit and hashes every staged driver/document/license input. The staging helper uses only main.go plus the original fixed server module locks and local server/protocol references; it does not vendor or alter the upstream implementations. Runtime replay has not been executed for this packaging revision.

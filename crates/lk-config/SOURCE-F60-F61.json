@@ -1,0 +1,90 @@
+{
+  "feature": "F60/F61 OS input and ENV composition",
+  "status": "CURRENT_SOURCE_NOT_RUNTIME_CERTIFICATION",
+  "base_commit": "de79836e38ccc0592ebc4cc2581875422c819bde",
+  "files": [
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli.rs",
+      "sha256": "2455ccd213c43088904c60975af419c52c7e4be44ed61899a659e220891f5dd7"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli_os.rs",
+      "sha256": "653328f1763cc45e4bc3bb5a9d5d2c19932495c8d8c0217592cdb1df3b15a703"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli_quote.rs",
+      "sha256": "eb1fb9c27a2aa0066c51ec2ff3f486bb51929c1f5186ade19ea276f834f001f9"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli_stage.rs",
+      "sha256": "2db0e21d515f0223eb9fdb9adc2e81910075d6260b5b8d547f3ea1bee0e39dd0"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/env.rs",
+      "sha256": "0c8c4f103088b1e5a1b7d2b47e2a82932650a368970b191a8f5b4536120985f2"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/error.rs",
+      "sha256": "0e7ded94fe6124e76d98c6b4c0a10b829ca03f0820f0fcf9ce3791fb995bd7d3"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/keys.rs",
+      "sha256": "5c0ed9c98f615e512a8dc476bef5f3b660cc053426f6ae470b03b44c1ad27b20"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/lib.rs",
+      "sha256": "c024910ae94b2fc1b0b1e98e9b1d7a31200705536fc70c2560e03484c1732beb"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/load.rs",
+      "sha256": "a26e9c79baa78a862c4edfd934e44435d5834af4ef28a83ec25cae7295f930b9"
+    },
+    {
+      "path": "livekit-rs-server/crates/livecloud/src/lib.rs",
+      "sha256": "643447475bb859925660db4d35d63269f5496c8c5e416ef90ea9ce50ef603f7d"
+    }
+  ],
+  "sources": [
+    {
+      "path": "references/deps/mitchellh--go-homedir/homedir.go",
+      "sha256": "94bccb1b8cd7f3ae2b71ff0ebacf6639384578c700b2ef01aaf183d9b581384a"
+    },
+    {
+      "path": "references/deps/mitchellh--go-homedir/LICENSE",
+      "sha256": "22adc4abdece712a737573672f082fd61ac2b21df878efb87ffcff4354a07f26"
+    },
+    {
+      "path": "references/urfave-cli/command_parse.go",
+      "sha256": "42c68200e4a158a0d2983bea30c5c9c3963faa134c75f2da8fa11ad4d375a54a"
+    },
+    {
+      "path": "references/urfave-cli/command_run.go",
+      "sha256": "247335153426376a60b59439759665a8175c6aa20b5d5cb6383ec5ac573ed6ab"
+    },
+    {
+      "path": "references/livekit-stable/cmd/server/main.go",
+      "sha256": "9006ed033eb2786629d950b08321206cdd0f1202fe89f999c9a331e1e0dc691f"
+    },
+    {
+      "path": "references/livekit-stable/pkg/config/config.go",
+      "sha256": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a"
+    },
+    {
+      "path": "references/deps/go-yaml--yaml-v3/yaml.go",
+      "sha256": "447f1c34c1851298028e561e8aaefde8c9c3ebcc2f965ff81f9a603f2d9e4fc5"
+    },
+    {
+      "path": "references/deps/go-yaml--yaml-v3/decode.go",
+      "sha256": "a66a783addb0f9cdb45f9e87deb0e51c2aca6bf81e46d4e822136993ba81505d"
+    },
+    {
+      "path": "references/deps/go-yaml--yaml-v3/readerc.go",
+      "sha256": "7693311b8e90eebf81d8468cb5a312725491002c5c6061c49a5488435069c7a3"
+    },
+    {
+      "path": "references/deps/go-yaml--yaml-v3/LICENSE",
+      "sha256": "d18f6323b71b0b768bb5e9616e36da390fbd39369a81807cca352de4e4e6aa0b"
+    }
+  ],
+  "attribution": "LICENSES/urfave-cli-MIT.txt and LICENSES/go-homedir-MIT.txt; fixed Go source used only as behavioral reference/test peer; LICENSES/go-yaml-MIT-Apache.txt"
+}

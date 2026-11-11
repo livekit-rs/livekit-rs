@@ -1,0 +1,72 @@
+[
+  {
+    "id": "audio",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=msid:stream track\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "video-dummy",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=msid:stream track\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "video-three",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=msid:s video\r\na=simulcast:send q;h;f\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "video-four-clipped",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=msid:s video\r\na=simulcast:send q;h;f;x\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "video-disabled-rid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=msid:s video\r\na=simulcast:send ~q;h\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "video-recv-simulcast",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=msid:s video\r\na=simulcast:recv q;h\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "video-wrong-spaces",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=msid:s video\r\na=simulcast:send  q;h\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "ssrc-fallback",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=ssrc:1234 msid:s legacy\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "msid-extra-space-ssrc-fallback",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=msid:s  wrong\r\na=ssrc:1234 MSID:s legacy\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "recvonly-still-synthesized",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=msid:s receive\r\na=recvonly\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "case-insensitive-kind",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=AUDIO 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=msid:stream track\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "application-ignored",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=application 9 UDP/TLS/RTP/SAVPF webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "two-tracks",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=msid:stream track\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=msid:s video\r\n",
+    "random_cid": false
+  },
+  {
+    "id": "missing-cid-real-guid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\n",
+    "random_cid": true
+  }
+]

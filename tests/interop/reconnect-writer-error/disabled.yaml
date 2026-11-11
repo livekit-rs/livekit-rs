@@ -1,0 +1,2 @@
+rtc:
+  reconnect_on_data_channel_error: false

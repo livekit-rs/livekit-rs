@@ -1,0 +1,12 @@
+{
+  "status": "PREPARED_NOT_RUN",
+  "candidate": 10,
+  "candidate_archive_sha256": "d355b01f41dd4b6a8d1cc250ce081c03e561e1090e4becb112e84062fd47058c",
+  "rust_source_sha256": "de7743e97b49fbfb28df3f37fad289a5df9f774bf298400b8141cfa32c06d462",
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "fixed_go_files_sha256": {
+    "references/livekit-stable/pkg/telemetry/prometheus/node_linux.go": "db0fe6d0584270d452ddc1ebc630f370aa96e18868b2b33b4f1da1ae9e5252c9",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85"
+  }
+}

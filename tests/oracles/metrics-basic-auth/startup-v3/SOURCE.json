@@ -1,0 +1,17 @@
+{
+  "status": "FROZEN_NOT_RUN_AST_ONLY",
+  "parent_v2_driver_sha256": "8e1d0d716470a11eade91e9bbe9fc4d189b357b72beeedbf7e2da0f1a6b95a59",
+  "historical_v2_actual_sha256": "e5f5ec92acdf8d2ecc62717fc9c14f31650301418827fae93008daf092e0eefb",
+  "same_cases_sha256": "3916d277915e0494256b5fda9c7d70de0ed62d1d0830d5367db5a79a3d1024da",
+  "source_sha256": {
+    "references/livekit-stable/pkg/service/server.go": "d61f2d9caf4aed2b5f7c655f3f8eb8a51b0b0f357632d471d2b81b883d7ede0f",
+    "references/livekit-stable/cmd/server/main.go": "9006ed033eb2786629d950b08321206cdd0f1202fe89f999c9a331e1e0dc691f"
+  },
+  "assets_sha256": {
+    "REVIEW.json": "a7314b9d78c6e2c629ebbf7c40825c521a03db0d70272594d06941da6c057f97",
+    "cases.json": "3916d277915e0494256b5fda9c7d70de0ed62d1d0830d5367db5a79a3d1024da",
+    "changes.patch": "2219941adb3ba59c04eb23f0d14fbc4153985666b79b3e915f7fe7d969860f16",
+    "run-http.py": "b185c028584b33293071fc13594cca11a1d4b9d3ef36ae429df9210bf9de2cd7"
+  },
+  "no_shared_edits_compiler_services_git": true
+}

@@ -1,0 +1,276 @@
+[
+  {
+    "id": "reliable-default-success",
+    "reliable": true,
+    "slow": 0,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 0,
+          "timeout": false,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "reliable-default-timeout",
+    "reliable": true,
+    "slow": 0,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 50000000,
+          "n": 0,
+          "buffered": 20,
+          "timeout": true,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "reliable-positive-unmeasured-retry",
+    "reliable": true,
+    "slow": 10,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 50000000,
+          "n": 0,
+          "buffered": 20,
+          "timeout": true,
+          "closed": false
+        },
+        {
+          "at_ns": 50000001,
+          "n": 4,
+          "buffered": 24,
+          "timeout": false,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "reliable-positive-measured-slow-drop",
+    "reliable": true,
+    "slow": 1000,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 100,
+          "timeout": false,
+          "closed": false
+        }
+      ],
+      [
+        {
+          "at_ns": 200000001,
+          "n": 0,
+          "buffered": 90,
+          "timeout": true,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "reliable-threshold-equal-retry",
+    "reliable": true,
+    "slow": 400,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 100,
+          "timeout": false,
+          "closed": false
+        }
+      ],
+      [
+        {
+          "at_ns": 200000001,
+          "n": 0,
+          "buffered": 90,
+          "timeout": true,
+          "closed": false
+        },
+        {
+          "at_ns": 200000002,
+          "n": 4,
+          "buffered": 94,
+          "timeout": false,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "reliable-closed-terminal",
+    "reliable": true,
+    "slow": 10,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 0,
+          "buffered": 0,
+          "timeout": false,
+          "closed": true
+        }
+      ]
+    ]
+  },
+  {
+    "id": "lossy-default-success",
+    "reliable": false,
+    "slow": 0,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 0,
+          "timeout": false,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "lossy-default-timeout",
+    "reliable": false,
+    "slow": 0,
+    "target_ns": 0,
+    "calls": [
+      [
+        {
+          "at_ns": 50000000,
+          "n": 0,
+          "buffered": 100,
+          "timeout": true,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "lossy-target-unmeasured",
+    "reliable": false,
+    "slow": 0,
+    "target_ns": 100000000,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 100,
+          "timeout": false,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "lossy-target-minimum-inclusive",
+    "reliable": false,
+    "slow": 0,
+    "target_ns": 100000000,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 8192,
+          "timeout": false,
+          "closed": false
+        }
+      ],
+      [
+        {
+          "at_ns": 200000001,
+          "n": 4,
+          "buffered": 8192,
+          "timeout": false,
+          "closed": false
+        }
+      ],
+      [
+        {
+          "at_ns": 200000002,
+          "n": 4,
+          "buffered": 8192,
+          "timeout": false,
+          "closed": false
+        }
+      ]
+    ]
+  },
+  {
+    "id": "lossy-target-over-minimum",
+    "reliable": false,
+    "slow": 0,
+    "target_ns": 100000000,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 8193,
+          "timeout": false,
+          "closed": false
+        }
+      ],
+      [
+        {
+          "at_ns": 200000001,
+          "n": 4,
+          "buffered": 8193,
+          "timeout": false,
+          "closed": false
+        }
+      ],
+      []
+    ]
+  },
+  {
+    "id": "lossy-target-records-failure",
+    "reliable": false,
+    "slow": 0,
+    "target_ns": 100000000,
+    "calls": [
+      [
+        {
+          "at_ns": 1,
+          "n": 4,
+          "buffered": 9000,
+          "timeout": false,
+          "closed": false
+        }
+      ],
+      [
+        {
+          "at_ns": 200000001,
+          "n": 0,
+          "buffered": 8999,
+          "timeout": true,
+          "closed": false
+        }
+      ],
+      []
+    ]
+  }
+]

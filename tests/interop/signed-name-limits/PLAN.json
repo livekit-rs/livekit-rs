@@ -1,0 +1,213 @@
+{
+  "status": "EXECUTION_PLAN_NOT_RUN",
+  "fixture": ".",
+  "fixture_hashes": {
+    "run.mjs": "e011ac8df6867f3ae206f316d64cfdb0e4303307629b20fb9936e73bc127010f",
+    "compare.mjs": "e06c2262f0a2d461c23c60ca356e77a2932bca8db72176a11f8f3d2cbfc348f1",
+    "raw-protocol.mjs": "dc0a88ca8270c6212972b07d6bd128446b049c7576a3f4cbf666bdfc19e4f698",
+    "run-paired.py": "0c73e0deb3ca8d130b0f6cc7c2a3947f13015ad7ed5a27d5b020da6697dbd374",
+    "check-reports.py": "d35382dd77e6d8e72b3c567a51f69d7bb7596ff103238d086de8b8f50e527aff"
+  },
+  "required_profiles": [
+    "room-negative",
+    "room-zero",
+    "room-three-utf8",
+    "identity-negative",
+    "identity-zero",
+    "identity-three-utf8",
+    "name-negative",
+    "name-zero",
+    "name-three-utf8"
+  ],
+  "expected_observations": {
+    "room-negative": 10,
+    "room-zero": 10,
+    "room-three-utf8": 10,
+    "identity-negative": 5,
+    "identity-zero": 5,
+    "identity-three-utf8": 5,
+    "name-negative": 12,
+    "name-zero": 12,
+    "name-three-utf8": 12
+  },
+  "required_actual_runs": 18,
+  "required_pairs": 9,
+  "required_paired_observations": 81,
+  "ports_are_proposed_not_reserved": true,
+  "configs": [
+    {
+      "side": "go",
+      "profile": "room-negative",
+      "config": "configured-profiles/go-room-negative.yaml",
+      "sha256": "b86bbf736b1881cee77e953e934e4a9b0ebb3c6c6cdc8d55ec3e39fb674c19f6",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "room-zero",
+      "config": "configured-profiles/go-room-zero.yaml",
+      "sha256": "bb2ee66b01c148409ea4d2671d5afc3f83db6be5834a03b7b5e85b80f131b6a9",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "room-three-utf8",
+      "config": "configured-profiles/go-room-three-utf8.yaml",
+      "sha256": "b9ba5542d3e3de28fcb6d7266ff52685735de24a10b93c91d6f262e34118fd99",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "identity-negative",
+      "config": "configured-profiles/go-identity-negative.yaml",
+      "sha256": "ad2733481216f9cbe1212e2eef35a9d982e674cfad5c37d40a4d116369588cde",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "identity-zero",
+      "config": "configured-profiles/go-identity-zero.yaml",
+      "sha256": "c6e6920914b004a07c2b11173cdcc8d3ceb50f8701634b62b8a9d6cef211bb35",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "identity-three-utf8",
+      "config": "configured-profiles/go-identity-three-utf8.yaml",
+      "sha256": "265414f8d0d465be0b56615cdc896b7252986d7d3dd828972b66104982324161",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "name-negative",
+      "config": "configured-profiles/go-name-negative.yaml",
+      "sha256": "551f74e618137c66975b3dc974cd61c289686d233db1121989581dc1cf435173",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "name-zero",
+      "config": "configured-profiles/go-name-zero.yaml",
+      "sha256": "ab5ddca784ee16d90eb269ba5a6370d26537bbfdf45aa1dc859bac93799b28ad",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "go",
+      "profile": "name-three-utf8",
+      "config": "configured-profiles/go-name-three-utf8.yaml",
+      "sha256": "7bd31259a3cf54dc272b6e01079824c45cdf24df8bfd60d33fc395aa0bc31f4b",
+      "http_ws_port": 17880,
+      "rtc_tcp_port": 17881,
+      "rtc_udp_port": 17882
+    },
+    {
+      "side": "rust",
+      "profile": "room-negative",
+      "config": "configured-profiles/rust-room-negative.yaml",
+      "sha256": "4e80392f66b07c552c9aafe2e3cb8ac0e89a1bd65797721c5a17610d34cd0dbc",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "room-zero",
+      "config": "configured-profiles/rust-room-zero.yaml",
+      "sha256": "ec86a5d67cd72bcc3fdb072068574e42498da3bc1cfa6c8b2198deacada16f52",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "room-three-utf8",
+      "config": "configured-profiles/rust-room-three-utf8.yaml",
+      "sha256": "35aff7c7f18ac8b392dcf1e344076f6a9947a7a3cca0d666eb2694a10789b511",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "identity-negative",
+      "config": "configured-profiles/rust-identity-negative.yaml",
+      "sha256": "88d1d31b62ef936c87a66443ff3ff6ee8f0d92c183bdc810985224b301afdc76",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "identity-zero",
+      "config": "configured-profiles/rust-identity-zero.yaml",
+      "sha256": "a10d052df16684bb0b57c413412a54f13f4f8b83b48c2f6e6d27c8c52b05e4a5",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "identity-three-utf8",
+      "config": "configured-profiles/rust-identity-three-utf8.yaml",
+      "sha256": "df2afec0d3ab5b1bbe94842b3a648b2c545f7fcd3687e69790bb101c03166b50",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "name-negative",
+      "config": "configured-profiles/rust-name-negative.yaml",
+      "sha256": "8273c19ad3b0cb6db63a94c3921da9e42cdf9c2d387c5c11cfffe2e454706672",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "name-zero",
+      "config": "configured-profiles/rust-name-zero.yaml",
+      "sha256": "d19227918880678bfbdbddae5471c793e6d3a3cd750056892b5a45143992822b",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    },
+    {
+      "side": "rust",
+      "profile": "name-three-utf8",
+      "config": "configured-profiles/rust-name-three-utf8.yaml",
+      "sha256": "2324a220bcefe52261336b97c9a18eba7cc7e3e11335e89d091bf2251dc337e4",
+      "http_ws_port": 17980,
+      "rtc_tcp_port": 17981,
+      "rtc_udp_port": 17982
+    }
+  ],
+  "source_config_difference": "Same declared overlay/body except source Go/Rust listener+RTC ports. --dev required for public test secret profile; no external Redis/TURN/TLS/media dependency.",
+  "execution": "No server, browser, compiler, Go or Node fixture launched.",
+  "plan_artifacts_sha256": {
+    "check-reports.py": "79dda0ed0346357fde692d3ad4592c2338265537c6366fcf76dca6b08c7ea34d",
+    "README.md": "c19c31a20050d15d54f1d557a0f4a1ae8f3c9ed88eee94b94fcb97d153b9f25b"
+  },
+  "expected_room_limit_error": {
+    "http": 400,
+    "code": "invalid_argument",
+    "source": "service/errors.go:33 typed psrpc.InvalidArgument retained through %w",
+    "actual_first_go_profile": "f73-create-room-error-envelope-red.json"
+  }
+}

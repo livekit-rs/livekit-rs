@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "status": "SCOPED_RUNTIME_VALIDATED_GLOBAL_OPEN",
+  "source_commits": {
+    "server": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "protocol": "9bb708cdb81918a6c63dd25e915b4644310b45b6"
+  },
+  "upstream_inputs": [
+    {
+      "path": "references/go-stdlib-1.26.0/native-whip-json/SOURCE.json",
+      "sha256": "bc0ea86c6ccf7ee37f34773c65dbb976216fe1d513fcc06ff971d7a65f8d84b4"
+    },
+    {
+      "path": "references/ingress/pkg/whip/whip_proxy_handler.go",
+      "sha256": "b5f303bc03ed94ccb1762cb4fb6ab0adeee6f7147d1016f4ad2a2fbe88176698"
+    },
+    {
+      "path": "references/livekit-stable/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/participant.go",
+      "sha256": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/subscriptionmanager.go",
+      "sha256": "bb710f867625c841ed7cc3f43e16a5cfca65a4f6ace7d22699455f64886c2e95"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/transport.go",
+      "sha256": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/auth.go",
+      "sha256": "fcff60645bafd92dbc01ee36ddf29c127a0ffd3244493bd3ea50ecff0cadea5f"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/errors.go",
+      "sha256": "f3e3119c22c9309cb851395f63ca5c3821ab6345d6778bed0a248a142d5c680c"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/roomallocator.go",
+      "sha256": "5f0de6e2ffa5c7f708c4bfa03e3697b5c479bd4f267aeec759934eeefa580754"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/roommanager.go",
+      "sha256": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/roommanager_service.go",
+      "sha256": "7c6f0c50ae8a96e7975397748cf56b6e659be37a7603f063c70d17b636ae8266"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/utils.go",
+      "sha256": "6aa8ccbcf6490c05a153128c7acded6459af0158aea40d4f8217fbc8d81defea"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/whipservice.go",
+      "sha256": "afd37a33e08dca00a0e29ac103acef935cd1d77d6d57a904b5960f5e7f7aca83"
+    },
+    {
+      "path": "references/livekit-stable/pkg/sfu/rtpstats/rtpstats_base_lite.go",
+      "sha256": "b60ddf58682326c34522ee64abe38667c539d61d1e480b1fcdc85966d7a602e9"
+    },
+    {
+      "path": "references/livekit-stable/pkg/sfu/rtpstats/rtpstats_receiver.go",
+      "sha256": "6b7c3659adfa297297075588bbba8446c59b87d92aff66cc3f05b09367d05b26"
+    },
+    {
+      "path": "references/protocol-stable/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/rpc/ingress.proto",
+      "sha256": "9a6f772b8ca7c73cd8fce7318afc39f5c9ca4add3b9164415dfd08761450d799"
+    },
+    {
+      "path": "references/protocol-stable/sdp/sdp.go",
+      "sha256": "6381df1a886ea83f2bfe25a29982c4a970624e953e24ad3bd17fb3dc2f8ac7cf"
+    },
+    {
+      "path": "references/protocol-stable/utils/rtpstats.go",
+      "sha256": "d24aab5c22cc4288a57c126a49741bcb503895c5d59a539399d8fabb36e37999"
+    }
+  ],
+  "license": "Apache-2.0 source derivations; original project MIT sources unchanged; retain individual attribution on integration.",
+  "historical_preintegration_manifest_sha256": "1ccd72323137bc52a8c0357bc859c2edc1ca1e501ce5e3ef79f8ec92df22b16e",
+  "historical_payload_manifest_sha256": "1cf384cd631728fec19227c6f4e40cdc6cdd9ec81bd196f9473ecf7e90f5faf7",
+  "current_rust_inputs": "livekit-rs-docs/evidence/2026-10-25/f14-native-whip-source-inputs.json",
+  "current_evidence": "livekit-rs-docs/evidence/2026-10-25/f14-functional-delivery.json",
+  "scope": "Standalone native HTTP45, actual paired audio/restart/delete, VP8/VP9L1/AV1 decoded resize, actual original Ingress proxy, participant cache/live plus owner negatives. Remote owner, opaque nonUTF8 and VP9 ONE SVC remain separate open leaves."
+}

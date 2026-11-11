@@ -1,0 +1,644 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -842,6 +842,8 @@
+ mod util;
+ use util::{Soonest, not_happening};
+ 
++mod remote_padding;
++pub use remote_padding::{PaddingObservation, PaddingRequestError, PaddingStatus};
+ mod session;
+ use session::Session;
+ 
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -101,6 +101,8 @@
+     bwe_last_event: Option<(Bitrate, bool)>,
+ 
+     enable_twcc_feedback: bool,
++    send_transport_cc: bool,
++    remote_padding: crate::remote_padding::PaddingExecutor,
+ 
+     /// A pacer for sending RTP at specific rate.
+     pacer: PacerImpl,
+@@ -206,6 +208,8 @@
+             bwe,
+             bwe_last_event: None,
+             enable_twcc_feedback: false,
++            send_transport_cc: true,
++            remote_padding: Default::default(),
+             pacer,
+             pacer_control: PacerControl::new(),
+             poll_packet_buf: vec![0; 2000],
+@@ -237,6 +241,76 @@
+ 
+     fn mtu_warn(&self) -> usize {
+         *self.mtu.end()
++    }
++
++    pub(crate) fn set_send_transport_cc(&mut self, enabled: bool) {
++        self.send_transport_cc = enabled;
++    }
++
++    fn independent_padding_source(&mut self) -> Option<MidRid> {
++        let medias = &self.medias;
++        self.streams.streams_tx().find_map(|stream| {
++            let pt = stream.padding_pt()?;
++            if stream.rtx().is_none()
++                || !medias.iter().any(|media| {
++                    media.mid() == stream.mid()
++                        && !media.stopped()
++                        && media.direction().is_sending()
++                        && (media.remote_pts().is_empty() || media.remote_pts().contains(&pt))
++                })
++            {
++                return None;
++            }
++            Some(MidRid(stream.mid(), stream.rid()))
++        })
++    }
++
++    pub(crate) fn request_padding(
++        &mut self,
++        bytes: u64,
++        rate: Bitrate,
++        duration: Duration,
++        now: Instant,
++    ) -> Result<u64, crate::PaddingRequestError> {
++        if self.bwe.is_some() {
++            return Err(crate::PaddingRequestError::NativeBweEnabled);
++        }
++        if self.rtp_closing || !self.ready_for_srtp() {
++            return Err(crate::PaddingRequestError::NotReady);
++        }
++        if self.independent_padding_source().is_none() {
++            return Err(crate::PaddingRequestError::NoSource);
++        }
++        self.remote_padding.start(bytes, rate, duration, now)
++    }
++
++    pub(crate) fn cancel_padding(&mut self, id: u64) -> bool {
++        self.remote_padding.cancel(id)
++    }
++    pub(crate) fn padding_status(&self) -> Option<crate::PaddingObservation> {
++        self.remote_padding.observation()
++    }
++
++    fn poll_remote_padding(&mut self, now: Instant) -> Option<DatagramSend> {
++        if !self.remote_padding.due(now) {
++            return None;
++        }
++        let Some(source) = self.independent_padding_source() else {
++            self.remote_padding
++                .stop(crate::PaddingStatus::SourceUnavailable);
++            return None;
++        };
++        let result = self.poll_packet_on(now, source, None, true);
++        if result.is_none()
++            && self
++                .remote_padding
++                .observation()
++                .is_some_and(|o| o.status == crate::PaddingStatus::Active)
++        {
++            self.remote_padding
++                .stop(crate::PaddingStatus::SourceUnavailable);
++        }
++        result
+     }
+ 
+     pub fn id(&self) -> SessionId {
+@@ -1072,6 +1146,7 @@
+     }
+ 
+     pub fn poll_datagram(&mut self, now: Instant) -> Option<net::DatagramSend> {
++        self.remote_padding.expire(now);
+         // Time must have progressed forward from start value.
+         if now == already_happened() {
+             return None;
+@@ -1082,6 +1157,7 @@
+         } else {
+             None.or_else(|| self.poll_feedback(now))
+                 .or_else(|| self.poll_packet(now))
++                .or_else(|| self.poll_remote_padding(now))
+         };
+ 
+         if let Some(x) = &x {
+@@ -1109,6 +1185,9 @@
+         }
+ 
+         self.rtp_closing = true;
++        if let Some(active) = self.remote_padding.observation() {
++            self.remote_padding.cancel(active.id);
++        }
+         self.clear_feedback();
+         self.streams.reset_send_buffers();
+ 
+@@ -1164,11 +1243,21 @@
+     }
+ 
+     fn poll_packet(&mut self, now: Instant) -> Option<DatagramSend> {
+-        let srtp_tx = self.srtp_tx.as_mut()?;
+-
++        self.srtp_tx.as_ref()?;
+         // Figure out which, if any, queue to poll
+         // The cluster_id is captured by the pacer at poll time, before register_send() might clear it
+         let (midrid, cluster_id) = self.pacer.poll_queue()?;
++        self.poll_packet_on(now, midrid, cluster_id, false)
++    }
++
++    fn poll_packet_on(
++        &mut self,
++        now: Instant,
++        midrid: MidRid,
++        cluster_id: Option<crate::rtp_::TwccClusterId>,
++        independent_padding: bool,
++    ) -> Option<DatagramSend> {
++        let srtp_tx = self.srtp_tx.as_mut()?;
+         let stream = self.streams.stream_tx_by_midrid(midrid)?;
+         let Some(media) = self.medias.iter().find(|m| m.mid() == stream.mid()) else {
+             trace!("Pacer pointed to mid {} which has no media", midrid.mid());
+@@ -1182,10 +1271,15 @@
+ 
+         // TWCC might not be enabled for this m-line. Firefox do use TWCC, but not
+         // for audio. This is indiciated via the SDP.
+-        let twcc_enabled = exts.id_of(Extension::TransportSequenceNumber).is_some();
++        let twcc_enabled =
++            self.send_transport_cc && exts.id_of(Extension::TransportSequenceNumber).is_some();
+         let twcc = twcc_enabled.then_some(&mut self.twcc);
+ 
+-        let receipt = stream.poll_packet(now, exts, twcc, params, buf)?;
++        let receipt = if independent_padding {
++            stream.poll_independent_padding(now, exts, twcc, params, buf)?
++        } else {
++            stream.poll_packet(now, exts, twcc, params, buf)?
++        };
+ 
+         let PacketReceipt {
+             header,
+@@ -1203,11 +1297,24 @@
+             crate::log_stat!("PACKET_SENT", header.ssrc, payload_size, kind);
+         }
+ 
+-        if let Some(raw_packets) = &mut self.raw_packets {
++        if !independent_padding && let Some(raw_packets) = &mut self.raw_packets {
+             raw_packets.push_back(Box::new(RawPacket::RtpTx(header.clone(), buf.clone())));
+         }
+ 
+         let protected = srtp_tx.protect_rtp(buf, &header, *seq_no);
++
++        if independent_padding
++            && (protected.len() > crate::remote_padding::MAX_PADDING_PACKET
++                || protected.len() as u64 > self.remote_padding.remaining())
++        {
++            self.remote_padding
++                .stop(crate::PaddingStatus::EncodingLimit);
++            self.twcc = twcc_seq;
++            return None;
++        }
++        if independent_padding && let Some(raw_packets) = &mut self.raw_packets {
++            raw_packets.push_back(Box::new(RawPacket::RtpTx(header.clone(), buf.clone())));
++        }
+ 
+         // Validation budgets and measures the same actually protected datagram
+         // bytes. Preserve payload-byte pacing for ordinary Google probes/media.
+@@ -1220,7 +1327,11 @@
+         } else {
+             payload_size
+         };
+-        self.pacer.register_send(now, paced_bytes.into(), midrid);
++        if independent_padding {
++            self.remote_padding.sent(now, protected.len());
++        } else {
++            self.pacer.register_send(now, paced_bytes.into(), midrid);
++        }
+         if let Some(event) = self.pacer.take_validation_credit_discard()
+             && let Some(bwe) = self.bwe.as_mut()
+         {
+@@ -1307,6 +1418,10 @@
+             .soonest((paused_at, Reason::PauseCheck))
+             .soonest((send_stream_at, Reason::SendStream))
+             .soonest(bwe_at)
++            .soonest((
++                self.remote_padding.timeout(),
++                Reason::Pacer(crate::pacer::PacerReason::Handle),
++            ))
+     }
+ 
+     pub fn has_mid(&self, mid: Mid) -> bool {
+--- a/src/change/direct.rs
++++ b/src/change/direct.rs
+@@ -47,6 +47,39 @@
+         DirectApi { rtc }
+     }
+ 
++    /// Suppress outgoing transport sequence insertion only. Receiving TWCC,
++    /// generating receiver feedback and negotiated SDP maps are unchanged.
++    /// Defaults to true; the native BWE path must retain true.
++    pub fn set_send_transport_cc(&mut self, enabled: bool) {
++        self.rtc.session.set_send_transport_cc(enabled);
++    }
++
++    /// Request local blank RTX padding independently of GCC. Requires DTLS/SRTP
++    /// and an existing negotiated sending RTX source. One request at a time;
++    /// 512B..16MiB protected budget, finite1..100_000_000bps rate, duration(0,5s].
++    /// Unused remainder under512B is not sent. No received-capacity claim.
++    pub fn request_padding(
++        &mut self,
++        max_protected_bytes: u64,
++        rate: crate::bwe::Bitrate,
++        duration: std::time::Duration,
++        now: std::time::Instant,
++    ) -> Result<u64, crate::PaddingRequestError> {
++        self.rtc
++            .session
++            .request_padding(max_protected_bytes, rate, duration, now)
++    }
++
++    /// Cancel only this active identity; repeated/old cancellation is a no-op.
++    pub fn cancel_padding(&mut self, id: u64) -> bool {
++        self.rtc.session.cancel_padding(id)
++    }
++
++    /// Actual locally produced protected bytes, not feedback or delivery proof.
++    pub fn padding_status(&self) -> Option<crate::PaddingObservation> {
++        self.rtc.session.padding_status()
++    }
++
+     /// Sets the ICE controlling flag for this peer connection.
+     ///
+     /// If `controlling` is `true`, this peer connection is set as the ICE controlling agent,
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -511,6 +511,41 @@
+         params: &[PayloadParams],
+         buf: &mut Vec<u8>,
+     ) -> Option<PacketReceipt> {
++        self.poll_packet_inner(now, exts, twcc, params, buf, false)
++    }
++
++    /// Independent blank RTX padding; never consumes queued media or NACK RTX.
++    /// The scalar authorization exists only during this synchronous poll.
++    pub(crate) fn poll_independent_padding(
++        &mut self,
++        now: Instant,
++        exts: &ExtensionMap,
++        twcc: Option<&mut u64>,
++        params: &[PayloadParams],
++        buf: &mut Vec<u8>,
++    ) -> Option<PacketReceipt> {
++        if self.ssrc.is_probe()
++            || self.rtx.is_none()
++            || self.pt_for_padding.is_none()
++            || self.padding != 0
++        {
++            return None;
++        }
++        self.padding = MAX_BLANK_PADDING_PAYLOAD_SIZE;
++        let result = self.poll_packet_inner(now, exts, twcc, params, buf, true);
++        self.padding = 0;
++        result
++    }
++
++    fn poll_packet_inner(
++        &mut self,
++        now: Instant,
++        exts: &ExtensionMap,
++        twcc: Option<&mut u64>,
++        params: &[PayloadParams],
++        buf: &mut Vec<u8>,
++        independent_padding: bool,
++    ) -> Option<PacketReceipt> {
+         let mid = self.midrid.mid();
+         let rid = self.midrid.rid();
+         let is_probe = self.ssrc.is_probe();
+@@ -521,7 +556,9 @@
+         let remote_acked_ssrc = self.remote_acked_ssrc;
+         let remote_acked_rtx_ssrc = self.remote_acked_rtx_ssrc;
+ 
+-        let (next, is_padding) = if let Some(next) = self.poll_packet_resend(now) {
++        let (next, is_padding) = if independent_padding {
++            (self.poll_packet_padding_inner(now, false)?, true)
++        } else if let Some(next) = self.poll_packet_resend(now) {
+             (next, false)
+         } else if let Some(next) = self.poll_packet_regular(now) {
+             (next, false)
+@@ -647,6 +684,13 @@
+             }
+         };
+ 
++        // The independent API only selects Blank here. Its receipt/raw metadata
++        // must describe the P bit that create_padding_packet writes into the
++        // actual datagram below. Preserve the legacy native padding path.
++        if independent_padding {
++            header.has_padding = true;
++        }
++
+         // These need to match `Extension::is_supported()` so we are sending what we are
+         // declaring we support.
+ 
+@@ -659,6 +703,10 @@
+         if let Some(twcc) = twcc {
+             header.ext_vals.transport_cc = Some(*twcc as u16);
+             *twcc += 1;
++        } else {
++            // An explicit send-side gate may suppress TWCC while keeping the
++            // consolidated SDP extension map and receive feedback unchanged.
++            header.ext_vals.transport_cc = None;
+         }
+ 
+         buf.resize(DATAGRAM_MAX_PACKET_SIZE, 0);
+@@ -876,7 +924,15 @@
+         })
+     }
+ 
+-    fn poll_packet_padding(&mut self, _now: Instant) -> Option<NextPacket> {
++    fn poll_packet_padding(&mut self, now: Instant) -> Option<NextPacket> {
++        self.poll_packet_padding_inner(now, true)
++    }
++
++    fn poll_packet_padding_inner(
++        &mut self,
++        _now: Instant,
++        allow_cached: bool,
++    ) -> Option<NextPacket> {
+         if !self.padding_enabled() {
+             self.padding = 0;
+             return None;
+@@ -888,7 +944,7 @@
+ 
+         #[allow(clippy::unnecessary_operation)]
+         'outer: {
+-            if !self.ssrc.is_probe() && self.padding > MIN_SPURIOUS_PADDING_SIZE {
++            if allow_cached && !self.ssrc.is_probe() && self.padding > MIN_SPURIOUS_PADDING_SIZE {
+                 // Find a historic packet that is smaller than this max size. The max size
+                 // is a headroom since we can accept slightly larger padding than asked for.
+                 let max_size = (self.padding * 2).min(self.mtu_warn - MAX_RTP_OVERHEAD);
+--- /dev/null
++++ b/src/remote_padding.rs
+@@ -0,0 +1,267 @@
++//! Bounded outgoing padding execution, independent of native bandwidth estimation.
++use crate::rtp_::Bitrate;
++use std::time::{Duration, Instant};
++
++/// Local execution status. No state is proof of remote receipt or capacity.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum PaddingStatus {
++    /// Local padding authorization may still produce output.
++    Active,
++    /// Remaining protected-byte budget is smaller than one conservative packet.
++    Completed,
++    /// Immutable request deadline was reached.
++    Expired,
++    /// Owner cancelled this identity or closed the RTP session.
++    Cancelled,
++    /// Negotiated sending RTX source is no longer usable.
++    SourceUnavailable,
++    /// Generated packet exceeded the conservative size/budget; no output emitted.
++    EncodingLimit,
++}
++/// Rejected requests do not consume identities or replace existing work.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum PaddingRequestError {
++    /// Byte, rate or duration limits are invalid.
++    InvalidLimits,
++    /// An independent request is already active.
++    Busy,
++    /// Native BWE owns probe/pacing execution on this session.
++    NativeBweEnabled,
++    /// RTP is closing or SRTP keys are unavailable.
++    NotReady,
++    /// No negotiated non-stopped sending RTX source is available.
++    NoSource,
++    /// Monotonic request identities cannot advance without reuse.
++    IdentityExhausted,
++}
++/// Actual local protected RTP output counters, never receiver acknowledgement.
++#[derive(Clone, Copy, Debug)]
++pub struct PaddingObservation {
++    /// Monotonic local execution identity.
++    pub id: u64,
++    /// Local authorization/execution status, never receipt proof.
++    pub status: PaddingStatus,
++    /// Owner-supplied monotonic request time.
++    pub requested_at: Instant,
++    /// Fixed local expiry; actual output never extends it.
++    pub deadline: Instant,
++    /// Maximum total protected RTP bytes authorized for this request.
++    pub max_protected_bytes: u64,
++    /// Local protected-byte pacing rate, not estimated capacity.
++    pub rate: Bitrate,
++    /// Protected RTP bytes actually produced as local datagram output.
++    pub sent_protected_bytes: u64,
++    /// Actual local output count, excluding rejected/queued-only work.
++    pub sent_packets: u64,
++    /// First actual local datagram output, absent until a packet is produced.
++    pub first_output_at: Option<Instant>,
++    /// Last actual local datagram output, absent if no packet was produced.
++    pub last_output_at: Option<Instant>,
++}
++
++pub(crate) const MAX_PADDING_PACKET: usize = 512;
++#[derive(Debug, Default)]
++pub(crate) struct PaddingExecutor {
++    next_id: u64,
++    observation: Option<PaddingObservation>,
++    next_at: Option<Instant>,
++}
++impl PaddingExecutor {
++    pub(crate) fn start(
++        &mut self,
++        bytes: u64,
++        rate: Bitrate,
++        duration: Duration,
++        now: Instant,
++    ) -> Result<u64, PaddingRequestError> {
++        let bps = rate.as_f64();
++        if bytes < MAX_PADDING_PACKET as u64
++            || bytes > 16 * 1024 * 1024
++            || !bps.is_finite()
++            || bps < 1.0
++            || bps > 100_000_000.0
++            || duration.is_zero()
++            || duration > Duration::from_secs(5)
++        {
++            return Err(PaddingRequestError::InvalidLimits);
++        }
++        self.expire(now);
++        if self
++            .observation
++            .is_some_and(|o| o.status == PaddingStatus::Active)
++        {
++            return Err(PaddingRequestError::Busy);
++        }
++        let deadline = now
++            .checked_add(duration)
++            .ok_or(PaddingRequestError::InvalidLimits)?;
++        let id = self
++            .next_id
++            .checked_add(1)
++            .ok_or(PaddingRequestError::IdentityExhausted)?;
++        self.next_id = id;
++        self.observation = Some(PaddingObservation {
++            id,
++            status: PaddingStatus::Active,
++            requested_at: now,
++            deadline,
++            max_protected_bytes: bytes,
++            rate,
++            sent_protected_bytes: 0,
++            sent_packets: 0,
++            first_output_at: None,
++            last_output_at: None,
++        });
++        self.next_at = Some(now);
++        Ok(id)
++    }
++    pub(crate) fn observation(&self) -> Option<PaddingObservation> {
++        self.observation
++    }
++    pub(crate) fn expire(&mut self, now: Instant) {
++        if self
++            .observation
++            .is_some_and(|o| o.status == PaddingStatus::Active && now >= o.deadline)
++        {
++            self.stop(PaddingStatus::Expired);
++        }
++    }
++    pub(crate) fn cancel(&mut self, id: u64) -> bool {
++        if self
++            .observation
++            .is_some_and(|o| o.id == id && o.status == PaddingStatus::Active)
++        {
++            self.stop(PaddingStatus::Cancelled);
++            true
++        } else {
++            false
++        }
++    }
++    pub(crate) fn stop(&mut self, status: PaddingStatus) {
++        if let Some(o) = self.observation.as_mut() {
++            o.status = status;
++        }
++        self.next_at = None;
++    }
++    pub(crate) fn due(&mut self, now: Instant) -> bool {
++        self.expire(now);
++        self.next_at.is_some_and(|at| now >= at)
++    }
++    pub(crate) fn remaining(&self) -> u64 {
++        self.observation
++            .map(|o| o.max_protected_bytes.saturating_sub(o.sent_protected_bytes))
++            .unwrap_or(0)
++    }
++    pub(crate) fn sent(&mut self, now: Instant, bytes: usize) {
++        let Some(o) = self.observation.as_mut() else {
++            return;
++        };
++        debug_assert!(
++            o.status == PaddingStatus::Active
++                && bytes <= MAX_PADDING_PACKET
++                && bytes as u64 <= o.max_protected_bytes - o.sent_protected_bytes
++        );
++        o.sent_protected_bytes += bytes as u64;
++        o.sent_packets += 1;
++        o.first_output_at.get_or_insert(now);
++        o.last_output_at = Some(now);
++        if o.max_protected_bytes - o.sent_protected_bytes < MAX_PADDING_PACKET as u64 {
++            self.stop(PaddingStatus::Completed);
++        } else {
++            // No stored credit: scheduler stalls never authorize a catch-up burst.
++            self.next_at = now.checked_add(Duration::from_nanos(
++                (bytes as f64 * 8_000_000_000.0 / o.rate.as_f64())
++                    .ceil()
++                    .max(1.0) as u64,
++            ));
++        }
++    }
++    pub(crate) fn timeout(&self) -> Option<Instant> {
++        let o = self.observation?;
++        (o.status == PaddingStatus::Active)
++            .then(|| self.next_at.unwrap_or(o.deadline).min(o.deadline))
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn bounded_execution_expires_cancels_without_reusing_identity_or_fake_delivery() {
++        let now = Instant::now();
++        let mut p = PaddingExecutor::default();
++        let id = p
++            .start(2048, Bitrate::bps(100_000), Duration::from_secs(1), now)
++            .unwrap();
++        assert_eq!(
++            p.start(2048, Bitrate::bps(100_000), Duration::from_secs(1), now),
++            Err(PaddingRequestError::Busy)
++        );
++        assert_eq!(p.observation().unwrap().sent_packets, 0);
++        assert!(p.cancel(id));
++        assert!(p.observation().unwrap().first_output_at.is_none());
++        assert!(p.observation().unwrap().last_output_at.is_none());
++        assert!(!p.cancel(id));
++        let newer = p
++            .start(2048, Bitrate::bps(100_000), Duration::from_secs(1), now)
++            .unwrap();
++        assert!(newer > id);
++        assert!(!p.cancel(id));
++        assert!(!p.due(now + Duration::from_secs(1)));
++        assert_eq!(p.observation().unwrap().status, PaddingStatus::Expired);
++        assert_eq!(p.observation().unwrap().sent_protected_bytes, 0);
++        assert!(p.observation().unwrap().first_output_at.is_none());
++        assert!(p.observation().unwrap().last_output_at.is_none());
++    }
++    #[test]
++    fn actual_output_budget_is_finite_and_stall_credit_is_not_accumulated() {
++        let now = Instant::now();
++        let mut p = PaddingExecutor::default();
++        p.start(1024, Bitrate::bps(80_000), Duration::from_secs(2), now)
++            .unwrap();
++        assert!(p.due(now));
++        p.sent(now, 256);
++        assert!(!p.due(now));
++        assert_eq!(p.timeout(), Some(now + Duration::from_micros(25_600)));
++        let late = now + Duration::from_millis(500);
++        assert!(p.due(late));
++        p.sent(late, 256);
++        assert!(!p.due(late));
++        assert_eq!(p.timeout(), Some(late + Duration::from_micros(25_600)));
++        p.sent(late + Duration::from_micros(25_600), 256);
++        assert_eq!(p.observation().unwrap().status, PaddingStatus::Completed);
++        assert_eq!(p.observation().unwrap().sent_protected_bytes, 768);
++        assert_eq!(p.remaining(), 256);
++        assert_eq!(p.observation().unwrap().first_output_at, Some(now));
++        assert_eq!(
++            p.observation().unwrap().last_output_at,
++            Some(late + Duration::from_micros(25_600))
++        );
++    }
++    #[test]
++    fn invalid_limits_leave_current_request_unchanged() {
++        let now = Instant::now();
++        let mut p = PaddingExecutor::default();
++        let id = p
++            .start(2048, Bitrate::bps(100_000), Duration::from_secs(1), now)
++            .unwrap();
++        for (bytes, rate, duration) in [
++            (511, 100_000, 1),
++            (17 * 1024 * 1024, 100_000, 1),
++            (2048, 0, 1),
++            (2048, 100_000_001, 1),
++            (2048, 100_000, 6),
++        ] {
++            assert_eq!(
++                p.start(
++                    bytes,
++                    Bitrate::bps(rate),
++                    Duration::from_secs(duration),
++                    now
++                ),
++                Err(PaddingRequestError::InvalidLimits)
++            );
++            assert_eq!(p.observation().unwrap().id, id);
++        }
++    }
++}

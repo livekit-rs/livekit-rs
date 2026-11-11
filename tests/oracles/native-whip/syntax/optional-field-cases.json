@@ -1,0 +1,54 @@
+[
+  {
+    "id": "u-valid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nu=https://example.invalid/rtc\r\nt=0 0\r\n"
+  },
+  {
+    "id": "u-invalid-escape",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nu=https://example.invalid/%zz\r\nt=0 0\r\n"
+  },
+  {
+    "id": "b-session-valid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nb=AS:128\r\nt=0 0\r\n"
+  },
+  {
+    "id": "b-session-invalid-number",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nb=AS:abc\r\nt=0 0\r\n"
+  },
+  {
+    "id": "b-session-missing-colon",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nb=AS\r\nt=0 0\r\n"
+  },
+  {
+    "id": "r-valid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nr=7d 1h 0 25h\r\n"
+  },
+  {
+    "id": "r-invalid-interval",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nr=x 1h 0\r\n"
+  },
+  {
+    "id": "r-missing-offset",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nr=7d 1h\r\n"
+  },
+  {
+    "id": "z-valid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nz=2882844526 -1h 2898848070 0\r\n"
+  },
+  {
+    "id": "z-invalid-offset",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nz=2882844526 banana\r\n"
+  },
+  {
+    "id": "z-odd-fields",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nz=2882844526\r\n"
+  },
+  {
+    "id": "b-media-valid",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 RTP/AVP 111\r\nb=AS:64\r\na=rtpmap:111 opus/48000/2\r\n"
+  },
+  {
+    "id": "u-after-time-order",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nu=https://example.invalid/\r\n"
+  }
+]

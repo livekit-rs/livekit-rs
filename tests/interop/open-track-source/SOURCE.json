@@ -1,0 +1,51 @@
+{
+  "scope": "v4 fixture-only permanent denied-CID guards plus real same-owner DATA AddTrack barrier; original source12 unchanged",
+  "status": "NOT_RUN",
+  "shared_writes": false,
+  "production_payloads": [],
+  "parent_fixture_sha256": {
+    "/tmp/raw-track-source-open-enum-v2/isolated-second/fixture/run.mjs": "668a2a0b559a74e343854c38b481a5009a6deaf830efd7372a70efab833f46ae",
+    "/tmp/raw-track-source-open-enum-v2/isolated-second/fixture/compare.py": "394d43913184dee4c62a22010c61c373fca63c9085f577fa3a2815d5600e937c",
+    "/tmp/raw-track-source-open-enum-v2/isolated-second/oracle/cases.json": "1acfe8acd481c431efaea5ec810b0a05f3a18295fed811a5ecd86261d6a65cb8",
+    "/tmp/raw-sources-server-sdk-ws-addon-v3a/run.mjs": "4007be165516da54fb2a03690554bebac88a6e5eb1d15d022cb86c5268266d46",
+    "/tmp/livekit-rs-open-numeric-go12-owned/main.go": "7360df5855f6497a4813987b55f09d7a18563b04ff02c3d4d683d717d023e281",
+    "/tmp/livekit-rs-open-numeric-go12-owned/actual.jsonl": "a22becffc0f95e992cb86219889c822e3baba8effe61c34a024789a85c4977ce"
+  },
+  "fixed_source_sha256": {
+    "references/protocol-stable/auth/grants.go": "eff12c293de465c4e95185de96b8d5510f5f97f1f10e48c93d63fa0540bbe9d7",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/livekit-stable/pkg/service/roomservice.go": "81edf654a71eb328c07e7632bec2aeb22fed23316de15458ba9403967adcfe00",
+    "references/server-sdk-js/packages/livekit-server-sdk/src/RoomServiceClient.ts": "3c8bf93a798d059ad513fcd997ba86032fc6823608c6a398e3c54d8d5243d2a3",
+    "references/server-sdk-js/packages/livekit-server-sdk/src/grants.ts": "ef0b7ec2913d02c7909c1de61fc95c467e14c6aef2dd251e3a08bfe603c88422",
+    "references/server-sdk-js/packages/livekit-server-sdk/src/AccessToken.ts": "e2442cafb480b3ba4d6346f327b02c9a526583cf6bc470b65ad6cb910a33eada"
+  },
+  "assets": {
+    "run.mjs": "d58c08e0036580a3a7e6f6edc41cda6e73bfbaca2a1c5375a5496dd299561370",
+    "fixed-go12-actual.jsonl": "a22becffc0f95e992cb86219889c822e3baba8effe61c34a024789a85c4977ce",
+    "COMMANDS.md": "99eacb1578da9e9f2235edc7b0ff349118aa255ccea3b75fcda27c76b9a0506d",
+    "v2-to-v3.patch": "99d99dbc48893ebf7e21a5442b734372aaf7c46599276ede8452c4ba95d3caeb",
+    "CONTRACT.md": "1eb41955c76b93089b0b2ae8e2d507bbf2acde9bf7627c916a6c6eecc33b2240",
+    "v3-to-v4.patch": "0f2080a3dccaa6687b1c7ec8fb6f486415f1d96d41d8e9b3f3d99468a5366f53",
+    "cases.json": "1acfe8acd481c431efaea5ec810b0a05f3a18295fed811a5ecd86261d6a65cb8",
+    "compare.py": "48b1423ba18b8528493ed84ca5ed3bccece3bdb91ba872753f574d032792344a"
+  },
+  "preservation": {
+    "original_cases_byte_equal": true,
+    "source_actual_rows": 12,
+    "original_before_AddTrack_assertions": "retained plus post-API explicit response",
+    "timeout_ms": 10000,
+    "old_v2": "unchanged",
+    "full_token_history": "prior accepted known16 remains separate",
+    "no_result_prefill": "api raw result taken from actual verified refresh event",
+    "v3_immutable": true
+  },
+  "execution_owner": "root",
+  "parent_v3_source_sha256": "53a99527716d54182999fdb7669e1e1fc00bf99dc310fbfad5baae4ebbe17887",
+  "additional_fixed_source_sha256": {
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/livekit-stable/pkg/rtc/signalling/signalhandler.go": "eff1fea4244de08865ecfd0e54b346f03ddf6799448fd532b3c7791e3fd104ea",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/participant_signal.go": "8a3ae07330888bd6737409ffc02a07820458b3de7f48dc825c22bcf17fbe59ac"
+  }
+}

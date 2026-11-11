@@ -1,0 +1,35 @@
+# Standalone deployment template, 2026-10-23.
+# Create this private key file from `livecloud generate-keys` output before
+# starting. It is a YAML API-key -> secret mapping, readable by the service user.
+# This repository deliberately supplies no production API key or secret.
+key_file: /etc/livekit/keys.yaml
+
+# HTTP/WebSocket backend for an HTTPS/WSS reverse proxy on this host.
+# For a private LAN without a proxy, explicitly choose a suitable bind address.
+port: 7880
+bind_addresses:
+  - 127.0.0.1
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  # Suitable for a host whose selected interface is directly reachable.
+  # Behind NAT, set node_ip to the actual public address and forward the ports.
+  # Alternatively use use_external_ip: true after validating STUN discovery.
+  use_external_ip: false
+
+turn:
+  enabled: true
+  udp_port: 3478
+  bind_addresses:
+    - 0.0.0.0
+  relay_range_start: 30000
+  relay_range_end: 30100
+  # Embedded TLS termination is not implemented. This enables TURN/UDP only.
+
+logging:
+  level: info
+  json: true
+
+room:
+  auto_create: true

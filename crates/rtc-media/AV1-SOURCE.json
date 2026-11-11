@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/livekit/livekit",
+  "commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "version": "v1.13.10",
+  "license": "Apache-2.0",
+  "copyright": "Copyright 2023 LiveKit, Inc.",
+  "scope": "AV1 dependency descriptor reader/bitstream layout reference and local Rust adaptation",
+  "reference_sha256": {
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorreader.go": "fe8f4e4b2f8dac66c8d48cddf03be2076fafd4d42f2ad1bf74b7966b2b0c6c9d",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorextension.go": "2982192d8cc60cd0727c60f82bee12a1827665c1d1c9f8a1b6a9bf6853bf266f",
+    "pkg/sfu/rtpextension/dependencydescriptor/bitstreamreader.go": "d5efdb2ac5ab75d103b5f342c14348367e271ac4692738cc1a52ed4b362de78b"
+  },
+  "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+}

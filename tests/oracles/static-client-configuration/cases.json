@@ -1,0 +1,1115 @@
+[
+  {
+    "id": "static-000",
+    "browser": "safari",
+    "version": "",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-001",
+    "browser": "safari",
+    "version": "0",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-002",
+    "browser": "safari",
+    "version": "18",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-003",
+    "browser": "safari",
+    "version": "18.2",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-004",
+    "browser": "safari",
+    "version": "18.3",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-005",
+    "browser": "safari",
+    "version": "18.3.0",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-006",
+    "browser": "safari",
+    "version": "18.3.0-rc.1",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-007",
+    "browser": "safari",
+    "version": "18.3.0+build.01",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-008",
+    "browser": "safari",
+    "version": "18.3.1",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-009",
+    "browser": "safari",
+    "version": "18.4",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-010",
+    "browser": "safari",
+    "version": "18.30",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-011",
+    "browser": "safari",
+    "version": "19",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-012",
+    "browser": "safari",
+    "version": "018.4",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-013",
+    "browser": "safari",
+    "version": "18.03",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-014",
+    "browser": "safari",
+    "version": "18.4rc",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-015",
+    "browser": "safari",
+    "version": "18.3-rc",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-016",
+    "browser": "safari",
+    "version": "18.3+build",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-017",
+    "browser": "safari",
+    "version": "18.3.0-01",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-018",
+    "browser": "safari",
+    "version": "18.3.0-rc.01",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-019",
+    "browser": "safari",
+    "version": "18.3.0-rc..1",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-020",
+    "browser": "safari",
+    "version": "18.3.0+build..1",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-021",
+    "browser": "safari",
+    "version": "18.3.0+",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-022",
+    "browser": "safari",
+    "version": "18.3.0--",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-023",
+    "browser": "safari",
+    "version": "18.3.0-0",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-024",
+    "browser": "safari",
+    "version": "18.3.0-00",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-025",
+    "browser": "safari",
+    "version": "v18.4",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-026",
+    "browser": "safari",
+    "version": "99999999999999999999999999999999",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-027",
+    "browser": "safari",
+    "version": "18.3.000",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-028",
+    "browser": "safari",
+    "version": "18.3.0+01",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-029",
+    "browser": "safari",
+    "version": "18.3.0.1",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-030",
+    "browser": "safari",
+    "version": "18.3.0-rc+build",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-031",
+    "browser": "safari",
+    "version": "18.3.0-rc+build+again",
+    "os": "macos",
+    "model": ""
+  },
+  {
+    "id": "static-032",
+    "browser": "firefox",
+    "version": "",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-033",
+    "browser": "firefox mobile",
+    "version": "",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-034",
+    "browser": "firefox",
+    "version": "0",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-035",
+    "browser": "firefox mobile",
+    "version": "0",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-036",
+    "browser": "firefox",
+    "version": "156",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-037",
+    "browser": "firefox mobile",
+    "version": "156",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-038",
+    "browser": "firefox",
+    "version": "156.0",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-039",
+    "browser": "firefox mobile",
+    "version": "156.0",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-040",
+    "browser": "firefox",
+    "version": "156.0.1",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-041",
+    "browser": "firefox mobile",
+    "version": "156.0.1",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-042",
+    "browser": "firefox",
+    "version": "157",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-043",
+    "browser": "firefox mobile",
+    "version": "157",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-044",
+    "browser": "firefox",
+    "version": "157.0",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-045",
+    "browser": "firefox mobile",
+    "version": "157.0",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-046",
+    "browser": "firefox",
+    "version": "157.0.0",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-047",
+    "browser": "firefox mobile",
+    "version": "157.0.0",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-048",
+    "browser": "firefox",
+    "version": "157.0.0-rc.1",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-049",
+    "browser": "firefox mobile",
+    "version": "157.0.0-rc.1",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-050",
+    "browser": "firefox",
+    "version": "157.0.0+build",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-051",
+    "browser": "firefox mobile",
+    "version": "157.0.0+build",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-052",
+    "browser": "firefox",
+    "version": "158",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-053",
+    "browser": "firefox mobile",
+    "version": "158",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-054",
+    "browser": "firefox",
+    "version": "0157",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-055",
+    "browser": "firefox mobile",
+    "version": "0157",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-056",
+    "browser": "firefox",
+    "version": "157rc",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-057",
+    "browser": "firefox mobile",
+    "version": "157rc",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-058",
+    "browser": "firefox",
+    "version": "157.0rc",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-059",
+    "browser": "firefox mobile",
+    "version": "157.0rc",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-060",
+    "browser": "firefox",
+    "version": "v157.0",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-061",
+    "browser": "firefox mobile",
+    "version": "v157.0",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-062",
+    "browser": "firefox",
+    "version": "99999999999999999999999999999999",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-063",
+    "browser": "firefox mobile",
+    "version": "99999999999999999999999999999999",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-064",
+    "browser": "firefox",
+    "version": "1000",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-065",
+    "browser": "firefox mobile",
+    "version": "1000",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-066",
+    "browser": "firefox",
+    "version": "99",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-067",
+    "browser": "firefox mobile",
+    "version": "99",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-068",
+    "browser": "firefox",
+    "version": " 157",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-069",
+    "browser": "firefox mobile",
+    "version": " 157",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-070",
+    "browser": "firefox",
+    "version": "157 ",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-071",
+    "browser": "firefox mobile",
+    "version": "157 ",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-072",
+    "browser": "firefox",
+    "version": "157\u0000",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-073",
+    "browser": "firefox mobile",
+    "version": "157\u0000",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-074",
+    "browser": "chrome",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-075",
+    "browser": "Safari",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-076",
+    "browser": "SAFARI",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-077",
+    "browser": "SAFARİ",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-078",
+    "browser": "vendor-safari",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-079",
+    "browser": "safari preview",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-080",
+    "browser": "safari\u0000",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-081",
+    "browser": "Firefox",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-082",
+    "browser": "FİREFOX",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-083",
+    "browser": "firefoxmobile",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-084",
+    "browser": "vendor-firefox",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-085",
+    "browser": "firefox mobile beta",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-086",
+    "browser": "firefox mobile",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-087",
+    "browser": "",
+    "version": "18.4",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-088",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-089",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": "XIAOMI 2201117TI"
+  },
+  {
+    "id": "static-090",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "static-091",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": "xiaomi other"
+  },
+  {
+    "id": "static-092",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": "prefix-xiaomi 2201117ti"
+  },
+  {
+    "id": "static-093",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": "xiaomi 2201117ti suffix"
+  },
+  {
+    "id": "static-094",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": "xiaomi"
+  },
+  {
+    "id": "static-095",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android",
+    "model": ""
+  },
+  {
+    "id": "static-096",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-097",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": "XIAOMI 2201117TI"
+  },
+  {
+    "id": "static-098",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "static-099",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": "xiaomi other"
+  },
+  {
+    "id": "static-100",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": "prefix-xiaomi 2201117ti"
+  },
+  {
+    "id": "static-101",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": "xiaomi 2201117ti suffix"
+  },
+  {
+    "id": "static-102",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": "xiaomi"
+  },
+  {
+    "id": "static-103",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROID",
+    "model": ""
+  },
+  {
+    "id": "static-104",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-105",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": "XIAOMI 2201117TI"
+  },
+  {
+    "id": "static-106",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "static-107",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": "xiaomi other"
+  },
+  {
+    "id": "static-108",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": "prefix-xiaomi 2201117ti"
+  },
+  {
+    "id": "static-109",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": "xiaomi 2201117ti suffix"
+  },
+  {
+    "id": "static-110",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": "xiaomi"
+  },
+  {
+    "id": "static-111",
+    "browser": "chrome",
+    "version": "157",
+    "os": "ANDROİD",
+    "model": ""
+  },
+  {
+    "id": "static-112",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-113",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": "XIAOMI 2201117TI"
+  },
+  {
+    "id": "static-114",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "static-115",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": "xiaomi other"
+  },
+  {
+    "id": "static-116",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": "prefix-xiaomi 2201117ti"
+  },
+  {
+    "id": "static-117",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": "xiaomi 2201117ti suffix"
+  },
+  {
+    "id": "static-118",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": "xiaomi"
+  },
+  {
+    "id": "static-119",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android-x",
+    "model": ""
+  },
+  {
+    "id": "static-120",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-121",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": "XIAOMI 2201117TI"
+  },
+  {
+    "id": "static-122",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "static-123",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": "xiaomi other"
+  },
+  {
+    "id": "static-124",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": "prefix-xiaomi 2201117ti"
+  },
+  {
+    "id": "static-125",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": "xiaomi 2201117ti suffix"
+  },
+  {
+    "id": "static-126",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": "xiaomi"
+  },
+  {
+    "id": "static-127",
+    "browser": "chrome",
+    "version": "157",
+    "os": "linux",
+    "model": ""
+  },
+  {
+    "id": "static-128",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-129",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": "XIAOMI 2201117TI"
+  },
+  {
+    "id": "static-130",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "static-131",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": "xiaomi other"
+  },
+  {
+    "id": "static-132",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": "prefix-xiaomi 2201117ti"
+  },
+  {
+    "id": "static-133",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": "xiaomi 2201117ti suffix"
+  },
+  {
+    "id": "static-134",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": "xiaomi"
+  },
+  {
+    "id": "static-135",
+    "browser": "chrome",
+    "version": "157",
+    "os": "",
+    "model": ""
+  },
+  {
+    "id": "static-136",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-137",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": "XIAOMI 2201117TI"
+  },
+  {
+    "id": "static-138",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "static-139",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": "xiaomi other"
+  },
+  {
+    "id": "static-140",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": "prefix-xiaomi 2201117ti"
+  },
+  {
+    "id": "static-141",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": "xiaomi 2201117ti suffix"
+  },
+  {
+    "id": "static-142",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": "xiaomi"
+  },
+  {
+    "id": "static-143",
+    "browser": "chrome",
+    "version": "157",
+    "os": "android\u0000",
+    "model": ""
+  },
+  {
+    "id": "static-144",
+    "browser": "firefox",
+    "version": "156.0",
+    "os": "android",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-145",
+    "browser": "firefox mobile",
+    "version": "156.0",
+    "os": "android",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-146",
+    "browser": "vendor-firefox",
+    "version": "156.0",
+    "os": "android",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-147",
+    "browser": "firefox",
+    "version": "156.0",
+    "os": "ANDROID",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-148",
+    "browser": "firefox mobile",
+    "version": "156.0",
+    "os": "ANDROID",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-149",
+    "browser": "vendor-firefox",
+    "version": "156.0",
+    "os": "ANDROID",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-150",
+    "browser": "firefox",
+    "version": "156.0",
+    "os": "android-x",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-151",
+    "browser": "firefox mobile",
+    "version": "156.0",
+    "os": "android-x",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-152",
+    "browser": "vendor-firefox",
+    "version": "156.0",
+    "os": "android-x",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-153",
+    "browser": "firefox",
+    "version": "156.0",
+    "os": "linux",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-154",
+    "browser": "firefox mobile",
+    "version": "156.0",
+    "os": "linux",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-155",
+    "browser": "vendor-firefox",
+    "version": "156.0",
+    "os": "linux",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-156",
+    "browser": "firefox",
+    "version": "156.0",
+    "os": "ANDROİD",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-157",
+    "browser": "firefox mobile",
+    "version": "156.0",
+    "os": "ANDROİD",
+    "model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "static-158",
+    "browser": "vendor-firefox",
+    "version": "156.0",
+    "os": "ANDROİD",
+    "model": "xiaomi 2201117ti"
+  }
+]

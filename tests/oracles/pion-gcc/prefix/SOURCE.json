@@ -1,0 +1,18 @@
+{
+  "status": "FROZEN_SOURCE_OBSERVER_NOT_RUN",
+  "cases": 4,
+  "steps_per_case": 165,
+  "clock_epoch": "Unix1000; source Go year-one representation preserved",
+  "fixed_server_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85"
+  },
+  "files_sha256": {
+    "cases.jsonl": "41184b2d467edb638414648f6e3251937a4006eb51c8ead810c00a766005edcb",
+    "generate.py": "7f845e0bca88afc215aeaf86813d40fe11b406e1684f26444a3f5f147ebf12a5",
+    "interceptor-source-lock.json": "188ca5f9f0c01e3767b01d11d1c9bcc1fd51f9f7ef926ea57f457d61f0e582ab",
+    "oracle_test.go": "f3cee932a769660b731676f57bc704fb774092b3d5aac407cd28f4448745cc9f",
+    "prepare.py": "6cdd05e4bc37c63e1c20f59bf243cad9cc2a3c0104b5717dfdbb14ac5f0d1096"
+  },
+  "scope": "Actual fixed parser, sent history, WriteRTCP, full actual controllers and callback. Clock substitution plus deterministic source-valid rates-before-groups barrier only. No estimator math copied. No runtime or SDK claim."
+}

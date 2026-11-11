@@ -1,0 +1,147 @@
+[
+  {
+    "id": "empty",
+    "fragment": "",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "missing-media",
+    "fragment": "a=ice-ufrag:x\na=ice-pwd:y\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "invalid-m",
+    "fragment": "m",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "invalid-attr",
+    "fragment": "m=audio 9 RTP/AVP 0\naX",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "two-media",
+    "fragment": "m=x\nm=y",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "empty-mid",
+    "fragment": "m=audio 9 RTP/AVP 0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "minimal",
+    "fragment": "m=audio 9 RTP/AVP 0\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "bundle-mismatch",
+    "fragment": "a=group:BUNDLE 1\nm=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "bundle-lower",
+    "fragment": "a=group:bundle 0\nm=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "bundle-spaces",
+    "fragment": "a=group:BUNDLE  0\nm=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "session-only-credentials",
+    "fragment": "a=ice-ufrag:new\na=ice-pwd:new-password\nm=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "media-only-credentials",
+    "fragment": "m=x\na=mid:0\na=ice-ufrag:new\na=ice-pwd:new-password\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "conflicting-ufrag",
+    "fragment": "a=ice-ufrag:a\na=ice-pwd:p\nm=x\na=mid:0\na=ice-ufrag:b\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "conflicting-pwd",
+    "fragment": "a=ice-ufrag:a\na=ice-pwd:p\nm=x\na=mid:0\na=ice-pwd:q\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "missing-pwd",
+    "fragment": "a=ice-ufrag:a\nm=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "session-candidate-ignored",
+    "fragment": "a=candidate:outside\nm=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "bare-end-ignored",
+    "fragment": "m=x\na=mid:0\na=end-of-candidates\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "colon-end-recognized",
+    "fragment": "m=x\na=mid:0\na=end-of-candidates:\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "full-restart-all-media",
+    "fragment": "a=group:BUNDLE 0 1\na=ice-ufrag:new\na=ice-pwd:new-password\nm=audio 9 UDP/TLS/RTP/SAVPF 111\na=mid:0\na=ice-ufrag:new\na=ice-pwd:new-password\na=candidate:new1\na=candidate:new2\na=end-of-candidates:\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "partial-session-no-replace",
+    "fragment": "a=ice-ufrag:new\nm=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "media-one-field-replaces",
+    "fragment": "m=x\na=mid:0\na=ice-ufrag:new\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "unknown-mid",
+    "fragment": "m=x\na=mid:9\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "late-group",
+    "fragment": "m=x\na=mid:0\na=group:BUNDLE 0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "last-attribute-wins",
+    "fragment": "m=x\na=mid:1\na=mid:0\na=ice-ufrag:first\na=ice-ufrag:last\na=ice-pwd:pwd\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "preserve-leading-space",
+    "fragment": " m=x\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "empty-media-info",
+    "fragment": "m=\na=mid:0\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "whitespace-trim",
+    "fragment": "m=x  \r\na=mid:0  \r\na=ice-ufrag:u \r\na=ice-pwd:p \r\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "ice-options-mismatch",
+    "fragment": "m=x\na=mid:0\na=ice-options:renomination\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=ice-options:trickle\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  },
+  {
+    "id": "ice-lite-mismatch",
+    "fragment": "m=x\na=mid:0\na=ice-options:trickle\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldcandidate\r\na=end-of-candidates\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=ice-lite\r\na=mid:1\r\na=ice-ufrag:old\r\na=ice-pwd:old-password\r\na=candidate:oldvideo\r\n"
+  }
+]

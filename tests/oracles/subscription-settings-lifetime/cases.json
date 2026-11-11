@@ -1,0 +1,282 @@
+[
+  {
+    "id": "settings-only-exact-expiry",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "settings"
+      ],
+      [
+        59000000000,
+        "tick"
+      ],
+      [
+        60000000000,
+        "tick"
+      ],
+      [
+        61000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "undesired-settings-renew",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "settings"
+      ],
+      [
+        50000000000,
+        "settings"
+      ],
+      [
+        60000000000,
+        "tick"
+      ],
+      [
+        109000000000,
+        "tick"
+      ],
+      [
+        111000000000,
+        "tick"
+      ],
+      [
+        112000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "subscribe-clears-keep-no-downtrack",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "missing"
+      ],
+      [
+        0,
+        "settings"
+      ],
+      [
+        30000000000,
+        "subscribe"
+      ],
+      [
+        40000000000,
+        "unsubscribe"
+      ],
+      [
+        41000000000,
+        "present"
+      ],
+      [
+        42000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "unsubscribe-waits-close-no-new-ttl",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "settings"
+      ],
+      [
+        1000000000,
+        "subscribe"
+      ],
+      [
+        1000000000,
+        "bind"
+      ],
+      [
+        2000000000,
+        "unsubscribe"
+      ],
+      [
+        90000000000,
+        "tick"
+      ],
+      [
+        91000000000,
+        "close"
+      ],
+      [
+        92000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "settings-after-unsubscribe-keep",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        1000000000,
+        "unsubscribe"
+      ],
+      [
+        2000000000,
+        "settings"
+      ],
+      [
+        3000000000,
+        "close"
+      ],
+      [
+        60000000000,
+        "tick"
+      ],
+      [
+        63000000000,
+        "tick"
+      ],
+      [
+        64000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "redesire-before-close-retains-settings",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "settings"
+      ],
+      [
+        1000000000,
+        "subscribe"
+      ],
+      [
+        2000000000,
+        "unsubscribe"
+      ],
+      [
+        3000000000,
+        "subscribe"
+      ],
+      [
+        4000000000,
+        "close"
+      ],
+      [
+        6000000000,
+        "tick"
+      ]
+    ]
+  },
+  {
+    "id": "already-undesired-unsubscribe-does-not-renew",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "settings"
+      ],
+      [
+        20000000000,
+        "unsubscribe"
+      ],
+      [
+        60000000000,
+        "tick"
+      ],
+      [
+        61000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "desired-settings-do-not-arm-keep",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "subscribe"
+      ],
+      [
+        1000000000,
+        "bind"
+      ],
+      [
+        20000000000,
+        "settings"
+      ],
+      [
+        21000000000,
+        "unsubscribe"
+      ],
+      [
+        22000000000,
+        "close"
+      ],
+      [
+        23000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "disconnected-defers-cleanup",
+    "one_shot": false,
+    "actions": [
+      [
+        0,
+        "settings"
+      ],
+      [
+        2000000000,
+        "disconnect"
+      ],
+      [
+        60000000000,
+        "tick"
+      ],
+      [
+        65000000000,
+        "connect"
+      ],
+      [
+        66000000000,
+        "tick"
+      ],
+      [
+        67000000000,
+        "subscribe"
+      ]
+    ]
+  },
+  {
+    "id": "one-shot-unsubscribe-immediate-delete",
+    "one_shot": true,
+    "actions": [
+      [
+        0,
+        "settings"
+      ],
+      [
+        1000000000,
+        "unsubscribe"
+      ],
+      [
+        2000000000,
+        "subscribe"
+      ]
+    ]
+  }
+]

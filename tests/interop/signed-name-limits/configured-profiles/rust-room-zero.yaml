@@ -1,0 +1,23 @@
+# F82 pure local HTTP/SIG profile; NOT a media/TLS acceptance config.
+port: 17980
+bind_addresses: [127.0.0.1]
+rtc:
+  tcp_port: 17981
+  udp_port: 17982
+  node_ip: 127.0.0.1
+  use_external_ip: false
+  enable_loopback_candidate: true
+  ips:
+    includes: [127.0.0.1/32]
+keys:
+  devkey: secret
+turn:
+  enabled: false
+api:
+  enable_psrpc_for_get_list_participants: false
+logging:
+  level: error
+limit:
+  max_room_name_length: 0
+  max_participant_identity_length: 256
+  max_participant_name_length: 256

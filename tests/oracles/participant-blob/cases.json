@@ -1,0 +1,158 @@
+[
+  {
+    "id": "generic-identical",
+    "left": "CgFn",
+    "right": "CgFn",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "generic-different",
+    "left": "CgFn",
+    "right": "CgFo",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "known-field-order-irrelevant",
+    "left": "CgFnCgFn",
+    "right": "CgFn",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "last-explicit-default",
+    "left": "CgFnCgA=",
+    "right": "CgA=",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "absent-not-empty-oneof",
+    "left": "",
+    "right": "CgA=",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-value-separates",
+    "left": "CgFnoAYB",
+    "right": "CgFnoAYC",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-same-alias",
+    "left": "CgFnoAYB",
+    "right": "CgFnoAYB",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "overlong-unknown-varint-alias",
+    "left": "CgFnoAaBAA==",
+    "right": "CgFnoAYB",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-noncanonical-tag-alias",
+    "left": "CgFnoIYAAQ==",
+    "right": "CgFnoAYB",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "fixed32-fixed64-text-alias",
+    "left": "CgFnpQYBAAAA",
+    "right": "CgFnoQYBAAAAAAAAAA==",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "fixed32-fixed64-different-value",
+    "left": "CgFnpQYBAAAA",
+    "right": "CgFnoQYCAAAAAAAAAA==",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-varint-vs-fixed-distinct",
+    "left": "CgFnoAYB",
+    "right": "CgFnpQYBAAAA",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-order-matters",
+    "left": "CgFnoAYBqAYC",
+    "right": "CgFnqAYCoAYB",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "known-number-wrong-kind-preserved",
+    "left": "CgFnCAc=",
+    "right": "CgFnCAg=",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "schema-unknown-different",
+    "left": "EhMKBG5hbWUSCBIGY3VzdG9toAYB",
+    "right": "EhMKBG5hbWUSCBIGY3VzdG9toAYC",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "encoding-unknown-different",
+    "left": "EhMKBG5hbWUSCxIGY3VzdG9toAYB",
+    "right": "EhMKBG5hbWUSCxIGY3VzdG9toAYC",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "schema-multiple-occurrences-merge",
+    "left": "EgYKBG5hbWUSChIIEgZjdXN0b20=",
+    "right": "EhAKBG5hbWUSCBIGY3VzdG9t",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "schema-name-explicit-clear-merge",
+    "left": "EgYKBG5hbWUSAgoA",
+    "right": "EgA=",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "encoding-explicit-clear-merge",
+    "left": "EgcSBRIDb2xkEgQSAhIA",
+    "right": "EgQSAhIA",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "oneof-switch-drops-previous-unknown",
+    "left": "EhMKBG5hbWUSCBIGY3VzdG9toAYBCgFnEhAKBG5hbWUSCBIGY3VzdG9t",
+    "right": "EhAKBG5hbWUSCBIGY3VzdG9t",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "schema-presence-not-absent",
+    "left": "EggKBG5hbWUSAA==",
+    "right": "EgYKBG5hbWU=",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "encoding-oneof-empty-vs-absent",
+    "left": "EgoKBG5hbWUSAhIA",
+    "right": "EggKBG5hbWUSAA==",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-enum-oneof",
+    "left": "EgsKBG5hbWUSAwimBw==",
+    "right": "EgsKBG5hbWUSAwimBw==",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-group-fixed-alias",
+    "left": "CgFnowatBgEAAACkBg==",
+    "right": "CgFnowapBgEAAAAAAAAApAY=",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "unknown-bytes-opaque",
+    "left": "CgFnogYCAP8=",
+    "right": "CgFnogYCAP8=",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  },
+  {
+    "id": "root-vs-child-unknown-distinct",
+    "left": "EhAKBG5hbWUSCBIGY3VzdG9toAYB",
+    "right": "EhMKBG5hbWUSCBIGY3VzdG9toAYB",
+    "blob_unknown": "qAYRsgYMYmxvYi11bmtub3du"
+  }
+]

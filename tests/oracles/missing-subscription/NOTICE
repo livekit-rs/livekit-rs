@@ -1,0 +1,1 @@
+The missing subscription retry policy is ported from LiveKit Server v1.13.10 pkg/rtc/subscriptionmanager.go and participant.go. Copyright LiveKit, Inc.; Apache License2.0. Original retained source and license hashes are locked by oracle/SOURCE.json. No Go runtime is a production dependency. Test helper fixtures adapt this project public engine contracts.

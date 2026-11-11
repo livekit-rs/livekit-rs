@@ -1,0 +1,4 @@
+// Independent actual LiveKit wrapper imported by fixed wsprotocol.go.
+package main
+import("encoding/json";"os";"github.com/livekit/protocol/livekit";"github.com/livekit/protocol/utils/protojson";"google.golang.org/protobuf/proto")
+func main(){b,e:=os.ReadFile(os.Args[1]);if e!=nil{panic(e)};var cases []struct{ID string `json:"id"`;JSON string `json:"json"`};if e=json.Unmarshal(b,&cases);e!=nil{panic(e)};enc:=json.NewEncoder(os.Stdout);for _,c:=range cases{var req proto.Message=&livekit.SignalRequest{};if len(os.Args)>2&&os.Args[2]=="worker"{req=&livekit.WorkerMessage{}};e:=protojson.Unmarshal([]byte(c.JSON),req);row:=map[string]any{"id":c.ID,"accepted":e==nil};if e!=nil{row["error"]=e.Error()}else{b,e:=proto.Marshal(req);if e!=nil{panic(e)};a:=make([]int,len(b));for i,n:=range b{a[i]=int(n)};row["wire"]=a};if e=enc.Encode(row);e!=nil{panic(e)}}}

@@ -1,0 +1,21 @@
+# Pinned upstream schemas are retained byte-for-byte for source hash checks.
+crates/lk-protocol/protos/*.proto whitespace=-blank-at-eol,-blank-at-eof
+# Unified-diff blank context lines contain a required prefix space. These are
+# byte-locked reconstruction inputs; source/hunk validation is done by the vendor
+# reconstruction checkers, rather than trimming and corrupting patch data.
+vendor/**/*.patch whitespace=-blank-at-eol,-blank-at-eof
+# Historical regression patches have the same required blank context prefix;
+# their exact bytes and strict reverse-apply check are locked in SOURCE.json.
+tests/regressions/f61-consumers/production-fix.patch whitespace=-blank-at-eol,-blank-at-eof
+# Actual observer TSVs use empty final fields; captured tool logs retain original
+# terminal spacing. Preserve these evidence bytes instead of rewriting fixtures.
+tests/oracles/sctp-source-knobs/**/*.tsv whitespace=-blank-at-eol,-blank-at-eof
+# This patched published input retains an original Markdown code-block blank
+# doc line. Exact native source + patch reconstruction guards its original bytes.
+vendor/sctp-proto/src/association/stream.rs whitespace=-blank-at-eol
+
+# Text-form captured command output is also byte-preserved evidence.
+# Byte-locked functional oracle patches also retain unified-diff blank contexts.
+tests/oracles/list-nodes-redis-address/*.patch whitespace=-blank-at-eol,-blank-at-eof
+# Exact metadata proposal patches preserve their required blank context prefix.
+tests/fixtures/upstream/**/*.tsv whitespace=-blank-at-eol,-blank-at-eof

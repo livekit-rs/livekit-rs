@@ -1,0 +1,43 @@
+{
+  "status": "FROZEN_SOURCE_PORT_CANDIDATE_NOT_COMPILED_NOT_RUN",
+  "scope": "list-nodes measurement only; valid Unicode scalar source table and controlled policy; no text mutation",
+  "data_bytes": 17664,
+  "data_rs_bytes": 56287,
+  "scalar_plane_bytes_expected_from_inventory": 2224128,
+  "source_inputs_sha256": "d22b0ae84bc4181eecb4dd35b7d10ce4ed71efb2e08d37c006431b50270a8263",
+  "actual_source9_sha256": "2117b8059da7a408a243bb110d5f910c3af6e1a03242d4b8e09a5b9aa1d37a1d",
+  "new_dependencies": 0,
+  "targets_proposed": [
+    "livekit-rs-server/crates/livecloud/src/go_cell_width.rs",
+    "livekit-rs-server/crates/livecloud/src/go_width_data.rs"
+  ],
+  "integration": "integration-narrow.patch, never whole shared cli_nodes overwrite",
+  "old_entry_behavioral_gate": "baseline-reader.patch requires existing table_width only; old RED then identical GREEN needed",
+  "execution": {
+    "Python_source_generation": true,
+    "Python_AST": true,
+    "Rust_compile": false,
+    "Go_run": false,
+    "shared_edit": false
+  },
+  "assets_sha256": {
+    "CONTRACT.md": "3c591f4f6f38934cc28bd89b17bf9823c648a3379cf30df8eeb00722c4095ff7",
+    "CURRENT-ENTRY.json": "cadd9c96a2eafae5ebf6a5355621601d8e151f1f67ef3bb85f7050ba87e5e381",
+    "NOTICE": "8ce2732a94ad6615836d2f4bbb891428d83a9cb0b6069fa561c6b392d2377854",
+    "SOURCE-INPUTS.json": "d22b0ae84bc4181eecb4dd35b7d10ce4ed71efb2e08d37c006431b50270a8263",
+    "baseline-reader-append.rs": "652b5240dcb92b904258b214b1caa6c47662d7a27069496e5be660c4ad40885e",
+    "baseline-reader.patch": "8fb5f310bd38a873e70f9e0c3afcc5c1ef55af2703a37dfd7f6c277a06373f44",
+    "generate.py": "355b4b89c18736b5f86ca3ecbb5e5c8a161e04128b141458927e0f45dd3baf18",
+    "go_cell_width.rs": "1576d4631d15ce1bea00371f48968c46bd8465ebbd4d694c5cbd841db50a842a",
+    "go_width_data.rs": "d6812d5160c8f78987bc7b2a4697898048436726eb47d34cdb71dacd842b3fba",
+    "integration-narrow.patch": "52b66d865b7ba06df2814dee5377891672b00fbc1ed1ea258487aafcc53b6ebe",
+    "licenses/displaywidth-MIT.txt": "fcdcc889a11c39c73d36019b838af41b418eb7811af12b746ace40c3074bb96c",
+    "licenses/tablewriter-MIT.txt": "0583acca2b32a7e4f7bc2d98422b2f55097333273731b3ba2a16d66f9e422744",
+    "oracle/cases.json": "3c0f231eac73726b66c518a189545b416cecdec61c81b207b5cf381c4f55b049",
+    "oracle/main.go": "6d3e7bf572390336116e0695a4636006c3551bd28f27a6662dd174cbd87b50c0",
+    "oracle/prepare.py": "c0ff9c3496c18a7758619fec375f8814537e6b8bcb4fb2a9373256123b9c02f5",
+    "oracle/scalar-main.go": "00a2b24e16ae223a679619e557794a52006446e9131efbcee5e6efa7f173c544",
+    "width9-cases.json": "a38b97376e49ce9dc73aa92b14019436e74fabd8f7109fa4bef7201c25bf5cbe"
+  },
+  "selected_reference": "references/displaywidth-v0.11.0; source files match retained exact module input"
+}

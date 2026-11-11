@@ -1,0 +1,57 @@
+<!doctype html><meta charset="utf-8"><title>Local SIP media interoperability</title>
+<script src="/sdk.js"></script><script>
+const {Room,RoomEvent,Track}=LivekitClient;
+let room,context,oscillator;const observedTracks=[];const state={subscribed:0,disconnected:0,errors:[],tone440:null,diagnosticOverflow:false};
+function measure(samples,rate,frequency){let energy=0,re=0,im=0;for(let i=0;i<samples.length;i++){const x=samples[i];energy+=x*x;re+=x*Math.cos(2*Math.PI*frequency*i/rate);im+=x*Math.sin(2*Math.PI*frequency*i/rate);}return {samples:samples.length,sampleRate:rate,rms:Math.sqrt(energy/samples.length),toneAmplitude:2*Math.hypot(re,im)/samples.length};}
+window.fixture={
+ async connect({url,token,sipIdentity}){
+  context=new AudioContext();await context.resume();room=new Room({adaptiveStream:false,dynacast:false});
+  room.on(RoomEvent.Disconnected,()=>state.disconnected++);
+  room.on(RoomEvent.TrackSubscribed,(track,publication,participant)=>{
+   if(track.kind!==Track.Kind.Audio||participant.identity!==sipIdentity)return;
+   state.subscribed++;if(observedTracks.length>=4){state.diagnosticOverflow=true;return;}
+   // Same standard SDK playback activation as the existing interop/client.html.
+   // A received RTP packet alone does not start Chromium's audio playout sink.
+   const element=track.attach();element.autoplay=true;element.volume=0;document.body.append(element);
+   element.play().catch(error=>{if(state.errors.length<16)state.errors.push(String(error.message));else state.diagnosticOverflow=true;});
+   const stream=context.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+   const analyser=context.createAnalyser();analyser.fftSize=8192;const zero=context.createGain();zero.gain.value=0;stream.connect(analyser);analyser.connect(zero);zero.connect(context.destination);
+   const timer=setInterval(()=>{const buffer=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(buffer);state.tone440=measure(buffer,context.sampleRate,440);},100);state.timer=timer;
+   observedTracks.push({track,publication,element,stream,analyser,zero,timer});
+  });
+  await room.connect(url,token,{autoSubscribe:true});
+  const destination=context.createMediaStreamDestination(),gain=context.createGain();gain.gain.value=.2;oscillator=context.createOscillator();oscillator.frequency.value=880;oscillator.type='sine';oscillator.connect(gain);gain.connect(destination);oscillator.start();
+  await room.localParticipant.publishTrack(destination.stream.getAudioTracks()[0],{name:'f07-rtc-880hz',source:Track.Source.Microphone,dtx:false,red:false});
+ },
+ async snapshot(){
+  const result=structuredClone(state);
+  result.audioContext=context?{state:context.state,sampleRate:context.sampleRate,currentTime:context.currentTime,baseLatency:context.baseLatency}:null;
+  result.receivers=[];
+  for(const {track,publication,element} of observedTracks){
+   const media=track.mediaStreamTrack;
+   const value={mediaTrack:{enabled:media.enabled,muted:media.muted,readyState:media.readyState,kind:media.kind},publication:{isMuted:publication.isMuted,isSubscribed:publication.isSubscribed,source:publication.source},element:{paused:element.paused,readyState:element.readyState,currentTime:element.currentTime,muted:element.muted,volume:element.volume,autoplay:element.autoplay},inbound:[],codecs:[]};
+   try{
+    const reports=await track.receiver.getStats();
+    for(const report of reports.values()){
+     if(report.type==='inbound-rtp'&&(report.kind==='audio'||report.mediaType==='audio')){
+      if(value.inbound.length>=4){result.diagnosticOverflow=true;continue;}
+      const item={};for(const field of ['timestamp','packetsReceived','bytesReceived','packetsLost','jitter','audioLevel','totalAudioEnergy','totalSamplesDuration','totalSamplesReceived','concealedSamples','silentConcealedSamples','concealmentEvents','insertedSamplesForDeceleration','removedSamplesForAcceleration','jitterBufferDelay','jitterBufferEmittedCount','codecId'])if(report[field]!==undefined)item[field]=report[field];value.inbound.push(item);
+     }
+     if(report.type==='codec'){
+      if(value.codecs.length>=8){result.diagnosticOverflow=true;continue;}
+      const item={};for(const field of ['id','mimeType','clockRate','channels','payloadType'])if(report[field]!==undefined)item[field]=report[field];value.codecs.push(item);
+     }
+    }
+   }catch(error){value.statsError=String(error.message);}
+   result.receivers.push(value);
+  }
+  return result;
+ },
+ async close(){
+  for(const {track,element,stream,analyser,zero,timer} of observedTracks.splice(0)){
+   clearInterval(timer);element.pause();track.detach(element);element.srcObject=null;element.remove();stream.disconnect();analyser.disconnect();zero.disconnect();
+  }
+  clearInterval(state.timer);oscillator?.stop();oscillator=null;await room?.disconnect();await context?.close();
+ }
+};
+</script>

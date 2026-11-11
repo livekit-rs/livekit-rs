@@ -1,0 +1,582 @@
+--- a/src/stun.rs
++++ b/src/stun.rs
+@@ -117,6 +117,18 @@
+ }
+ 
+ impl<'a> StunMessage<'a> {
++    pub(crate) fn with_sped(mut self, packet: Option<&'a [u8]>, acks: Option<&'a [u8]>) -> Self {
++        self.attrs.dtls_in_stun = packet;
++        self.attrs.dtls_in_stun_ack = acks;
++        self
++    }
++    pub(crate) fn sped_packet(&self) -> Option<&'a [u8]> {
++        self.attrs.dtls_in_stun
++    }
++    pub(crate) fn sped_acks(&self) -> Option<&'a [u8]> {
++        self.attrs.dtls_in_stun_ack
++    }
++
+     /// Parse a STUN message from a slice of bytes.
+     pub fn parse(buf: &'a [u8]) -> Result<StunMessage<'a>, StunError> {
+         if buf.len() < 4 {
+@@ -588,6 +600,8 @@
+     ice_controlling: Option<u64>,            // 0x802a
+     // 0xc057 https://tools.ietf.org/html/draft-thatcher-ice-network-cost-00
+     network_cost: Option<(u16, u16)>,
++    dtls_in_stun: Option<&'a [u8]>,
++    dtls_in_stun_ack: Option<&'a [u8]>,
+ }
+ 
+ impl<'a> fmt::Debug for Attributes<'a> {
+@@ -702,6 +716,8 @@
+     const USE_CANDIDATE: u16 = 0x0025;
+ 
+     const NETWORK_COST: u16 = 0xc057;
++    const DTLS_IN_STUN: u16 = 0xc070;
++    const DTLS_IN_STUN_ACK: u16 = 0xc071;
+ 
+     fn padded_len(&self) -> usize {
+         const ATTR_TLV_LENGTH: usize = 4;
+@@ -778,6 +794,12 @@
+             + realm
+             + nonce
+             + error_code
++            + self
++                .dtls_in_stun
++                .map_or(0, |v| 4 + v.len() + calculate_pad(v.len()))
++            + self
++                .dtls_in_stun_ack
++                .map_or(0, |v| 4 + v.len() + calculate_pad(v.len()))
+     }
+ 
+     fn to_bytes(self, out: &mut dyn Write, trans_id: &TransId) -> io::Result<()> {
+@@ -885,6 +907,25 @@
+             out.write_all(&PAD[0..pad])?;
+         }
+ 
++        // Both attributes precede MESSAGE-INTEGRITY, which is serialized by
++        // StunMessage::to_bytes after this complete attribute list.
++        for (typ, value) in [
++            (Self::DTLS_IN_STUN_ACK, self.dtls_in_stun_ack),
++            (Self::DTLS_IN_STUN, self.dtls_in_stun),
++        ] {
++            if let Some(value) = value {
++                let len = u16::try_from(value.len()).map_err(|_| {
++                    io::Error::new(
++                        io::ErrorKind::InvalidInput,
++                        "DTLS-in-STUN attribute exceeds u16",
++                    )
++                })?;
++                out.write_all(&typ.to_be_bytes())?;
++                out.write_all(&len.to_be_bytes())?;
++                out.write_all(value)?;
++                out.write_all(&PAD[..calculate_pad(value.len())])?;
++            }
++        }
+         Ok(())
+     }
+ 
+@@ -1061,6 +1102,12 @@
+                         bytes.copy_from_slice(&buf[4..(4 + 8)]);
+                         attributes.ice_controlling = Some(u64::from_be_bytes(bytes));
+                     }
++                    Self::DTLS_IN_STUN => {
++                        attributes.dtls_in_stun = Some(&buf[4..4 + len]);
++                    }
++                    Self::DTLS_IN_STUN_ACK => {
++                        attributes.dtls_in_stun_ack = Some(&buf[4..4 + len]);
++                    }
+                     Self::NETWORK_COST => {
+                         if len != 4 {
+                             warn!("NetworkCost that isnt 4 in length");
+@@ -1467,6 +1514,51 @@
+ mod test {
+     use super::*;
+     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
++
++    #[test]
++    fn sped_attributes_are_covered_by_integrity_and_ignored_after_it() {
++        let record = [22, 0xfe, 0xfd, 0, 0, 1, 2, 3];
++        let acks = [0xcb, 0xf4, 0x39, 0x26];
++        let msg = StunMessage::binding_request("remote:local", TransId::new(), true, 1, 10, false)
++            .with_sped(Some(&record), Some(&acks));
++        let mut wire = vec![0; 512];
++        let n = msg.to_bytes(Some(b"secret"), &mut wire, sha1_hmac).unwrap();
++        wire.truncate(n);
++        let parsed = StunMessage::parse(&wire).unwrap();
++        assert!(parsed.verify(b"secret", sha1_hmac));
++        assert_eq!(parsed.sped_packet(), Some(record.as_slice()));
++        assert_eq!(parsed.sped_acks(), Some(acks.as_slice()));
++        let at = wire
++            .windows(record.len())
++            .position(|w| w == record)
++            .unwrap();
++        let mut corrupt = wire.clone();
++        corrupt[at] ^= 0x80;
++        assert!(
++            !StunMessage::parse(&corrupt)
++                .unwrap()
++                .verify(b"secret", sha1_hmac)
++        );
++        let plain =
++            StunMessage::binding_request("remote:local", TransId::new(), true, 1, 10, false);
++        let mut wire = vec![0; 512];
++        let n = plain
++            .to_bytes(Some(b"secret"), &mut wire, sha1_hmac)
++            .unwrap();
++        wire.truncate(n - 8); // remove trailing FINGERPRINT
++        wire.extend_from_slice(&[0xc0, 0x70, 0, 4, 22, 0xfe, 0xfd, 0]);
++        wire.extend_from_slice(&[0xc0, 0x71, 0, 0]);
++        let len = (wire.len() - 20) as u16;
++        wire[2..4].copy_from_slice(&len.to_be_bytes());
++        let parsed = StunMessage::parse(&wire).unwrap();
++        assert!(parsed.verify(b"secret", sha1_hmac));
++        assert_eq!(
++            parsed.sped_packet(),
++            None,
++            "uncovered attribute after MESSAGE-INTEGRITY"
++        );
++        assert_eq!(parsed.sped_acks(), None);
++    }
+ 
+     fn sha1_hmac(key: &[u8], payloads: &[&[u8]]) -> [u8; 20] {
+         use hmac::{Hmac, Mac};
+@@ -1531,6 +1623,8 @@
+             ice_controlled: Some(10),
+             ice_controlling: Some(100),
+             network_cost: Some((10, 10)),
++            dtls_in_stun: None,
++            dtls_in_stun_ack: None,
+         };
+ 
+         let dbg_print = format!("{attrs:?}");
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -98,6 +98,7 @@
+ extern crate tracing;
+ 
+ mod agent;
++mod sped;
+ pub use agent::{IceAgent, IceAgentEvent, IceConnectionState, IceCreds, LocalPreference};
+ 
+ mod candidate;
+--- a/src/agent.rs
++++ b/src/agent.rs
+@@ -25,6 +25,10 @@
+ /// each one.
+ #[derive(Debug)]
+ pub struct IceAgent {
++    sped_enabled: bool,
++    sped: crate::sped::Sped,
++    sped_received: VecDeque<Vec<u8>>,
++    last_sped_check: Option<Instant>,
+     /// Last time handle_timeout run (paced by timing_advance).
+     ///
+     /// This drives the state forward.
+@@ -310,6 +314,50 @@
+ }
+ 
+ impl IceAgent {
++    /// Opt into fixed LiveKit WARP DTLS-in-STUN. Disabled by default.
++    pub fn set_sped_enabled(&mut self, enabled: bool) {
++        self.sped_enabled = enabled;
++        self.sped.enable(enabled);
++        self.sped_received.clear();
++        self.last_sped_check = None;
++    }
++    /// Returns false when a connected caller must send the packet normally.
++    pub fn queue_sped_dtls(&mut self, packet: Vec<u8>, end_of_flight: bool) -> bool {
++        self.sped_enabled && self.sped.queue(packet, end_of_flight)
++    }
++    pub fn complete_sped_dtls(&mut self) {
++        if self.sped_enabled {
++            self.sped.complete();
++        }
++    }
++    pub fn report_sped_dtls(&mut self, packet: &[u8]) {
++        if self.sped_enabled {
++            self.sped.report_plain(packet);
++        }
++    }
++    pub fn poll_sped_dtls(&mut self) -> Option<Vec<u8>> {
++        self.sped_received.pop_front()
++    }
++    pub fn poll_sped_plain(&mut self) -> Option<Vec<u8>> {
++        self.sped.poll_plain()
++    }
++    /// Wake a check immediately when a new DTLS flight/ACK appears, including
++    /// ICE-lite's selected pair (which normally emits no connectivity checks).
++    pub fn drive_sped(&mut self, now: Instant) {
++        if !self.sped.active() || !self.sped.dirty || self.remote_credentials.is_none() {
++            return;
++        }
++        let index = self
++            .nominated_send
++            .and_then(|id| self.candidate_pairs.iter().position(|p| p.id() == id))
++            .or_else(|| (!self.candidate_pairs.is_empty()).then_some(0));
++        if let Some(index) = index {
++            self.sped.dirty = false;
++            self.last_sped_check = Some(now);
++            self.stun_client_binding_request(now, index);
++        }
++    }
++
+     /// Create a new [`IceAgent`] using the default SHA1-HMAC provider.
+     ///
+     /// Available when the `sha1` feature is enabled (on by default).
+@@ -324,6 +372,10 @@
+         sha1_hmac_provider: &'static dyn Sha1HmacProvider,
+     ) -> Self {
+         IceAgent {
++            sped_enabled: false,
++            sped: Default::default(),
++            sped_received: VecDeque::new(),
++            last_sped_check: None,
+             last_now: None,
+             ice_lite: false,
+             max_candidate_pairs: None,
+@@ -994,6 +1046,9 @@
+         // data session always requires the roles to be determined.
+ 
+         self.remote_credentials = None;
++        self.sped.enable(false);
++        self.sped_received.clear();
++        self.last_sped_check = None;
+         self.remote_candidates.clear();
+         self.candidate_pairs.clear();
+         self.has_exceeded_max_candidate_pairs = false;
+@@ -1170,6 +1225,19 @@
+             return false;
+         }
+ 
++        // Authentication above precedes any DTLS injection. Attributes after
++        // MESSAGE-INTEGRITY were already ignored by the STUN parser.
++        if self.sped_enabled
++            && (packet.message.is_binding_request()
++                || packet.message.is_successful_binding_response())
++        {
++            if let Some(record) = self
++                .sped
++                .receive(packet.message.sped_packet(), packet.message.sped_acks())
++            {
++                self.sped_received.push_back(record);
++            }
++        }
+         if packet.message.is_binding_request() {
+             self.stun_server_handle_message(now, &packet);
+         } else if packet.message.is_successful_binding_response() {
+@@ -1250,6 +1318,18 @@
+             return;
+         }
+ 
++        if self.sped.active()
++            && self
++                .last_sped_check
++                .is_none_or(|last| now.saturating_duration_since(last) >= self.timing_advance)
++        {
++            if let Some(id) = self.nominated_send {
++                if let Some(index) = self.candidate_pairs.iter().position(|p| p.id() == id) {
++                    self.last_sped_check = Some(now);
++                    self.stun_client_binding_request(now, index);
++                }
++            }
++        }
+         if self.ice_lite {
+             // Remote binding request time is the timestamp in the CandidatePair that
+             // is used to decide whether something is timed out or not. We need all
+@@ -1306,6 +1386,9 @@
+         // if we never called handle_timeout, there will be no current time.
+         let last_now = self.last_now?;
+ 
++        if self.sped.active() && (self.sped.dirty || self.nominated_send.is_some()) {
++            return Some(last_now + self.timing_advance);
++        }
+         let has_request = !self.stun_server_queue.is_empty();
+         let has_transmit = !self.transmit.is_empty();
+ 
+@@ -1447,7 +1530,11 @@
+         // for traffic that isn't actually directed at one of our interfaces.
+         let local_idx = match self.local_candidates.iter().position(|v| {
+             matches!(v.kind(), CandidateKind::Host | CandidateKind::Relayed)
+-                && (if v.kind() == CandidateKind::Host { v.base() } else { v.addr() }) == req.destination
++                && (if v.kind() == CandidateKind::Host {
++                    v.base()
++                } else {
++                    v.addr()
++                }) == req.destination
+                 && v.proto() == req.proto
+         }) {
+             Some(i) => i,
+@@ -1639,14 +1726,22 @@
+ 
+         let (_, password) = self.stun_credentials(true);
+ 
+-        let reply = StunMessage::binding_reply(req.trans_id, req.source);
++        let sped = self.sped.attributes();
++        let ack_bytes = sped.as_ref().map(|(_, acks)| {
++            acks.iter()
++                .flat_map(|a| a.to_be_bytes())
++                .collect::<Vec<_>>()
++        });
++        let payload = sped.as_ref().and_then(|(p, _)| p.as_deref());
++        let reply = StunMessage::binding_reply(req.trans_id, req.source)
++            .with_sped(payload, ack_bytes.as_deref());
+ 
+         trace!(
+             "Send STUN reply: {} -> {} {:?}",
+             local_addr, remote_addr, reply
+         );
+ 
+-        let mut buf = vec![0_u8; self.mtu()];
++        let mut buf = vec![0_u8; self.mtu() + payload.map_or(0, |p| p.len()) + 32];
+ 
+         let sha1_hmac =
+             |key: &[u8], payloads: &[&[u8]]| self.sha1_hmac_provider.sha1_hmac(key, payloads);
+@@ -1723,6 +1818,13 @@
+     }
+ 
+     fn stun_client_binding_request(&mut self, now: Instant, pair_idx: usize) {
++        let sped = self.sped.attributes();
++        let ack_bytes = sped.as_ref().map(|(_, acks)| {
++            acks.iter()
++                .flat_map(|a| a.to_be_bytes())
++                .collect::<Vec<_>>()
++        });
++        let payload = sped.as_ref().and_then(|(p, _)| p.as_deref());
+         let (username, password) = self.stun_credentials(false);
+ 
+         let pair = &mut self.candidate_pairs[pair_idx];
+@@ -1743,7 +1845,8 @@
+             self.control_tie_breaker,
+             prio,
+             use_candidate,
+-        );
++        )
++        .with_sped(payload, ack_bytes.as_deref());
+ 
+         trace!(
+             "Send STUN request: {} -> {} {:?}",
+@@ -1752,7 +1855,7 @@
+             binding
+         );
+ 
+-        let mut buf = vec![0_u8; self.mtu()];
++        let mut buf = vec![0_u8; self.mtu() + payload.map_or(0, |p| p.len()) + 32];
+ 
+         let sha1_hmac =
+             |key: &[u8], payloads: &[&[u8]]| self.sha1_hmac_provider.sha1_hmac(key, payloads);
+@@ -1959,6 +2062,7 @@
+             let remote = best_prio.remote_candidate(&self.remote_candidates);
+ 
+             self.nominated_send = Some(best_prio.id());
++            self.sped.connected();
+             self.emit_event(IceAgentEvent::NominatedSend {
+                 proto: local.proto(),
+                 source: local.base(),
+--- /dev/null
++++ b/src/sped.rs
+@@ -0,0 +1,204 @@
++//! DTLS-in-STUN flight/ack controller from the fixed LiveKit ICE
++//! v4.4.0-warp.3 `piggyback.go`. STUN authentication is the caller's boundary:
++//! unauthenticated attributes must never reach `receive`.
++use std::collections::VecDeque;
++
++const CRC: crc::Crc<u32> = crc::Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
++enum State {
++    #[default]
++    Off,
++    Tentative,
++    Confirmed,
++    Pending,
++    Complete,
++}
++#[derive(Debug, Default)]
++pub(crate) struct Sped {
++    state: State,
++    packets: VecDeque<(Vec<u8>, u32)>,
++    index: usize,
++    acks: Vec<u32>,
++    new_flight: bool,
++    callback: bool,
++    connected: bool,
++    pub(crate) dirty: bool,
++}
++impl Sped {
++    pub(crate) fn enable(&mut self, enabled: bool) {
++        *self = Self::default();
++        if enabled {
++            self.state = State::Tentative;
++            self.callback = true;
++        }
++    }
++    pub(crate) fn enabled(&self) -> bool {
++        self.state != State::Off
++    }
++    pub(crate) fn active(&self) -> bool {
++        !matches!(self.state, State::Off | State::Complete)
++    }
++    /// Returns false only when the caller must send this packet as plain DTLS.
++    pub(crate) fn queue(&mut self, packet: Vec<u8>, end: bool) -> bool {
++        let idle = !self.active();
++        if idle && self.connected {
++            return false;
++        }
++        if self.new_flight {
++            self.packets.clear();
++            self.index = 0;
++        }
++        self.new_flight = end;
++        let checksum = CRC.checksum(&packet);
++        self.packets.push_back((packet, checksum));
++        self.dirty = true;
++        true
++    }
++    pub(crate) fn complete(&mut self) {
++        if self.active() {
++            self.state = State::Pending;
++            // The fixed DTLS transport removes its ICE callback on completion.
++            self.callback = false;
++            self.dirty = true;
++        }
++    }
++    /// Own copies let the caller serialize STUN without borrowing mutable state.
++    /// Empty ACK is distinct from absent ACK: it advertises SPED support.
++    pub(crate) fn attributes(&mut self) -> Option<(Option<Vec<u8>>, Vec<u32>)> {
++        if !self.active() {
++            return None;
++        }
++        let packet = if self.packets.is_empty() {
++            None
++        } else {
++            self.index %= self.packets.len();
++            let packet = self.packets[self.index].0.clone();
++            self.index = (self.index + 1) % self.packets.len();
++            Some(packet)
++        };
++        Some((packet, self.acks.clone()))
++    }
++    /// Called only after short-term MESSAGE-INTEGRITY/transaction checks.
++    /// Return payload even when duplicate: DTLS owns replay/flight handling.
++    pub(crate) fn receive(
++        &mut self,
++        packet: Option<&[u8]>,
++        ack_bytes: Option<&[u8]>,
++    ) -> Option<Vec<u8>> {
++        if !self.active() {
++            return None;
++        }
++        // Fixed Go ignores malformed ACK attributes, treating GetFrom error as
++        // absence; a valid independently embedded DTLS packet is still delivered.
++        let acks = ack_bytes.filter(|v| v.len() <= 16 && v.len() % 4 == 0);
++        if packet.is_none() && acks.is_none() {
++            self.state = if self.state == State::Tentative {
++                State::Off
++            } else {
++                State::Complete
++            };
++            self.callback = false;
++            self.acks.clear();
++            return None;
++        }
++        if self.state == State::Tentative {
++            self.state = State::Confirmed;
++        }
++        if let Some(acks) = acks {
++            self.packets.retain(|(_, checksum)| {
++                !acks
++                    .chunks_exact(4)
++                    .any(|ack| u32::from_be_bytes(ack.try_into().unwrap()) == *checksum)
++            });
++            if self.packets.is_empty() {
++                self.index = 0;
++            } else {
++                self.index %= self.packets.len();
++            }
++        }
++        if packet.is_none_or(|v| v.is_empty()) {
++            self.acks.clear();
++        }
++        let packet = packet.filter(|p| !p.is_empty())?;
++        if !self.callback {
++            return None;
++        }
++        self.report_plain(packet);
++        Some(packet.to_vec())
++    }
++    /// Both embedded and plain DTLS handshake records contribute CRC32 ACKs.
++    pub(crate) fn report_plain(&mut self, packet: &[u8]) -> bool {
++        if !self.active() {
++            return false;
++        }
++        let checksum = CRC.checksum(packet);
++        if self.acks.contains(&checksum) {
++            return false;
++        }
++        self.acks.push(checksum);
++        self.dirty = true;
++        if self.acks.len() > 4 {
++            self.acks.remove(0);
++        }
++        true
++    }
++    pub(crate) fn connected(&mut self) {
++        self.connected = true;
++    }
++    /// Fallback/peer completion cannot strand a flight intercepted before ICE.
++    pub(crate) fn poll_plain(&mut self) -> Option<Vec<u8>> {
++        if !self.connected || self.active() {
++            return None;
++        }
++        self.packets.pop_front().map(|p| p.0)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn support_ack_crc_flight_and_authenticated_fallback_contract() {
++        let mut a = Sped::default();
++        a.enable(true);
++        assert_eq!(a.attributes(), Some((None, vec![])));
++        assert!(a.queue(b"123456789".to_vec(), true));
++        assert_eq!(a.packets[0].1, 0xcbf43926, "IEEE CRC32, not Castagnoli");
++        let ack = 0xcbf43926u32.to_be_bytes();
++        assert_eq!(a.receive(Some(b"peer"), Some(&ack)), Some(b"peer".to_vec()));
++        assert!(a.packets.is_empty());
++        assert_eq!(a.acks, vec![CRC.checksum(b"peer")]);
++        assert!(a.queue(b"next flight".to_vec(), true));
++        a.receive(None, None);
++        a.connected();
++        assert!(!a.active());
++        assert_eq!(a.poll_plain(), Some(b"next flight".to_vec()));
++        assert!(!a.queue(b"late retry".to_vec(), true));
++        assert_eq!(a.attributes(), None);
++    }
++    #[test]
++    fn no_support_flushes_before_retry_and_malformed_ack_does_not_discard_dtls() {
++        let mut a = Sped::default();
++        a.enable(true);
++        assert!(a.queue(vec![22, 1], true));
++        a.receive(None, None);
++        assert_eq!(a.poll_plain(), None);
++        a.connected();
++        assert_eq!(a.poll_plain(), Some(vec![22, 1]));
++        a.enable(true);
++        assert_eq!(
++            a.receive(Some(b"record"), Some(&[1, 2, 3])),
++            Some(b"record".to_vec())
++        );
++        for i in 0..8 {
++            a.report_plain(&[i]);
++        }
++        assert_eq!(a.acks.len(), 4);
++        a.complete();
++        assert_eq!(a.receive(Some(b"after connected"), Some(&[])), None);
++        a.enable(false);
++        assert!(!a.active());
++        assert_eq!(a.poll_plain(), None);
++    }
++}

@@ -1,0 +1,16 @@
+{
+  "status": "FROZEN_V2_NOT_RUN_REAL_SOURCE_SEND_PREREQUISITE",
+  "cases": 12,
+  "scope": "Original source private fast retransmit method state and real packet serializer; separate from immutable F13610+10. No physical pair/SDK claim.",
+  "assets_sha256": {
+    "oracle/cases.jsonl": "502033db829138391261b8635aca5636f4b9d6fdea77263d6443ede680616f3b",
+    "oracle/partial_reliability_test.go": "67ff464d252e4f97ee18ddfedfdbf425d48403c78efb905fd2a632696e4f5687",
+    "prepare.py": "aff7adaaa46f5b12892a4482c97585e68fe160e5e4bc652834a33bceb3b9b98e",
+    "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "README.md": "a67d58215aa9406427d92c2421b83dd45e3885cbf864b17e695db008e7e34868"
+  },
+  "original_f136_oracle_lock_sha256": "b356a74c043805e7560896bd253466ca570f941a9261bb99b8a64d6f7babfa3e",
+  "preserved_original_source_sha256": "f5cad62817608baef28869cf7dd7b645debba16204a4228009821bfcf3bfb26e",
+  "preserved_original_cases_sha256": "502033db829138391261b8635aca5636f4b9d6fdea77263d6443ede680616f3b"
+}

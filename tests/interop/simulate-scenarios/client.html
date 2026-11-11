@@ -1,0 +1,59 @@
+<!doctype html><meta charset="utf-8"><title>Official SDK simulateScenario differential</title>
+<script>
+// Use public browser APIs. Redirect only the owned TURN/TLS test endpoint to
+// its ephemeral listener. The SDK itself receives the real server response.
+window.pcs=[];const NativePC=window.RTCPeerConnection;
+const route=config=>{
+ if(!config?.iceServers)return config;
+ return {...config,iceServers:config.iceServers.map(server=>({...server,urls:[server.urls].flat().map(url=>{
+  if(window.turnTlsPort&&url==='turns:turn.localhost:443?transport=tcp')return `turns:turn.localhost:${window.turnTlsPort}?transport=tcp`;
+  if(window.turnUdpRoute&&url===`turn:127.0.0.1:${window.turnUdpUpstream}?transport=udp`)return `turn:127.0.0.1:${window.turnUdpRoute}?transport=udp`;
+  return url;
+ })}))};
+};
+window.RTCPeerConnection=class extends NativePC{
+ constructor(config,...rest){super(route(config),...rest);pcs.push(this);}
+ setConfiguration(config){return super.setConfiguration(route(config));}
+};
+</script><script src="/sdk.js"></script><body><script>
+const {Room,RoomEvent,Track,DisconnectReason}=LivekitClient;
+let room,ctx,osc,analysers=new Map();
+const state={events:[],errors:[],data:[]};
+const log=(name,detail)=>state.events.push({at:performance.now(),name,...(detail||{})});
+window.sim={
+ async connect({url,token,single}){
+  room=new Room({adaptiveStream:false,dynacast:false,singlePeerConnection:single});
+  for(const ev of ['SignalReconnecting','Reconnecting','Reconnected','SignalConnected','ConnectionStateChanged'])room.on(RoomEvent[ev],(...a)=>log(ev,ev==='ConnectionStateChanged'?{value:a[0]}:undefined));
+  room.on(RoomEvent.Disconnected,r=>log('Disconnected',{reason:r===undefined?null:DisconnectReason[r]??r}));
+  room.on(RoomEvent.ParticipantConnected,p=>log('ParticipantConnected',{identity:p.identity,sid:p.sid}));
+  room.on(RoomEvent.ParticipantDisconnected,p=>log('ParticipantDisconnected',{identity:p.identity,sid:p.sid}));
+  room.on(RoomEvent.ActiveSpeakersChanged,s=>log('ActiveSpeakersChanged',{speakers:s.map(p=>p.identity)}));
+  room.on(RoomEvent.DataReceived,(payload,p)=>state.data.push({from:p?.identity,text:new TextDecoder().decode(payload),at:performance.now()}));
+  room.on(RoomEvent.TrackSubscribed,(track,pub,p)=>{log('TrackSubscribed',{identity:p.identity,kind:track.kind});
+   if(track.kind==='audio'){const el=track.attach();el.muted=true;document.body.appendChild(el);
+    ctx??=new AudioContext();const an=ctx.createAnalyser();an.fftSize=2048;ctx.createMediaStreamSource(new MediaStream([track.mediaStreamTrack])).connect(an);analysers.set(p.identity,an);}});
+  room.on(RoomEvent.TrackUnsubscribed,(t,pub,p)=>{log('TrackUnsubscribed',{identity:p.identity,kind:t.kind});if(t.kind==='audio')analysers.delete(p.identity);});
+  await room.connect(url,token,{autoSubscribe:true,...(window.turnUdpRoute?{rtcConfig:{iceTransportPolicy:'relay'}}:{})});
+  return room.localParticipant.sid;
+ },
+ async publishAudio(){
+  ctx??=new AudioContext();osc=ctx.createOscillator();osc.frequency.value=440;const dst=ctx.createMediaStreamDestination();osc.connect(dst);osc.start();
+  await room.localParticipant.publishTrack(dst.stream.getAudioTracks()[0],{name:'tone',source:Track.Source.Microphone,dtx:false,red:false});
+ },
+ rms(identity){const an=analysers.get(identity);if(!an)return 0;const b=new Float32Array(an.fftSize);an.getFloatTimeDomainData(b);let s=0;for(const v of b)s+=v*v;return Math.sqrt(s/b.length);},
+ async send(text){await room.localParticipant.publishData(new TextEncoder().encode(text),{reliable:true});},
+ async simulate(name,arg){log('simulate',{scenario:name});await room.simulateScenario(name,arg);},
+ async protocols(){const out=[];for(const [pcIndex,pc] of pcs.entries()){if(pc.connectionState==='closed')continue;const st=await pc.getStats();
+   const transport=[...st.values()].find(r=>r.type==='transport'&&r.selectedCandidatePairId),pair=st.get(transport?.selectedCandidatePairId);
+   if(pair?.state==='succeeded'){const l=st.get(pair.localCandidateId),r=st.get(pair.remoteCandidateId);
+    out.push({pcIndex,connection:pc.connectionState,local:l?.protocol,remote:r?.protocol,relay:l?.candidateType==='relay',
+     relayProtocol:l?.relayProtocol,turnUrl:l?.url,
+     localUfrag:pc.localDescription?.sdp.match(/^a=ice-ufrag:(\S+)/m)?.[1],
+     remoteUfrag:pc.remoteDescription?.sdp.match(/^a=ice-ufrag:(\S+)/m)?.[1]});}}return out;},
+ async inboundAudioPackets(){let packets=0;for(const pc of pcs){if(pc.connectionState==='closed')continue;
+   for(const r of (await pc.getStats()).values())if(r.type==='inbound-rtp'&&r.kind==='audio')packets+=r.packetsReceived;}return packets;},
+ report(){return {state:room?.state,sid:room?.localParticipant?.sid,remotes:[...(room?.remoteParticipants?.values()||[])].map(p=>({identity:p.identity,sid:p.sid})),events:state.events,data:state.data,errors:state.errors};},
+ async close(){osc?.stop();await room?.disconnect();await ctx?.close();},
+};
+window.addEventListener('error',e=>state.errors.push(String(e.message)));
+</script>

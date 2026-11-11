@@ -1,0 +1,13 @@
+[package]
+name = "websocket-close-policy-conformance"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+livekit-policy = ["tungstenite/livekit-server-close-reply-empty-reason"]
+
+[dependencies]
+tungstenite = { path = "../../../vendor/tungstenite", default-features = false }

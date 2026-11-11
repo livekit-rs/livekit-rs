@@ -1,0 +1,352 @@
+{
+  "status": "SOURCE_ONLY_NOT_COMPILED_NOT_RUN",
+  "base": "Exact git show fa9bb81010d2c770a5d853e92f4e5cf0e82e0edd files, no uncommitted shared sources",
+  "targets": [
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/permission.rs",
+      "base_sha256": "9d260209076f65ba461e38fbe54044a53dddfcd09c008d6e0ed939eaddd349e7",
+      "payload_sha256": "f3db747bf631caf5b9f772192935a8022cd77e33f7153729f0e6548438fc5ee5"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/api.rs",
+      "base_sha256": "ea790ce7d73eebe6fd415a59b38518c4513d66b5e026f16a6f0416842b507fef",
+      "payload_sha256": "e6b734f9f805bc9ff5f0ef3d2a11534aca266affe8faf944ade8cdcca5f9be3c"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/publish.rs",
+      "base_sha256": "3cec8a4497317f4cd580a6320a14a0bd3e0cc230b19a8e8e4c40d37e857500ad",
+      "payload_sha256": "13e4427b35644206251366a8f392d8917e5a987ef92c137ba0e015d395fc2722"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/auth/claims.rs",
+      "base_sha256": "19759b2d325b4acca1434e959dd7994aca8f0b910fd8b231a9ea7acaa4c9560d",
+      "payload_sha256": "76840b42a085260e1f6f929b32a4a8c5e6b706508a40d5609b074d9531f1a527"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/auth/minter.rs",
+      "base_sha256": "f174a6131d9ad89bb166d355b32992b4db003f8f46c68fd18cd39e9dccba0be4",
+      "payload_sha256": "af4db4d3371c96e2e204cebfcf8a0bf32ff5fc19d0c1591de0f2ae3034a32509"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/signal/session/claims_snapshot_tests.rs",
+      "base_sha256": "489840c2c353b2280a263ccd9ac5df0b7d447ce37817eaa4b79106d5effcdc6b",
+      "payload_sha256": "9e363b252aeab72f07f34f36d43c3532b274db7116e7f1585aabac4768cbeacf"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/signal/session/raw_source_tests.rs",
+      "base_sha256": null,
+      "payload_sha256": "02b73c4fac93e6623aec4d016ee827fbb2eb97fdaf699ecd66b4ebad4fec9ddb"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/signal/session.rs",
+      "base_sha256": "45e346b00d785cc8a03122f9d7216d5e26d85c1e75de2f60ee3b879d97a5559b",
+      "payload_sha256": "3dfc638e90e151baa212a32ce3fb779d0f6a573e93c69b9aa54c418199826fe0"
+    }
+  ],
+  "context_sha256": {
+    "livekit-rs-server/crates/lk-compat/src/signal/session.rs": "45e346b00d785cc8a03122f9d7216d5e26d85c1e75de2f60ee3b879d97a5559b",
+    "livekit-rs-server/crates/rtc-core/src/session.rs": "f9ca46e65546e79370a641fd88b832b1e5cdd99b0e875a006adf68b3d8a0de89",
+    "livekit-rs-server/crates/rtc-core/src/room/join.rs": "1c45bea96d43c91958a72c12f534660d5acee35d6f5b607ec82bb009d5e61f9d",
+    "livekit-rs-server/crates/rtc-core/src/room/requests.rs": "8cbbe8bcf2230f0e4137751875b531c386a90fc3b7e99d4cad02e530ddfc15b1",
+    "livekit-rs-server/Cargo.lock": "3294a4493aa1b5150051d2f34153097c5c6f6dc7a6ee1fd59d9725315ab5f748",
+    "livekit-rs-server/crates/rtc-core/src/room/tests.rs": "65d7890f50218d0b6995e5d5d66d5b0bea191c911c590e9cb24d24ecc9dda730",
+    "livekit-rs-server/crates/rtc-runtime/src/room_task.rs": "14b9ee88d309f7379f47b73df4c1756b1c4ff81204b1edbe2ee50c7a90f582d6"
+  },
+  "fixed_source_sha256": {
+    "references/protocol-stable/auth/grants.go": "eff12c293de465c4e95185de96b8d5510f5f97f1f10e48c93d63fa0540bbe9d7",
+    "references/protocol-stable/auth/accesstoken.go": "69925afa571f79dc3715496bdfb3f4e2453fa543596f80aa77afa7d87811471b",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85"
+  },
+  "base_commit": "fa9bb81010d2c770a5d853e92f4e5cf0e82e0edd",
+  "fixed_source_root": "/Users/zoujiaqing/projects/livekit-rs",
+  "parent_v1_source_sha256": "6385a1658f46f1102bd78f28561cf9f2e7a512cc85cfe39a7a9ec7f5efb011d8",
+  "immutable_tests_sha256": "02b73c4fac93e6623aec4d016ee827fbb2eb97fdaf699ecd66b4ebad4fec9ddb",
+  "observer_pointer_fix": {
+    "original_v1_main_sha256": "3bf4e48551f08413793edec4a00223cf5e422c15a95ebc472bb92394c48c3373",
+    "actual_v2_main_sha256": "bd442a1581338d15298b3b7c6b26ad4cb9ac4d11b77397f44c106a521abf861b",
+    "only_delta": "refreshed(v) -> refreshed(&v)",
+    "old_failed_setup_retained": "Root-owned original FAILED_SETUP receipt/log, no vector execution; no history rewritten"
+  },
+  "actual_source16": {
+    "path": "livekit-rs-docs/evidence/2026-10-28/raw-sources-original-go16-actual",
+    "rows": 16,
+    "actual_sha256": "dabb3523701bb92395d43338df0e85ca1562d455b225a7e768300408c1c906ce",
+    "observer_binary_sha256": "10955b6cc42d80f5b2d8a9da0ca2860fee90848e24a17433e8245e35c8c43b35",
+    "scope": "Actual coordinator-run original Go output, not Rust acceptance; no expected result generation"
+  },
+  "line_hunks": {
+    "livekit-rs-server/crates/rtc-core/src/permission.rs": [
+      {
+        "old_start": 62,
+        "old_end": 63,
+        "old_lines": [
+          "    pub can_publish_sources: Vec<TrackSource>,\n"
+        ],
+        "new_lines": [
+          "    /// Original JWT source strings. Public enum permission and exact publication\n",
+          "    /// admission deliberately have different projections of these bytes.\n",
+          "    pub can_publish_sources: Vec<String>,\n"
+        ]
+      },
+      {
+        "old_start": 73,
+        "old_end": 73,
+        "old_lines": [],
+        "new_lines": [
+          "    /// Go VideoGrant.GetCanPublishSource: exact raw string vs canonical name.\n",
+          "    /// This is not the case-folded public ParticipantPermission projection.\n",
+          "    pub fn can_publish_source(&self, source: TrackSource) -> bool {\n",
+          "        self.can_publish.unwrap_or(true)\n",
+          "            && (self.can_publish_sources.is_empty()\n",
+          "                || self.can_publish_sources.iter().any(|s| s == canonical_source(source)))\n",
+          "    }\n",
+          "\n"
+        ]
+      },
+      {
+        "old_start": 81,
+        "old_end": 82,
+        "old_lines": [
+          "            can_publish_sources: self.can_publish_sources.clone(),\n"
+        ],
+        "new_lines": [
+          "            can_publish_sources: self.can_publish_sources.iter().map(|s| source_permission(s)).collect(),\n"
+        ]
+      },
+      {
+        "old_start": 226,
+        "old_end": 226,
+        "old_lines": [],
+        "new_lines": [
+          "\n",
+          "/// Fixed sourceToString for the modeled neutral TrackSource enum.\n",
+          "pub fn canonical_source(source: TrackSource) -> &'static str {\n",
+          "    match source {\n",
+          "        TrackSource::Unknown => \"unknown\",\n",
+          "        TrackSource::Camera => \"camera\",\n",
+          "        TrackSource::Microphone => \"microphone\",\n",
+          "        TrackSource::ScreenShare => \"screen_share\",\n",
+          "        TrackSource::ScreenShareAudio => \"screen_share_audio\",\n",
+          "    }\n",
+          "}\n",
+          "\n",
+          "/// Fixed sourceToProto uses strings.ToUpper before the enum-name lookup.\n",
+          "/// The original Go CaseRanges ASCII preimage has exactly two non-ASCII\n",
+          "/// scalars: dotless i and long s. The source-bound generator verifies that\n",
+          "/// finite preimage; this helper is not a general Unicode uppercaser.\n",
+          "fn source_permission(raw: &str) -> TrackSource {\n",
+          "    let upper: String = raw.chars().map(|c| match c {\n",
+          "        '\\u{0131}' => 'I', '\\u{017f}' => 'S', c => c.to_ascii_uppercase(),\n",
+          "    }).collect();\n",
+          "    match upper.as_str() {\n",
+          "        \"CAMERA\" => TrackSource::Camera,\n",
+          "        \"MICROPHONE\" => TrackSource::Microphone,\n",
+          "        \"SCREEN_SHARE\" => TrackSource::ScreenShare,\n",
+          "        \"SCREEN_SHARE_AUDIO\" => TrackSource::ScreenShareAudio,\n",
+          "        _ => TrackSource::Unknown,\n",
+          "    }\n",
+          "}\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/room/api.rs": [
+      {
+        "old_start": 191,
+        "old_end": 192,
+        "old_lines": [
+          "                    p.grants.video.can_publish_sources = new_perm.can_publish_sources.clone();\n"
+        ],
+        "new_lines": [
+          "                    p.grants.video.can_publish_sources = new_perm.can_publish_sources.iter()\n",
+          "                        .map(|s| crate::permission::canonical_source(*s).to_owned()).collect();\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/rtc-core/src/room/publish.rs": [
+      {
+        "old_start": 15,
+        "old_end": 16,
+        "old_lines": [
+          "                p.info.permission.can_publish_source(req.source),\n"
+        ],
+        "new_lines": [
+          "                p.grants.video.can_publish_source(req.source),\n"
+        ]
+      },
+      {
+        "old_start": 392,
+        "old_end": 393,
+        "old_lines": [
+          "            .is_some_and(|p| p.info.permission.can_publish_source(pending.info.source))\n"
+        ],
+        "new_lines": [
+          "            .is_some_and(|p| p.grants.video.can_publish_source(pending.info.source))\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/auth/claims.rs": [
+      {
+        "old_start": 11,
+        "old_end": 12,
+        "old_lines": [
+          "use crate::convert::{participant_kind_from_claim, track_source_from_claim};\n"
+        ],
+        "new_lines": [
+          "use crate::convert::participant_kind_from_claim;\n"
+        ]
+      },
+      {
+        "old_start": 47,
+        "old_end": 52,
+        "old_lines": [
+          "    let can_publish_sources = o\n",
+          "        .string_list(\"canPublishSources\")?\n",
+          "        .iter()\n",
+          "        .map(|s| track_source_from_claim(s))\n",
+          "        .collect();\n"
+        ],
+        "new_lines": [
+          "    let can_publish_sources = if matches!(o.get(\"canPublishSources\"), Some(Value::Null)) {\n",
+          "        Vec::new()\n",
+          "    } else { o.string_list(\"canPublishSources\")? };\n"
+        ]
+      },
+      {
+        "old_start": 264,
+        "old_end": 265,
+        "old_lines": [
+          "    v.can_publish_sources = p.can_publish_sources.clone();\n"
+        ],
+        "new_lines": [
+          "    v.can_publish_sources = p.can_publish_sources.iter()\n",
+          "        .map(|s| rtc_core::permission::canonical_source(*s).to_owned()).collect();\n"
+        ]
+      },
+      {
+        "old_start": 314,
+        "old_end": 315,
+        "old_lines": [
+          "            vec![TrackSource::Camera, TrackSource::Unknown]\n"
+        ],
+        "new_lines": [
+          "            vec![\"camera\".to_owned(), \"MICROPHONE\".to_owned()]\n"
+        ]
+      },
+      {
+        "old_start": 316,
+        "old_end": 316,
+        "old_lines": [],
+        "new_lines": [
+          "        assert_eq!(g.video.to_permission().can_publish_sources,\n",
+          "            vec![TrackSource::Camera, TrackSource::Microphone]);\n",
+          "        assert!(g.video.can_publish_source(TrackSource::Camera));\n",
+          "        assert!(!g.video.can_publish_source(TrackSource::Microphone), \"uppercase raw entry never grants canonical microphone\");\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/auth/minter.rs": [
+      {
+        "old_start": 18,
+        "old_end": 19,
+        "old_lines": [
+          "use crate::convert::{participant_kind_to_claim, track_source_to_claim};\n"
+        ],
+        "new_lines": [
+          "use crate::convert::participant_kind_to_claim;\n"
+        ]
+      },
+      {
+        "old_start": 93,
+        "old_end": 94,
+        "old_lines": [
+          "                    .map(|s| Value::String(track_source_to_claim(*s).to_string()))\n"
+        ],
+        "new_lines": [
+          "                    .map(|s| Value::String(s.clone()))\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/signal/session/claims_snapshot_tests.rs": [
+      {
+        "old_start": 3,
+        "old_end": 4,
+        "old_lines": [
+          "    model::TrackSource,\n"
+        ],
+        "new_lines": []
+      },
+      {
+        "old_start": 85,
+        "old_end": 86,
+        "old_lines": [
+          "            can_publish_sources: vec![TrackSource::Camera, TrackSource::Microphone],\n"
+        ],
+        "new_lines": [
+          "            can_publish_sources: vec![\"camera\".into(), \"microphone\".into()],\n"
+        ]
+      }
+    ],
+    "livekit-rs-server/crates/lk-compat/src/signal/session.rs": [
+      {
+        "old_start": 437,
+        "old_end": 437,
+        "old_lines": [],
+        "new_lines": [
+          "\n",
+          "#[cfg(test)]\n",
+          "#[path = \"session/raw_source_tests.rs\"]\n",
+          "mod raw_source_tests;\n"
+        ]
+      }
+    ]
+  },
+  "go_unicode_table": {
+    "status": "SOURCE_TABLE_PARSE_NO_COMPILER",
+    "source": "/Users/zoujiaqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.3.darwin-arm64/src/unicode/tables.go",
+    "sha256": "6a88d48746c4b2c471cc04ae40559694b734770212e6f5ea5f1962adb0c0bdb1",
+    "non_ascii_simple_upper_preimage_of_ASCII_enum_letters": {
+      "U+0131": "I",
+      "U+017F": "S"
+    },
+    "scope": "finite ASCII names of modeled TrackSource; not a generic Unicode uppercaser"
+  },
+  "notes": [
+    "Future rawsource batch only; current parent feature batch must not include this unexecuted change.",
+    "Two normal old-public-API regressions and one ignored actual original-source16 consumer.",
+    "No dependencies/Cargo lock change; neutral authoritative VideoGrant source field representation changes and complete static known consumer adaptations included.",
+    "Author executed only Python source/data construction/table verification, syntax parsing, guarded preflight and patch dry-run; no Rust/Go compiler, services or shared changes. Root actual Go16 PASS and prior baseline2 assertionFAIL are external receipts, not author execution."
+  ],
+  "assets_sha256": {
+    "CONTRACT.md": "aeae6d2aa1c6a0ad98e9a19fb2a125b81aac9d166ba33c8aca67037f5edfe222",
+    "STATIC-REVIEW.json": "aa49abce5bbf34c62036d9e79cf051d6975d1ea99b97f284e5d73b2391d13a4e",
+    "apply-narrow.py": "b1c6975d14f40b33c4c07ef011ae2b4c7512dbfac8b8a7168181789eff1ecf24",
+    "base/livekit-rs-server/crates/lk-compat/src/auth/claims.rs": "19759b2d325b4acca1434e959dd7994aca8f0b910fd8b231a9ea7acaa4c9560d",
+    "base/livekit-rs-server/crates/lk-compat/src/auth/minter.rs": "f174a6131d9ad89bb166d355b32992b4db003f8f46c68fd18cd39e9dccba0be4",
+    "base/livekit-rs-server/crates/lk-compat/src/signal/session/claims_snapshot_tests.rs": "489840c2c353b2280a263ccd9ac5df0b7d447ce37817eaa4b79106d5effcdc6b",
+    "base/livekit-rs-server/crates/lk-compat/src/signal/session.rs": "45e346b00d785cc8a03122f9d7216d5e26d85c1e75de2f60ee3b879d97a5559b",
+    "base/livekit-rs-server/crates/rtc-core/src/permission.rs": "9d260209076f65ba461e38fbe54044a53dddfcd09c008d6e0ed939eaddd349e7",
+    "base/livekit-rs-server/crates/rtc-core/src/room/api.rs": "ea790ce7d73eebe6fd415a59b38518c4513d66b5e026f16a6f0416842b507fef",
+    "base/livekit-rs-server/crates/rtc-core/src/room/publish.rs": "3cec8a4497317f4cd580a6320a14a0bd3e0cc230b19a8e8e4c40d37e857500ad",
+    "baseline-tests-only.patch": "9cf66c203d3e807e091ab7b1f375c6bcc0ddd87622e3005abb90d1bc858e5283",
+    "build.py": "f2ec7e313a6871202ca9424e4dc60317828da9d84d17204407464a785aa93c8f",
+    "changes.patch": "20badd1da10a41aa680f7f786d8575aaf5755faa8c92199f456d98c2a9fe285d",
+    "go-ascii-upper-preimage.json": "ac33023d35557353737a5aeb02d7ad75c9baeac56abc39fc7a348c079a9883db",
+    "oracle/cases.json": "0c38327afaead8367d130713d07681fc560425ba3e06729469e39bfe7e322965",
+    "oracle/main.go": "bd442a1581338d15298b3b7c6b26ad4cb9ac4d11b77397f44c106a521abf861b",
+    "oracle/prepare.py": "d15f7ddaaa9124c3195cf5b93f28e608957b7189f03c404f68bb4a6c58e62257",
+    "payload/livekit-rs-server/crates/lk-compat/src/auth/claims.rs": "76840b42a085260e1f6f929b32a4a8c5e6b706508a40d5609b074d9531f1a527",
+    "payload/livekit-rs-server/crates/lk-compat/src/auth/minter.rs": "af4db4d3371c96e2e204cebfcf8a0bf32ff5fc19d0c1591de0f2ae3034a32509",
+    "payload/livekit-rs-server/crates/lk-compat/src/signal/session/claims_snapshot_tests.rs": "9e363b252aeab72f07f34f36d43c3532b274db7116e7f1585aabac4768cbeacf",
+    "payload/livekit-rs-server/crates/lk-compat/src/signal/session/raw_source_tests.rs": "02b73c4fac93e6623aec4d016ee827fbb2eb97fdaf699ecd66b4ebad4fec9ddb",
+    "payload/livekit-rs-server/crates/lk-compat/src/signal/session.rs": "3dfc638e90e151baa212a32ce3fb779d0f6a573e93c69b9aa54c418199826fe0",
+    "payload/livekit-rs-server/crates/rtc-core/src/permission.rs": "f3db747bf631caf5b9f772192935a8022cd77e33f7153729f0e6548438fc5ee5",
+    "payload/livekit-rs-server/crates/rtc-core/src/room/api.rs": "e6b734f9f805bc9ff5f0ef3d2a11534aca266affe8faf944ade8cdcca5f9be3c",
+    "payload/livekit-rs-server/crates/rtc-core/src/room/publish.rs": "13e4427b35644206251366a8f392d8917e5a987ef92c137ba0e015d395fc2722",
+    "raw_source_tests.rs": "02b73c4fac93e6623aec4d016ee827fbb2eb97fdaf699ecd66b4ebad4fec9ddb",
+    "seal.py": "460ed058f16c253b328f733bd2e8b611dc160244ac6ced093e3550e2cb23858f",
+    "verify-go-ascii-upper-preimage.py": "ee027c0e1f447b0ef20790c53bf6ab67570c7bf7ae5271e11c6b4bcda91497f8"
+  }
+}

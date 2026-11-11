@@ -1,0 +1,86 @@
+[
+  {
+    "id": "ports-http-wide",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1}\nport: 70000\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-http-max-u32",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1}\nport: 4294967295\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-bind-hostname",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1}\nbind_addresses: [localhost]\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-rtc-tcp-wide",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1, tcp_port: 70000}\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-rtc-udp-wide",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1, udp_port: 70000}\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-rtc-filter-late",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1, ips: {includes: [invalid-cidr]}}\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-external-turn-protocol-late",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1, turn_servers: [{host: controlled.invalid, port: 3478, protocol: future-kind}]}\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-external-turn-port-late",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1, turn_servers: [{host: controlled.invalid, port: 70000, protocol: udp}]}\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "token-http-wide",
+    "command": "create-join-token",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1}\nport: 70000\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "token-hostname-recorder",
+    "command": "create-join-token",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1}\nbind_addresses: [localhost]\n",
+    "recorder": true,
+    "negative_control": false
+  },
+  {
+    "id": "ports-default-control",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1}\n",
+    "recorder": false,
+    "negative_control": false
+  },
+  {
+    "id": "ports-invalid-pacer-negative",
+    "command": "ports",
+    "body": "keys: {APIownedcommand: owned-command-secret-not-production-32-bytes}\nrtc: {node_ip: 127.0.0.1, congestion_control: {send_side_bwe_pacer: invalid-controlled}}\n",
+    "recorder": false,
+    "negative_control": true
+  }
+]

@@ -1,0 +1,15 @@
+# Owned guest-only functional fixture. Actual local --dev credentials devkey/secret.
+port: 17880
+bind_addresses: [127.0.0.1]
+rtc:
+  tcp_port: 17881
+  udp_port: 17882
+  node_ip: 127.0.0.1
+  use_external_ip: false
+  enable_loopback_candidate: true
+  ips:
+    includes: [127.0.0.1/32]
+redis:
+  address: 127.0.0.1:17842
+logging:
+  level: info

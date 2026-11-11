@@ -1,0 +1,91 @@
+{
+  "feature": "F53 finite nested CLI stages and exact Go whitespace",
+  "files": [
+    {
+      "path": "livekit-rs-server/LICENSES/urfave-cli-MIT.txt",
+      "base_sha256": null,
+      "candidate_sha256": "85695dfe027cabaf97c7fea77c45a01a36c0815e52df9219894b1ba031ee72f0"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli.rs",
+      "base_sha256": "9d59eae8dc86481d0518fa3616f85136662a26d9e2d7cb65102a51a49b7a4a7f",
+      "candidate_sha256": "036d1d28c498635bfd2bda202cd474cb001468241fd33cfa71d2d2dd349ecd29"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli_stage.rs",
+      "base_sha256": null,
+      "candidate_sha256": "cfcc9b4c91ff42d13d834127f1fc510cdb70e665f7d0e8db3e273f7c228665d5"
+    }
+  ],
+  "sources": [
+    {
+      "path": "references/urfave-cli/command_parse.go",
+      "sha256": "42c68200e4a158a0d2983bea30c5c9c3963faa134c75f2da8fa11ad4d375a54a"
+    },
+    {
+      "path": "references/urfave-cli/command_run.go",
+      "sha256": "247335153426376a60b59439759665a8175c6aa20b5d5cb6383ec5ac573ed6ab"
+    },
+    {
+      "path": "references/urfave-cli/command.go",
+      "sha256": "6a4aa273e0b4c20388765a1fdb770ba7a2402cbe39c05d6a3036ee4a5aa0d525"
+    },
+    {
+      "path": "references/urfave-cli/command_setup.go",
+      "sha256": "563319734656336abb21f36b5566a90223d08642fdcb8c7b3bcca1b372ef35ce"
+    },
+    {
+      "path": "references/urfave-cli/help.go",
+      "sha256": "12150269e9dbbda0dd9d99cdca157591f651312c3cdd23f3bf5f180c1b955ed3"
+    },
+    {
+      "path": "references/urfave-cli/flag.go",
+      "sha256": "e520199aefe91ed7f487fc043bea390ed266902239eead51e14e089be47fc4dd"
+    },
+    {
+      "path": "references/urfave-cli/LICENSE",
+      "sha256": "85695dfe027cabaf97c7fea77c45a01a36c0815e52df9219894b1ba031ee72f0"
+    },
+    {
+      "path": "references/livekit-stable/cmd/server/main.go",
+      "sha256": "9006ed033eb2786629d950b08321206cdd0f1202fe89f999c9a331e1e0dc691f"
+    }
+  ],
+  "cases": {
+    "count": 158,
+    "prior_84_retained": true,
+    "new": 74,
+    "sha256": "07e764783f8e87b55bc624d1ceb8046459c41461235d73e279561bc987c507e3"
+  },
+  "scope": [
+    "UTF-8 official CLI command graph only",
+    "Existing product extension parser retained",
+    "F52 non-Unicode OsString candidate NOT integrated; requires separate rebase and dual gates"
+  ],
+  "runtime_checks": "NOT_RUN; coordinator must run actual pinned Go/Rust155 before adoption claims; all existing library/workspace tests remain gates",
+  "normalization": "Only prior approved exact product identity and complete generated flag row cohort order",
+  "license": "urfave/cli MIT retained at livekit-rs-server/LICENSES/urfave-cli-MIT.txt",
+  "source_correction": "v3.11.0 CLI explicit empty bool true; ENV empty unchanged; original155 corpus retained as prefix",
+  "actual_control": {
+    "path": "/tmp/livekit-rs-f53-empty-bool-actual-go.json",
+    "sha256": "97e1ddff517e545fed939e1ebba379d6237e90901955f88f42520f59bbba720d",
+    "scope": "coordinator executed pinned Go3; candidate runtime NOT_RUN"
+  },
+  "frozen_candidate_status": "ISOLATED_NOT_RUN",
+  "status": "ADOPTED_WITH_NAMED_PRIVATE_TYPE_ALIAS_AND_RUSTFMT",
+  "actual_delivery_evidence": "livekit-rs-docs/evidence/2026-10-25/f53-functional-delivery.json",
+  "adopted_files": [
+    {
+      "path": "livekit-rs-server/LICENSES/urfave-cli-MIT.txt",
+      "sha256": "85695dfe027cabaf97c7fea77c45a01a36c0815e52df9219894b1ba031ee72f0"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli.rs",
+      "sha256": "0929800b986dc9e30f3a45fc2488a73c7902a7718fddf3f02f8b76c52d3f4a36"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-config/src/cli_stage.rs",
+      "sha256": "84bb3d030255f23946e0539f564e844f6c8b8ba1ede39fc0c0eb03265b62f58a"
+    }
+  ]
+}

@@ -1,0 +1,148 @@
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -124,6 +124,7 @@
+ 
+     /// Last written media + wallclock time.
+     rtp_and_wallclock: Option<(u32, Instant)>,
++    last_rtp_write_seq: Option<SeqNo>,
+ 
+     /// Queue of packets to send.
+     ///
+@@ -205,6 +206,7 @@
+     time: u32,
+     wallclock: Instant,
+     marker: bool,
++    padding_only: bool,
+     ext_vals: ExtensionValues,
+     nackable: bool,
+     payload: Arc<[u8]>,
+@@ -254,6 +256,7 @@
+             time,
+             wallclock,
+             marker: false,
++            padding_only: false,
+             ext_vals: ExtensionValues::default(),
+             nackable: false,
+             payload: payload.into(),
+@@ -261,6 +264,14 @@
+             csrc: [0; 15],
+             vp8_patch: None,
+         }
++    }
++
++    /// Create the one-byte RTP padding used to occupy a deliberately dropped
++    /// out-of-order/gap slot while preserving recoverable earlier sequence holes.
++    pub fn padding_only(pt: Pt, seq_no: SeqNo, time: u32, wallclock: Instant) -> Self {
++        let mut write = Self::new(pt, seq_no, time, wallclock, vec![1]);
++        write.padding_only = true;
++        write
+     }
+ 
+     /// Set the RTP marker bit.
+@@ -331,6 +342,7 @@
+             rr_rtt: Default::default(),
+             last_used: already_happened(),
+             rtp_and_wallclock: None,
++            last_rtp_write_seq: None,
+             send_queue: SendQueue::new(),
+             queue_info: None,
+             unpaced: None,
+@@ -514,6 +526,7 @@
+             time,
+             wallclock,
+             marker,
++            padding_only,
+             ext_vals,
+             nackable,
+             payload,
+@@ -522,6 +535,9 @@
+             vp8_patch,
+         } = rtp;
+ 
++        if self.seq_no <= seq_no {
++            self.seq_no = (*seq_no).saturating_add(1).into();
++        }
+         let first_call = self.rtp_and_wallclock.is_none();
+ 
+         if first_call && seq_no.roc() > 0 {
+@@ -535,10 +551,14 @@
+ 
+         // This 1 in clock frequency will be fixed in poll_output.
+         let media_time = MediaTime::from_secs(time as u64);
+-        self.rtp_and_wallclock = Some((time, wallclock));
++        if self.last_rtp_write_seq.is_none_or(|last| seq_no >= last) {
++            self.rtp_and_wallclock = Some((time, wallclock));
++            self.last_rtp_write_seq = Some(seq_no);
++        }
+ 
+         let header = RtpHeader {
+             csrc_count,
++            has_padding: padding_only,
+             sequence_number: *seq_no as u16,
+             marker,
+             payload_type: pt,
+@@ -903,6 +923,7 @@
+             }
+         }
+ 
++        let is_padding = is_padding || header.has_padding;
+         Some(PacketReceipt {
+             header,
+             seq_no,
+@@ -1285,7 +1306,9 @@
+         Some(rtp_time.rebase(clock_rate))
+     }
+ 
+-    pub(crate) fn next_seq_no(&mut self) -> SeqNo {
++    /// Reserve the next native outgoing RTP sequence number for an original
++    /// packet forwarding path. Subsequent explicit writes share this counter.
++    pub fn next_seq_no(&mut self) -> SeqNo {
+         self.seq_no.inc()
+     }
+ 
+@@ -1501,6 +1524,7 @@
+         // Reset timing related fields
+         self.last_used = already_happened();
+         self.rtp_and_wallclock = None;
++        self.last_rtp_write_seq = None;
+         self.last_sender_report = already_happened();
+ 
+         // Reset blank packet's SSRC
+@@ -1548,6 +1572,37 @@
+ #[cfg(test)]
+ mod test {
+     use super::*;
++
++    #[test]
++    fn explicit_original_packet_holes_and_late_repair_preserve_sender_clock_anchor() {
++        let now = Instant::now();
++        let mut stream = StreamTx::new(101.into(), None, MidRid(Mid::from("v"), None), true, 1200);
++        stream.write_rtp(RtpWrite::new(98.into(), 1000.into(), 30000, now, vec![1]));
++        stream.write_rtp(RtpWrite::new(
++            98.into(),
++            1004.into(),
++            48000,
++            now + Duration::from_millis(200),
++            vec![2],
++        ));
++        stream.write_rtp(RtpWrite::new(
++            98.into(),
++            1003.into(),
++            45000,
++            now + Duration::from_millis(300),
++            vec![3],
++        ));
++        assert_eq!(
++            stream.rtp_and_wallclock,
++            Some((48000, now + Duration::from_millis(200))),
++            "late original RTP cannot rewind sender reports"
++        );
++        assert_eq!(
++            *stream.next_seq_no(),
++            1005,
++            "reserved unknown holes are never reused after late repair"
++        );
++    }
+ 
+     #[test]
+     fn per_stream_estimation_gate_removes_wire_extensions_and_preserves_payload_sequence_and_restore()

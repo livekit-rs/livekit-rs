@@ -1,0 +1,96 @@
+[
+  {
+    "id": "raw99-accept",
+    "sources": [
+      "99"
+    ],
+    "source": 99,
+    "can_publish": null
+  },
+  {
+    "id": "unknown-not99",
+    "sources": [
+      "unknown"
+    ],
+    "source": 99,
+    "can_publish": null
+  },
+  {
+    "id": "unrestricted99",
+    "sources": [],
+    "source": 99,
+    "can_publish": null
+  },
+  {
+    "id": "raw99-not0",
+    "sources": [
+      "99"
+    ],
+    "source": 0,
+    "can_publish": null
+  },
+  {
+    "id": "knownunknown0",
+    "sources": [
+      "unknown"
+    ],
+    "source": 0,
+    "can_publish": null
+  },
+  {
+    "id": "minus-one",
+    "sources": [
+      "-1"
+    ],
+    "source": -1,
+    "can_publish": null
+  },
+  {
+    "id": "unknown-notminus1",
+    "sources": [
+      "unknown"
+    ],
+    "source": -1,
+    "can_publish": null
+  },
+  {
+    "id": "max-i32",
+    "sources": [
+      "2147483647"
+    ],
+    "source": 2147483647,
+    "can_publish": null
+  },
+  {
+    "id": "min-i32",
+    "sources": [
+      "-2147483648"
+    ],
+    "source": -2147483648,
+    "can_publish": null
+  },
+  {
+    "id": "decimal-leadingzero-not99",
+    "sources": [
+      "099"
+    ],
+    "source": 99,
+    "can_publish": null
+  },
+  {
+    "id": "publishfalse",
+    "sources": [
+      "99"
+    ],
+    "source": 99,
+    "can_publish": false
+  },
+  {
+    "id": "knowncamera",
+    "sources": [
+      "camera"
+    ],
+    "source": 1,
+    "can_publish": null
+  }
+]

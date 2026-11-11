@@ -1,0 +1,828 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -5,7 +5,9 @@
+ use crate::{Rtc, rtp_::Mid};
+ 
+ pub use crate::bwe_::probe::ProbeKind;
+-pub use crate::bwe_::validation::{BweValidationObservation, BweValidationStatus};
++pub use crate::bwe_::validation::{
++    BweValidationObservation, BweValidationStatus, BweValidationTotals,
++};
+ 
+ pub use crate::rtp_::Bitrate;
+ pub use crate::rtp_::BweIncomingTwccObservation;
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -163,6 +163,24 @@
+             .validation
+             .as_ref()
+             .is_some_and(|v| id.is_some_and(|id| *id == v.snapshot().id))
++    }
++
++    pub fn on_validation_sent(&mut self, id: TwccClusterId, seq: u64, at: Instant) {
++        if let Some(v) = &mut self.bwe.validation {
++            v.on_sent(*id, seq, at);
++        }
++    }
++
++    pub fn on_validation_credit_discard(
++        &mut self,
++        id: TwccClusterId,
++        seq: u64,
++        sent_at: Instant,
++        discarded: Duration,
++    ) {
++        if let Some(v) = &mut self.bwe.validation {
++            v.on_credit_discard_at_seq(*id, seq, sent_at, discarded);
++        }
+     }
+ 
+     pub fn validation_should_stop(&self) -> bool {
+--- a/src/bwe/probe/cluster.rs
++++ b/src/bwe/probe/cluster.rs
+@@ -193,6 +193,7 @@
+     /// Used to calculate actual send duration (first to last packet)
+     last_packet_at: Option<Instant>,
+     validation_next_at: Option<Instant>,
++    pending_validation_credit_discard: Option<Duration>,
+ 
+     /// When we last created a padding request
+     /// Used to prevent creating multiple padding packets for the same instant
+@@ -209,6 +210,7 @@
+             started_at: None,
+             last_packet_at: None,
+             validation_next_at: None,
++            pending_validation_credit_discard: None,
+             last_padding_at: already_happened(),
+         }
+     }
+@@ -397,6 +399,10 @@
+         }
+     }
+ 
++    pub(crate) fn take_validation_credit_discard(&mut self) -> Option<Duration> {
++        self.pending_validation_credit_discard.take()
++    }
++
+     /// Record a packet that was sent as part of this probe (media or padding).
+     ///
+     /// This updates the probe's tracking state so that `next_probe_time()` correctly
+@@ -421,6 +427,11 @@
+             // this is bounded debt, not a higher requested bandwidth.
+             let credit = MAX_PROBE_DELAY;
+             let floor = now.checked_sub(credit).unwrap_or(now);
++            if let Some(previous) = self.validation_next_at
++                && previous < floor
++            {
++                self.pending_validation_credit_discard = Some(floor.duration_since(previous));
++            }
+             let base = self.validation_next_at.unwrap_or(floor).max(floor);
+             self.validation_next_at = Some(base + size / self.config.target_bitrate);
+         }
+@@ -430,6 +441,35 @@
+ #[cfg(test)]
+ mod test {
+     use super::*;
++
++    #[test]
++    fn only_positive_actual_validation_credit_discard_emits_one_shot_boundary() {
++        let start = Instant::now();
++        let config = ProbeClusterConfig::new(0.into(), Bitrate::kbps(200), ProbeKind::Validation)
++            .with_duration(Duration::from_secs(2));
++        let mut state = ProbeClusterState::new(config);
++        state.record_packet(start, DataSize::bytes(250));
++        assert_eq!(state.take_validation_credit_discard(), None);
++        // Initial virtual time is start-10ms+10ms = start. This real send
++        // drops exactly40ms credit at a50ms wake; no poll-only event exists.
++        let at = start + Duration::from_millis(50);
++        state.record_packet(at, DataSize::bytes(250));
++        assert_eq!(
++            state.take_validation_credit_discard(),
++            Some(Duration::from_millis(40))
++        );
++        assert_eq!(state.take_validation_credit_discard(), None);
++        state.record_packet(at, DataSize::bytes(250));
++        assert_eq!(state.take_validation_credit_discard(), None);
++        let mut ordinary = ProbeClusterState::new(ProbeClusterConfig::new(
++            1.into(),
++            Bitrate::kbps(200),
++            ProbeKind::Initial,
++        ));
++        ordinary.record_packet(start, DataSize::bytes(250));
++        ordinary.record_packet(at, DataSize::bytes(250));
++        assert_eq!(ordinary.take_validation_credit_discard(), None);
++    }
+ 
+     #[test]
+     fn validation_padding_generation_and_two_second_wall_deadline_are_separate() {
+--- a/src/bwe/validation.rs
++++ b/src/bwe/validation.rs
+@@ -1,7 +1,7 @@
+ //! Bounded sustained delivery validation, separate from Google short probe math.
+ //! Only actual unique TWCC acknowledgments for this validation are evidence.
+ use crate::Bitrate;
+-use std::collections::HashSet;
++use std::collections::{HashMap, HashSet};
+ use std::time::{Duration, Instant};
+ 
+ /// Lifecycle of a bounded sustained validation train.
+@@ -18,41 +18,65 @@
+     /// Application cancelled this request.
+     Cancelled,
+ }
+-/// Actual encrypted RTP datagram delivery, excluding IP/UDP overhead.
+-/// These measured bytes are a lower bound on wire traffic, independent of the
+-/// payload-byte units used by the unchanged Google short-probe/GCC estimators.
++/// Cumulative raw facts for the entire immutable validation request.
++#[derive(Debug, Clone, Copy, Default)]
++pub struct BweValidationTotals {
++    /// Raw full-request local send span.
++    pub send_span: Duration,
++    /// Raw full-request remote receive span, never compared with local clocks.
++    pub recv_span: Duration,
++    /// Actual protected bytes excluding the last sent packet.
++    pub send_bytes: u64,
++    /// Actual protected bytes excluding the first received packet.
++    pub recv_bytes: u64,
++    /// Unique actually received packets in the request.
++    pub received_packets: u64,
++    /// Full-request minimum raw rate once both spans cover one second.
++    pub measured_bitrate: Option<Bitrate>,
++}
++/// Actual encrypted RTP delivery, excluding IP/UDP overhead. Current measurement
++/// segment and full-request cumulative facts are deliberately different fields.
+ #[derive(Debug, Clone, Copy)]
+ pub struct BweValidationObservation {
+     /// Cluster/request identity; never compare results across resets.
+     pub id: u64,
+-    /// Time of the latest actual matching feedback or terminal transition.
++    /// Time of latest actual feedback or terminal transition.
+     pub at: Instant,
+-    /// Immutable request time, used for the fixed three-second deadline.
++    /// Immutable request time and three-second deadline origin.
+     pub requested_at: Instant,
+-    /// Earliest actual local send timestamp in matching feedback.
++    /// Earliest actual sent packet acknowledged anywhere in the full request.
+     pub started_at: Option<Instant>,
+-    /// Required measured bitrate, not a measured result.
++    /// Required measured protected bitrate, never a measured result.
+     pub target_bitrate: Bitrate,
+-    /// Current validation lifecycle.
++    /// Request lifecycle; any matching loss permanently fails the request.
+     pub status: BweValidationStatus,
+-    /// Actual first-to-last send span.
++    /// Current segment's raw local send span.
+     pub send_span: Duration,
+-    /// Actual first-to-last remote receive span, never compared to local clocks.
++    /// Current segment's raw remote receive span.
+     pub recv_span: Duration,
+-    /// Actual protected datagram bytes, excluding the last sent packet.
++    /// Current segment protected bytes excluding its last sent packet.
+     pub send_bytes: u64,
+-    /// Actual protected datagram bytes, excluding the first received packet.
++    /// Current segment protected bytes excluding its first received packet.
+     pub recv_bytes: u64,
+-    /// Unique matched received packets.
++    /// Unique received packets across the entire request, including old segments.
+     pub received_packets: u64,
+-    /// Unique matched packets reported lost; any such record rejects this train.
++    /// Unique reported loss across the entire request, including old segments.
+     pub lost_packets: u64,
+-    /// Minimum of raw send/receive rates; absent until both spans cover one second.
++    /// Current segment minimum raw rate, absent until both spans cover one second.
+     pub measured_bitrate: Option<Bitrate>,
+-}
+-pub(super) struct Validation {
+-    observation: BweValidationObservation,
+-    seen: HashSet<u64>,
++    /// Full-request cumulative facts, never erased when a new segment starts.
++    pub request_totals: BweValidationTotals,
++    /// Current segment's first actual acknowledged local send time.
++    pub measurement_started_at: Option<Instant>,
++    /// Measurement segment count, initially one; increments only on actual credit loss.
++    pub measurement_segments: u32,
++    /// Sum of actual positive local service credit discarded by native pacing.
++    pub cancelled_local_credit: Duration,
++    /// Latest real local-send boundary caused by discarding service credit.
++    pub last_credit_discard_at: Option<Instant>,
++}
++#[derive(Default)]
++struct Measurement {
+     first_send: Option<Instant>,
+     last_send: Option<Instant>,
+     first_receive: Option<Instant>,
+@@ -60,9 +84,83 @@
+     last_send_size: u64,
+     first_receive_size: u64,
+     total_bytes: u64,
+-    total_payload_bytes: u64,
+     last_send_payload_size: u64,
+     first_receive_payload_size: u64,
++    total_payload_bytes: u64,
++    packets: u64,
++}
++impl Measurement {
++    fn record(&mut self, sent: Instant, received: Instant, bytes: u64, payload: u64) {
++        self.first_send = Some(self.first_send.map_or(sent, |v| v.min(sent)));
++        if self.last_send.is_none_or(|v| sent >= v) {
++            self.last_send = Some(sent);
++            self.last_send_size = bytes;
++            self.last_send_payload_size = payload;
++        }
++        if self.first_receive.is_none_or(|v| received <= v) {
++            self.first_receive = Some(received);
++            self.first_receive_size = bytes;
++            self.first_receive_payload_size = payload;
++        }
++        self.last_receive = Some(self.last_receive.map_or(received, |v| v.max(received)));
++        self.total_bytes += bytes;
++        self.total_payload_bytes += payload;
++        self.packets += 1;
++    }
++    fn totals(&self) -> BweValidationTotals {
++        let send_span = self
++            .last_send
++            .zip(self.first_send)
++            .map_or(Duration::ZERO, |(last, first)| last.duration_since(first));
++        let recv_span = self
++            .last_receive
++            .zip(self.first_receive)
++            .map_or(Duration::ZERO, |(last, first)| last.duration_since(first));
++        let send_bytes = self.total_bytes.saturating_sub(self.last_send_size);
++        let recv_bytes = self.total_bytes.saturating_sub(self.first_receive_size);
++        BweValidationTotals {
++            send_span,
++            recv_span,
++            send_bytes,
++            recv_bytes,
++            received_packets: self.packets,
++            measured_bitrate: Self::rate(send_span, recv_span, send_bytes, recv_bytes),
++        }
++    }
++    fn rate(
++        send_span: Duration,
++        recv_span: Duration,
++        send_bytes: u64,
++        recv_bytes: u64,
++    ) -> Option<Bitrate> {
++        if send_span < Duration::from_secs(1) || recv_span < Duration::from_secs(1) {
++            return None;
++        }
++        let rate = (send_bytes as f64 * 8.0 / send_span.as_secs_f64())
++            .min(recv_bytes as f64 * 8.0 / recv_span.as_secs_f64());
++        (rate > 0.0 && rate.is_finite()).then(|| rate.into())
++    }
++    fn payload_rate(&self) -> Option<Bitrate> {
++        let totals = self.totals();
++        Self::rate(
++            totals.send_span,
++            totals.recv_span,
++            self.total_payload_bytes
++                .saturating_sub(self.last_send_payload_size),
++            self.total_payload_bytes
++                .saturating_sub(self.first_receive_payload_size),
++        )
++    }
++}
++pub(super) struct Validation {
++    observation: BweValidationObservation,
++    seen: HashSet<u64>,
++    sent: HashMap<u64, Instant>,
++    sent_count: usize,
++    request: Measurement,
++    segment: Measurement,
++    segment_cutoff: Instant,
++    segment_first_seq: Option<u64>,
+     native_result_taken: bool,
+ }
+ impl Validation {
+@@ -82,18 +180,19 @@
+                 received_packets: 0,
+                 lost_packets: 0,
+                 measured_bitrate: None,
++                request_totals: Default::default(),
++                measurement_started_at: None,
++                measurement_segments: 1,
++                cancelled_local_credit: Duration::ZERO,
++                last_credit_discard_at: None,
+             },
+             seen: HashSet::new(),
+-            first_send: None,
+-            last_send: None,
+-            first_receive: None,
+-            last_receive: None,
+-            last_send_size: 0,
+-            first_receive_size: 0,
+-            total_bytes: 0,
+-            total_payload_bytes: 0,
+-            last_send_payload_size: 0,
+-            first_receive_payload_size: 0,
++            sent: HashMap::new(),
++            sent_count: 0,
++            request: Default::default(),
++            segment: Default::default(),
++            segment_cutoff: now,
++            segment_first_seq: None,
+             native_result_taken: false,
+         }
+     }
+@@ -110,13 +209,15 @@
+         if self.active() {
+             self.observation.status = status;
+             self.observation.at = now;
+-            tracing::debug!(id = self.observation.id, status = ?status,
+-                requested_at = ?self.observation.requested_at, started_at = ?self.observation.started_at,
+-                terminal_at = ?now, target_bps = self.observation.target_bitrate.as_u64(),
+-                send_span_us = self.observation.send_span.as_micros(), recv_span_us = self.observation.recv_span.as_micros(),
+-                send_bytes = self.observation.send_bytes, recv_bytes = self.observation.recv_bytes,
+-                received_packets = self.observation.received_packets, lost_packets = self.observation.lost_packets,
+-                measured_bps = ?self.observation.measured_bitrate.map(|v| v.as_f64()),
++            tracing::debug!(id=self.observation.id, status=?status, requested_at=?self.observation.requested_at,
++                started_at=?self.observation.started_at, terminal_at=?now, target_bps=self.observation.target_bitrate.as_u64(),
++                send_span_us=self.observation.send_span.as_micros(), recv_span_us=self.observation.recv_span.as_micros(),
++                send_bytes=self.observation.send_bytes, recv_bytes=self.observation.recv_bytes,
++                received_packets=self.observation.received_packets, lost_packets=self.observation.lost_packets,
++                measured_bps=?self.observation.measured_bitrate.map(|v|v.as_f64()),
++                measurement_started_at=?self.observation.measurement_started_at, measurement_segments=self.observation.measurement_segments,
++                cancelled_local_credit_us=self.observation.cancelled_local_credit.as_micros(),
++                last_credit_discard_at=?self.observation.last_credit_discard_at, request_totals=?self.observation.request_totals,
+                 "native sustained validation terminal");
+         }
+     }
+@@ -124,6 +225,69 @@
+         if now.saturating_duration_since(self.observation.requested_at) >= Duration::from_secs(3) {
+             self.terminate(BweValidationStatus::Failed, now);
+         }
++    }
++    /// Register an actual TWCC-tagged send, never a requested padding size.
++    pub(super) fn on_sent(&mut self, id: u64, seq: u64, sent_at: Instant) {
++        if !self.active() || id != self.observation.id || sent_at < self.observation.requested_at {
++            return;
++        }
++        if self.sent.contains_key(&seq) || self.seen.contains(&seq) {
++            return;
++        }
++        self.sent_count += 1;
++        if self.sent_count > 8192 {
++            self.terminate(BweValidationStatus::Failed, sent_at);
++            return;
++        }
++        self.sent.insert(seq, sent_at);
++    }
++    pub(super) fn on_credit_discard_at_seq(
++        &mut self,
++        id: u64,
++        seq: u64,
++        sent_at: Instant,
++        discarded: Duration,
++    ) {
++        let before = self.observation.measurement_segments;
++        self.on_credit_discard(id, sent_at, discarded);
++        if self.observation.measurement_segments != before {
++            self.segment_first_seq = Some(seq);
++        }
++    }
++    /// Only the pacing ledger calls this after a real transmitted packet has
++    /// actually discarded positive local credit. Feedback/gaps cannot call it.
++    pub(super) fn on_credit_discard(&mut self, id: u64, sent_at: Instant, discarded: Duration) {
++        if !self.active()
++            || id != self.observation.id
++            || discarded.is_zero()
++            || sent_at < self.observation.requested_at
++            || self
++                .observation
++                .last_credit_discard_at
++                .is_some_and(|last| sent_at <= last)
++        {
++            return;
++        }
++        self.timeout(sent_at);
++        if !self.active() {
++            return;
++        }
++        self.segment_cutoff = sent_at;
++        self.segment = Default::default();
++        self.observation.measurement_segments =
++            self.observation.measurement_segments.saturating_add(1);
++        self.observation.cancelled_local_credit += discarded;
++        self.observation.last_credit_discard_at = Some(sent_at);
++        self.update_segment();
++    }
++    fn update_segment(&mut self) {
++        let totals = self.segment.totals();
++        self.observation.send_span = totals.send_span;
++        self.observation.recv_span = totals.recv_span;
++        self.observation.send_bytes = totals.send_bytes;
++        self.observation.recv_bytes = totals.recv_bytes;
++        self.observation.measured_bitrate = totals.measured_bitrate;
++        self.observation.measurement_started_at = self.segment.first_send;
+     }
+     #[cfg(test)]
+     pub(super) fn record(
+@@ -134,7 +298,6 @@
+         bytes: usize,
+         now: Instant,
+     ) {
+-        // Historical zero-overhead synthetic vectors use equal byte units.
+         self.record_packet(seq, sent, received, bytes, bytes, now);
+     }
+     pub(super) fn record_packet(
+@@ -154,6 +317,7 @@
+             self.terminate(BweValidationStatus::Failed, now);
+             return;
+         }
++        self.sent.remove(&seq);
+         self.observation.at = now;
+         let Some(received) = received else {
+             self.observation.lost_packets += 1;
+@@ -161,43 +325,17 @@
+             return;
+         };
+         self.observation.status = BweValidationStatus::Running;
+-        self.observation.received_packets += 1;
+-        let bytes = bytes as u64;
+-        let payload_bytes = payload_bytes as u64;
+-        if self.first_send.is_none_or(|v| sent < v) {
+-            self.first_send = Some(sent);
+-        }
+-        if self.last_send.is_none_or(|v| sent >= v) {
+-            self.last_send = Some(sent);
+-            self.last_send_size = bytes;
+-            self.last_send_payload_size = payload_bytes;
+-        }
+-        if self.first_receive.is_none_or(|v| received <= v) {
+-            self.first_receive = Some(received);
+-            self.first_receive_size = bytes;
+-            self.first_receive_payload_size = payload_bytes;
+-        }
+-        if self.last_receive.is_none_or(|v| received > v) {
+-            self.last_receive = Some(received);
+-        }
+-        self.total_bytes += bytes;
+-        self.total_payload_bytes += payload_bytes;
+-        self.observation.started_at = self.first_send;
+-        self.observation.send_span = self
+-            .last_send
+-            .unwrap()
+-            .duration_since(self.first_send.unwrap());
+-        self.observation.recv_span = self
+-            .last_receive
+-            .unwrap()
+-            .duration_since(self.first_receive.unwrap());
+-        self.observation.send_bytes = self.total_bytes.saturating_sub(self.last_send_size);
+-        self.observation.recv_bytes = self.total_bytes.saturating_sub(self.first_receive_size);
+-    }
+-    /// Feed only the new passed edge, in native payload units from the same
+-    /// unique packet set and endpoint exclusions as the protected proof.
+-    /// Current batch loss prevents rebasing native loss control, even if that
+-    /// loss belongs to another cluster. It never extends the proof deadline.
++        self.request
++            .record(sent, received, bytes as u64, payload_bytes as u64);
++        self.observation.request_totals = self.request.totals();
++        self.observation.started_at = self.request.first_send;
++        self.observation.received_packets = self.request.packets;
++        if sent >= self.segment_cutoff && self.segment_first_seq.is_none_or(|first| seq >= first) {
++            self.segment
++                .record(sent, received, bytes as u64, payload_bytes as u64);
++            self.update_segment();
++        }
++    }
+     pub(super) fn finish_feedback(
+         &mut self,
+         overuse: bool,
+@@ -215,33 +353,27 @@
+         if overuse || batch_has_loss {
+             return None;
+         }
+-        let send_bytes = self
+-            .total_payload_bytes
+-            .saturating_sub(self.last_send_payload_size);
+-        let recv_bytes = self
+-            .total_payload_bytes
+-            .saturating_sub(self.first_receive_payload_size);
+-        let rate = (send_bytes as f64 * 8.0 / self.observation.send_span.as_secs_f64())
+-            .min(recv_bytes as f64 * 8.0 / self.observation.recv_span.as_secs_f64());
+-        (rate > 0.0 && rate.is_finite()).then(|| rate.into())
++        self.segment.payload_rate()
+     }
+     pub(super) fn finish_batch(&mut self, now: Instant) {
+         self.timeout(now);
+         if !self.active() {
+             return;
+         }
+-        if self.observation.send_span >= Duration::from_secs(1)
+-            && self.observation.recv_span >= Duration::from_secs(1)
++        self.update_segment();
++        // A new segment cannot conceal unresolved actual sends in older ones.
++        // Current-segment in-flight tails retain the original proof semantics.
++        if self.sent.iter().any(|(seq, sent)| {
++            *sent < self.segment_cutoff || self.segment_first_seq.is_some_and(|first| *seq < first)
++        }) {
++            return;
++        }
++        if self
++            .observation
++            .measured_bitrate
++            .is_some_and(|rate| rate >= self.observation.target_bitrate)
+         {
+-            let send_rate =
+-                self.observation.send_bytes as f64 * 8.0 / self.observation.send_span.as_secs_f64();
+-            let recv_rate =
+-                self.observation.recv_bytes as f64 * 8.0 / self.observation.recv_span.as_secs_f64();
+-            let rate: Bitrate = send_rate.min(recv_rate).into();
+-            self.observation.measured_bitrate = Some(rate);
+-            if rate >= self.observation.target_bitrate {
+-                self.terminate(BweValidationStatus::Passed, now);
+-            }
++            self.terminate(BweValidationStatus::Passed, now);
+         }
+     }
+ }
+@@ -409,3 +541,183 @@
+         );
+     }
+ }
++
++#[cfg(test)]
++mod credit_segment_tests {
++    use super::*;
++
++    fn ack(v: &mut Validation, seq: u64, start: Instant, ms: u64, bytes: usize) {
++        let sent = start + Duration::from_millis(ms);
++        v.record_packet(
++            seq,
++            sent,
++            Some(sent + Duration::from_secs(20)),
++            bytes,
++            bytes / 2,
++            sent,
++        );
++    }
++
++    #[test]
++    fn local_clip_keeps_whole_request_but_measures_only_new_actual_segment() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(80), start);
++        ack(&mut v, 0, start, 0, 1000);
++        ack(&mut v, 1, start, 100, 1000);
++        v.on_credit_discard(
++            7,
++            start + Duration::from_millis(300),
++            Duration::from_millis(40),
++        );
++        assert_eq!(v.snapshot().measurement_started_at, None);
++        // Actual new packet endpoints, not the callback, establish the span.
++        for i in 0..=10 {
++            ack(&mut v, i + 2, start, 310 + i * 100, 1000);
++        }
++        let at = start + Duration::from_millis(1310);
++        assert_eq!(v.finish_feedback(false, false, at), Some(Bitrate::kbps(40)));
++        let result = v.snapshot();
++        assert_eq!(result.measurement_segments, 2);
++        assert_eq!(
++            result.measurement_started_at,
++            Some(start + Duration::from_millis(310))
++        );
++        assert_eq!(result.cancelled_local_credit, Duration::from_millis(40));
++        assert_eq!(result.measured_bitrate, Some(Bitrate::kbps(80)));
++        assert!(result.request_totals.measured_bitrate.unwrap() < Bitrate::kbps(80));
++        assert_eq!(result.received_packets, 13);
++        assert!(v.finish_feedback(false, false, at).is_none());
++    }
++
++    #[test]
++    fn old_unresolved_actual_send_blocks_pass_and_delayed_old_loss_is_permanent() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(80), start);
++        v.on_sent(7, 99, start);
++        v.on_credit_discard(
++            7,
++            start + Duration::from_millis(300),
++            Duration::from_millis(40),
++        );
++        for i in 0..=10 {
++            ack(&mut v, i, start, 300 + i * 100, 1000);
++        }
++        let at = start + Duration::from_millis(1300);
++        assert!(v.finish_feedback(false, false, at).is_none());
++        assert_eq!(v.snapshot().status, BweValidationStatus::Running);
++        v.record_packet(99, start, None, 1000, 500, at);
++        assert!(v.finish_feedback(false, false, at).is_none());
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++        assert_eq!(v.snapshot().lost_packets, 1);
++        v.on_credit_discard(7, at, Duration::from_millis(10));
++        assert_eq!(v.snapshot().measurement_segments, 2);
++    }
++
++    #[test]
++    fn old_good_ack_closes_old_send_without_polluting_segment_or_duplicate_counts() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(80), start);
++        v.on_sent(7, 99, start);
++        v.on_credit_discard(
++            7,
++            start + Duration::from_millis(300),
++            Duration::from_millis(40),
++        );
++        for i in 0..=10 {
++            ack(&mut v, i, start, 300 + i * 100, 1000);
++        }
++        let before = v.snapshot();
++        let at = start + Duration::from_millis(1400);
++        v.record_packet(
++            99,
++            start,
++            Some(start + Duration::from_secs(20)),
++            50_000,
++            25_000,
++            at,
++        );
++        v.record_packet(99, start, None, 50_000, 25_000, at);
++        assert_eq!(v.snapshot().send_bytes, before.send_bytes);
++        assert_eq!(v.snapshot().recv_bytes, before.recv_bytes);
++        assert_eq!(v.snapshot().received_packets, 12);
++        assert_eq!(v.finish_feedback(false, false, at), Some(Bitrate::kbps(40)));
++    }
++
++    #[test]
++    fn same_instant_actual_sequence_boundary_cannot_hide_old_send_or_loss() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(80), start);
++        let cut = start + Duration::from_millis(300);
++        v.on_sent(7, 1, cut);
++        v.on_credit_discard_at_seq(7, 2, cut, Duration::from_millis(40));
++        v.on_sent(7, 2, cut);
++        for i in 0..=10 {
++            ack(&mut v, i + 2, start, 300 + i * 100, 1000);
++        }
++        let at = start + Duration::from_millis(1300);
++        v.finish_batch(at);
++        assert_eq!(v.snapshot().status, BweValidationStatus::Running);
++        v.record_packet(1, cut, None, 1000, 500, at);
++        v.finish_batch(at);
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++    }
++
++    #[test]
++    fn invalid_or_repeated_clip_cannot_restart_measurement_or_deadline() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(80), start);
++        v.on_credit_discard(8, start, Duration::from_millis(1));
++        v.on_credit_discard(7, start, Duration::ZERO);
++        assert_eq!(v.snapshot().measurement_segments, 1);
++        for ms in [100, 900, 1700, 2500] {
++            let at = start + Duration::from_millis(ms);
++            v.on_credit_discard(7, at, Duration::from_millis(40));
++            v.on_credit_discard(7, at, Duration::from_millis(40));
++            ack(&mut v, ms, start, ms, 1000);
++        }
++        assert_eq!(v.snapshot().measurement_segments, 5);
++        v.timeout(start + Duration::from_secs(3));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++        assert!(v.snapshot().measured_bitrate.is_none());
++        assert_eq!(v.snapshot().requested_at, start);
++    }
++
++    #[test]
++    fn network_gap_never_creates_segment_or_erases_receive_span() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(80), start);
++        for i in 0..=10 {
++            let sent = start + Duration::from_millis(i * 100);
++            let recv = sent
++                + Duration::from_secs(20)
++                + Duration::from_millis(if i >= 5 { 500 } else { 0 });
++            v.record_packet(i, sent, Some(recv), 1000, 500, sent);
++        }
++        v.finish_batch(start + Duration::from_secs(1));
++        assert_eq!(v.snapshot().measurement_segments, 1);
++        assert_eq!(v.snapshot().recv_span, Duration::from_millis(1500));
++        assert!(v.snapshot().measured_bitrate.unwrap() < Bitrate::kbps(80));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Running);
++    }
++
++    #[test]
++    fn clipping_cannot_manufacture_rate_or_forget_global_seen_resource_limit() {
++        let start = Instant::now();
++        let mut v = Validation::new(7, Bitrate::kbps(80), start);
++        v.on_credit_discard(
++            7,
++            start + Duration::from_millis(300),
++            Duration::from_millis(40),
++        );
++        for i in 0..=10 {
++            ack(&mut v, i, start, 300 + i * 100, 100);
++        }
++        v.finish_batch(start + Duration::from_millis(1300));
++        assert_eq!(v.snapshot().measured_bitrate, Some(Bitrate::kbps(8)));
++        assert_eq!(v.snapshot().status, BweValidationStatus::Running);
++        for i in 100..=8292 {
++            v.on_sent(7, i, start + Duration::from_millis(1400));
++        }
++        assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
++    }
++}
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -52,6 +52,7 @@
+     completed_probes: VecDeque<TwccClusterId>,
+     /// Gates poll_queue() until handle_timeout() is called after packet emission.
+     needs_timeout_before_next_poll: bool,
++    validation_credit_discard: Option<super::ValidationCreditDiscard>,
+ }
+ 
+ impl Pacer for LeakyBucketPacer {
+@@ -159,6 +160,13 @@
+         // This ensures probe timing advances correctly even when sending media packets
+         if let Some(probe) = self.probe_queue.front_mut() {
+             probe.record_packet(now, packet_size);
++            if let Some(discarded) = probe.take_validation_credit_discard() {
++                self.validation_credit_discard = Some(super::ValidationCreditDiscard {
++                    cluster_id: probe.config().cluster(),
++                    sent_at: now,
++                    discarded,
++                });
++            }
+         }
+ 
+         if let Some(probe) = self.probe_queue.front()
+@@ -197,10 +205,18 @@
+             probe_queue: VecDeque::new(),
+             completed_probes: VecDeque::new(),
+             needs_timeout_before_next_poll: true,
+-        }
++            validation_credit_discard: None,
++        }
++    }
++
++    pub(crate) fn take_validation_credit_discard(
++        &mut self,
++    ) -> Option<super::ValidationCreditDiscard> {
++        self.validation_credit_discard.take()
+     }
+ 
+     pub(crate) fn cancel_probes(&mut self, validation_only: bool) {
++        self.validation_credit_discard = None;
+         let mut keep = VecDeque::new();
+         while let Some(probe) = self.probe_queue.pop_front() {
+             if !validation_only || probe.config().kind() == crate::bwe::ProbeKind::Validation {
+--- a/src/pacer/mod.rs
++++ b/src/pacer/mod.rs
+@@ -1,4 +1,4 @@
+-use std::time::Instant;
++use std::time::{Duration, Instant};
+ 
+ use crate::Reason;
+ use crate::bwe_::ProbeClusterConfig;
+@@ -15,6 +15,13 @@
+ 
+ mod queue;
+ pub(crate) use queue::{PaddingRequest, QueuePriority, QueueSnapshot, QueueState};
++
++#[derive(Debug, Clone, Copy)]
++pub(crate) struct ValidationCreditDiscard {
++    pub cluster_id: TwccClusterId,
++    pub sent_at: Instant,
++    pub discarded: Duration,
++}
+ 
+ #[allow(clippy::large_enum_variant)]
+ pub(crate) enum PacerImpl {
+@@ -29,6 +36,13 @@
+ 
+     pub fn null() -> PacerImpl {
+         PacerImpl::Null(NullPacer::default())
++    }
++
++    pub fn take_validation_credit_discard(&mut self) -> Option<ValidationCreditDiscard> {
++        match self {
++            PacerImpl::Null(_) => None,
++            PacerImpl::LeakyBucket(v) => v.take_validation_credit_discard(),
++        }
+     }
+ 
+     pub fn cancel_probes(&mut self, validation_only: bool) {
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1221,8 +1221,21 @@
+             payload_size
+         };
+         self.pacer.register_send(now, paced_bytes.into(), midrid);
++        if let Some(event) = self.pacer.take_validation_credit_discard()
++            && let Some(bwe) = self.bwe.as_mut()
++        {
++            bwe.on_validation_credit_discard(
++                event.cluster_id,
++                twcc_seq,
++                event.sent_at,
++                event.discarded,
++            );
++        }
+ 
+         if twcc_enabled {
++            if validation && let (Some(id), Some(bwe)) = (cluster_id, self.bwe.as_mut()) {
++                bwe.on_validation_sent(id, twcc_seq, now);
++            }
+             let packet_id = if let Some(cluster) = cluster_id {
+                 TwccPacketId::with_cluster(twcc_seq, cluster)
+             } else {

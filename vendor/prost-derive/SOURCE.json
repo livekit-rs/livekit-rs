@@ -1,0 +1,45 @@
+{
+  "package": "prost-derive",
+  "version": "0.14.4",
+  "status": "ISOLATED_NOT_COMPILED_NOT_RUN",
+  "registry_url": "https://crates.io/api/v1/crates/prost-derive/0.14.4/download",
+  "archive": "source/prost-derive-0.14.4.crate",
+  "archive_sha256": "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf",
+  "published_root": "prost-derive-0.14.4",
+  "published_file_count": 13,
+  "upstream_vcs": {
+    "git": {
+      "sha1": "13646cde7eab75c81b3047767aa0a86e7dbecf12"
+    },
+    "path_in_vcs": "prost-derive"
+  },
+  "modified_files": [
+    "src/field/map.rs",
+    "src/field/scalar.rs"
+  ],
+  "patch": "preserve-negative-zero.patch",
+  "patch_sha256": "f0b9e46b721388abb6531ee2a550b590334b5ecabe38feb4cc2f9d8082c993bc",
+  "exact_files_sha256": {
+    "Cargo.toml": "c4f227909783d7f93ef23f91b47b1699b01a6280320119e4ad3963251ca1f600",
+    "LICENSE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "Cargo.lock": "2b68a79a14cbee0dfc844198376c819899d4e87c78fca8bcf877e9a22d9a79b5",
+    "README.md": "6c67fa1e48f14adfaf834f520f798ddfb79f90804f46cc215ee391a7d57913a4",
+    ".cargo_vcs_info.json": "1fe87a8d0a47b1402770759a4a233d505ecfe2f4af1f0b8d7c05f25c46d25248",
+    "Cargo.toml.orig": "43771716b293f4614d464969619b91148bfdb0d7d95a59352cfe803fd8aef18f",
+    "src/lib.rs": "43c577c33deedd35aa0cef967dfd449ee6b4ac91b47c26aaf818ce1209893062",
+    "src/field/message.rs": "2d49b1724789bb2d09d71168fd6d5580500a46a5c854c02d08b798129329c0e5",
+    "src/field/oneof.rs": "6a3f0c3b21635d05b483ce7dddafc959bcca33fcdfdc9ddee3745ea132da8514",
+    "src/field/scalar.rs": "7a8eecc0cd276e2292eb5ab00fc42686d533306b430d9cb93989865bd4034857",
+    "src/field/mod.rs": "53111de27ff47ea1970f8965173f6dbb2f2a3c0260114b1ced428ab9d67d0adb",
+    "src/field/group.rs": "cad8346873c7c9318b1c04f7d915aab425f842b6f7f437fb48f2a083f12a2d09",
+    "src/field/map.rs": "d75e3ea5f88565627e8729b2402b89c92060b9d02d08d5c1166751a540884cca"
+  },
+  "license_sha256": {
+    "LICENSE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+  },
+  "metadata_files": [
+    "SOURCE.json",
+    "PATCHES.md",
+    "preserve-negative-zero.patch"
+  ]
+}

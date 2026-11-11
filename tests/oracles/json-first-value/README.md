@@ -1,0 +1,3 @@
+# Actual Go JSON first-value reader references
+
+Run each finite/pending directory with GOTOOLCHAIN=go1.26.3 GOMAXPROCS=2 go run -mod=readonly . and each unchanged JSONL corpus. The74 finite/depth/numeric/no-EOF observations are independent source outputs, not authored expectations. The pending reader reports actual second-read demand, then releases EOF solely for cleanup. No timeout substitutes for an observation. Original v1/v2 framing failures are retained in repository evidence; v3 uses typed WouldBlock rather than fabricated EOF and keeps exact request bytes. Go BSD license: ../../../../LICENSES/Go-BSD-3-Clause.txt.

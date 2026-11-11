@@ -1,0 +1,43 @@
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -36,6 +36,7 @@
+     pub(crate) dtls_cert: Option<DtlsCert>,
+     pub(crate) fingerprint_verification: bool,
+     pub(crate) ice_lite: bool,
++    pub(crate) ice_acceptance_min_waits: [Duration; 4],
+     pub(crate) initial_stun_rto: Option<Duration>,
+     pub(crate) max_stun_rto: Option<Duration>,
+     pub(crate) max_stun_retransmits: Option<usize>,
+@@ -142,6 +143,14 @@
+         self
+     }
+ 
++    /// Set controlling-side ICE nomination waits in host, srflx, prflx, relay
++    /// order. The default is zero for every kind; controlled nominations are
++    /// not delayed. This does not alter STUN retransmission pacing.
++    pub fn set_ice_acceptance_min_waits(mut self, waits: [Duration; 4]) -> Self {
++        self.ice_acceptance_min_waits = waits;
++        self
++    }
++
+     /// Toggle ice lite. Ice lite is a mode for WebRTC servers with public IP address.
+     /// An [`Rtc`] instance in ice lite mode will not make STUN binding requests, but only
+     /// answer to requests from the remote peer.
+@@ -898,6 +907,7 @@
+             dtls_cert: None,
+             fingerprint_verification: true,
+             ice_lite: false,
++            ice_acceptance_min_waits: [Duration::ZERO; 4],
+             initial_stun_rto: None,
+             max_stun_rto: None,
+             max_stun_retransmits: None,
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1253,6 +1253,7 @@
+         let local_creds = config.local_ice_credentials.unwrap_or_else(IceCreds::new);
+         let mut ice = IceAgent::with_hmac(local_creds, crypto_provider.sha1_hmac_provider);
+         ice.set_sped_enabled(config.sped_enabled);
++        ice.set_candidate_acceptance_min_waits(config.ice_acceptance_min_waits);
+         if config.ice_lite {
+             ice.set_ice_lite(config.ice_lite);
+         }

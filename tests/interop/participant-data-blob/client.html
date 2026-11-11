@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Authenticated Blob signaling conformance sidecar</title>
+<script src="/sdk.js"></script><script>
+let room,lifecycleContext,lifecycleOscillator;let lifecycleEvents=[],lifecycleDisconnectedReason,lifecycleOverflow=false;
+window.blobFixture={
+ async connect({url,token,single,lifecycleMedia=false}) {
+  lifecycleEvents=[];lifecycleDisconnectedReason=undefined;lifecycleOverflow=false;
+  room=new LivekitClient.Room({singlePeerConnection:single});
+  for(const event of [LivekitClient.RoomEvent.Connected,LivekitClient.RoomEvent.Reconnecting,LivekitClient.RoomEvent.SignalReconnecting,LivekitClient.RoomEvent.Reconnected,LivekitClient.RoomEvent.Disconnected])room.on(event,reason=>{if(lifecycleEvents.length<32)lifecycleEvents.push(event);else lifecycleOverflow=true;if(event===LivekitClient.RoomEvent.Disconnected)lifecycleDisconnectedReason=reason;});
+  await room.connect(url,token);
+  if(lifecycleMedia){lifecycleContext=new AudioContext();await lifecycleContext.resume();const stream=lifecycleContext.createMediaStreamDestination(),gain=lifecycleContext.createGain();gain.gain.value=.1;lifecycleOscillator=lifecycleContext.createOscillator();lifecycleOscillator.frequency.value=440;lifecycleOscillator.connect(gain);gain.connect(stream);lifecycleOscillator.start();await room.localParticipant.publishTrack(stream.stream.getAudioTracks()[0],{name:'actual-blob-resume-audio',source:LivekitClient.Track.Source.Microphone});}
+ },
+ async signal(message) {
+  // This is explicitly the unchanged SDK's INTERNAL signaling send operation,
+  // not a nonexistent public Blob API. The runner independently decodes actual
+  // WebSocket responses; no SDK callback, protocol byte or transport is patched.
+  if(typeof room?.engine?.client?.sendRequest!=='function')throw new Error('pinned SDK internal signaling seam changed');
+  await room.engine.client.sendRequest(message);
+ },
+ async lifecycleSnapshot(){let outboundPackets=0;const reports=new Set(),seenStats=new Set();for(const transport of [room?.engine?.pcManager?.publisher,room?.engine?.pcManager?.subscriber]){if(!transport?.getStats)continue;const report=await transport.getStats();if(!report||reports.has(report))continue;reports.add(report);for(const stat of report.values())if(stat.type==='outbound-rtp'&&(stat.kind==='audio'||stat.mediaType==='audio')&&!seenStats.has(stat.id)){seenStats.add(stat.id);outboundPackets+=stat.packetsSent||0;}}return{sid:room?.localParticipant?.sid,state:room?.state,events:[...lifecycleEvents],eventOverflow:lifecycleOverflow,disconnectedReason:lifecycleDisconnectedReason,outboundPackets,trackSids:[...(room?.localParticipant?.audioTrackPublications?.values()||[])].map(p=>p.trackSid).sort()};},
+ state(){return room?.state;},
+ async close(){await room?.disconnect();const oscillator=lifecycleOscillator;lifecycleOscillator=undefined;oscillator?.stop();const audio=lifecycleContext;lifecycleContext=undefined;if(audio&&audio.state!=='closed')await audio.close();}
+};
+</script>

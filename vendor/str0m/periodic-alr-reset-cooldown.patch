@@ -1,0 +1,81 @@
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -580,11 +580,10 @@
+         // TWCC send records outlive a BWE reset. Never reuse a cluster identity
+         // within this transport, including packets sent at the same Instant.
+         let next_id = self.probe_control.next_cluster_id();
+-        let periodic = self.probe_control.periodic_alr_enabled();
++        let periodic = self.probe_control.periodic_alr_policy();
+         *self = Self::new(init_bitrate);
+         self.probe_control.continue_cluster_ids(next_id);
+-        self.probe_control
+-            .set_periodic_alr_probing(periodic, crate::util::already_happened());
++        self.probe_control.restore_periodic_alr_policy(periodic);
+     }
+ }
+ 
+--- a/src/bwe/probe/control.rs
++++ b/src/bwe/probe/control.rs
+@@ -154,8 +154,14 @@
+         )
+     }
+ 
+-    pub(crate) fn periodic_alr_enabled(&self) -> bool {
+-        self.periodic_alr_enabled
++    pub(crate) fn periodic_alr_policy(&self) -> (bool, Option<Instant>) {
++        (self.periodic_alr_enabled, self.periodic_alr_not_before)
++    }
++
++    pub(crate) fn restore_periodic_alr_policy(&mut self, policy: (bool, Option<Instant>)) {
++        self.periodic_alr_enabled = policy.0;
++        self.periodic_alr_not_before = policy.1;
++        self.request_immediate();
+     }
+ 
+     pub(crate) fn set_periodic_alr_probing(&mut self, enabled: bool, now: Instant) {
+@@ -1066,7 +1072,7 @@
+         assert_eq!(pc.pending.len(), 2);
+         assert_eq!(pc.pending[0].kind(), ProbeKind::Initial);
+         assert_eq!(pc.pending[1].kind(), ProbeKind::Validation);
+-        assert!(!pc.periodic_alr_enabled());
++        assert!(!pc.periodic_alr_policy().0);
+         // A deferred entry introduced before dispatch is rechecked too.
+         pc.pending.push_front(ProbeClusterConfig::new(
+             4.into(),
+@@ -1110,6 +1116,36 @@
+     }
+ 
+     #[test]
++    fn periodic_reenable_deadline_survives_estimator_reset_without_renewal() {
++        let now = Instant::now();
++        let mut original = ProbeControl::new();
++        original.set_periodic_alr_probing(false, now);
++        original.set_periodic_alr_probing(true, now + Duration::from_secs(1));
++        let deadline = now + Duration::from_secs(6);
++        let policy = original.periodic_alr_policy();
++        assert_eq!(policy, (true, Some(deadline)));
++        let mut restored = ProbeControl::new();
++        restored.restore_periodic_alr_policy(policy);
++        assert_eq!(restored.periodic_alr_policy(), policy);
++        restored.last_probe = Some(LastProbe {
++            when: now,
++            kind: ProbeKind::PeriodicAlr,
++            further: Bitrate::mbps(2),
++            was_estimate: Some(Bitrate::mbps(1)),
++        });
++        restored.set_alr_start_time(now);
++        restored.set_periodic_alr_probing(true, now + Duration::from_secs(2));
++        assert_eq!(restored.periodic_alr_policy(), policy);
++        assert!(!restored.maybe_periodic_alr(deadline - Duration::from_nanos(1), Bitrate::mbps(2)));
++        assert!(restored.maybe_periodic_alr(deadline, Bitrate::mbps(2)));
++        // Disabled policy also remains disabled, without manufacturing a deadline.
++        restored.set_periodic_alr_probing(false, deadline);
++        let mut disabled = ProbeControl::new();
++        disabled.restore_periodic_alr_policy(restored.periodic_alr_policy());
++        assert_eq!(disabled.periodic_alr_policy(), (false, None));
++    }
++
++    #[test]
+     fn periodic_alr_probing() {
+         let mut pc = ProbeControl::new();
+         pc.enable(true);

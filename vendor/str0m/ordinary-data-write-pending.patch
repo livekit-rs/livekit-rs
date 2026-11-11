@@ -1,0 +1,30 @@
+diff --git a/src/channel.rs b/src/channel.rs
+--- a/src/channel.rs
++++ b/src/channel.rs
+@@ -91,6 +91,12 @@
+         Ok(true)
+     }
+ 
++    /// Read-only association DATA still waiting its first transmission. This is
++    /// not total buffered bytes or a remote acknowledgment/completion signal.
++    pub fn has_pending_sctp_data(&mut self) -> bool {
++        self.rtc.sctp.has_pending_data(self.sctp_stream_id)
++    }
++
+     /// Get the amount of buffered data.
+     ///
+     /// Returns 0 if the channel is closed or encountered some error. This is to
+diff --git a/src/sctp/mod.rs b/src/sctp/mod.rs
+--- a/src/sctp/mod.rs
++++ b/src/sctp/mod.rs
+@@ -706,6 +706,10 @@
+         Ok(stream.write_with_ppi(buf, ppi)?)
+     }
+ 
++    pub fn has_pending_data(&mut self, id: u16) -> bool {
++        self.assoc.as_mut().is_some_and(|a| a.has_pending_data(id))
++    }
++
+     pub fn buffered_amount(&mut self, id: u16) -> usize {
+         let Some(assoc) = self.assoc.as_mut() else {
+             return 0;

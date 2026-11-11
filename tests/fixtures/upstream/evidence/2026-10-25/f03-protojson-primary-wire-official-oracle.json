@@ -1,0 +1,168 @@
+{
+  "status": "OFFICIAL_ONLY_NOT_RUST_PASS",
+  "cases": [
+    {
+      "case": "null-scalar",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "null-then-known-duplicate",
+      "decoded": false,
+      "error": "proto: (line 1:14): duplicate field \"name\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "null-alias-duplicate",
+      "decoded": false,
+      "error": "proto: (line 1:22): duplicate field \"empty_timeout\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "null-message-duplicate",
+      "decoded": false,
+      "error": "proto: (line 1:15): duplicate field \"trunk\"",
+      "type": "livekit.CreateSIPInboundTrunkRequest"
+    },
+    {
+      "case": "null-optional-duplicate",
+      "decoded": false,
+      "error": "proto: (line 1:17): duplicate field \"enabled\"",
+      "type": "livekit.CreateIngressRequest"
+    },
+    {
+      "case": "different-oneof-null",
+      "decoded": true,
+      "message": {
+        "template": {}
+      },
+      "type": "livekit.StartEgressRequest",
+      "wire_base64": "EgA="
+    },
+    {
+      "case": "unknown-numeric-enum",
+      "decoded": true,
+      "message": {
+        "input_type": 12345
+      },
+      "type": "livekit.CreateIngressRequest",
+      "wire_base64": "CLlg"
+    },
+    {
+      "case": "unknown-symbolic-enum",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateIngressRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "unknown-enum-then-alias-duplicate",
+      "decoded": false,
+      "error": "proto: (line 1:29): duplicate field \"input_type\"",
+      "type": "livekit.CreateIngressRequest"
+    },
+    {
+      "case": "unquoted-integral-exponent",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "quoted-integral-exponent",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "integral-decimal",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "fractional-int-reject",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 1.5",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "integer-whitespace-reject",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \" 1\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "uint32-overflow",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 4294967296",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "duration-over-max",
+      "decoded": false,
+      "error": "proto: (line 1:19): google.protobuf.Duration value out of range: \"315576000001s\"",
+      "type": "livekit.CreateSIPParticipantRequest"
+    },
+    {
+      "case": "duration-empty-seconds",
+      "decoded": true,
+      "message": {
+        "ringing_timeout": "0.500s"
+      },
+      "type": "livekit.CreateSIPParticipantRequest",
+      "wire_base64": "WgYQgMq17gE="
+    },
+    {
+      "case": "duration-leading-plus",
+      "decoded": true,
+      "message": {
+        "ringing_timeout": "1s"
+      },
+      "type": "livekit.CreateSIPParticipantRequest",
+      "wire_base64": "WgIIAQ=="
+    },
+    {
+      "case": "duration-negative-subsecond",
+      "decoded": true,
+      "message": {
+        "ringing_timeout": "-0.000000001s"
+      },
+      "type": "livekit.CreateSIPParticipantRequest",
+      "wire_base64": "WgsQ////////////AQ=="
+    },
+    {
+      "case": "duration-overprecision",
+      "decoded": false,
+      "error": "proto: (line 1:19): invalid google.protobuf.Duration value \"1.0000000001s\"",
+      "type": "livekit.CreateSIPParticipantRequest"
+    },
+    {
+      "case": "timestamp-offset",
+      "decoded": true,
+      "message": {
+        "trunk": {
+          "created_at": "2019-12-31T23:00:00Z"
+        }
+      },
+      "type": "livekit.CreateSIPInboundTrunkRequest",
+      "wire_base64": "CgmKAQYI8KWv8AU="
+    },
+    {
+      "case": "timestamp-over-max",
+      "decoded": false,
+      "error": "proto: (line 1:23): invalid google.protobuf.Timestamp value \"10000-01-01T00:00:00Z\"",
+      "type": "livekit.CreateSIPInboundTrunkRequest"
+    }
+  ]
+}

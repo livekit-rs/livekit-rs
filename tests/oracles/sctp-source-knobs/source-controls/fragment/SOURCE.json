@@ -1,0 +1,14 @@
+{
+  "status": "FROZEN_NOT_RUN_NO_EXPECTED_VALUES",
+  "cases": 12,
+  "stage_rows_per_case": 5,
+  "assets_sha256": {
+    "oracle/cases.jsonl": "502033db829138391261b8635aca5636f4b9d6fdea77263d6443ede680616f3b",
+    "oracle/fragment_pr_test.go": "e98b194defdb476cfbec4e81c033dc5d313d734147fa01e98bf0bb66b77580ab",
+    "prepare.py": "fc7cf134b58c470f450a95b7170c56faf933082993e372fe2743ec20ec577dbe",
+    "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "README.md": "96228bfb0bd3d117230c9029ae7eac6d425f795ce71a6bfcbca903e913066a42"
+  },
+  "preserved_case_sha256": "502033db829138391261b8635aca5636f4b9d6fdea77263d6443ede680616f3b"
+}

@@ -1,0 +1,18 @@
+--- a/crates/rtc-media/src/engine.rs
++++ b/crates/rtc-media/src/engine.rs
+@@ -891,15 +891,6 @@
+         let Some(info) = t.remote_info.get(&mid) else {
+             return;
+         };
+-        if info
+-            .primary_ssrcs
+-            .as_ref()
+-            .is_some_and(|sources| !sources.contains(&*header.ssrc))
+-        {
+-            // A native stream's MID can survive a publication replacement.
+-            // Only the current declared source can complete that publication.
+-            return;
+-        }
+         let cid = info.msid_track_id.clone();
+         if t.publication_rtp
+             .get(&mid)

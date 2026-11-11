@@ -1,0 +1,59 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -26,7 +26,6 @@
+     error::Code,
+     quic::{self, ConnectionErrorIncoming, StreamErrorIncoming, StreamId, WriteBuf},
+ };
+-use tokio_util::sync::ReusableBoxFuture;
+ 
+ #[cfg(feature = "tracing")]
+ use tracing::instrument;
+@@ -344,23 +343,13 @@
+ /// Implements a [`quic::RecvStream`] backed by a [`quinn::RecvStream`].
+ pub struct RecvStream {
+     stream: Option<quinn::RecvStream>,
+-    read_chunk_fut: ReadChunkFuture,
+-}
+-
+-type ReadChunkFuture = ReusableBoxFuture<
+-    'static,
+-    (
+-        quinn::RecvStream,
+-        Result<Option<quinn::Chunk>, quinn::ReadError>,
+-    ),
+->;
++}
++
+ 
+ impl RecvStream {
+     fn new(stream: quinn::RecvStream) -> Self {
+         Self {
+             stream: Some(stream),
+-            // Should only allocate once the first time it's used
+-            read_chunk_fut: ReusableBoxFuture::new(async { unreachable!() }),
+         }
+     }
+ }
+@@ -373,15 +362,13 @@
+         &mut self,
+         cx: &mut task::Context<'_>,
+     ) -> Poll<Result<Option<Self::Buf>, StreamErrorIncoming>> {
+-        if let Some(mut stream) = self.stream.take() {
+-            self.read_chunk_fut.set(async move {
+-                let chunk = stream.read_chunk(usize::MAX, true).await;
+-                (stream, chunk)
+-            })
+-        };
+-
+-        let (stream, chunk) = ready!(self.read_chunk_fut.poll(cx));
+-        self.stream = Some(stream);
++        // Quinn read_chunk is cancel-safe. Poll a temporary future borrowing
++        // the stream instead of moving its only handle into a pending future:
++        // session close must still be able to issue STOP_SENDING immediately.
++        let stream = self.stream.as_mut().expect("receive stream remains owned");
++        let read = stream.read_chunk(usize::MAX, true);
++        let mut read = std::pin::pin!(read);
++        let chunk = ready!(read.as_mut().poll(cx));
+         Poll::Ready(Ok(chunk
+             .map_err(|e| convert_read_error_to_stream_error(e))?
+             .map(|c| c.bytes)))

@@ -1,0 +1,223 @@
+--- a/livekit-rs-server/crates/lk-config/src/cli.rs
++++ b/livekit-rs-server/crates/lk-config/src/cli.rs
+@@ -458,24 +458,47 @@
+ }
+ 
+ fn extension_env(env: &Env) -> Result<std::collections::BTreeMap<String, String>, ConfigError> {
++    extension_env_skipping(env, &std::collections::BTreeMap::new())
++}
++
++fn extension_env_skipping(
++    env: &Env,
++    cli: &std::collections::BTreeMap<String, String>,
++) -> Result<std::collections::BTreeMap<String, String>, ConfigError> {
+     let mut out = std::collections::BTreeMap::new();
+-    for (name, value) in &env.0 {
+-        if !name.starts_with("LIVECLOUD_") {
+-            continue;
+-        }
+-        let field = name
+-            .strip_prefix("LIVECLOUD_HTTPS_")
+-            .map(|f| f.to_ascii_lowercase());
+-        let Some(field) = field.filter(|f| {
+-            HTTPS_FIELDS
+-                .iter()
+-                .any(|known| known.replace('-', "_") == *f)
+-        }) else {
+-            // Only registered proprietary ENV names opt in. Ambient unknown
+-            // variables are ignored just like the fixed upstream ENV lookup.
++    // Declared names are the consumer registry. Unknown ambient ENV stays ignored,
++    // but a declared source must not vanish merely because its value is raw OS bytes.
++    for field in HTTPS_FIELDS {
++        let field = field.replace('-', "_");
++        if cli.contains_key(&field) {
++            continue; // Actual explicit CLI value overrides even malformed ENV.
++        }
++        let name = format!("LIVECLOUD_HTTPS_{}", field.to_ascii_uppercase());
++        let Some(raw) = env.get_os(&name) else {
+             continue;
+         };
+-        out.insert(field, value.clone());
++        let value = match raw.to_str() {
++            Some(value) => value.to_owned(),
++            None if matches!(
++                field.as_str(),
++                "port" | "http_enabled" | "max_connections" | "handshake_timeout_ms"
++            ) =>
++            {
++                // These numeric/bool grammars accept ASCII only. A non-Unicode
++                // value is a genuine invalid typed input, never an absent source.
++                return Err(ConfigError::msg(format!(
++                    "invalid livecloud.https.{field} value {}",
++                    quote::quote_bytes(raw.as_encoded_bytes())
++                )));
++            }
++            None => {
++                return Err(ConfigError::unsupported(
++                    format!("LIVECLOUD_HTTPS_{}", field.to_ascii_uppercase()),
++                    "non-Unicode proprietary string/path consumer remains OPEN",
++                ));
++            }
++        };
++        out.insert(field, value);
+     }
+     Ok(out)
+ }
+@@ -887,7 +910,7 @@
+ 
+ /// Explicit product CLI extensions retain their opt-in parser. Environment
+ /// variables never choose a parser: official stages run before registered
+-/// proprietary ENV is projected onto a final non-key-generation invocation.
++/// proprietary ENV is projected only onto a final server Run invocation.
+ pub(crate) fn parse_args(
+     args: Vec<OsString>,
+     env: &Env,
+@@ -913,7 +936,7 @@
+     } else {
+         let mut parsed = stages::parse(args, env, info)?;
+         if let Parsed::Invocation(invocation) = &mut parsed
+-            && invocation.command != Command::GenerateKeys
++            && invocation.command == Command::Run
+         {
+             invocation.base.https_overrides = extension_env(env)?;
+         }
+@@ -1092,8 +1115,8 @@
+         Err(GenError::Usage(early)) => return Ok(Parsed::Early(early)),
+         Err(GenError::Config(e)) => return Err(e),
+     };
+-    if !official_root_preflight && command != Command::GenerateKeys {
+-        base.https_overrides = extension_env(env)?;
++    if !official_root_preflight && command == Command::Run {
++        base.https_overrides = extension_env_skipping(env, &https_cli)?;
+         base.https_overrides.extend(https_cli);
+     }
+     Ok(Parsed::Invocation(Invocation {
+--- a/livekit-rs-server/crates/lk-config/src/cli_os.rs
++++ b/livekit-rs-server/crates/lk-config/src/cli_os.rs
+@@ -200,6 +200,51 @@
+     "yaml: invalid Unicode character"
+ }
+ 
++/// Go POSIX filepath.Join + filepath.Clean contract for home expansion.
++/// Go source BSD-3-Clause attribution is retained in LICENSES/Go-BSD-3-Clause.txt. This is lexical:
++/// no filesystem lookup, and backslash remains an ordinary filename byte.
++#[cfg(unix)]
++pub(crate) fn join_home_posix(home: &OsStr, suffix: &[u8]) -> PathBuf {
++    use std::os::unix::ffi::OsStringExt;
++    let home = home.as_encoded_bytes();
++    let mut joined = home.to_vec();
++    if !suffix.is_empty() {
++        if !joined.is_empty() {
++            joined.push(b'/');
++        }
++        joined.extend_from_slice(suffix);
++    }
++    if joined.is_empty() {
++        return PathBuf::new();
++    }
++    let rooted = joined[0] == b'/';
++    let mut parts: Vec<&[u8]> = Vec::new();
++    for part in joined.split(|byte| *byte == b'/') {
++        match part {
++            b"" | b"." => {}
++            b".." if parts.last().is_some_and(|last| *last != b"..") => {
++                parts.pop();
++            }
++            b".." if rooted => {}
++            _ => parts.push(part),
++        }
++    }
++    let mut clean = Vec::new();
++    if rooted {
++        clean.push(b'/');
++    }
++    for part in parts {
++        if !clean.is_empty() && clean.last() != Some(&b'/') {
++            clean.push(b'/');
++        }
++        clean.extend_from_slice(part);
++    }
++    if clean.is_empty() {
++        clean.push(b'.');
++    }
++    PathBuf::from(OsString::from_vec(clean))
++}
++
+ #[cfg(unix)]
+ pub(crate) fn expand_path(path: &OsStr, env: &Env) -> Result<PathBuf, ConfigError> {
+     use std::os::unix::ffi::OsStringExt;
+@@ -252,16 +297,7 @@
+             .filter(|v| !v.is_empty())
+             .or_else(|| env.get_os("USERPROFILE").filter(|v| !v.is_empty()))
+             .ok_or_else(|| ConfigError::msg("blank output when reading home directory"))?;
+-        let mut path = PathBuf::from(home);
+-        let rest = &out[1..];
+-        let n = rest
+-            .iter()
+-            .take_while(|b| matches!(**b, b'/' | b'\\'))
+-            .count();
+-        if n < rest.len() {
+-            path.push(OsString::from_vec(rest[n..].to_vec()));
+-        }
+-        return Ok(path);
++        return Ok(join_home_posix(home, &out[1..]));
+     }
+     Ok(PathBuf::from(OsString::from_vec(out)))
+ }
+--- a/livekit-rs-server/crates/lk-config/src/load.rs
++++ b/livekit-rs-server/crates/lk-config/src/load.rs
+@@ -324,13 +324,30 @@
+         .filter(|h| !h.is_empty())
+         .or_else(|| env.get("USERPROFILE").filter(|h| !h.is_empty()))
+         .ok_or_else(|| ConfigError::msg("blank output when reading home directory"))?;
+-    let rest = path[1..].trim_start_matches(['/', '\\']);
+-    let joined = if rest.is_empty() {
+-        PathBuf::from(home)
+-    } else {
+-        Path::new(home).join(rest)
+-    };
+-    Ok(joined.to_string_lossy().into_owned())
++    #[cfg(unix)]
++    {
++        // Go homedir.Expand joins and cleans even Unicode home paths. The
++        // Unicode branch cannot contain raw bytes, so this conversion is exact.
++        Ok(
++            crate::cli::os_input::join_home_posix(
++                std::ffi::OsStr::new(home),
++                &path.as_bytes()[1..],
++            )
++            .into_os_string()
++            .into_string()
++            .expect("Unicode POSIX lexical join"),
++        )
++    }
++    #[cfg(not(unix))]
++    {
++        let rest = path[1..].trim_start_matches(['/', '\\']);
++        let joined = if rest.is_empty() {
++            PathBuf::from(home)
++        } else {
++            Path::new(home).join(rest)
++        };
++        Ok(joined.to_string_lossy().into_owned())
++    }
+ }
+ 
+ /// Step 13 (`main.go:208-243`).
+@@ -485,10 +502,13 @@
+         env,
+     )?;
+     #[cfg(unix)]
+-    let os_key_file = if raw_key_input.is_some() || expanded_os.to_str().is_none() {
++    let os_key_file = if expanded_os.as_os_str().is_empty() {
++        None
++    } else {
++        // Lexical parent cleanup can remove the sole non-Unicode HOME component.
++        // Keep the actual expanded result even when that result is now Unicode;
++        // running String expansion again would lose the original raw dependency.
+         Some(expanded_os)
+-    } else {
+-        None
+     };
+     #[cfg(not(unix))]
+     let os_key_file = raw_key_input

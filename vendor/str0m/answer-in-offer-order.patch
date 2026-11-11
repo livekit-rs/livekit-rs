@@ -1,0 +1,158 @@
+diff --git a/src/change/sdp.rs b/src/change/sdp.rs
+index a4f0d75c..0fc5923a 100644
+--- a/src/change/sdp.rs
++++ b/src/change/sdp.rs
+@@ -878,11 +878,23 @@ fn as_sdp(session: &Session, params: AsSdpParams) -> Sdp {
+                     ssrcs.extend(pending.ssrcs_for_mid(m.mid()))
+                 }
+ 
+-                let params: Vec<_> = session
++                let mut params: Vec<_> = session
+                     .codec_config
+                     .all_for_kind(m.kind(), false)
+                     .cloned()
+                     .collect();
++                if let Some(order) = m
++                    .answer_pt_order()
++                    .filter(|_| session.answer_in_offer_order)
++                {
++                    // Stable: codecs the remote did not list keep the configured order.
++                    params.sort_by_key(|p| {
++                        order
++                            .iter()
++                            .position(|pt| *pt == p.pt)
++                            .unwrap_or(usize::MAX)
++                    });
++                }
+ 
+                 m.as_media_line(attrs, &ssrcs, &session.exts, &params)
+             })
+@@ -1451,6 +1463,10 @@ trait AsSdpMediaLine {
+         exts: &ExtensionMap,
+         params: &[PayloadParams],
+     ) -> MediaLine;
++    /// The remote offer's PT order when this m-line answers a remote offer.
++    fn answer_pt_order(&self) -> Option<&[Pt]> {
++        None
++    }
+ }
+ 
+ impl AsSdpMediaLine for (Mid, usize) {
+@@ -1491,6 +1507,9 @@ impl AsSdpMediaLine for (Mid, usize) {
+ }
+ 
+ impl AsSdpMediaLine for Media {
++    fn answer_pt_order(&self) -> Option<&[Pt]> {
++        self.remote_created().then(|| self.remote_pts())
++    }
+     fn mid(&self) -> Mid {
+         Media::mid(self)
+     }
+@@ -2301,6 +2320,46 @@ mod test {
+         }
+     }
+ 
++    #[test]
++    fn answer_in_offer_order_lists_the_offerers_preference_first() {
++        crate::init_crypto_default();
++
++        let now = Instant::now();
++        // Offerer prefers H.264, answerer is configured VP8-first.
++        let mut rtc1 = Rtc::builder()
++            .clear_codecs()
++            .enable_h264(true)
++            .enable_vp8(true)
++            .build(now);
++        let mut rtc2 = Rtc::builder()
++            .clear_codecs()
++            .enable_vp8(true)
++            .enable_h264(true)
++            .set_answer_in_offer_order(true)
++            .build(now);
++        let mut change1 = rtc1.sdp_api();
++        change1.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
++        let (offer1, _) = change1.apply().unwrap();
++        let offered: Vec<Codec> = offer1.media_lines[0]
++            .pts
++            .iter()
++            .map(|pt| resolve_pt(&offer1.media_lines[0], *pt).codec)
++            .filter(|c| *c != Codec::Rtx)
++            .collect();
++        let answer = rtc2.sdp_api().accept_offer(offer1).unwrap();
++        let line = &answer.media_lines[0];
++        let answered: Vec<Codec> = line
++            .pts
++            .iter()
++            .map(|pt| resolve_pt(line, *pt).codec)
++            .filter(|c| *c != Codec::Rtx)
++            .collect();
++        let mut expect = offered.clone();
++        expect.retain(|c| answered.contains(c));
++        assert_eq!(answered, expect, "answer follows the offer's codec order");
++        assert_eq!(answered[0], Codec::H264);
++    }
++
+     #[test]
+     fn test_rtp_payload_priority() {
+         crate::init_crypto_default();
+diff --git a/src/config.rs b/src/config.rs
+index 7f594172..4da30fc2 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -60,6 +60,7 @@ pub struct RtcConfig {
+     pub(crate) dtls_version: DtlsVersion,
+     pub(crate) vp9_packetizer_mode: Vp9PacketizerMode,
+     pub(crate) snap_enabled: bool,
++    pub(crate) answer_in_offer_order: bool,
+     pub(crate) sped_enabled: bool,
+     pub(crate) mtu: RangeInclusive<usize>,
+ }
+@@ -805,6 +806,19 @@ impl RtcConfig {
+         self
+     }
+ 
++    /// List the codecs of an answer to a remote offer in the offerer's order.
++    ///
++    /// By default an answer keeps this side's configured codec priority. Pion records
++    /// negotiated codecs in the remote description's order, so a Pion answerer lets
++    /// the offerer's preference win (e.g. Chrome's H.264 packetization-mode=1 ahead
++    /// of mode 0). Our own offers always keep the configured order.
++    ///
++    /// Default: `false`
++    pub fn set_answer_in_offer_order(mut self, enabled: bool) -> Self {
++        self.answer_in_offer_order = enabled;
++        self
++    }
++
+     /// Set which DTLS version to use.
+     ///
+     /// Defaults to [`DtlsVersion::Dtls12`].
+@@ -934,6 +948,7 @@ impl Default for RtcConfig {
+             dtls_version: DtlsVersion::Dtls12,
+             vp9_packetizer_mode: Vp9PacketizerMode::default(),
+             snap_enabled: false,
++            answer_in_offer_order: false,
+             sped_enabled: false,
+             mtu: DATAGRAM_MTU_TARGET..=DATAGRAM_MTU_WARN,
+         }
+diff --git a/src/session.rs b/src/session.rs
+index 18c52063..209a27fc 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -83,6 +83,8 @@ pub(crate) struct Session {
+ 
+     // Configuration of how we are sending/receiving media.
+     pub codec_config: CodecConfig,
++    /// See [`crate::RtcConfig::set_answer_in_offer_order`].
++    pub(crate) answer_in_offer_order: bool,
+ 
+     // Payload params for SSRC 0 BWE probes.
+     // Lazy init when we see the PT.
+@@ -209,6 +211,7 @@ impl Session {
+             // Both sending and receiving starts from the configured codecs.
+             // These can then be changed in the SDP OFFER/ANSWER dance.
+             codec_config: config.codec_config.clone(),
++            answer_in_offer_order: config.answer_in_offer_order,
+             probe_payload_params: None,
+ 
+             receiver_report_rtt_enabled: false,

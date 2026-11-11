@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>LiveKit SDK interoperability</title>
+<body><p id="status">Ready</p><script src="/sdk.js"></script><script>
+const { Room, RoomEvent, Track } = LivekitClient;
+const state = { events: [], received: [], audioSamples: [], errors: [], videoFrames: 0, videoDimensions: [], receivers: [], toneMeasurements: [], samplingTimers: new Set() };
+let room, audioContext, localAudio, localVideo;
+window.interop = {
+  async connect({ url, token, single, frequency, relay, adaptiveStream = true }) {
+    audioContext = new AudioContext();
+    await audioContext.resume();
+    room = new Room({ adaptiveStream, dynacast: true, singlePeerConnection: single });
+    room.localParticipant.registerRpcMethod('interop.echo', async ({ payload }) => 'echo:' + payload);
+    room.on(RoomEvent.ConnectionStateChanged, s => state.events.push(['state', s]));
+    room.on(RoomEvent.TrackStreamStateChanged, (publication, streamState) => state.events.push(['stream-state', publication.trackSid, streamState]));
+    room.on(RoomEvent.DataReceived, (bytes, participant, kind) => {
+      try { state.received.push({ ...JSON.parse(new TextDecoder().decode(bytes)), from: participant?.identity, kind }); }
+      catch (e) { state.errors.push(String(e)); }
+    });
+    room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      state.events.push(['subscribed', track.kind, publication.trackSid, participant.identity]);
+      if (track.kind === Track.Kind.Audio) {
+        const element = track.attach(); element.autoplay = true; element.volume = 0;
+        document.body.append(element); element.play().catch(e => state.errors.push(String(e)));
+        state.receivers.push(track.receiver);
+        const source = audioContext.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));
+        const analyser = audioContext.createAnalyser();
+        const silent = audioContext.createGain(); silent.gain.value = 0;
+        source.connect(analyser); analyser.connect(silent); silent.connect(audioContext.destination);
+        const samples = new Float32Array(analyser.fftSize);
+        const timer = setInterval(() => {
+          analyser.getFloatTimeDomainData(samples);
+          const rms = Math.sqrt(samples.reduce((s, x) => s + x * x, 0) / samples.length);
+          state.audioSamples.push(rms);
+          const spectrum = new Float32Array(analyser.frequencyBinCount);analyser.getFloatFrequencyData(spectrum);
+          const binHz = audioContext.sampleRate / analyser.fftSize;
+          let peak = Math.ceil(80 / binHz);
+          for (let bin = peak+1; bin < Math.min(spectrum.length, Math.floor(2000/binHz)); bin++) if (spectrum[bin] > spectrum[peak]) peak = bin;
+          state.toneMeasurements.push({ identity: participant.identity, frequencyHz: peak*binHz, rms, sampleIndex: state.audioSamples.length });
+          if (state.toneMeasurements.length > 600) state.toneMeasurements.shift();
+        }, 100);
+        state.samplingTimers.add(timer);
+        track.mediaStreamTrack.addEventListener('ended', () => { clearInterval(timer);state.samplingTimers.delete(timer); });
+      } else if (track.kind === Track.Kind.Video) {
+        const element = track.attach(); element.autoplay = true; element.muted = true;
+        document.body.append(element);
+        const tick = (_, metadata) => {
+          state.videoFrames++;
+          state.videoDimensions.push({ width: metadata.width, height: metadata.height });
+          if (state.videoDimensions.length > 600) state.videoDimensions.shift();
+          element.requestVideoFrameCallback(tick);
+        };
+        element.requestVideoFrameCallback(tick);
+        element.play().catch(e => state.errors.push(String(e)));
+      }
+    });
+    await room.connect(url, token, relay ? { rtcConfig: { iceTransportPolicy: 'relay' } } : {});
+    const oscillator = audioContext.createOscillator();
+    oscillator.frequency.value = frequency;
+    const gain = audioContext.createGain(); gain.gain.value = 0.2;
+    const destination = audioContext.createMediaStreamDestination();
+    oscillator.connect(gain); gain.connect(destination); oscillator.start();
+    localAudio = destination.stream.getAudioTracks()[0];
+    await room.localParticipant.publishTrack(localAudio, { source: Track.Source.Microphone, name: 'interop-tone' });
+    document.querySelector('#status').textContent = 'Connected: ' + room.localParticipant.identity;
+    return { identity: room.localParticipant.identity, sid: room.localParticipant.sid };
+  },
+  async data({ count = 100, reliable = true, topic = 'interop' } = {}) {
+    for (let seq = 0; seq < count; seq++) {
+      await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ seq, topic })), { reliable, topic });
+    }
+  },
+  async video({ codec = 'vp8', scalabilityMode, width = 640, height = 360, complex = false } = {}) {
+    const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+    const context = canvas.getContext('2d'); let frame = 0;
+    state.videoTimer = setInterval(() => {
+      context.fillStyle = `hsl(${frame++ % 360} 70% 40%)`; context.fillRect(0, 0, width, height);
+      if (complex) for (let y = 0; y < height; y += 24) for (let x = 0; x < width; x += 24) {
+        context.fillStyle = `hsl(${(x * 7 + y * 13 + frame * 59) % 360} 85% ${(frame + x + y) % 2 ? 70 : 25}%)`;
+        context.fillRect(x, y, 22, 22);
+      }
+      context.fillStyle = 'white'; context.font = '32px sans-serif'; context.fillText(String(frame), 40, 70);
+    }, 66);
+    localVideo = canvas.captureStream(15).getVideoTracks()[0];
+    await room.localParticipant.publishTrack(localVideo, { source: Track.Source.Camera, videoCodec: codec, simulcast: codec === 'vp8', ...(scalabilityMode ? { scalabilityMode } : {}), videoEncoding: { maxBitrate: 1800000, maxFramerate: 15 } });
+  },
+  videoQuality(quality) {
+    for (const participant of room.remoteParticipants.values())
+      for (const publication of participant.trackPublications.values())
+        if (publication.kind === Track.Kind.Video) publication.setVideoQuality(quality);
+  },
+  videoFPS(fps) {
+    for (const participant of room.remoteParticipants.values())
+      for (const publication of participant.trackPublications.values())
+        if (publication.kind === Track.Kind.Video) publication.setVideoFPS(fps);
+  },
+  async republish() {
+    await room.localParticipant.unpublishTrack(localAudio, false);
+    await room.localParticipant.publishTrack(localAudio, { source: Track.Source.Microphone, name: 'interop-tone-again' });
+  },
+  metadata() { return [...room.remoteParticipants.values()].map(p => ({ identity: p.identity, metadata: p.metadata, attributes: p.attributes })); },
+  remoteTracks() { return [...room.remoteParticipants.values()].flatMap(p => [...p.trackPublications.values()].map(t => ({ identity: p.identity, sid: t.trackSid, muted: t.isMuted }))); },
+  async unmute() { await room.localParticipant.getTrackPublication(Track.Source.Microphone).track.unmute(); },
+  reconnect() { window.interopSignalSockets.at(-1).close(4000, 'interop resume'); },
+  report() {
+    return { events: state.events, received: state.received, errors: state.errors,
+      toneMeasurements: state.toneMeasurements, activeSamplingTimers: state.samplingTimers.size,
+      audioSamples: state.audioSamples.length, audibleSamples: state.audioSamples.filter(x => x > 0.01).length,
+      maxRms: Math.max(0, ...state.audioSamples), videoFrames: state.videoFrames, videoDimensions: state.videoDimensions, connection: room?.state,
+      audioContext: audioContext?.state, audioTime: audioContext?.currentTime };
+  },
+  async stats() {
+    const stats = [];
+    for (const receiver of state.receivers) {
+      for (const entry of (await receiver.getStats()).values()) {
+        if (entry.type === 'inbound-rtp') stats.push(entry);
+      }
+    }
+    return stats;
+  },
+  async close() { clearInterval(state.videoTimer); for (const timer of state.samplingTimers) clearInterval(timer);state.samplingTimers.clear(); await room?.disconnect();localAudio?.stop();localVideo?.stop(); await audioContext?.close(); }
+};
+</script></body></html>

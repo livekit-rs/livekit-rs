@@ -1,0 +1,525 @@
+diff --git a/src/change/direct.rs b/src/change/direct.rs
+index 450ee08d..81a4ee3e 100644
+--- a/src/change/direct.rs
++++ b/src/change/direct.rs
+@@ -275,6 +275,13 @@ impl<'a> DirectApi<'a> {
+         self.rtc.session.enable_twcc_feedback()
+     }
+ 
++    /// Use the LiveKit publisher's arrival-driven video TWCC reporting.
++    ///
++    /// Feedback still requires negotiated transport-cc.
++    pub fn enable_livekit_publisher_twcc(&mut self) {
++        self.rtc.session.enable_livekit_publisher_twcc()
++    }
++
+     /// Generate a ssrc that is not already used in session
+     pub fn new_ssrc(&self) -> Ssrc {
+         self.rtc.session.streams.new_ssrc()
+diff --git a/src/rtp/rtcp/twcc.rs b/src/rtp/rtcp/twcc.rs
+index f8b1dbb3..fbe078db 100644
+--- a/src/rtp/rtcp/twcc.rs
++++ b/src/rtp/rtcp/twcc.rs
+@@ -287,12 +287,17 @@ impl TwccRecvRegister {
+     }
+ 
+     pub fn update_seq(&mut self, seq: TwccSeq, time: Instant) {
++        self.record_receipt(seq, time);
++    }
++
++    pub(crate) fn record_receipt(&mut self, seq: TwccSeq, time: Instant) -> bool {
+         self.receive_window.record_seq(seq);
+ 
+         match self.queue.binary_search_by_key(&seq, |r| r.seq) {
+             Ok(_) => {
+                 // Exact same SeqNo found. This is an error where the sender potentially
+                 // used the same twcc sequence number for two packets. Let's ignore it.
++                false
+             }
+             Err(idx) => {
+                 if self.observations_enabled {
+@@ -303,7 +308,7 @@ impl TwccRecvRegister {
+                     // chosen as our 0, we can't represent that in the report. Let's just
+                     // forget about it and hope for the best.
+                     if time_start - time >= Duration::from_millis(8192) {
+-                        return;
++                        return false;
+                     }
+                 }
+ 
+@@ -312,11 +317,21 @@ impl TwccRecvRegister {
+                 if idx < self.report_from {
+                     self.report_from = idx;
+                 }
++                true
+             }
+         }
+     }
+ 
+     pub fn build_report(&mut self, max_byte_size: usize) -> Option<Twcc> {
++        self.build_report_from(max_byte_size, None)
++            .map(|(report, _)| report)
++    }
++
++    pub(crate) fn build_report_from(
++        &mut self,
++        max_byte_size: usize,
++        next_sequence: Option<TwccSeq>,
++    ) -> Option<(Twcc, TwccSeq)> {
+         if max_byte_size > 10_000 {
+             warn!("Refuse to build too large Twcc report");
+             return None;
+@@ -332,7 +347,16 @@ impl TwccRecvRegister {
+         }
+ 
+         let observation_from = self.report_from;
+-        let (base_seq, first_time) = (first.seq, first.time);
++        let first_time = first.time;
++        // The LiveKit/Pion recorder includes an initial missing run from the
++        // previous report cursor, bounded to 0x7ffe missing sequence numbers.
++        let base_seq = next_sequence
++            .map(|next| {
++                (*next)
++                    .clamp((*first.seq).saturating_sub(0x7ffe), *first.seq)
++                    .into()
++            })
++            .unwrap_or(first.seq);
+         let time_start = self.time_start.expect("a start time");
+ 
+         // The difference between our Twcc reference time and the first ever report start time.
+@@ -541,7 +565,8 @@ impl TwccRecvRegister {
+             self.report_from -= to_remove;
+         }
+ 
+-        Some(twcc)
++        let next_sequence = (*base_seq + u64::from(twcc.status_count)).into();
++        Some((twcc, next_sequence))
+     }
+ 
+     pub(crate) fn set_observations_enabled(&mut self, enabled: bool) {
+@@ -616,11 +641,20 @@ fn build_interims(
+ 
+     let mut prev = (base_seq, base_time);
+ 
+-    for r in report_from {
+-        let diff_seq = *r.seq - *prev.0;
++    let mut status_count = 0;
++    for (index, r) in report_from.enumerate() {
++        let missing = (*r.seq - *prev.0).saturating_sub(u64::from(index != 0));
++        let next_status_count = status_count + missing + 1;
++        if next_status_count > u64::from(u16::MAX) {
++            break;
++        }
+ 
+-        if diff_seq > 1 {
+-            let mut todo = diff_seq - 1;
++        let Some((time, encoded_time)) = super::twcc_time::quantize_delta(prev.1, r.time) else {
++            // Start another report when the rounded delta does not fit i16.
++            break;
++        };
++        if missing != 0 {
++            let mut todo = missing;
+             while todo > 0 {
+                 // max 2^13 run length in each missing chunk
+                 let n = todo.min(8192);
+@@ -629,10 +663,6 @@ fn build_interims(
+             }
+         }
+ 
+-        let Some((time, encoded_time)) = super::twcc_time::quantize_delta(prev.1, r.time) else {
+-            // Start another report when the rounded delta does not fit i16.
+-            break;
+-        };
+         let status = if !(0..=255).contains(&time) {
+             PacketStatus::ReceivedLargeOrNegativeDelta
+         } else {
+@@ -640,6 +670,7 @@ fn build_interims(
+         };
+ 
+         interims.push_back(ChunkInterim::Received(status, time));
++        status_count = next_status_count;
+         prev = (r.seq, encoded_time);
+     }
+ }
+diff --git a/src/session.rs b/src/session.rs
+index 8cd0f48d..40b1a0e5 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -34,7 +34,7 @@ use crate::rtp_::{Bitrate, ExtensionMap, Goodbye, Mid, ReportList, Rtcp, RtcpFb}
+ use crate::rtp_::{Dlrr, DlrrItem, ExtendedReport, ReportBlock};
+ use crate::rtp_::{RtpHeader, SessionId, TwccPacketId, extend_u16};
+ use crate::rtp_::{SrtpContext, Ssrc};
+-use crate::rtp_::{TwccRecvRegister, TwccSendRegister};
++use crate::rtp_::{TwccRecvRegister, TwccSendRegister, TwccSeq};
+ use crate::stats::StatsSnapshot;
+ use crate::streams::{RtpPacket, StreamTimeoutConfig, Streams};
+ use crate::util::{Soonest, SystemTimeExt, already_happened, not_happening};
+@@ -49,6 +49,50 @@ const NACK_MIN_INTERVAL: Duration = Duration::from_millis(33);
+ /// Delay between reports of TWCC. This is deliberately very low.
+ const TWCC_INTERVAL: Duration = Duration::from_millis(50);
+ 
++struct LiveKitPublisherTwcc {
++    sender_ssrc: Ssrc,
++    last_report: Option<Instant>,
++    next_sequence: Option<TwccSeq>,
++    packets_held: usize,
++}
++
++impl LiveKitPublisherTwcc {
++    fn record(
++        &mut self,
++        register: &mut TwccRecvRegister,
++        header: &RtpHeader,
++        sequence: TwccSeq,
++        now: Instant,
++        max_report_bytes: usize,
++        feedback: &mut VecDeque<Rtcp>,
++    ) {
++        self.packets_held += usize::from(register.record_receipt(sequence, now));
++        let should_report = self.packets_held > 20
++            && (self.packets_held > 100
++                || self.last_report.is_none_or(|last| {
++                    let elapsed = now.saturating_duration_since(last);
++                    elapsed >= Duration::from_millis(100)
++                        || (header.marker && elapsed >= Duration::from_millis(50))
++                }));
++        if !should_report {
++            return;
++        }
++
++        self.last_report = Some(now);
++        self.packets_held = 0;
++        while let Some((mut report, next_sequence)) =
++            register.build_report_from(max_report_bytes, self.next_sequence)
++        {
++            self.next_sequence = Some(next_sequence);
++            report.sender_ssrc = self.sender_ssrc;
++            report.ssrc = header.ssrc;
++            trace!("Created publisher feedback TWCC: {:?}", report);
++            register.observe_built(&report, now);
++            feedback.push_back(Rtcp::Twcc(report));
++        }
++    }
++}
++
+ /// Maximum number of pending RRTR entries before oldest are dropped.
+ const MAX_PENDING_RRTRS: usize = 300;
+ 
+@@ -100,6 +144,7 @@ pub(crate) struct Session {
+     srtp_tx: Option<SrtpContext>,
+     last_nack: Instant,
+     last_twcc: Instant,
++    livekit_publisher_twcc: Option<LiveKitPublisherTwcc>,
+     twcc: u64,
+     twcc_rx_register: TwccRecvRegister,
+     twcc_tx_register: TwccSendRegister,
+@@ -226,6 +271,7 @@ impl Session {
+             srtp_tx: None,
+             last_nack: already_happened(),
+             last_twcc: already_happened(),
++            livekit_publisher_twcc: None,
+             twcc: 0,
+             twcc_rx_register: TwccRecvRegister::new(100),
+             twcc_tx_register: TwccSendRegister::new(1000),
+@@ -756,6 +802,7 @@ impl Session {
+             return;
+         };
+ 
++        let max_twcc_report_bytes = self.mtu().saturating_sub(100);
+         let srtp = match self.srtp_rx.as_mut() {
+             Some(v) => v,
+             None => {
+@@ -870,11 +917,43 @@ impl Session {
+             raw_packets.push_back(Box::new(RawPacket::RtpRx(header.clone(), data.to_vec())));
+         }
+ 
+-        // Mark as received for TWCC purposes
++        // Record authenticated wire RTP before logical media de-duplication.
+         if let Some(transport_cc) = header.ext_vals.transport_cc {
+             let prev = self.twcc_rx_register.max_seq();
+             let extended = extend_u16(prev.map(|s| *s), transport_cc);
+-            self.twcc_rx_register.update_seq(extended.into(), now);
++            if let Some(profile) = &mut self.livekit_publisher_twcc {
++                let video_twcc = if ssrc.is_probe() {
++                    // Pion binds SSRC 0 to an implicit video receiver. The
++                    // synthetic probe codec is only for SRTP and has no SDP.
++                    self.medias.iter().any(|media| {
++                        !media.stopped()
++                            && media.kind().is_video()
++                            && media.direction().is_receiving()
++                            && media
++                                .remote_extmap()
++                                .id_of(Extension::TransportSequenceNumber)
++                                .is_some()
++                            && self.codec_config.iter().any(|p| {
++                                p.fb_transport_cc() && media.remote_pts().contains(&p.pt())
++                            })
++                    })
++                } else {
++                    packet_params.spec().codec.is_video()
++                        && (is_repair || packet_params.fb_transport_cc())
++                };
++                if self.enable_twcc_feedback && video_twcc {
++                    profile.record(
++                        &mut self.twcc_rx_register,
++                        &header,
++                        extended.into(),
++                        now,
++                        max_twcc_report_bytes,
++                        &mut self.feedback_tx,
++                    );
++                }
++            } else {
++                self.twcc_rx_register.update_seq(extended.into(), now);
++            }
+         }
+ 
+         // Original RTPStats ignores pre-start primary padding. Preserve its
+@@ -1774,6 +1853,9 @@ impl Session {
+     }
+ 
+     fn twcc_at(&self) -> Option<Instant> {
++        if self.livekit_publisher_twcc.is_some() {
++            return None;
++        }
+         let is_receiving = self.streams.is_receiving();
+         if is_receiving && self.enable_twcc_feedback && self.twcc_rx_register.has_unreported() {
+             Some(self.last_twcc + TWCC_INTERVAL)
+@@ -1782,6 +1864,15 @@ impl Session {
+         }
+     }
+ 
++    pub(crate) fn enable_livekit_publisher_twcc(&mut self) {
++        self.livekit_publisher_twcc = Some(LiveKitPublisherTwcc {
++            sender_ssrc: self.streams.new_ssrc(),
++            last_report: None,
++            next_sequence: None,
++            packets_held: 0,
++        });
++    }
++
+     pub fn enable_twcc_feedback(&mut self) {
+         if !self.enable_twcc_feedback {
+             debug!("Enable TWCC feedback");
+@@ -2191,6 +2282,221 @@ mod tests {
+     use crate::io::DATAGRAM_MTU_TARGET;
+     use crate::packet::RedEncoder;
+ 
++    #[test]
++    fn livekit_publisher_twcc_matches_packet_trigger_thresholds() {
++        let start = Instant::now();
++        let mut session = Session::new(&RtcConfig::default());
++        session.enable_twcc_feedback();
++        session.enable_livekit_publisher_twcc();
++        let profile = session.livekit_publisher_twcc.as_mut().unwrap();
++        let sender_ssrc = profile.sender_ssrc;
++        let mut receipts = TwccRecvRegister::new(100);
++        let mut feedback = VecDeque::new();
++        let mut packet = RtpHeader {
++            ssrc: 123.into(),
++            marker: false,
++            ..RtpHeader::default()
++        };
++        let record = |profile: &mut LiveKitPublisherTwcc,
++                      receipts: &mut TwccRecvRegister,
++                      feedback: &mut VecDeque<Rtcp>,
++                      packet: &RtpHeader,
++                      sequence: u64,
++                      elapsed_ms: u64| {
++            profile.record(
++                receipts,
++                packet,
++                sequence.into(),
++                start + Duration::from_millis(elapsed_ms),
++                1100,
++                feedback,
++            );
++        };
++
++        for sequence in 1..=20 {
++            record(profile, &mut receipts, &mut feedback, &packet, sequence, 0);
++        }
++        record(profile, &mut receipts, &mut feedback, &packet, 20, 101);
++        assert!(feedback.is_empty(), "duplicate does not count as a receipt");
++        record(profile, &mut receipts, &mut feedback, &packet, 21, 101);
++        assert_eq!(feedback.len(), 1);
++        feedback.clear();
++
++        for sequence in 22..=42 {
++            record(
++                profile,
++                &mut receipts,
++                &mut feedback,
++                &packet,
++                sequence,
++                149,
++            );
++        }
++        packet.marker = true;
++        record(profile, &mut receipts, &mut feedback, &packet, 43, 150);
++        assert!(feedback.is_empty(), "marker arrives at 49 ms");
++        packet.ssrc = 456.into();
++        record(profile, &mut receipts, &mut feedback, &packet, 44, 151);
++        let Some(Rtcp::Twcc(report)) = feedback.pop_front() else {
++            panic!("marker at 50 ms should trigger a report");
++        };
++        assert_eq!(report.sender_ssrc, sender_ssrc);
++        assert_eq!(report.ssrc, packet.ssrc);
++        assert_eq!(report.base_seq, 22);
++        assert_eq!(report.status_count, 23);
++
++        packet.marker = false;
++        for sequence in 45..=144 {
++            record(
++                profile,
++                &mut receipts,
++                &mut feedback,
++                &packet,
++                sequence,
++                151,
++            );
++        }
++        assert!(
++            feedback.is_empty(),
++            "100 held packets does not trigger a report"
++        );
++        record(profile, &mut receipts, &mut feedback, &packet, 145, 151);
++        assert_eq!(feedback.len(), 1, "101 held packets triggers a report");
++        feedback.clear();
++
++        for sequence in 146..=166 {
++            record(
++                profile,
++                &mut receipts,
++                &mut feedback,
++                &packet,
++                sequence,
++                250,
++            );
++        }
++        assert!(feedback.is_empty(), "elapsed 99 ms without a marker");
++        record(profile, &mut receipts, &mut feedback, &packet, 167, 251);
++        assert_eq!(feedback.len(), 1, "elapsed 100 ms without a marker");
++
++        // An armed timer cannot flush a trailing packet in the LiveKit profile.
++        session.twcc_rx_register = receipts;
++        session.twcc_rx_register.update_seq(168.into(), start);
++        assert!(session.twcc_rx_register.has_unreported());
++        assert_eq!(session.twcc_at(), None);
++    }
++
++    #[test]
++    fn livekit_publisher_twcc_reports_missing_sequences_across_reports_and_wrap() {
++        let now = Instant::now();
++        let mut receipts = TwccRecvRegister::new(100);
++        receipts.update_seq(65_533.into(), now);
++        let (first, next) = receipts.build_report_from(1100, None).unwrap();
++        assert_eq!(first.base_seq, 65_533);
++        assert_eq!(*next, 65_534);
++        for seq in [65_537, 65_539] {
++            receipts.update_seq(seq.into(), now + Duration::from_millis(10));
++        }
++        let (report, next) = receipts.build_report_from(1100, Some(next)).unwrap();
++        assert_eq!(report.base_seq, 65_534);
++        assert_eq!(*next, 65_540);
++        let received: Vec<_> = report
++            .into_iter(now, 65_534.into())
++            .map(|(seq, _, time)| (*seq, time.is_some()))
++            .collect();
++        assert_eq!(
++            received,
++            [
++                (65_534, false),
++                (65_535, false),
++                (65_536, false),
++                (65_537, true),
++                (65_538, false),
++                (65_539, true)
++            ]
++        );
++
++        // The previous cursor may be many packets behind after a long gap.
++        // Match Pion's maximum leading loss run and split a distant receive time.
++        receipts.update_seq(110_000.into(), now + Duration::from_secs(9));
++        receipts.update_seq(110_002.into(), now + Duration::from_secs(18));
++        let (report, next) = receipts.build_report_from(1100, Some(next)).unwrap();
++        assert_eq!(report.base_seq, (110_000 - 0x7ffe) as u16);
++        assert_eq!(report.status_count, 0x7fff);
++        assert_eq!(*next, 110_001);
++        let (report, next) = receipts.build_report_from(1100, Some(next)).unwrap();
++        assert_eq!(report.base_seq, 110_001_u32 as u16);
++        assert_eq!(report.status_count, 2);
++        assert_eq!(*next, 110_003);
++    }
++
++    #[test]
++    fn livekit_publisher_twcc_acknowledges_authenticated_ssrc_zero_video_probes() {
++        let now = Instant::now();
++        let crypto = crate::crypto::test_default_provider();
++        let profile = SrtpProfile::AES128_CM_SHA1_80;
++        let key = KeyingMaterial::new(&vec![0x61; profile.keying_material_len()]);
++        let mut publisher = SrtpContext::new(crypto, profile, &key, true);
++        let mut session = Session::new(&RtcConfig::default());
++        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++        session.srtp_tx = Some(SrtpContext::new(crypto, profile, &key, false));
++        session.enable_twcc_feedback();
++        session.enable_livekit_publisher_twcc();
++
++        let mut extensions = ExtensionMap::empty();
++        extensions.set(3, Extension::TransportSequenceNumber);
++        session.exts = extensions.clone();
++        let vp8 = session
++            .codec_config
++            .iter()
++            .find(|p| p.spec().codec == crate::format::Codec::Vp8)
++            .unwrap();
++        assert!(vp8.fb_transport_cc());
++        let pt = vp8.pt();
++        let mut media = Media::from_direct_api(
++            Mid::from("v"),
++            0,
++            crate::media::MediaKind::Video,
++            ExtensionMap::empty(),
++        );
++        media.set_remote_pts(vec![pt]);
++        session.add_media(media);
++
++        let mut protect = |sequence: u16| {
++            let mut packet = vec![0xb0, *pt, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
++            let [hi, lo] = sequence.to_be_bytes();
++            packet[2..4].copy_from_slice(&[hi, lo]);
++            packet.extend_from_slice(&[0xbe, 0xde, 0, 1, 0x31, hi, lo, 0, 0, 0, 0, 4]);
++            let header = RtpHeader::parse(&packet, &extensions).unwrap();
++            publisher.protect_rtp(&packet, &header, u64::from(sequence))
++        };
++
++        session.handle_rtp_receive(now, &protect(1));
++        assert_eq!(session.twcc_rx_register.max_seq(), None);
++        session.medias[0].set_remote_extmap(extensions.clone());
++
++        let mut corrupt = protect(2);
++        *corrupt.last_mut().unwrap() ^= 1;
++        session.handle_rtp_receive(now, &corrupt);
++        assert_eq!(session.twcc_rx_register.max_seq(), None);
++
++        let traffic_before = session.node_traffic;
++        for sequence in 3..=23 {
++            session.handle_rtp_receive(now, &protect(sequence));
++        }
++        assert_eq!(session.node_traffic, traffic_before);
++        assert!(session.pending_packet.is_none());
++        let Some(Rtcp::Twcc(report)) = session.feedback_tx.front() else {
++            panic!("authenticated video probe should trigger TWCC");
++        };
++        assert_eq!(report.ssrc, 0.into());
++        assert_eq!(report.base_seq, 3);
++        assert_eq!(report.status_count, 21);
++        assert_eq!(report.delta.len(), 21);
++        let wire = session.poll_feedback(now).unwrap();
++        assert_eq!(wire[0] & 0x1f, 15);
++        assert_eq!(wire[1], 205);
++    }
++
+     #[test]
+     fn original_packet_observer_receives_authenticated_incomplete_vp9_before_assembly_and_retires()
+     {

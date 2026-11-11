@@ -1,0 +1,503 @@
+diff --git a/src/packet/buffer_rx.rs b/src/packet/buffer_rx.rs
+index f2063f9..3d50d6a 100644
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -321,6 +321,7 @@ impl DepacketizingBuffer {
+         reordering_timeout: Option<Duration>,
+     ) -> Option<Result<Depacketized, PacketError>> {
+         self.update_segments();
++        self.skip_to_blocked_keyframe();
+ 
+         if reordering_timeout.is_some() {
+             if let Some((end, first_received)) = self.first_incomplete_frame() {
+@@ -384,7 +385,11 @@ impl DepacketizingBuffer {
+         let more_than_hold_back = self.segments.len() >= self.hold_back;
+         let expired = matches!(self.last_processed, Some(LastProcessed::Expired(_)));
+         let contiguous_seq = !expired && self.is_following_last(start);
++        // A keyframe is independently decodable: never hold it back waiting for
++        // retransmission of earlier packets (see skip_to_blocked_keyframe).
++        let independent = codec_extra_is_keyframe(&dep.codec_extra);
+         let wait_for_contiguity = !contiguous_seq
++            && !independent
+             && !more_than_hold_back
+             && !self.timeout_allows_progress(now, first_received, reordering_timeout);
+ 
+@@ -427,6 +432,63 @@ impl DepacketizingBuffer {
+         Some(Ok(dep))
+     }
+ 
++    /// Fixed LiveKit (Go) forwards packets as they arrive, so after an upstream gap a
++    /// subscriber decodes the next keyframe as soon as it arrives. This frame-based buffer
++    /// would instead hold that keyframe behind older frames still waiting for retransmission,
++    /// up to `hold_back` frames or the reordering timeout (30 frames / 2 s by default), which
++    /// delays recovery after a publisher outage by up to seconds. When the head of the queue is
++    /// blocked — an incomplete frame or a sequence gap before the first complete frame — and a
++    /// later complete frame is a VP8/VP9 keyframe, drop everything before that keyframe. Frames
++    /// before a keyframe cannot change what the decoder shows after it.
++    fn skip_to_blocked_keyframe(&mut self) {
++        let Some((first_start, _, _)) = self.first_segment() else {
++            return;
++        };
++        let expired = matches!(self.last_processed, Some(LastProcessed::Expired(_)));
++        let blocked = self.first_incomplete_frame().is_some()
++            || expired
++            || !self.is_following_last(first_start);
++        if !blocked {
++            return;
++        }
++        let starts: Vec<usize> = self
++            .segments
++            .iter()
++            .map(|&(start, _, _)| start - self.segments_offset)
++            .collect();
++        let Some(&keyframe) = starts
++            .iter()
++            .find(|&&start| start > 0 && self.segment_starts_keyframe(start))
++        else {
++            return;
++        };
++        let last = self.queue[keyframe - 1].meta.seq_no;
++        self.queue.drain(0..keyframe);
++        self.segments_dirty = true;
++        self.depack_cache = None;
++        self.last_processed = Some(LastProcessed::Expired(last));
++        self.update_segments();
++    }
++
++    /// Whether the complete frame starting at queue index `start` is a VP8/VP9 keyframe.
++    /// Probed from its first packet with a fresh depacketizer, so the stream's own
++    /// depacketizer state is untouched. Other codecs are never treated as skippable.
++    fn segment_starts_keyframe(&self, start: usize) -> bool {
++        let packet = self.queue[start].remaining();
++        let mut extra = CodecExtra::None;
++        let mut out = Vec::new();
++        let probed = match &self.depack {
++            CodecDepacketizer::Vp8(_) => {
++                super::Vp8Depacketizer::default().depacketize(packet, &mut out, &mut extra)
++            }
++            CodecDepacketizer::Vp9(_) => {
++                super::Vp9Depacketizer::default().depacketize(packet, &mut out, &mut extra)
++            }
++            _ => return false,
++        };
++        probed.is_ok() && codec_extra_is_keyframe(&extra)
++    }
++
+     fn retain_tele_reports(&mut self, start: usize, dep: &Depacketized) {
+         let duration = u16::from_be_bytes([dep.data[2], dep.data[3]]);
+         let entry = self.queue.get_mut(start).expect("telephone packet exists");
+@@ -1277,6 +1339,114 @@ mod test {
+         );
+     }
+ 
++    #[test]
++    fn keyframe_after_gap_is_emitted_without_waiting_for_hold_back_or_timeout() {
++        let depack = CodecDepacketizer::Vp8(Default::default());
++        let mut buf = DepacketizingBuffer::new(depack, 30);
++        let now = Instant::now();
++        let meta = |seq: u64, marker: bool| RtpMeta {
++            vp9_dependency: None,
++            received: now,
++            seq_no: seq.into(),
++            time: MediaTime::from_90khz(seq),
++            last_sender_info: None,
++            header: RtpHeader {
++                marker,
++                sequence_number: seq as u16,
++                timestamp: seq as u32,
++                ..Default::default()
++            },
++        };
++        // VP8 descriptor 0x10 (S=1, PID=0), then the VP8 header byte: P bit 0 = keyframe.
++        buf.push(meta(1, true), [0x10, 0x00]);
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_some());
++        // Packets 2..=9 are lost upstream. An inter frame arrives first and must wait.
++        buf.push(meta(10, true), [0x10, 0x01]);
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_none());
++        // The next keyframe needs nothing from before the gap: emit it now.
++        buf.push(meta(11, true), [0x10, 0x00]);
++        let dep = buf
++            .pop(now, Some(Duration::from_secs(2)))
++            .expect("keyframe after a gap is not held back")
++            .unwrap();
++        assert!(matches!(dep.codec_extra, CodecExtra::Vp8(e) if e.is_keyframe));
++        assert!(
++            !dep.contiguous,
++            "the gap is still reported as a discontinuity"
++        );
++        // Frames following the keyframe flow normally.
++        buf.push(meta(12, true), [0x10, 0x01]);
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_some());
++    }
++
++    #[test]
++    fn keyframe_after_incomplete_head_skips_the_incomplete_frame() {
++        let depack = CodecDepacketizer::Vp8(Default::default());
++        let mut buf = DepacketizingBuffer::new(depack, 30);
++        let now = Instant::now();
++        let meta = |seq: u64, ts: u64, marker: bool| RtpMeta {
++            vp9_dependency: None,
++            received: now,
++            seq_no: seq.into(),
++            time: MediaTime::from_90khz(ts),
++            last_sender_info: None,
++            header: RtpHeader {
++                marker,
++                sequence_number: seq as u16,
++                timestamp: ts as u32,
++                ..Default::default()
++            },
++        };
++        buf.push(meta(1, 1, true), [0x10, 0x00]);
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_some());
++        // Frame at ts 2: its first packet arrives, its tail (seq 3) is lost.
++        buf.push(meta(2, 2, false), [0x10, 0x01]);
++        assert!(
++            buf.pop(now, Some(Duration::from_secs(2))).is_none(),
++            "incomplete frame waits"
++        );
++        // A complete keyframe follows: it must not wait for the reordering timeout.
++        buf.push(meta(4, 4, true), [0x10, 0x00]);
++        let dep = buf
++            .pop(now, Some(Duration::from_secs(2)))
++            .expect("keyframe emitted before the timeout")
++            .unwrap();
++        assert!(matches!(dep.codec_extra, CodecExtra::Vp8(e) if e.is_keyframe));
++        // The late tail of the skipped frame is not emitted afterwards.
++        buf.push(meta(3, 2, true), [0x01]);
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_none());
++    }
++
++    #[test]
++    fn inter_frame_after_gap_still_waits_for_retransmission() {
++        let depack = CodecDepacketizer::Vp8(Default::default());
++        let mut buf = DepacketizingBuffer::new(depack, 30);
++        let now = Instant::now();
++        let meta = |seq: u64, marker: bool| RtpMeta {
++            vp9_dependency: None,
++            received: now,
++            seq_no: seq.into(),
++            time: MediaTime::from_90khz(seq),
++            last_sender_info: None,
++            header: RtpHeader {
++                marker,
++                sequence_number: seq as u16,
++                timestamp: seq as u32,
++                ..Default::default()
++            },
++        };
++        buf.push(meta(1, true), [0x10, 0x00]);
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_some());
++        buf.push(meta(3, true), [0x10, 0x01]);
++        assert!(
++            buf.pop(now, Some(Duration::from_secs(2))).is_none(),
++            "unchanged: inter frames wait for the missing packet"
++        );
++        buf.push(meta(2, true), [0x10, 0x01]);
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_some());
++        assert!(buf.pop(now, Some(Duration::from_secs(2))).is_some());
++    }
++
+     #[test]
+     fn padding_after_waiting_vp8_frame_does_not_grow_without_bound() {
+         let depack = CodecDepacketizer::Vp8(Default::default());
+@@ -1306,8 +1476,9 @@ mod test {
+             assert!(buf.pop(Instant::now(), None).is_none());
+         }
+ 
+-        // One complete frame returns, but waits behind the orphan for hold-back.
+-        buf.push(meta(1_003, true), [0x10, 0x00]);
++        // One complete inter frame (VP8 P bit 1) returns, but waits behind the orphan for
++        // hold-back. (A keyframe would be emitted at once: see keyframe_after_gap_* tests.)
++        buf.push(meta(1_003, true), [0x10, 0x01]);
+         assert!(buf.pop(Instant::now(), None).is_none());
+ 
+         // Switching away again must remain bounded while that frame waits.
+@@ -2198,3 +2369,287 @@ mod test {
+         assert_eq!(res1before.data, res1after.data);
+     }
+ }
++
++fn codec_extra_is_keyframe(extra: &CodecExtra) -> bool {
++    match extra {
++        CodecExtra::Vp8(e) => e.is_keyframe,
++        CodecExtra::Vp9(e) => e.is_keyframe,
++        _ => false,
++    }
++}
++
++/// Boundary validation for patch 25 (keyframe skip-ahead after a gap).
++#[cfg(test)]
++mod keyframe_skip_boundaries {
++    use std::time::{Duration, Instant};
++
++    use super::*;
++    use crate::packet::h264::H264Depacketizer;
++    use crate::packet::opus::OpusDepacketizer;
++    use crate::packet::vp9::Vp9Depacketizer;
++
++    const TIMEOUT: Option<Duration> = Some(Duration::from_secs(2));
++
++    /// Extended sequence `seq` (u64, as the RTP layer extends it) with frame timestamp `ts`.
++    fn meta(now: Instant, seq: u64, ts: u64, marker: bool) -> RtpMeta {
++        RtpMeta {
++            vp9_dependency: None,
++            received: now,
++            seq_no: seq.into(),
++            time: MediaTime::from_90khz(ts),
++            last_sender_info: None,
++            header: RtpHeader {
++                marker,
++                sequence_number: seq as u16,
++                timestamp: ts as u32,
++                ..Default::default()
++            },
++        }
++    }
++
++    fn vp8() -> DepacketizingBuffer {
++        DepacketizingBuffer::new(CodecDepacketizer::Vp8(Default::default()), 30)
++    }
++
++    // VP8 descriptor: 0x10 = S=1/PID=0 (frame start), 0x00 = continuation.
++    // VP8 payload header byte: bit0 (P) = 0 keyframe, 1 inter frame.
++    const VP8_KEY_START: [u8; 4] = [0x10, 0x00, 0xAA, 0xAA];
++    const VP8_INTER_START: [u8; 4] = [0x10, 0x01, 0xBB, 0xBB];
++    const VP8_CONT: [u8; 3] = [0x00, 0xCC, 0xCC];
++
++    fn is_key(dep: &Depacketized) -> bool {
++        codec_extra_is_keyframe(&dep.codec_extra)
++    }
++
++    /// A gap followed by an inter frame waiting for retransmission.
++    fn blocked_vp8(now: Instant) -> DepacketizingBuffer {
++        let mut buf = vp8();
++        buf.push(meta(now, 1, 100, true), VP8_KEY_START);
++        assert!(buf.pop(now, TIMEOUT).unwrap().is_ok());
++        // 2..=9 lost upstream.
++        buf.push(meta(now, 10, 500, true), VP8_INTER_START);
++        assert!(
++            buf.pop(now, TIMEOUT).is_none(),
++            "inter frame after gap waits"
++        );
++        buf
++    }
++
++    #[test]
++    fn keyframe_missing_its_tail_is_neither_a_skip_target_nor_emitted() {
++        let now = Instant::now();
++        let mut buf = blocked_vp8(now);
++        buf.push(meta(now, 11, 600, false), VP8_KEY_START);
++        buf.push(meta(now, 12, 600, false), VP8_CONT);
++        // 13 (marker) still missing: the keyframe is incomplete.
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        buf.push(meta(now, 13, 600, true), VP8_CONT);
++        let dep = buf.pop(now, TIMEOUT).expect("complete keyframe").unwrap();
++        assert!(is_key(&dep));
++        assert_eq!(dep.seq_range(), SeqNo::from(11)..=SeqNo::from(13));
++        // All three packets' payloads are in the decoded frame.
++        assert_eq!(&dep.data[..], &[0x00, 0xAA, 0xAA, 0xCC, 0xCC, 0xCC, 0xCC]);
++    }
++
++    #[test]
++    fn keyframe_missing_a_middle_packet_is_not_a_skip_target() {
++        let now = Instant::now();
++        let mut buf = blocked_vp8(now);
++        buf.push(meta(now, 11, 600, false), VP8_KEY_START);
++        // 12 lost.
++        buf.push(meta(now, 13, 600, true), VP8_CONT);
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        buf.push(meta(now, 12, 600, false), VP8_CONT);
++        let dep = buf.pop(now, TIMEOUT).expect("repaired keyframe").unwrap();
++        assert!(is_key(&dep));
++        assert_eq!(dep.seq_range(), SeqNo::from(11)..=SeqNo::from(13));
++    }
++
++    #[test]
++    fn keyframe_packets_arriving_out_of_order_after_a_gap() {
++        let now = Instant::now();
++        let mut buf = blocked_vp8(now);
++        buf.push(meta(now, 13, 600, true), VP8_CONT);
++        buf.push(meta(now, 11, 600, false), VP8_KEY_START);
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        buf.push(meta(now, 12, 600, false), VP8_CONT);
++        let dep = buf.pop(now, TIMEOUT).unwrap().unwrap();
++        assert!(is_key(&dep));
++        assert_eq!(dep.seq_range(), SeqNo::from(11)..=SeqNo::from(13));
++        // The following inter frame continues normally and is contiguous.
++        buf.push(meta(now, 14, 700, true), VP8_INTER_START);
++        let next = buf.pop(now, TIMEOUT).unwrap().unwrap();
++        assert!(!is_key(&next));
++        assert!(next.contiguous);
++    }
++
++    #[test]
++    fn late_retransmission_from_before_the_skip_point_is_discarded() {
++        let now = Instant::now();
++        let mut buf = blocked_vp8(now);
++        buf.push(meta(now, 11, 600, true), VP8_KEY_START);
++        let key = buf.pop(now, TIMEOUT).unwrap().unwrap();
++        assert!(is_key(&key));
++        // NACK repairs for the skipped range arrive afterwards.
++        buf.push(meta(now, 5, 300, true), VP8_INTER_START);
++        buf.push(meta(now, 9, 450, true), VP8_INTER_START);
++        buf.push(meta(now, 10, 500, true), VP8_INTER_START);
++        assert!(
++            buf.pop(now, TIMEOUT).is_none(),
++            "frames older than the emitted keyframe are never emitted"
++        );
++        buf.push(meta(now, 12, 700, true), VP8_INTER_START);
++        let next = buf.pop(now, TIMEOUT).unwrap().unwrap();
++        assert_eq!(next.seq_range(), SeqNo::from(12)..=SeqNo::from(12));
++        assert!(
++            next.contiguous,
++            "stream continues contiguously after the keyframe"
++        );
++    }
++
++    #[test]
++    fn skip_ahead_across_16_bit_sequence_wraparound() {
++        let now = Instant::now();
++        let mut buf = vp8();
++        // Extended sequences 65533..=65538 cover u16 65533, 65534, 65535, 0, 1, 2.
++        buf.push(meta(now, 65_533, 100, true), VP8_KEY_START);
++        assert!(buf.pop(now, TIMEOUT).unwrap().is_ok());
++        // 65534 and 65535 lost.
++        buf.push(meta(now, 65_536, 400, true), VP8_INTER_START);
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        buf.push(meta(now, 65_537, 500, false), VP8_KEY_START);
++        buf.push(meta(now, 65_538, 500, true), VP8_CONT);
++        let dep = buf.pop(now, TIMEOUT).unwrap().unwrap();
++        assert!(is_key(&dep));
++        assert_eq!(dep.seq_range(), SeqNo::from(65_537)..=SeqNo::from(65_538));
++        // A repair of the wrapped-over packet 65535 is old and discarded.
++        buf.push(meta(now, 65_535, 300, true), VP8_INTER_START);
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        buf.push(meta(now, 65_539, 600, true), VP8_INTER_START);
++        let next = buf.pop(now, TIMEOUT).unwrap().unwrap();
++        assert!(next.contiguous);
++    }
++
++    #[test]
++    fn inter_frames_are_never_skip_targets_and_wait_for_repair() {
++        let now = Instant::now();
++        let mut buf = blocked_vp8(now);
++        for (seq, ts) in [(11, 600), (12, 700), (13, 800)] {
++            buf.push(meta(now, seq, ts, true), VP8_INTER_START);
++        }
++        assert!(
++            buf.pop(now, TIMEOUT).is_none(),
++            "no keyframe: wait for NACK repair"
++        );
++        for seq in 2..=9 {
++            buf.push(meta(now, seq, 100 + seq * 40, true), VP8_INTER_START);
++        }
++        let mut emitted = Vec::new();
++        while let Some(dep) = buf.pop(now, TIMEOUT) {
++            emitted.push(*dep.unwrap().seq_range().start());
++        }
++        let expect: Vec<SeqNo> = (2..=13).map(SeqNo::from).collect();
++        assert_eq!(
++            emitted, expect,
++            "repaired frames are emitted in order, none dropped"
++        );
++    }
++
++    // VP9 flexible-mode descriptor: I|P|L|F|B|E|V|Z, 7-bit picture id,
++    // layer byte TID(3)|U|SID(3)|D, then one P_DIFF byte when P=1.
++    fn vp9_packet(pid: u8, sid: u8, inter: bool, upper_depends: bool) -> Vec<u8> {
++        let mut byte0 = 0x80 | 0x20 | 0x10 | 0x08 | 0x04; // I L F B E
++        if inter {
++            byte0 |= 0x40;
++        }
++        let mut p = vec![byte0, pid & 0x7f, (sid << 1) | u8::from(upper_depends)];
++        if inter {
++            p.push(1 << 1); // P_DIFF = 1, N = 0
++        }
++        // VP9 uncompressed header: frame marker 0b10, profile 0, frame type bit.
++        p.push(if inter { 0x84 } else { 0x80 });
++        p.extend_from_slice(&[sid, sid]);
++        p
++    }
++
++    fn vp9() -> DepacketizingBuffer {
++        DepacketizingBuffer::new(CodecDepacketizer::Vp9(Vp9Depacketizer::default()), 30)
++    }
++
++    #[test]
++    fn vp9_svc_keyframe_picture_after_gap_is_emitted_with_all_spatial_layers() {
++        let now = Instant::now();
++        let mut buf = vp9();
++        buf.push(meta(now, 1, 100, false), vp9_packet(1, 0, false, false));
++        buf.push(meta(now, 2, 100, true), vp9_packet(1, 1, false, true));
++        assert!(buf.pop(now, TIMEOUT).unwrap().is_ok());
++        // 3..=6 lost; an inter picture (two layers) waits.
++        buf.push(meta(now, 7, 400, false), vp9_packet(4, 0, true, false));
++        buf.push(meta(now, 8, 400, true), vp9_packet(4, 1, true, true));
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        // Keyframe picture: base P=0 SID=0, upper SID=1 inter-layer predicted.
++        buf.push(meta(now, 9, 500, false), vp9_packet(5, 0, false, false));
++        buf.push(meta(now, 10, 500, true), vp9_packet(5, 1, false, true));
++        let dep = buf.pop(now, TIMEOUT).expect("keyframe picture").unwrap();
++        let CodecExtra::Vp9(extra) = dep.codec_extra else {
++            panic!("vp9 extra");
++        };
++        assert!(extra.is_keyframe);
++        assert_eq!(dep.seq_range(), SeqNo::from(9)..=SeqNo::from(10));
++        assert!(extra.layers_scheme[0].is_some() && extra.layers_scheme[1].is_some());
++    }
++
++    #[test]
++    fn vp9_upper_layer_without_its_base_is_not_a_skip_target() {
++        let now = Instant::now();
++        let mut buf = vp9();
++        buf.push(meta(now, 1, 100, false), vp9_packet(1, 0, false, false));
++        buf.push(meta(now, 2, 100, true), vp9_packet(1, 1, false, true));
++        assert!(buf.pop(now, TIMEOUT).unwrap().is_ok());
++        buf.push(meta(now, 7, 400, true), vp9_packet(4, 0, true, false));
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        // Keyframe picture whose base layer packet (9) was lost: only SID=1 (P=0) arrives.
++        buf.push(meta(now, 10, 500, true), vp9_packet(5, 1, false, true));
++        assert!(
++            buf.pop(now, TIMEOUT).is_none(),
++            "a SID>0 intra layer depends on its base and is not independently decodable"
++        );
++    }
++
++    #[test]
++    fn opus_after_a_gap_is_unchanged_and_waits_for_the_reordering_timeout() {
++        let now = Instant::now();
++        let mut buf = DepacketizingBuffer::new(CodecDepacketizer::Opus(OpusDepacketizer), 30);
++        buf.push(meta(now, 1, 960, true), [0xF8, 0x01]);
++        assert!(buf.pop(now, Some(Duration::from_secs(1))).is_some());
++        buf.push(meta(now, 5, 4_800, true), [0xF8, 0x05]);
++        assert!(
++            buf.pop(now, Some(Duration::from_secs(1))).is_none(),
++            "audio still waits for repair"
++        );
++        let later = now + Duration::from_millis(1_001);
++        let dep = buf
++            .pop(later, Some(Duration::from_secs(1)))
++            .unwrap()
++            .unwrap();
++        assert_eq!(dep.seq_range(), SeqNo::from(5)..=SeqNo::from(5));
++    }
++
++    #[test]
++    fn h264_idr_after_a_gap_is_unchanged_and_waits() {
++        let now = Instant::now();
++        let mut buf =
++            DepacketizingBuffer::new(CodecDepacketizer::H264(H264Depacketizer::default()), 30);
++        // Single NAL unit packets: 0x65 = IDR slice, 0x41 = non-IDR slice.
++        buf.push(meta(now, 1, 100, true), [0x65, 0x88, 0x84]);
++        assert!(buf.pop(now, TIMEOUT).is_some());
++        buf.push(meta(now, 5, 500, true), [0x41, 0x9A, 0x00]);
++        assert!(buf.pop(now, TIMEOUT).is_none());
++        buf.push(meta(now, 6, 600, true), [0x65, 0x88, 0x84]);
++        assert!(
++            buf.pop(now, TIMEOUT).is_none(),
++            "H.264 keeps the upstream hold-back behaviour (no skip-ahead)"
++        );
++    }
++}

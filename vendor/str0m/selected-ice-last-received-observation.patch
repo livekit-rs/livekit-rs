@@ -1,0 +1,26 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1488,6 +1488,12 @@
+     /// Actual ICE state, independent of DTLS/application establishment.
+     pub fn ice_connection_state(&self) -> IceConnectionState {
+         self.ice.state()
++    }
++    /// Actual last inbound packet on the currently nominated ICE remote tuple.
++    /// Includes authenticated STUN and matching data at the ICE socket boundary,
++    /// before DTLS/SRTP validation, exactly separate from media/RTT statistics.
++    pub fn ice_last_selected_receive(&self) -> Option<Instant> {
++        self.ice.nominated_last_received()
+     }
+ 
+     /// Actual nominated ICE protocol and remote TURN classification. No API
+@@ -2243,6 +2249,10 @@
+         };
+ 
+         self.peer_bytes_rx += bytes_rx as u64;
++        if !matches!(&r.contents.inner, Stun(_)) {
++            self.ice
++                .notify_selected_data_received(r.proto, r.source, recv_time);
++        }
+ 
+         match r.contents.inner {
+             Stun(stun) => {

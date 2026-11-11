@@ -1,0 +1,274 @@
+--- a/src/agent_selected_liveness_tests.rs
++++ b/src/agent_selected_liveness_tests.rs
+@@ -58,3 +58,140 @@
+         "retired tuple cannot refresh unproved new generation"
+     );
+ }
++
++#[test]
++fn authenticated_success_last_received_survives_real_outbound_attempt_eviction_and_rejects_bad_auth()
++ {
++    let start = Instant::now();
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Host,
++        CandidateKind::Host,
++        [Duration::ZERO; 4],
++        start,
++        ipv4_1(),
++    );
++    let proved = start + Duration::from_millis(1);
++    assert_eq!(agent.nominated_last_received(), Some(proved));
++    while agent.poll_transmit().is_some() {}
++    let mut latest = None;
++    let mut transmitted = 0;
++    for step in 0..32 {
++        agent.stun_client_binding_request(start + Duration::from_millis(2 + step), 0);
++        while let Some(packet) = agent.poll_transmit() {
++            let request = StunMessage::parse(&packet.contents).unwrap();
++            assert!(request.is_binding_request());
++            latest = Some(request.trans_id());
++            transmitted += 1;
++        }
++    }
++    assert_eq!(
++        transmitted, 32,
++        "actual native request serializer and bounded new_attempt history"
++    );
++    assert!(
++        agent.candidate_pairs[0].last_successful_rtt().is_none(),
++        "the unique successful transaction was actually evicted"
++    );
++    assert_eq!(
++        agent.nominated_last_received(),
++        Some(proved),
++        "eviction cannot erase Pion Remote.LastReceived"
++    );
++    let tx = latest.unwrap();
++    let remote = agent.remote_credentials().unwrap().clone();
++    let invalid = make_authenticated_stun_reply(tx, ipv4_1(), "wrong-password");
++    assert!(!agent.handle_packet(
++        start + Duration::from_millis(100),
++        StunPacket {
++            message: StunMessage::parse(&invalid).unwrap(),
++            source: ipv4_3(),
++            destination: ipv4_1(),
++            proto: Protocol::Udp
++        }
++    ));
++    assert_eq!(agent.nominated_last_received(), Some(proved));
++    let valid = make_authenticated_stun_reply(tx, ipv4_1(), &remote.pass);
++    assert!(agent.handle_packet(
++        start + Duration::from_millis(101),
++        StunPacket {
++            message: StunMessage::parse(&valid).unwrap(),
++            source: ipv4_3(),
++            destination: ipv4_1(),
++            proto: Protocol::Udp
++        }
++    ));
++    assert_eq!(
++        agent.nominated_last_received(),
++        Some(start + Duration::from_millis(101))
++    );
++}
++
++fn liveness_authenticated_lite(start: Instant) -> IceAgent {
++    let mut agent = new_test_agent();
++    agent.set_ice_lite(true);
++    agent.set_controlling(false);
++    let remote = IceCreds::new();
++    agent.set_remote_credentials(remote.clone());
++    agent
++        .add_local_candidate(Candidate::host(ipv4_1(), "udp").unwrap())
++        .unwrap();
++    let mut candidate = Candidate::host(ipv4_3(), "udp").unwrap();
++    candidate.set_ufrag(&remote.ufrag);
++    agent.add_remote_candidate(candidate);
++    agent.handle_timeout(start);
++    let local = agent.local_credentials().clone();
++    let username = format!("{}:{}", local.ufrag, remote.ufrag);
++    let request =
++        StunMessage::binding_request(&username, TransId::new(), true, 42, 1_800_000_000, true);
++    let bytes = serialize_stun_msg(request, &local.pass);
++    assert!(agent.handle_packet(
++        start + Duration::from_millis(1),
++        StunPacket {
++            message: StunMessage::parse(&bytes).unwrap(),
++            source: ipv4_3(),
++            destination: ipv4_1(),
++            proto: Protocol::Udp
++        }
++    ));
++    agent.handle_timeout(start + Duration::from_millis(2));
++    assert_eq!(
++        agent.nominated_transport(),
++        Some((Protocol::Udp, false)),
++        "actual authenticated USE-CANDIDATE nomination"
++    );
++    agent
++}
++#[test]
++fn selected_receive_retention_is_opt_in_and_only_current_tuple_data_keeps_lite_pair_alive() {
++    for enabled in [false, true] {
++        let start = Instant::now();
++        let mut agent = liveness_authenticated_lite(start);
++        if enabled {
++            agent.set_selected_receive_timeout(Some(Duration::from_secs(15)));
++        }
++        assert!(agent.notify_selected_data_received(
++            Protocol::Udp,
++            ipv4_3(),
++            start + Duration::from_secs(14)
++        ));
++        agent.handle_timeout(start + Duration::from_secs(16));
++        assert_eq!(
++            agent.nominated_transport().is_some(),
++            enabled,
++            "generic original STUN-only pruning remains unchanged unless explicitly opted in"
++        );
++        if enabled {
++            assert!(!agent.notify_selected_data_received(
++                Protocol::Udp,
++                ipv4_4(),
++                start + Duration::from_secs(28)
++            ));
++            agent.handle_timeout(start + Duration::from_secs(29) + Duration::from_nanos(1));
++            assert_eq!(
++                agent.nominated_last_received(),
++                None,
++                "no wrong-peer refresh and expired real receive lifetime retires the pair"
++            );
++        }
++    }
++}
+--- a/src/pair.rs
++++ b/src/pair.rs
+@@ -50,7 +50,7 @@
+     /// Last remote binding request.
+     remote_binding_request_time: Option<Instant>,
+     // Passive selected-path data observation; generic ICE timing is unchanged.
+-    last_data_received: Option<Instant>,
++    last_received_at: Option<Instant>,
+ 
+     /// State of nomination for this candidate pair.
+     nomination_state: NominationState,
+@@ -162,7 +162,7 @@
+             cached_next_attempt_time: Default::default(),
+             remote_binding_requests: Default::default(),
+             remote_binding_request_time: Default::default(),
+-            last_data_received: None,
++            last_received_at: None,
+             nomination_state: Default::default(),
+             responses_received: 0,
+             total_round_trip_time: Duration::ZERO,
+@@ -227,6 +227,7 @@
+     pub fn increase_remote_binding_requests(&mut self, now: Instant) {
+         self.remote_binding_requests += 1;
+         self.remote_binding_request_time = Some(now);
++        self.observe_data_received(now);
+         trace!("Recorded binding request: {:?}", self);
+     }
+ 
+@@ -353,6 +354,7 @@
+             .expect("Binding request attempt");
+ 
+         attempt.respone_recv = Some(now);
++        self.last_received_at = Some(self.last_received_at.map_or(now, |old| old.max(now)));
+ 
+         self.responses_received += 1;
+         self.total_round_trip_time += now - attempt.request_sent;
+@@ -407,18 +409,12 @@
+     }
+ 
+     pub(crate) fn observe_data_received(&mut self, now: Instant) {
+-        self.last_data_received = Some(self.last_data_received.map_or(now, |old| old.max(now)));
++        self.last_received_at = Some(self.last_received_at.map_or(now, |old| old.max(now)));
+     }
+     pub(crate) fn last_received(&self) -> Option<Instant> {
+-        self.remote_binding_request_time
+-            .into_iter()
+-            .chain(
+-                self.binding_attempts
+-                    .iter()
+-                    .filter_map(|attempt| attempt.respone_recv),
+-            )
+-            .chain(self.last_data_received)
+-            .max()
++        // LastReceived belongs to this pair lifetime, never the bounded
++        // outbound transaction/RTT history. Eviction cannot erase ingress.
++        self.last_received_at
+     }
+ 
+     /// The round-trip time of the most recent successful STUN binding
+@@ -529,7 +525,11 @@
+     pub(crate) fn copy_remote_binding_requests(&mut self, other: &CandidatePair) {
+         self.remote_binding_requests = other.remote_binding_requests;
+         self.remote_binding_request_time = other.remote_binding_request_time;
+-        self.last_data_received = other.last_data_received;
++        self.last_received_at = self
++            .last_received_at
++            .into_iter()
++            .chain(other.last_received_at)
++            .max();
+ 
+         // ICE-lite pairs are validated by incoming requests. Preserve that
+         // validation when a higher-priority candidate replaces the pair.
+--- a/src/agent.rs
++++ b/src/agent.rs
+@@ -38,6 +38,8 @@
+     nomination_started_at: Option<Instant>,
+     // host, server-reflexive, peer-reflexive, relay (all zero unless opted in).
+     acceptance_min_waits: [Duration; 4],
++    // Opt-in source selected-receive retention; None keeps generic timing.
++    selected_receive_timeout: Option<Duration>,
+ 
+     /// Timing advance (Ta) value.
+     ///
+@@ -384,6 +386,7 @@
+             last_now: None,
+             nomination_started_at: None,
+             acceptance_min_waits: [Duration::ZERO; 4],
++            selected_receive_timeout: None,
+             ice_lite: false,
+             max_candidate_pairs: None,
+             has_exceeded_max_candidate_pairs: false,
+@@ -1352,12 +1355,20 @@
+ 
+         // prune failed candidates.
+         let mut any_pruned = false;
++        let selected = self.nominated_send;
++        let selected_receive_timeout = self.selected_receive_timeout;
+         self.candidate_pairs.retain(|p| {
+-            let keep = if self.ice_lite {
+-                p.is_ice_lite_alive(now)
+-            } else {
+-                p.is_still_possible(now, &self.timing_config)
+-            };
++            let selected_received = selected == Some(p.id())
++                && selected_receive_timeout.is_some_and(|timeout| {
++                    p.last_received()
++                        .is_some_and(|last| now.saturating_duration_since(last) <= timeout)
++                });
++            let keep = selected_received
++                || if self.ice_lite {
++                    p.is_ice_lite_alive(now)
++                } else {
++                    p.is_still_possible(now, &self.timing_config)
++                };
+             if !keep {
+                 debug!("Remove failed pair: {:?}", Pii(&p));
+                 any_pruned = true;
+@@ -2169,6 +2180,13 @@
+         self.candidate_pairs.iter().find(|p| p.id() == id)
+     }
+ 
++    /// Opt in to preserving the selected pair while actual received traffic
++    /// remains within this lifetime bound. None preserves generic ICE behavior.
++    /// Used by an owning compatibility transport with its own failure callback.
++    pub fn set_selected_receive_timeout(&mut self, timeout: Option<Duration>) {
++        self.selected_receive_timeout = timeout;
++    }
++
+     /// Last actual received packet on the current selected pair: authenticated
+     /// STUN request/success or data admitted by the caller for its remote tuple.
+     /// Passive observation only; generic ICE retransmission timing is unchanged.

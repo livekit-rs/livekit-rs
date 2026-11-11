@@ -1,0 +1,428 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -8,6 +8,7 @@
+ pub use crate::bwe_::validation::{BweValidationObservation, BweValidationStatus};
+ 
+ pub use crate::rtp_::Bitrate;
++pub use crate::rtp_::BweIncomingTwccObservation;
+ 
+ #[derive(Debug, PartialEq)]
+ #[non_exhaustive]
+@@ -124,6 +125,20 @@
+ pub struct Bwe<'a>(pub(crate) &'a mut Rtc);
+ 
+ impl<'a> Bwe<'a> {
++    /// Enable bounded incoming-TWCC metadata collection (disabled by default).
++    /// This changes diagnostics only, not feedback bytes, timing or BWE policy.
++    /// Repeating the same value is a no-op; disabling clears diagnostic history.
++    pub fn set_incoming_twcc_observations(&mut self, enabled: bool) {
++        self.0.session.set_incoming_twcc_observations(enabled);
++    }
++
++    /// Read-only metadata for server-generated incoming-RTP TWCC feedback.
++    /// Returns `None` without explicit opt-in or before a report is recorded.
++    /// Serialization-poll timestamps are not kernel/network send timestamps.
++    pub fn incoming_twcc_snapshot(&self) -> Option<BweIncomingTwccObservation> {
++        self.0.session.incoming_twcc_snapshot()
++    }
++
+     /// Start a bounded sustained validation at the required target. Returns its
+     /// identity only if transport capabilities and current congestion permit it.
+     /// Repeated requests while one is active never extend the fixed deadline.
+--- a/src/rtp/rtcp/mod.rs
++++ b/src/rtp/rtcp/mod.rs
+@@ -37,8 +37,10 @@
+ pub use fir::{Fir, FirEntry};
+ 
+ mod twcc;
++mod twcc_observation;
+ mod twcc_time;
+ pub use twcc::{Twcc, TwccPacketId, TwccRecvRegister, TwccSendRecord, TwccSendRegister};
++pub use twcc_observation::BweIncomingTwccObservation;
+ 
+ mod rtcpfb;
+ pub use rtcpfb::RtcpFb;
+--- a/src/rtp/rtcp/twcc.rs
++++ b/src/rtp/rtcp/twcc.rs
+@@ -254,6 +254,8 @@
+ 
+     /// Data to calculate received loss.
+     receive_window: ReceiveWindow,
++    observations: super::twcc_observation::ObservationHistory,
++    observations_enabled: bool,
+ }
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+@@ -272,6 +274,8 @@
+             time_start: None,
+             generated_reports: 0,
+             receive_window: ReceiveWindow::default(),
++            observations: Default::default(),
++            observations_enabled: false,
+         }
+     }
+ 
+@@ -291,6 +295,9 @@
+                 // used the same twcc sequence number for two packets. Let's ignore it.
+             }
+             Err(idx) => {
++                if self.observations_enabled {
++                    self.observations.received(time);
++                }
+                 if let Some(time_start) = self.time_start {
+                     // If time goes back more than 8192 millis from the time point we've
+                     // chosen as our 0, we can't represent that in the report. Let's just
+@@ -324,6 +331,7 @@
+             self.time_start = Some(first.time);
+         }
+ 
++        let observation_from = self.report_from;
+         let (base_seq, first_time) = (first.seq, first.time);
+         let time_start = self.time_start.expect("a start time");
+ 
+@@ -463,6 +471,67 @@
+             return None;
+         }
+ 
++        // Diagnostic-only clone and linear scan, bounded by the report MTU.
++        // Explicit registration-local opt-in, independent of global log callsites.
++        if self.observations_enabled {
++            let mut receipts = self.queue.range(observation_from..self.report_from);
++            let bounds = receipts.clone().fold(None, |bounds, receipt| {
++                Some(bounds.map_or(
++                    (receipt.time, receipt.time),
++                    |(first, last): (Instant, Instant)| {
++                        (first.min(receipt.time), last.max(receipt.time))
++                    },
++                ))
++            });
++            if let (Some((first_actual, last_actual)), Some(first)) =
++                (bounds, receipts.clone().next())
++            {
++                let received_packets = receipts.len();
++                let mut decoded_first = None;
++                let mut decoded_last = None;
++                let mut max_error = Duration::ZERO;
++                let mut missing = 0;
++                for (seq, _, encoded) in twcc.clone().into_iter(time_start, first.seq) {
++                    if let Some(encoded) = encoded {
++                        if let Some(actual) = receipts.next().filter(|r| r.seq == seq) {
++                            decoded_first =
++                                Some(decoded_first.map_or(encoded, |v: Instant| v.min(encoded)));
++                            decoded_last =
++                                Some(decoded_last.map_or(encoded, |v: Instant| v.max(encoded)));
++                            max_error = max_error.max(
++                                encoded
++                                    .max(actual.time)
++                                    .duration_since(encoded.min(actual.time)),
++                            );
++                        }
++                    } else {
++                        missing += 1;
++                    }
++                }
++                if let (Some(encoded_first), Some(encoded_last)) = (decoded_first, decoded_last) {
++                    self.observations.push(super::BweIncomingTwccObservation {
++                        sender_ssrc: 0,
++                        media_ssrc: 0,
++                        base_seq: twcc.base_seq,
++                        feedback_count: twcc.feedback_count,
++                        status_count: twcc.status_count,
++                        received_packets,
++                        missing_packets: missing,
++                        first_received_at: first_actual,
++                        last_received_at: last_actual,
++                        actual_span: last_actual.duration_since(first_actual),
++                        encoded_span: encoded_last.duration_since(encoded_first),
++                        max_encoding_error: max_error,
++                        built_at: None,
++                        emitted_at: None,
++                        report_age: None,
++                        max_report_age: Duration::ZERO,
++                        max_pending_age: Duration::ZERO,
++                        max_receiver_gap: Duration::ZERO,
++                    });
++                }
++            }
++        }
+         self.generated_reports += 1;
+ 
+         // clean up
+@@ -473,6 +542,36 @@
+         }
+ 
+         Some(twcc)
++    }
++
++    pub(crate) fn set_observations_enabled(&mut self, enabled: bool) {
++        if self.observations_enabled == enabled {
++            return;
++        }
++        self.observations_enabled = enabled;
++        if !enabled {
++            self.observations = Default::default();
++        }
++    }
++    pub(crate) fn incoming_twcc_snapshot(&self) -> Option<super::BweIncomingTwccObservation> {
++        if self.observations_enabled {
++            self.observations.snapshot()
++        } else {
++            None
++        }
++    }
++    pub(crate) fn observe_built(&mut self, report: &Twcc, now: Instant) {
++        self.observations.built(
++            report.base_seq,
++            report.feedback_count,
++            *report.sender_ssrc,
++            *report.ssrc,
++            now,
++        );
++    }
++    pub(crate) fn observe_emitted(&mut self, report: &Twcc, now: Instant) {
++        self.observations
++            .emitted(report.base_seq, report.feedback_count, now);
+     }
+ 
+     pub fn has_unreported(&self) -> bool {
+--- /dev/null
++++ b/src/rtp/rtcp/twcc_observation.rs
+@@ -0,0 +1,180 @@
++//! Bounded metadata only; never changes TWCC encoding or estimation.
++use std::collections::VecDeque;
++use std::time::{Duration, Instant};
++
++/// Metadata for server-generated TWCC about incoming RTP, not a capacity proof.
++#[derive(Debug, Clone, Copy)]
++pub struct BweIncomingTwccObservation {
++    /// Report sender SSRC.
++    pub sender_ssrc: u32,
++    /// Report media SSRC.
++    pub media_ssrc: u32,
++    /// Low sixteen bits of the first reported transport sequence.
++    pub base_seq: u16,
++    /// Wire feedback counter (wraps at256).
++    pub feedback_count: u8,
++    /// Number of reported packet statuses, including missing packets.
++    pub status_count: u16,
++    /// Actually received statuses in this report.
++    pub received_packets: usize,
++    /// Missing statuses in this report, not invented received timestamps.
++    pub missing_packets: usize,
++    /// Earliest actual receipt in this report's packet set.
++    pub first_received_at: Instant,
++    /// Latest actual receipt in the same set.
++    pub last_received_at: Instant,
++    /// Actual receive span in local clock units.
++    pub actual_span: Duration,
++    /// Span reconstructed from the report's real encoded deltas.
++    pub encoded_span: Duration,
++    /// Largest absolute per-packet reconstruction error.
++    pub max_encoding_error: Duration,
++    /// Session feedback construction time, absent for standalone encoder calls.
++    pub built_at: Option<Instant>,
++    /// Session feedback serialization poll time, not kernel/network send time.
++    pub emitted_at: Option<Instant>,
++    /// Time from oldest actual receipt to serialization poll.
++    pub report_age: Option<Duration>,
++    /// Maximum oldest-receipt age observed at serialization in this registration.
++    pub max_report_age: Duration,
++    /// Maximum build-to-serialization queue delay in this registration.
++    pub max_pending_age: Duration,
++    /// Largest gap between unique receive callbacks in this registration.
++    pub max_receiver_gap: Duration,
++}
++
++#[derive(Debug, Default)]
++pub(super) struct ObservationHistory {
++    reports: VecDeque<BweIncomingTwccObservation>,
++    last_receipt: Option<Instant>,
++    max_receiver_gap: Duration,
++    max_report_age: Duration,
++    max_pending_age: Duration,
++    last_anomaly_log: Option<Instant>,
++}
++impl ObservationHistory {
++    pub(super) fn received(&mut self, at: Instant) {
++        if let Some(last) = self.last_receipt {
++            self.max_receiver_gap = self
++                .max_receiver_gap
++                .max(at.saturating_duration_since(last));
++        }
++        self.last_receipt = Some(self.last_receipt.map_or(at, |last| last.max(at)));
++    }
++    pub(super) fn push(&mut self, mut observation: BweIncomingTwccObservation) {
++        if self.reports.len() == 32 {
++            self.reports.pop_front();
++        }
++        observation.max_receiver_gap = self.max_receiver_gap;
++        self.reports.push_back(observation);
++    }
++    pub(super) fn built(&mut self, base: u16, counter: u8, sender: u32, media: u32, now: Instant) {
++        if let Some(o) = self
++            .reports
++            .iter_mut()
++            .rev()
++            .find(|o| o.base_seq == base && o.feedback_count == counter)
++        {
++            o.built_at = Some(now);
++            o.sender_ssrc = sender;
++            o.media_ssrc = media;
++        }
++    }
++    pub(super) fn emitted(&mut self, base: u16, counter: u8, now: Instant) {
++        let Some(o) =
++            self.reports.iter_mut().rev().find(|o| {
++                o.base_seq == base && o.feedback_count == counter && o.emitted_at.is_none()
++            })
++        else {
++            return;
++        };
++        o.emitted_at = Some(now);
++        let age = now.saturating_duration_since(o.first_received_at);
++        o.report_age = Some(age);
++        self.max_report_age = self.max_report_age.max(age);
++        self.max_pending_age = self.max_pending_age.max(
++            o.built_at
++                .map_or(Duration::ZERO, |at| now.saturating_duration_since(at)),
++        );
++        o.max_report_age = self.max_report_age;
++        o.max_pending_age = self.max_pending_age;
++        o.max_receiver_gap = self.max_receiver_gap;
++        let anomalous =
++            age > Duration::from_millis(100) || o.max_encoding_error > Duration::from_micros(125);
++        if anomalous
++            && self
++                .last_anomaly_log
++                .is_none_or(|at| now.saturating_duration_since(at) >= Duration::from_secs(1))
++        {
++            self.last_anomaly_log = Some(now);
++            tracing::debug!(observation = ?o, "incoming TWCC metadata anomaly (serialization poll, not kernel send)");
++        }
++    }
++    pub(super) fn snapshot(&self) -> Option<BweIncomingTwccObservation> {
++        let mut o = *self.reports.back()?;
++        o.max_receiver_gap = self.max_receiver_gap;
++        o.max_report_age = self.max_report_age;
++        o.max_pending_age = self.max_pending_age;
++        Some(o)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    fn observation(at: Instant, counter: u8) -> BweIncomingTwccObservation {
++        BweIncomingTwccObservation {
++            sender_ssrc: 1,
++            media_ssrc: 2,
++            base_seq: u16::from(counter),
++            feedback_count: counter,
++            status_count: 1,
++            received_packets: 1,
++            missing_packets: 0,
++            first_received_at: at,
++            last_received_at: at,
++            actual_span: Duration::ZERO,
++            encoded_span: Duration::ZERO,
++            max_encoding_error: Duration::ZERO,
++            built_at: None,
++            emitted_at: None,
++            report_age: None,
++            max_report_age: Duration::ZERO,
++            max_pending_age: Duration::ZERO,
++            max_receiver_gap: Duration::ZERO,
++        }
++    }
++    #[test]
++    fn bounded_history_identity_and_duplicate_emit_do_not_refresh_time() {
++        let at = Instant::now();
++        let mut h = ObservationHistory::default();
++        assert!(h.snapshot().is_none());
++        for n in 0..100 {
++            h.push(observation(at, n));
++        }
++        assert_eq!(h.reports.len(), 32);
++        h.built(99, 99, 3, 4, at + Duration::from_millis(5));
++        h.emitted(98, 99, at + Duration::from_millis(10));
++        assert!(h.snapshot().unwrap().emitted_at.is_none());
++        h.emitted(99, 99, at + Duration::from_millis(15));
++        let o = h.snapshot().unwrap();
++        assert_eq!(o.report_age, Some(Duration::from_millis(15)));
++        assert_eq!(o.max_pending_age, Duration::from_millis(10));
++        h.emitted(99, 99, at + Duration::from_secs(2));
++        assert_eq!(h.snapshot().unwrap().emitted_at, o.emitted_at);
++        assert_eq!(h.snapshot().unwrap().max_report_age, o.max_report_age);
++    }
++    #[test]
++    fn real_callback_gap_is_retained_without_crossing_remote_clock() {
++        let at = Instant::now();
++        let mut h = ObservationHistory::default();
++        h.received(at);
++        h.received(at + Duration::from_millis(193));
++        h.received(at + Duration::from_millis(194));
++        h.push(observation(at, 1));
++        assert_eq!(
++            h.snapshot().unwrap().max_receiver_gap,
++            Duration::from_millis(193)
++        );
++    }
++}
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -461,6 +461,7 @@
+         twcc.ssrc = self.streams.first_ssrc_remote();
+ 
+         trace!("Created feedback TWCC: {:?}", twcc);
++        self.twcc_rx_register.observe_built(&twcc, now);
+         self.feedback_tx.push_front(Rtcp::Twcc(twcc));
+         Some(())
+     }
+@@ -1077,9 +1078,9 @@
+         }
+ 
+         let x = if self.rtp_closing {
+-            self.poll_feedback()
++            self.poll_feedback(now)
+         } else {
+-            None.or_else(|| self.poll_feedback())
++            None.or_else(|| self.poll_feedback(now))
+                 .or_else(|| self.poll_packet(now))
+         };
+ 
+@@ -1121,7 +1122,7 @@
+         self.rtp_closing && self.feedback_tx.is_empty()
+     }
+ 
+-    fn poll_feedback(&mut self) -> Option<net::DatagramSend> {
++    fn poll_feedback(&mut self, now: Instant) -> Option<net::DatagramSend> {
+         if self.feedback_tx.is_empty() {
+             return None;
+         }
+@@ -1133,7 +1134,11 @@
+         let mut data = vec![0_u8; encryptable_mtu];
+ 
+         let mut raw_packets = self.raw_packets.as_mut();
++        let twcc_register = &mut self.twcc_rx_register;
+         let output = move |fb| {
++            if let Rtcp::Twcc(report) = &fb {
++                twcc_register.observe_emitted(report, now);
++            }
+             if let Some(raw_packets) = &mut raw_packets {
+                 raw_packets.push_back(Box::new(RawPacket::RtcpTx(fb)));
+             }
+@@ -1345,6 +1350,14 @@
+         snapshot.ingress_loss_fraction = self.twcc_rx_register.loss();
+     }
+ 
++    pub fn set_incoming_twcc_observations(&mut self, enabled: bool) {
++        self.twcc_rx_register.set_observations_enabled(enabled);
++    }
++
++    pub fn incoming_twcc_snapshot(&self) -> Option<crate::bwe::BweIncomingTwccObservation> {
++        self.twcc_rx_register.incoming_twcc_snapshot()
++    }
++
+     pub fn bwe_snapshot(&self) -> Option<crate::bwe::BweSnapshot> {
+         self.bwe.as_ref().map(Bwe::snapshot)
+     }

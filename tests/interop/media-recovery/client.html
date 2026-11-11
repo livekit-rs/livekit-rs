@@ -1,0 +1,167 @@
+<!doctype html><meta charset="utf-8"><title>Official SDK media recovery under impairment</title>
+<script>
+// Route the server-provided TURN/UDP URL through the test proxy and observe PCs via public APIs only.
+window.pcs=[];window.routing={seen:[]};const NativePC=window.RTCPeerConnection;
+// Rewrite any TURN/UDP URL that targets the server's TURN port to the impairment proxy (host form varies).
+const route=config=>{if(!config||!config.iceServers||!routing.proxyPort)return config;routing.seen.push(JSON.parse(JSON.stringify(config.iceServers)));
+ return {...config,iceServers:config.iceServers.map(s=>({...s,urls:(Array.isArray(s.urls)?s.urls:[s.urls]).map(u=>{const m=/^turn:([^:?]+):(\d+)(\?transport=udp)?$/.exec(u);
+  return m&&Number(m[2])===routing.turnPort&&m[3]?`turn:127.0.0.1:${routing.proxyPort}?transport=udp`:u;})}))};};
+window.RTCPeerConnection=class extends NativePC{constructor(config,...rest){super(route(config),...rest);pcs.push(this);}
+ setConfiguration(config){return super.setConfiguration(route(config));}};
+</script><script src="/sdk.js"></script><body><canvas id="c"></canvas><canvas id="r" style="display:none"></canvas><script>
+const {Room,RoomEvent,Track,VideoQuality,ExternalE2EEKeyProvider}=LivekitClient;
+let room,timer,frame=0,video,worker,audioContext;
+const state={events:[],decoded:[],codes:[],keyframes:[]};
+// Frame code: 16-bit counter + 8-bit check in a 8x3 grid of black/white blocks over the
+// top 3/8 of the picture. Blocks are 1/8 of the width so every simulcast/SVC layer keeps
+// them large enough to survive compression; a bad check means a corrupted decode.
+const BITS=24,COLS=8,ROWS=3;
+const check=n=>((n*37+0x5b)^(n>>8))&0xff;
+const encode=n=>{const v=((n&0xffff)<<8)|check(n&0xffff);return [...Array(BITS)].map((_,i)=>(v>>(BITS-1-i))&1);};
+function drawCode(ctx,w,h,n){const bw=w/COLS,bh=h/8;encode(n).forEach((b,i)=>{ctx.fillStyle=b?'#fff':'#000';ctx.fillRect((i%COLS)*bw,Math.floor(i/COLS)*bh,bw,bh);});}
+function readCode(img,w,h){const bw=w/COLS,bh=h/8;let v=0;
+ for(let i=0;i<BITS;i++){const x=Math.floor((i%COLS)*bw+bw/2),y=Math.floor(Math.floor(i/COLS)*bh+bh/2),o=(y*w+x)*4;
+  const lum=0.299*img[o]+0.587*img[o+1]+0.114*img[o+2];v=(v<<1)|(lum>128?1:0);}
+ const n=(v>>8)&0xffff;return check(n)===(v&0xff)?n:-1;}
+window.rec={
+ async connect({url,token,single,proxyPort,turnPort,relay,e2ee,frameTrace}){
+  routing.proxyPort=relay===false?null:proxyPort;routing.turnPort=turnPort;
+  const options={adaptiveStream:false,dynacast:false,singlePeerConnection:single};
+  if(e2ee){
+   const keyProvider=new ExternalE2EEKeyProvider();
+   await keyProvider.setKey('public-media-recovery-fixture');
+   worker=new Worker(frameTrace?'/frame-trace-worker.mjs':'/e2ee-worker.mjs',{type:'module'});
+   if(frameTrace)worker.addEventListener('message',event=>{
+    if(!event.data?.mediaRecoveryKeyframe)return;
+    event.stopImmediatePropagation();
+    state.keyframes.push(event.data.mediaRecoveryKeyframe);
+   });
+   options.encryption={keyProvider,worker};
+  }
+  room=new Room(options);
+  room.on(RoomEvent.EncryptionError,error=>state.events.push({name:'EncryptionError',error:String(error)}));
+  room.on(RoomEvent.TrackSubscribed,(track,pub)=>{state.events.push({name:'TrackSubscribed',kind:track.kind,encrypted:pub.isEncrypted,at:performance.now()});
+   if(track.kind==='audio'){const el=track.attach();el.muted=true;document.body.appendChild(el);}
+   if(track.kind==='video'){video=track.attach();video.muted=true;document.body.appendChild(video);
+    const rc=document.getElementById('r'),rctx=rc.getContext('2d',{willReadFrequently:true});
+    const tick=(now,meta)=>{const w=meta.width,h=meta.height;let code=null;
+     if(w&&h){if(rc.width!==w||rc.height!==h){rc.width=w;rc.height=h;}rctx.drawImage(video,0,0,w,h);code=readCode(rctx.getImageData(0,0,w,h).data,w,h);}
+     state.decoded.push({at:performance.now(),presented:meta.presentedFrames,code,w,h,
+      rtpTimestamp:meta.rtpTimestamp,receiveTime:meta.receiveTime});if(state.decoded.length>4000)state.decoded.splice(0,1000);
+     video.requestVideoFrameCallback(tick);};
+    video.requestVideoFrameCallback(tick);}});
+  room.on(RoomEvent.Reconnecting,()=>state.events.push({name:'Reconnecting',at:performance.now()}));
+  room.on(RoomEvent.Reconnected,()=>state.events.push({name:'Reconnected',at:performance.now()}));
+  await room.connect(url,token,{autoSubscribe:true,rtcConfig:{iceTransportPolicy:relay===false?'all':'relay'}});
+  if(e2ee)await room.setE2EEEnabled(true);
+  return room.localParticipant.sid;
+ },
+ // profile: vp8 | vp8-simulcast | vp9-svc | h264 | av1
+ async publish(profile='vp8',stableSource=false){
+  const layered=profile==='vp8-simulcast'||profile==='vp9-svc';
+  // Keep the VP9 selector control's source in all three spatial layers.
+  // The default loss campaign retains its independently adapting source.
+  const stableSvc=stableSource&&profile==='vp9-svc';
+  const W=stableSvc?960:layered?1280:640,H=stableSvc?544:layered?720:360;
+  const fps=stableSvc?15:30;
+  const canvas=document.getElementById('c');canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');
+  timer=setInterval(()=>{frame++;ctx.fillStyle=stableSvc?'#367':'hsl('+frame*7%360+',70%,50%)';ctx.fillRect(0,0,W,H);
+   ctx.fillStyle='#fff';
+   if(stableSvc){
+    ctx.fillRect(frame*11%(W-80),H*0.6,80,80);
+   }else{
+    ctx.font=`${H/6}px monospace`;
+    for(let i=0;i<10;i++)ctx.fillText(String((frame*31+i*977)%100000),(i%5)*W/5,H*0.55+Math.floor(i/5)*H/5);
+   }
+   drawCode(ctx,W,H,frame);state.codes.push({at:performance.now(),frame});if(state.codes.length>4000)state.codes.splice(0,1000);},Math.round(1000/fps));
+  const track=canvas.captureStream(fps).getVideoTracks()[0];
+  const codec={vp8:'vp8','vp8-simulcast':'vp8','vp9-svc':'vp9',h264:'h264',av1:'av1'}[profile];
+  const opts={name:'canvas',source:Track.Source.Camera,simulcast:profile==='vp8-simulcast',videoCodec:codec,
+   videoEncoding:{maxBitrate:layered?2500000:800000,maxFramerate:fps}};
+  if(profile==='vp9-svc')opts.scalabilityMode='L3T3_KEY';
+  await room.localParticipant.publishTrack(track,opts);
+  audioContext=new AudioContext();
+  const osc=audioContext.createOscillator(),dst=audioContext.createMediaStreamDestination();osc.connect(dst);osc.start();
+  await room.localParticipant.publishTrack(dst.stream.getAudioTracks()[0],{name:'tone',source:Track.Source.Microphone,dtx:false,red:false});
+ },
+ // Decoded frame codes since `since` (page clock): validity, order and how far behind the publisher.
+ decodedSince(since){return state.decoded.filter(d=>d.at>=since).map(d=>({at:Math.round(d.at),code:d.code,w:d.w,h:d.h}));},
+ frameTrace(){return {timeOrigin:performance.timeOrigin,keyframes:state.keyframes,
+  pictures:state.decoded.filter(picture=>picture.code>=0)};},
+ publisherFrame(){return frame;},
+ setVideoQuality(quality){
+  const publications=[...room.remoteParticipants.values()].flatMap(p=>[...p.videoTrackPublications.values()]);
+  if(publications.length!==1)throw Error('expected one actual remote video publication');
+  publications[0].setVideoQuality({low:VideoQuality.LOW,high:VideoQuality.HIGH}[quality]);
+  return {sid:publications[0].trackSid,at:performance.now()};
+ },
+ async audioSnapshot(){
+  const requested=performance.now();
+  const reports=await Promise.all(pcs.filter(pc=>pc.connectionState!=='closed').map(pc=>pc.getStats()));
+  const streams=reports.flatMap(st=>[...st.values()].filter(r=>(r.type==='inbound-rtp'||r.type==='outbound-rtp')&&r.kind==='audio').map(r=>({
+   direction:r.type==='inbound-rtp'?'inbound':'outbound',ssrc:r.ssrc,pt:st.get(r.codecId)?.payloadType??null,
+   codec:st.get(r.codecId)?.mimeType??null,timestamp:r.timestamp,lastPacketReceivedTimestamp:r.lastPacketReceivedTimestamp??null,
+   packetsReceived:r.packetsReceived??0,packetsLost:r.packetsLost??0,totalSamplesReceived:r.totalSamplesReceived??0,
+   concealedSamples:r.concealedSamples??0,silentConcealedSamples:r.silentConcealedSamples??0,concealmentEvents:r.concealmentEvents??0,
+   jitterBufferDelay:r.jitterBufferDelay??0,jitterBufferTargetDelay:r.jitterBufferTargetDelay??0,
+   jitterBufferMinimumDelay:r.jitterBufferMinimumDelay??0,jitterBufferEmittedCount:r.jitterBufferEmittedCount??0,
+   insertedSamplesForDeceleration:r.insertedSamplesForDeceleration??0,removedSamplesForAcceleration:r.removedSamplesForAcceleration??0,
+  })));
+  const received=streams.filter(r=>r.direction==='inbound');
+  const fields=['packetsReceived','packetsLost','concealedSamples','concealmentEvents','totalSamplesReceived'];
+  return {requested,completed:performance.now(),timeOrigin:performance.timeOrigin,streams,
+   audio:Object.fromEntries(fields.map(key=>[key,received.reduce((sum,r)=>sum+r[key],0)]))};
+ },
+ async stats(){
+  const out={outbound:[],inbound:[],audio:[],pairs:[],codecs:new Set(),fmtp:new Set()};
+  for(const pc of pcs){if(pc.connectionState==='closed')continue;const st=await pc.getStats();
+   st.forEach(r=>{
+    if(r.type==='outbound-rtp'&&r.kind==='video')out.outbound.push({nackCount:r.nackCount||0,pliCount:r.pliCount||0,firCount:r.firCount||0,retransmittedPacketsSent:r.retransmittedPacketsSent||0,keyFramesEncoded:r.keyFramesEncoded||0,framesEncoded:r.framesEncoded||0,packetsSent:r.packetsSent||0});
+    if(r.type==='inbound-rtp'&&r.kind==='video'){out.inbound.push({nackCount:r.nackCount||0,pliCount:r.pliCount||0,firCount:r.firCount||0,retransmittedPacketsReceived:r.retransmittedPacketsReceived||0,packetsLost:r.packetsLost||0,packetsReceived:r.packetsReceived||0,framesDecoded:r.framesDecoded||0,keyFramesDecoded:r.keyFramesDecoded||0,framesDropped:r.framesDropped||0,freezeCount:r.freezeCount||0,totalFreezesDuration:r.totalFreezesDuration||0});
+     const c=st.get(r.codecId);if(c)out.codecs.add(c.mimeType);if(c&&c.sdpFmtpLine)out.fmtp.add(`${c.mimeType} pt=${c.payloadType} ${c.sdpFmtpLine}`);}
+    if(r.type==='inbound-rtp'&&r.kind==='audio')out.audio.push({packetsReceived:r.packetsReceived||0,packetsLost:r.packetsLost||0,concealedSamples:r.concealedSamples||0,concealmentEvents:r.concealmentEvents||0,totalSamplesReceived:r.totalSamplesReceived||0});
+    if(r.type==='candidate-pair'&&r.nominated&&r.state==='succeeded'){const l=st.get(r.localCandidateId);out.pairs.push({type:l?.candidateType});}
+   });}
+  const sum=(arr,k)=>arr.reduce((n,x)=>n+(x[k]||0),0);const keys=a=>a.length?Object.keys(a[0]):[];
+  const fold=a=>Object.fromEntries(keys(a).map(k=>[k,sum(a,k)]));
+  return {iceServersSeen:routing.seen,outbound:fold(out.outbound),inbound:fold(out.inbound),audio:fold(out.audio),codecs:[...out.codecs],fmtp:[...out.fmtp],pairs:out.pairs,now:performance.now(),lastDecodedAt:state.decoded.at(-1)?.at??null,decodedCount:state.decoded.length,events:state.events};
+ },
+ // Negotiated Opus/video rtcp-fb per PC (local+remote SDP), to explain NACK/PLI behaviour.
+ feedback(){const pick=sdp=>{if(!sdp)return null;const out={};for(const m of sdp.split(/\r?\nm=/).slice(1)){const kind=m.split(' ')[0];
+   const pts=[...m.matchAll(/a=rtpmap:(\d+) ([^/\r\n]+)/g)].map(x=>[x[1],x[2].toLowerCase()]);
+   for(const [pt,name] of pts){if(!['opus','vp8','vp9','h264','av1'].includes(name))continue;
+    const fb=[...m.matchAll(new RegExp(`a=rtcp-fb:${pt} ([^\\r\\n]+)`,'g'))].map(x=>x[1]);(out[`${kind}/${name}`]??=new Set());fb.forEach(f=>out[`${kind}/${name}`].add(f));}}
+   for(const m of sdp.split(/\r?\nm=/).slice(1)){const kind=m.split(' ')[0];const ext=[...m.matchAll(/a=extmap:(\d+)(?:\/\w+)? (\S+)/g)].map(x=>`${x[1]}=${x[2]}`);
+    (out[`${kind}/extmap`]??=new Set());ext.forEach(e=>out[`${kind}/extmap`].add(e));}
+   return Object.fromEntries(Object.entries(out).map(([k,v])=>[k,[...v].sort()]));};
+  return pcs.filter(pc=>pc.connectionState!=='closed').map(pc=>({local:pick(pc.localDescription?.sdp),remote:pick(pc.remoteDescription?.sdp)}));},
+ // Layer/bandwidth view for timelines: publisher per-rid encodings and its BWE,
+ // subscriber's received layer and receive-side estimate.
+ async layers(){const out={rids:[],inbound:[],pubBwe:null,subBwe:null,sub:null};
+  for(const [pcIndex,pc] of pcs.entries()){if(pc.connectionState==='closed')continue;const st=await pc.getStats();
+   const encodings=pc.getSenders().find(sender=>sender.track?.kind==='video')?.getParameters().encodings??[];
+   st.forEach(r=>{
+    if(r.kind==='video'&&(r.type==='outbound-rtp'||r.type==='inbound-rtp')){
+     const transport=st.get(r.transportId),pair=st.get(transport?.selectedCandidatePairId),codec=st.get(r.codecId);
+     const video={pcIndex,ssrc:r.ssrc,pt:codec?.payloadType??null,codec:codec?.mimeType??null,w:r.frameWidth||0,h:r.frameHeight||0,
+      fps:r.framesPerSecond||0,candidatePairId:pair?.id??null,outgoingBwe:pair?.availableOutgoingBitrate??null,
+      incomingBwe:pair?.availableIncomingBitrate??null,stunRtt:pair?.currentRoundTripTime??null};
+     if(r.type==='outbound-rtp'){
+      const source=st.get(r.mediaSourceId),remote=st.get(r.remoteId);
+      const configured=encodings.find(encoding=>(encoding.rid??null)===(r.rid??null));
+      out.rids.push({...video,rid:r.rid??null,active:r.active,scalabilityMode:r.scalabilityMode??null,
+       requestedScalabilityMode:configured?.scalabilityMode??null,target:r.targetBitrate||0,bytes:r.bytesSent||0,
+       limit:r.qualityLimitationReason,frames:r.framesEncoded||0,keyFrames:r.keyFramesEncoded||0,
+       sourceW:source?.width??null,sourceH:source?.height??null,remoteFractionLost:remote?.fractionLost??null,
+       resolutionChanges:r.qualityLimitationResolutionChanges??null});
+     }else out.inbound.push({...video,bytes:r.bytesReceived||0,frames:r.framesDecoded||0,keyFrames:r.keyFramesDecoded||0});
+    }
+    if(r.type==='remote-inbound-rtp')(out.rtcpRtt??=[]).push(`${r.kind}:${r.roundTripTime??'-'}/${r.roundTripTimeMeasurements??0}`);
+   });}
+  out.rids.sort((a,b)=>a.w-b.w);out.inbound.sort((a,b)=>a.bytes-b.bytes);
+  const pub=out.rids.at(-1);out.sub=out.inbound.at(-1)??null;
+  out.pubBwe=pub?.outgoingBwe??out.sub?.outgoingBwe??null;out.subBwe=out.sub?.incomingBwe??null;
+  out.stunRtt=(pub??out.sub)?.stunRtt??null;return out;},
+ async close(){clearInterval(timer);try{await room?.disconnect();}finally{worker?.terminate();await audioContext?.close();}},
+};
+</script>

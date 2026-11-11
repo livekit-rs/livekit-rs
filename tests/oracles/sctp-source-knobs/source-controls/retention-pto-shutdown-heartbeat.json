@@ -1,0 +1,45 @@
+{
+  "status": "SOURCE_INPUT_RETENTION_ONLY",
+  "observers": [
+    {
+      "name": "pto-tlr",
+      "scope": "Exact observer input retention only. Original NOT_RUN is frozen history; actual execution receipts separate. No unadopted production payload included.",
+      "files_sha256": {
+        "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "SOURCE.json": "d704fb3c95f8cc4dd6ed8ebaf7ca96f01390fb284b11aa0ce3905e20c3519108",
+        "pto_tlr_test.go": "dda5f2bed824fcb2d2ec6a5f9e6d8394bfed543672d0603adbd8ba6b4e440547",
+        "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "ORIGINAL-FROZEN-SOURCE.json": "bb7c2e7e052ddac924db9d7bad9fa1a57a440a7b64698373b9d2a73efb31ccf1",
+        "prepare.py": "e88362f666d1c0259d40ffce87dec61bad437048cc7e03684b2d60e1524fce5f",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/SOURCE.json": "d704fb3c95f8cc4dd6ed8ebaf7ca96f01390fb284b11aa0ce3905e20c3519108",
+        "oracle/pto_tlr_test.go": "dda5f2bed824fcb2d2ec6a5f9e6d8394bfed543672d0603adbd8ba6b4e440547",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/prepare.py": "e88362f666d1c0259d40ffce87dec61bad437048cc7e03684b2d60e1524fce5f"
+      }
+    },
+    {
+      "name": "shutdown-carried-ack",
+      "scope": "Exact observer input retention only. Original NOT_RUN is frozen history; actual execution receipts separate. No unadopted production payload included.",
+      "files_sha256": {
+        "ORIGINAL-FROZEN-SOURCE.json": "588ad382bad4b70feb8602d4350c60312625d07890228b4ead5488650636ed77",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/shutdown_carried_ack_test.go": "d32c4ab4d2a1361560ca2580aff65e602b5ff482063deb39654a497c971e025e",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/prepare.py": "c126dca98d38030ea8031680677fc32ca091c1d25af12dc3bd168510accdfc30"
+      }
+    },
+    {
+      "name": "heartbeat-wire",
+      "scope": "Exact observer input retention only. Original NOT_RUN is frozen history; actual execution receipts separate. No unadopted production payload included.",
+      "files_sha256": {
+        "ORIGINAL-FROZEN-SOURCE.json": "e5450d7c57b1cbe5db4ece1352dde2fbe4094976d5f9c05efd4461f07366fce4",
+        "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+        "oracle/heartbeat_clock_test.go": "f1017e7cef0208555fa90c12ac4674897b7249c700a499a67d31bb64b2d3835b",
+        "oracle/heartbeat_wire_test.go": "14a8523ff3aff90d4648319279a1c09949148067c8ac521a6376293020c04d22",
+        "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+        "oracle/prepare.py": "a055593fa204886f5dda8d24993a097ffd21c8e46ba47a9bb43813c4a772e0a8"
+      }
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+--- a/src/agent.rs
++++ b/src/agent.rs
+@@ -2169,6 +2169,35 @@
+         self.candidate_pairs.iter().find(|p| p.id() == id)
+     }
+ 
++    /// Last actual received packet on the current selected pair: authenticated
++    /// STUN request/success or data admitted by the caller for its remote tuple.
++    /// Passive observation only; generic ICE retransmission timing is unchanged.
++    pub fn nominated_last_received(&self) -> Option<Instant> {
++        self.nominated_pair().and_then(|pair| pair.last_received())
++    }
++    /// Record selected remote tuple data receipt, matching the fixed Pion ICE
++    /// socket layer's candidate.seen boundary before DTLS/SRTP processing.
++    /// Unknown/other candidates and retired nominations do not refresh liveness.
++    pub fn notify_selected_data_received(
++        &mut self,
++        proto: Protocol,
++        source: SocketAddr,
++        now: Instant,
++    ) -> bool {
++        let Some(id) = self.nominated_send else {
++            return false;
++        };
++        let Some(pair) = self.candidate_pairs.iter_mut().find(|pair| pair.id() == id) else {
++            return false;
++        };
++        let remote = pair.remote_candidate(&self.remote_candidates);
++        if remote.proto() != proto || remote.addr() != source {
++            return false;
++        }
++        pair.observe_data_received(now);
++        true
++    }
++
+     /// Actual nominated transport and whether its remote candidate is TURN.
+     /// A peer-reflexive candidate at a signaled relay's IP/protocol is TURN too,
+     /// matching fixed ICEConnectionDetails (TURN port may differ).
+@@ -3145,6 +3174,7 @@
+ 
+     include!("agent_acceptance_tests.rs");
+     include!("agent_transport_fallback_tests.rs");
++    include!("agent_selected_liveness_tests.rs");
+ 
+     fn make_serialized_binding_request(
+         local_creds: &IceCreds,
+--- /dev/null
++++ b/src/agent_selected_liveness_tests.rs
+@@ -0,0 +1,60 @@
++#[test]
++fn selected_liveness_uses_actual_authenticated_stun_and_tuple_lifetime_not_preference() {
++    let start = Instant::now();
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Host,
++        CandidateKind::Host,
++        [Duration::ZERO; 4],
++        start,
++        ipv4_1(),
++    );
++    assert_eq!(
++        agent.nominated_last_received(),
++        Some(start + Duration::from_millis(1))
++    );
++    let original = agent.nominated_last_received();
++    assert!(!agent.notify_selected_data_received(
++        Protocol::Tcp,
++        ipv4_3(),
++        start + Duration::from_secs(2)
++    ));
++    assert!(!agent.notify_selected_data_received(
++        Protocol::Udp,
++        ipv4_4(),
++        start + Duration::from_secs(2)
++    ));
++    assert_eq!(
++        agent.nominated_last_received(),
++        original,
++        "unknown/protocol-mismatched data cannot refresh selected pair"
++    );
++    assert!(agent.notify_selected_data_received(
++        Protocol::Udp,
++        ipv4_3(),
++        start + Duration::from_secs(3)
++    ));
++    assert_eq!(
++        agent.nominated_last_received(),
++        Some(start + Duration::from_secs(3))
++    );
++    assert!(agent.notify_selected_data_received(
++        Protocol::Udp,
++        ipv4_3(),
++        start + Duration::from_secs(2)
++    ));
++    assert_eq!(
++        agent.nominated_last_received(),
++        Some(start + Duration::from_secs(3)),
++        "old observations cannot move source clock backwards"
++    );
++    agent.ice_restart(IceCreds::new(), true);
++    assert_eq!(agent.nominated_last_received(), None);
++    assert!(
++        !agent.notify_selected_data_received(
++            Protocol::Udp,
++            ipv4_3(),
++            start + Duration::from_secs(4)
++        ),
++        "retired tuple cannot refresh unproved new generation"
++    );
++}
+--- a/src/pair.rs
++++ b/src/pair.rs
+@@ -49,6 +49,8 @@
+ 
+     /// Last remote binding request.
+     remote_binding_request_time: Option<Instant>,
++    // Passive selected-path data observation; generic ICE timing is unchanged.
++    last_data_received: Option<Instant>,
+ 
+     /// State of nomination for this candidate pair.
+     nomination_state: NominationState,
+@@ -160,6 +162,7 @@
+             cached_next_attempt_time: Default::default(),
+             remote_binding_requests: Default::default(),
+             remote_binding_request_time: Default::default(),
++            last_data_received: None,
+             nomination_state: Default::default(),
+             responses_received: 0,
+             total_round_trip_time: Duration::ZERO,
+@@ -403,6 +406,21 @@
+         self.binding_attempts.back().map(|b| b.request_sent)
+     }
+ 
++    pub(crate) fn observe_data_received(&mut self, now: Instant) {
++        self.last_data_received = Some(self.last_data_received.map_or(now, |old| old.max(now)));
++    }
++    pub(crate) fn last_received(&self) -> Option<Instant> {
++        self.remote_binding_request_time
++            .into_iter()
++            .chain(
++                self.binding_attempts
++                    .iter()
++                    .filter_map(|attempt| attempt.respone_recv),
++            )
++            .chain(self.last_data_received)
++            .max()
++    }
++
+     /// The round-trip time of the most recent successful STUN binding
+     /// transaction recorded for this pair.
+     ///
+@@ -511,6 +529,7 @@
+     pub(crate) fn copy_remote_binding_requests(&mut self, other: &CandidatePair) {
+         self.remote_binding_requests = other.remote_binding_requests;
+         self.remote_binding_request_time = other.remote_binding_request_time;
++        self.last_data_received = other.last_data_received;
+ 
+         // ICE-lite pairs are validated by incoming requests. Preserve that
+         // validation when a higher-priority candidate replaces the pair.

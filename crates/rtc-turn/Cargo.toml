@@ -1,0 +1,22 @@
+[package]
+name = "rtc-turn"
+description = "Embedded TURN server (RFC 8656 / RFC 5766 subset, UDP relay only) for livekit-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio.workspace = true
+bytes.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+md-5.workspace = true
+crc32fast.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rand.workspace = true
+socket2.workspace = true

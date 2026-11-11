@@ -1,0 +1,32 @@
+<!doctype html><meta charset="utf-8"><title>Original SDK remote room API acceptance</title><script src="/sdk.js"></script><script>
+const {Room,RoomEvent,Track}=LivekitClient;
+let room,audio,oscillator,paintTimer;const local=[],active=new Map(),retired=[];
+const state={events:[],data:[],errors:[],disconnected:0,rpc:[]};
+function bounded(list,value){if(list.length>=128)throw Error('fixture observation overflow');list.push(value);}
+function cleanup(row){clearInterval(row.timer);row.element.pause();row.track.detach(row.element);row.element.srcObject=null;row.element.remove();row.source?.disconnect();row.zero?.disconnect();retired.push(row);}
+function measure(a,rate){let sum=0,re=0,im=0;for(let i=0;i<a.length;i++){sum+=a[i]*a[i];re+=a[i]*Math.cos(2*Math.PI*440*i/rate);im+=a[i]*Math.sin(2*Math.PI*440*i/rate);}return{rms:Math.sqrt(sum/a.length),tone440:2*Math.hypot(re,im)/a.length};}
+window.roomApi={
+ async connect({url,token,publish}){
+  audio=new AudioContext();await audio.resume();room=new Room({adaptiveStream:false,dynacast:false});
+  room.localParticipant.registerRpcMethod('cluster.echo',async({payload,callerIdentity})=>{bounded(state.rpc,{payload,callerIdentity});return 'remote:'+payload;});
+  room.on(RoomEvent.Disconnected,reason=>{state.disconnected++;bounded(state.events,['disconnected',reason]);});
+  room.on(RoomEvent.DataReceived,(bytes,p,kind,topic)=>bounded(state.data,{payload:new TextDecoder().decode(bytes),from:p?.identity,kind,topic}));
+  room.on(RoomEvent.TrackSubscribed,(track,publication,participant)=>{
+   const row={track,publication,identity:participant.identity,kind:track.kind,frames:0,tone:null,element:track.attach()};active.set(publication.trackSid,row);
+   row.element.autoplay=true;row.element.volume=0;if(track.kind==='video')row.element.muted=true;document.body.append(row.element);row.element.play().catch(e=>bounded(state.errors,e.message));
+   if(track.kind==='audio'){row.source=audio.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));row.analyser=audio.createAnalyser();row.analyser.fftSize=8192;row.zero=audio.createGain();row.zero.gain.value=0;row.source.connect(row.analyser);row.analyser.connect(row.zero);row.zero.connect(audio.destination);row.timer=setInterval(()=>{const a=new Float32Array(8192);row.analyser.getFloatTimeDomainData(a);row.tone=measure(a,audio.sampleRate);},100);}
+   else{const frame=()=>{if(active.get(publication.trackSid)!==row)return;row.frames++;row.element.requestVideoFrameCallback(frame);};row.element.requestVideoFrameCallback(frame);}
+   bounded(state.events,['subscribed',publication.trackSid,track.kind]);
+  });
+  room.on(RoomEvent.TrackUnsubscribed,(track,publication)=>{const row=active.get(publication.trackSid);if(row){active.delete(publication.trackSid);cleanup(row);}bounded(state.events,['unsubscribed',publication.trackSid]);});
+  await room.connect(url,token,{autoSubscribe:true});
+  if(publish){
+   const sink=audio.createMediaStreamDestination(),gain=audio.createGain();gain.gain.value=.2;oscillator=audio.createOscillator();oscillator.frequency.value=440;oscillator.connect(gain);gain.connect(sink);oscillator.start();const audioTrack=sink.stream.getAudioTracks()[0];local.push(audioTrack);await room.localParticipant.publishTrack(audioTrack,{name:'cluster-tone',source:Track.Source.Microphone,dtx:false,red:false});
+   const canvas=document.createElement('canvas');canvas.width=320;canvas.height=180;const c=canvas.getContext('2d');let n=0;const paint=()=>{c.fillStyle=n++%2?'#00cc55':'#cc3355';c.fillRect(0,0,320,180);c.fillStyle='white';c.fillText(String(n),10,30);};paint();paintTimer=setInterval(paint,67);const video=canvas.captureStream(15).getVideoTracks()[0];local.push(video);await room.localParticipant.publishTrack(video,{name:'cluster-video',source:Track.Source.Camera,videoCodec:'vp8',simulcast:false,videoEncoding:{maxBitrate:300000,maxFramerate:15}});
+  }
+  return{sid:room.localParticipant.sid};
+ },
+ async snapshot(){const tracks=[];for(const [sid,row]of active){const reports=await row.track.receiver.getStats();tracks.push({sid,kind:row.kind,frames:row.frames,tone:row.tone,muted:row.publication.isMuted,bytes:[...reports.values()].filter(v=>v.type==='inbound-rtp').reduce((sum,v)=>sum+(v.bytesReceived||0),0),mediaState:row.track.mediaStreamTrack.readyState});}const retiredTracks=[];for(const row of retired){try{const reports=await row.track.receiver.getStats();retiredTracks.push({sid:row.publication.trackSid,bytes:[...reports.values()].filter(v=>v.type==='inbound-rtp').reduce((sum,v)=>sum+(v.bytesReceived||0),0),closed:false});}catch{retiredTracks.push({sid:row.publication.trackSid,bytes:null,closed:true});}}return{...structuredClone(state),tracks,retiredTracks,connection:room.state,localTracks:local.map(t=>({kind:t.kind,enabled:t.enabled,state:t.readyState})),participants:[...room.remoteParticipants.values()].map(p=>({identity:p.identity,name:p.name,metadata:p.metadata,attributes:p.attributes,tracks:[...p.trackPublications.values()].map(t=>({sid:t.trackSid,kind:t.kind,muted:t.isMuted,subscribed:t.isSubscribed}))})),peerConnections:(window.observedPCs||[]).map(pc=>({connectionState:pc.connectionState,signalingState:pc.signalingState}))};},
+ async close(){clearInterval(paintTimer);await room?.disconnect();for(const row of active.values())cleanup(row);active.clear();for(const track of local)track.stop();oscillator?.stop();await audio?.close();}
+};
+</script>

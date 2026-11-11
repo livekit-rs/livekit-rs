@@ -1,0 +1,23 @@
+{
+  "status": "NOT_RUN",
+  "cases": [
+    {
+      "name": "delete-trunk-known-id-wrongwire",
+      "service": "SIP",
+      "method": "DeleteSIPTrunk",
+      "content_type": "application/protobuf",
+      "body_base64": "CAc=",
+      "auth": "none",
+      "purpose": "actual Go decode succeeds, then authentication; old prost path incorrectly malformed"
+    },
+    {
+      "name": "create-room-known-name-wrongwire",
+      "service": "RoomService",
+      "method": "CreateRoom",
+      "content_type": "application/protobuf",
+      "body_base64": "CAc=",
+      "auth": "none",
+      "purpose": "same generic Twirp decoder path; no fabricated backend success"
+    }
+  ]
+}

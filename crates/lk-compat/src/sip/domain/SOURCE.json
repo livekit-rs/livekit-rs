@@ -1,0 +1,104 @@
+{
+  "status": "VERIFIED_DECLARED_F04_DOMAIN_SCOPE",
+  "upstream_protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "upstream_server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "license": "Apache-2.0",
+  "sources": [
+    {
+      "path": "references/protocol-stable/livekit/sip.go",
+      "sha256": "0aab27de0f34e1dccfc8d5cbe2c58b65d83069f36f33d9c1eae9a68c20e17098"
+    },
+    {
+      "path": "references/protocol-stable/livekit/sip_validation.go",
+      "sha256": "25da1c63c9d5d97bf6c1efdcfd4cb6ec1eeebef88d8b8919a5fc494e86c53cb8"
+    },
+    {
+      "path": "references/protocol-stable/livekit/types.go",
+      "sha256": "ceb7e058779511bfde9f5b2afcfa78d7cd9f5b2413c9ead72314e448522e8c47"
+    },
+    {
+      "path": "references/protocol-stable/sip/sip.go",
+      "sha256": "62dc163b49f64a6cc58386e47cf9c380da1852b9fa185baed9d45d028c0c06f9"
+    },
+    {
+      "path": "references/protocol-stable/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/sip.go",
+      "sha256": "3df44eb29477053061f1b7c15040ac9bff2fe89fdd9f7788c028bd6ec7e60a13"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-protocol/protos/livekit_sip.proto",
+      "sha256": "eab546a338a218b1eb9351265171506654b10b854d17e0f829081035bbc19009"
+    },
+    {
+      "path": "references/go-stdlib-1.26.0/LICENSE",
+      "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+      "path": "references/go-stdlib-1.26.0/VERSION",
+      "sha256": "abe46ae8f122de59f40ec8cf3eb77ee6e89d00e8fee634e39b247574249a7779"
+    },
+    {
+      "path": "references/go-stdlib-1.26.0/src/net/netip/netip.go",
+      "sha256": "dbebdcbfd55f9619d57f55910b2af6240adb84dcd58bc76b9b396e479b91815e"
+    },
+    {
+      "path": "references/go-stdlib-1.26.0/src/strconv/isprint.go",
+      "sha256": "24114557c2b3cad7b80c8e71683831bfbe1c72eb99e8fd28a3a48eaf77705fb4"
+    },
+    {
+      "path": "references/go-stdlib-1.26.0/src/strconv/quote.go",
+      "sha256": "6602960ec8777de9926c1d02fbf5cb0828d4aefa38083865f4af17b6892c09a2"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/server.go",
+      "sha256": "d61f2d9caf4aed2b5f7c655f3f8eb8a51b0b0f357632d471d2b81b883d7ede0f"
+    },
+    {
+      "path": "references/protocol-stable/utils/xtwirp/options.go",
+      "sha256": "e1787ade38cce6738cf77f0b2bfc9702be5b1f40ed164df3ff38c19eb5bce252"
+    },
+    {
+      "path": "references/protocol-stable/utils/xtwirp/errors.go",
+      "sha256": "f7497b50bc92bd3f1858aa0729218a9bb67b70a41941b2e8a25acfe709308d8e"
+    }
+  ],
+  "scope": "SIP configuration domain validation, list patches, clone-before-update, media Upgrade and configuration conflict checks; excludes Redis, API auth/registration and dialing/worker runtime.",
+  "oracle": {
+    "source": "actual pinned protocol/livekit and protocol/sip packages imported, no copied fake implementation",
+    "vectors": 64,
+    "status": "ACTUAL_GO_AND_RUST_64_PASS",
+    "fixture_sha256": "cc5e69e1293bddbff98dcea0c32244593f3ddf7b4ee182401aff7fc1ef119ccb"
+  },
+  "residual_review": [
+    "Runtime MatchTrunkDetailed/MatchDispatchRuleIter and SIP worker RPC execution remain outside this configuration domain module."
+  ],
+  "edge_oracle": {
+    "vectors": 3680,
+    "go_toolchain": "go1.26.0",
+    "status": "ACTUAL_GO_AND_RUST_3680_PASS",
+    "source_sha256": "3f9f02ef28274a87eb0d4772e09a63bf0c6b6e9658788c3ef999203177761015",
+    "input_sha256": "fea400627ffb78174f2c89bd0d59557ebcbb9da6d17564eeed64039ddf109508",
+    "result_sha256": "d9158ad9ed4a93919e9fa04aaa5923e905c12b6efc244072f0c8441b20d21a96"
+  },
+  "go_stdlib_license": "BSD-3-Clause",
+  "error_code_oracle": {
+    "cases": 6,
+    "toolchain": "go1.26.0",
+    "status": "CORRECTED_TO_ACTUAL_SERVER_INTERCEPTOR_PENDING_REEXECUTION",
+    "source_sha256": "1b93fa87c335898ca25165fbd7501057ff2e78c8a66707bb2ae169d437f389c7",
+    "input_sha256": "f6a559a336e2ef15d1809e24425b6bc74c66d0266ae9c6f28ecb3f39f3b6d38a",
+    "result_sha256": "a7a3cd4a6b1e545adc2eff0f4e44f87c1aa9d1ebb2eb5f4c49f16c8570e8a1ae",
+    "method": "actual request ValidateResult then action ApplyResult; actual installed server xtwirp.ToError, not generated writer fallback",
+    "incorrect_prior_model": "historical codes/history retains direct-generated-writer model refuted by actual public HTTP"
+  },
+  "code_oracle_correction": {
+    "actual_formatter": "protocol/utils/xtwirp.ToError via official default server interceptor",
+    "current_result_sha256": "4572356a20e4c605237410b43793096d788380945c470f05fafdcdbded3c3001",
+    "previous_wrong_helper": "Preserved codes/history; not public handler proof",
+    "actual_public_transport_red": "../evidence/2026-10-25/f04-sip-public-ordinary-error-code-red.json"
+  },
+  "delivery_evidence": "livekit-rs-docs/evidence/2026-10-25/f04-functional-delivery.json"
+}

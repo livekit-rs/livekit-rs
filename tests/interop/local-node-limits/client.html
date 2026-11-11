@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Official SDK local node capacity acceptance</title>
+<script src="/sdk.js"></script><script>
+let room, local, audio, oscillator;
+window.quota = {
+ async connect({url,token,publish=false}) {
+  room = new LivekitClient.Room({singlePeerConnection:false,adaptiveStream:false,dynacast:false});
+  await room.connect(url, token, {maxRetries:0});
+  if (publish) {
+   audio = new AudioContext(); await audio.resume();
+   const destination=audio.createMediaStreamDestination(); oscillator=audio.createOscillator();oscillator.frequency.value=440;oscillator.connect(destination);oscillator.start();
+   local = new LivekitClient.LocalAudioTrack(destination.stream.getAudioTracks()[0],undefined,true,audio);
+   await room.localParticipant.publishTrack(local,{source:LivekitClient.Track.Source.Microphone,name:'real-quota-tone',audioPreset:{maxBitrate:64000},dtx:false,red:false});
+  }
+  return {sid:room.localParticipant.sid,identity:room.localParticipant.identity};
+ },
+ async stats() {
+  if (!local) return [];
+  const report=await local.getRTCStatsReport();
+  return report ? [...report.values()].filter(x=>x.type==='outbound-rtp' && !x.isRemote).map(x=>({type:x.type,kind:x.kind,bytesSent:x.bytesSent||0,packetsSent:x.packetsSent||0,ssrc:x.ssrc})) : [];
+ },
+ async unpublish() { if(local){await room.localParticipant.unpublishTrack(local,true);local=undefined;} if(oscillator){oscillator.stop();oscillator=undefined;} if(audio){await audio.close();audio=undefined;} },
+ async disconnect() { await this.unpublish();if(room){await room.disconnect();room=undefined;} },
+};
+</script><body>Uses unchanged official LiveKit client.</body></html>

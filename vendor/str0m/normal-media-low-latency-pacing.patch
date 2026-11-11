@@ -1,0 +1,328 @@
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -15,7 +15,9 @@
+ const MAX_BITRATE: Bitrate = Bitrate::gbps(10);
+ const MAX_DEBT_IN_TIME: Duration = Duration::from_millis(500);
+ const PADDING_BURST_INTERVAL: Duration = Duration::from_millis(5);
+-const PACING: Duration = Duration::from_millis(40);
++// Product low-latency normal-media policy. Google202acee's default is40ms;
++// this5ms choice is independently tested against the fixed network model.
++const PACING: Duration = Duration::from_millis(5);
+ /// Max size of a burst of paced media packets, to not risk overfilling socket buffers at
+ /// high bitrates. Same as libwebrtc's `PacingController::kMaxBurstSize`.
+ const MAX_BURST_SIZE: DataSize = DataSize::bytes(63_000);
+@@ -369,7 +371,7 @@
+                     // Normal pacing: use relative offset based on debt
+                     let drain_debt_time = self.media_debt / self.adjusted_bitrate;
+                     // Limit the burst to MAX_BURST_SIZE so high bitrates don't overfill socket
+-                    // buffers. Below ~12.6 Mbps this is PACING.
++                    // buffers. Below ~100.8 Mbps this is PACING.
+                     let burst_interval = PACING.min(MAX_BURST_SIZE / self.adjusted_bitrate);
+                     let next_send_offset = if drain_debt_time >= burst_interval {
+                         // If we have incurred too much debt we need to wait to let it clear out before sending
+@@ -668,10 +670,24 @@
+         let deadline = pacer.poll_timeout().0.unwrap();
+         assert!(deadline > now && deadline <= now + Duration::from_millis(10));
+         assert!(pacer.poll_queue().is_none());
++        // Normal5ms maintenance may wake before the actual6.4ms probe
++        // packet deadline. Drive each real future wake, preserving the original
++        //10ms total deadline and proving no past-timeout busy loop.
++        let mut next = deadline;
++        let mut padding = None;
++        for _ in 0..16 {
++            assert!(next > now && next <= now + Duration::from_millis(10));
++            padding = pacer.handle_timeout(next, std::iter::once(queue));
++            if padding.is_some() {
++                break;
++            }
++            let following = pacer.poll_timeout().0.unwrap();
++            assert!(following > next, "maintenance must schedule future work");
++            next = following;
++        }
+         assert!(
+-            pacer
+-                .handle_timeout(deadline, std::iter::once(queue))
+-                .is_some()
++            padding.is_some(),
++            "probe must be supplied within the unchanged10ms bound"
+         );
+     }
+ 
+@@ -679,7 +695,8 @@
+     fn test_typical_behavior() {
+         let now = Instant::now();
+         let mut queue = Queue::default();
+-        // 2,000 bits per second, 10 bytes per pacing interval(40ms)
++        // 2kbps gives1.25B per5ms interval. Keep debt/audio semantics;
++        // advance to actual drain times rather than the historical40ms tolerance.
+         let mut pacer = LeakyBucketPacer::new((10 * 200).into());
+         handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(1));
+ 
+@@ -713,7 +730,7 @@
+             2,
+             8,
+             PacketKind::Video,
+-            now + duration_ms(27),
++            now + duration_ms(37),
+         );
+         enqueue_packet_noisy(
+             &mut pacer,
+@@ -721,13 +738,13 @@
+             3,
+             25,
+             PacketKind::Video,
+-            now + duration_ms(28),
++            now + duration_ms(37),
+         );
+ 
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(28),
++            now + duration_ms(37),
+             "Second packet should be released because the debt is within tolerance",
+             |packet| {
+                 assert_eq!(packet.header.sequence_number, 2);
+@@ -742,12 +759,12 @@
+         );
+ 
+         // Periodic timeout
+-        handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(41));
++        handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(73));
+ 
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(41),
++            now + duration_ms(73),
+             "Third packet should be released because we have cleared debt as time moved forward",
+             |packet| {
+                 assert_eq!(packet.header.sequence_number, 3);
+@@ -760,7 +777,7 @@
+             4,
+             12,
+             PacketKind::Video,
+-            now + duration_ms(45),
++            now + duration_ms(77),
+         );
+         enqueue_packet_noisy(
+             &mut pacer,
+@@ -768,7 +785,7 @@
+             5,
+             25,
+             PacketKind::Video,
+-            now + duration_ms(47),
++            now + duration_ms(79),
+         );
+ 
+         // We have incurred too much media debt so polling will now fail until the debt can be
+@@ -784,14 +801,14 @@
+             6,
+             100,
+             PacketKind::Audio,
+-            now + duration_ms(52),
++            now + duration_ms(84),
+         );
+ 
+         // Unpaced packets should be able to send even if we have too much media debt.
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(52),
++            now + duration_ms(84),
+             "Sixth packet (audio) should be released despite too much media debt because \
+             audio packets are not paced",
+             |packet| {
+@@ -802,12 +819,12 @@
+ 
+         // A lot of time passes, now the bitrate should be adjusted to force drain the queues to
+         // avoid packets being queued for too long.
+-        handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(2053));
++        handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(2085));
+ 
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(2053),
++            now + duration_ms(2085),
+             "Fourth packet should be released after hitting the queue limit",
+             |packet| {
+                 assert_eq!(packet.header.sequence_number, 4);
+@@ -817,7 +834,7 @@
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(2053),
++            now + duration_ms(2085),
+             "Fifth packet should be released after hitting the queue limit",
+             |packet| {
+                 assert_eq!(packet.header.sequence_number, 5);
+@@ -831,7 +848,7 @@
+     fn test_queue_drain() {
+         let now = Instant::now();
+         let mut queue = Queue::default();
+-        // 2,000 bits per second, 10 bytes per pacing interval(40ms)
++        // 2kbps gives1.25B per5ms interval. Queue-limit policy stays2s.
+         let mut pacer = LeakyBucketPacer::new((10 * 200).into());
+         handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(1));
+ 
+@@ -865,11 +882,15 @@
+             2,
+             8,
+             PacketKind::Video,
+-            // Debt will be just slightly above what can be drained in 40 ms
+-            // after 66ms
+-            now + duration_ms(66),
+-        );
+-
++            // Real DataSize rounds each drain to whole bytes:21B-5B
++            // at41ms leaves16B;54ms*2kbps=13.5B rounds14B,
++            // leaving2B at95ms, above the1.25B five-ms allowance.
++            now + duration_ms(95),
++        );
++
++        assert_eq!(pacer.media_debt, DataSize::bytes(2));
++        assert_eq!(pacer.adjusted_bitrate, Bitrate::kbps(2));
++        assert_eq!(pacer.last_handle_time, Some(now + duration_ms(95)));
+         assert!(
+             pacer.poll_queue().is_none(),
+             "Second packet should not be released because there's too much debt"
+@@ -881,13 +902,15 @@
+             3,
+             5,
+             PacketKind::Video,
+-            now + duration_ms(70),
+-        );
++            now + duration_ms(103),
++        );
++        // Eight actual milliseconds drain exactly2B without a rounding edge.
++        assert_eq!(pacer.media_debt, DataSize::ZERO);
+         // Drain packet 2
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(70),
++            now + duration_ms(103),
+             "Second packet should be released because of the adjusted bitrate to drain the queue",
+             |packet| {
+                 assert_eq!(packet.header.sequence_number, 2);
+@@ -898,16 +921,19 @@
+             &mut pacer,
+             &mut queue,
+             4,
+-            1200,
++            // Abstract queue-unit load, not a serialized RTP packet. Eight
++            // times the old1200B fixture preserves the same force-drain burst
++            // allowance when normal pacing contracts from40ms to5ms.
++            9600,
+             PacketKind::Video,
+-            now + duration_ms(71),
++            now + duration_ms(104),
+         );
+ 
+         // Drain packet 3
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(71),
++            now + duration_ms(104),
+             "Third packet should be released because of the adjusted bitrate to drain the queue",
+             |packet| {
+                 assert_eq!(packet.header.sequence_number, 3);
+@@ -918,7 +944,7 @@
+         assert_poll_success(
+             &mut pacer,
+             &mut queue,
+-            now + duration_ms(71),
++            now + duration_ms(104),
+             "Fourth packet should be released because of the adjusted bitrate to drain the queue",
+             |packet| {
+                 assert_eq!(packet.header.sequence_number, 4);
+@@ -926,7 +952,7 @@
+         );
+ 
+         // Time moves forward
+-        handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(81));
++        handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(114));
+ 
+         enqueue_packet_noisy(
+             &mut pacer,
+@@ -934,7 +960,7 @@
+             5,
+             40,
+             PacketKind::Video,
+-            now + duration_ms(81),
++            now + duration_ms(114),
+         );
+ 
+         assert!(
+@@ -947,10 +973,11 @@
+     fn test_padding_fill_in() {
+         let now = Instant::now();
+         let mut queue = Queue::default();
+-        let mut pacer = LeakyBucketPacer::new((10 * 200).into());
+-        // 2,000 bits per second, 10 bytes per pacing interval(40ms) with padding at 3,000 bits per
+-        // second, 15 bytes per pacing interval(40ms)
+-        pacer.set_pacing_rate((10 * 200).into());
++        let mut pacer = LeakyBucketPacer::new(Bitrate::kbps(4));
++        //4kbps gives2.5B per5ms media interval. Keep the original3kbps
++        // padding source, whose2B packet must leave room for subsequent media.
++        // Queue limit, packet sizes, absolute timing and all assertions remain.
++        pacer.set_pacing_rate(Bitrate::kbps(4));
+         pacer.set_padding_rate((15 * 200).into());
+         handle_timeout_noisy(&mut pacer, &mut queue, now + duration_ms(1));
+ 
+@@ -1107,8 +1134,8 @@
+ 
+     #[test]
+     fn test_max_burst_size_at_high_bitrate() {
+-        // At 50 Mbps a full PACING interval is 250 kB, which is well above MAX_BURST_SIZE.
+-        let (burst, next_poll) = measure_burst(Bitrate::mbps(50), 1200, 500);
++        // At200Mbps a full5ms PACING interval is125kB, which is well above MAX_BURST_SIZE.
++        let (burst, next_poll) = measure_burst(Bitrate::mbps(200), 1200, 500);
+ 
+         assert!(
+             burst <= MAX_BURST_SIZE + DataSize::bytes(1200),
+@@ -1118,31 +1145,31 @@
+             burst > MAX_BURST_SIZE,
+             "Burst of {burst} should fill up to MAX_BURST_SIZE"
+         );
+-        // 63 kB at 50 Mbps drains in ~10 ms.
++        // 63kB at200Mbps drains in~2.52ms.
+         assert!(
+-            next_poll >= duration_ms(10) && next_poll < PACING,
++            next_poll >= duration_ms(2) && next_poll < PACING,
+             "Pacer should wait for the burst to drain, got {next_poll:?}"
+         );
+ 
+         // When packet sizes divide the limit exactly, stop at the limit rather than
+         // sending another packet.
+-        let (burst, _) = measure_burst(Bitrate::mbps(50), 1000, 500);
++        let (burst, _) = measure_burst(Bitrate::mbps(200), 1000, 500);
+         assert_eq!(burst, MAX_BURST_SIZE);
+     }
+ 
+     #[test]
+     fn test_burst_size_unchanged_at_low_bitrate() {
+-        // At 10 Mbps a PACING interval is 50 kB, below MAX_BURST_SIZE, so PACING still governs
+-        // the burst: debt may grow to 50 kB, then the pacer waits.
+-        let (burst, next_poll) = measure_burst(Bitrate::mbps(10), 1000, 500);
+-        assert_eq!(burst, DataSize::bytes(50_000));
++        // At10Mbps a5ms interval is6250B, below MAX_BURST_SIZE. Use250B
++        // packets to divide the exact allowance and retain the strict boundary.
++        let (burst, next_poll) = measure_burst(Bitrate::mbps(10), 250, 500);
++        assert_eq!(burst, DataSize::bytes(6250));
+         // Nothing is sent before the regular PACING tick.
+         assert_eq!(next_poll, PACING);
+ 
+-        // At 1 Mbps a PACING interval is 5 kB. Queue less here so the queue drain logic
+-        // doesn't raise the adjusted bitrate.
+-        let (burst, next_poll) = measure_burst(Bitrate::mbps(1), 1000, 50);
+-        assert_eq!(burst, DataSize::bytes(5_000));
++        // At1Mbps a5ms interval is625B. Queue less so queue-drain logic
++        // cannot raise the rate;125B packets exactly divide the allowance.
++        let (burst, next_poll) = measure_burst(Bitrate::mbps(1), 125, 50);
++        assert_eq!(burst, DataSize::bytes(625));
+         // Nothing is sent before the regular PACING tick.
+         assert_eq!(next_poll, PACING);
+     }

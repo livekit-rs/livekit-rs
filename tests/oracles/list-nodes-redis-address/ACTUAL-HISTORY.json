@@ -1,0 +1,23 @@
+{
+  "classification": "V1_FAILED_SETUP_NOT_BEHAVIOR_RED",
+  "old_actual12_sha256": "e59e05a3f64a9d083e0270f4ad3b02e3825b1d0e8e692a3bdf546520d69e995a",
+  "old_round_log_sha256": "7939f459c4c39cd83609c98d538a8390dd6f1de783441e740facaf7f09ec670c",
+  "observer": {
+    "exit": 0,
+    "timed_out": false,
+    "rows": 12
+  },
+  "official_main_case6": {
+    "id": "tcp-refused-real-dial",
+    "exit": -9,
+    "timed_out": true,
+    "timeout_seconds": 8,
+    "source_setup_valid": false
+  },
+  "old_public_reader": "NOT_EXECUTED",
+  "superseded_hypothesis": "Earlier observer120timeout speculation contradicted by actual receipt",
+  "actual_source_port18_sha256": "f2e73e9d51522c5ef1669d5bd0d6c376297ad14e7ea2b1d863dcbd8e2c5b6cf4",
+  "actual_source_port18_inventory_matches": true,
+  "new_v2_runtime": "NOT_RUN",
+  "no_prior_output_modified": true
+}

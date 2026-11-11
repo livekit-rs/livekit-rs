@@ -1,0 +1,7 @@
+src/srtp.rs, src/sha1.rs and src/sha256.rs retain production algorithm implementations from str0m-rust-crypto 0.6.0, https://github.com/algesten/str0m,
+Copyright (c) Martin Algesten, licensed MIT OR Apache-2.0.
+Local attribution headers, formatting and conformance tests were added.
+
+src/dtls.rs is derived from the same crate's dtls.rs; certificate generation was
+replaced with src/cert.rs so that dimpl's `rcgen` feature (which enables aws-lc-rs)
+is not required.

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "line-separator-alone",
+    "text": " "
+  },
+  {
+    "id": "paragraph-separator-alone",
+    "text": " "
+  },
+  {
+    "id": "line-separator-inside",
+    "text": "owned second"
+  },
+  {
+    "id": "paragraph-separator-inside",
+    "text": "owned second"
+  },
+  {
+    "id": "zwj-across-line-separator",
+    "text": "👩 ‍👩"
+  },
+  {
+    "id": "zwj-across-paragraph-separator",
+    "text": "👩 ‍👩"
+  },
+  {
+    "id": "emoji-zwj-unseparated",
+    "text": "👩‍👩"
+  },
+  {
+    "id": "regional-indicator-pair",
+    "text": "🇺🇸"
+  },
+  {
+    "id": "base-combining-mark",
+    "text": "é"
+  }
+]

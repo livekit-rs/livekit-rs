@@ -1,0 +1,182 @@
+[
+  {
+    "id": "empty",
+    "sdp": ""
+  },
+  {
+    "id": "nonsense",
+    "sdp": "bad SDP"
+  },
+  {
+    "id": "minimal-grammar-no-media",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+  },
+  {
+    "id": "media-valid-no-ice",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "only-version",
+    "sdp": "v=0\n"
+  },
+  {
+    "id": "lf-only",
+    "sdp": "v=0\no=- 1 1 IN IP4 127.0.0.1\ns=-\nt=0 0\na=group:BUNDLE 0\nm=audio 9 UDP/TLS/RTP/SAVPF 111\nc=IN IP4 0.0.0.0\na=mid:0\na=rtpmap:111 opus/48000/2\na=sendonly\na=rtcp-mux\n"
+  },
+  {
+    "id": "no-final-newline",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux"
+  },
+  {
+    "id": "blank-prefix",
+    "sdp": "\nv=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "cr-only",
+    "sdp": "v=0\ro=- 1 1 IN IP4 127.0.0.1\rs=-\rt=0 0\ra=group:BUNDLE 0\rm=audio 9 UDP/TLS/RTP/SAVPF 111\rc=IN IP4 0.0.0.0\ra=mid:0\ra=rtpmap:111 opus/48000/2\ra=sendonly\ra=rtcp-mux\r"
+  },
+  {
+    "id": "v-bad-0",
+    "sdp": "v=1\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "v-bad-1",
+    "sdp": "v=x\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "v-bad-2",
+    "sdp": "v=-1\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "v-bad-3",
+    "sdp": "v=\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "o-bad-0",
+    "sdp": "v=0\r\no=- x 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "o-bad-1",
+    "sdp": "v=0\r\no=- 1 x IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "o-bad-2",
+    "sdp": "v=0\r\no=- 1 1 FOO IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "o-bad-3",
+    "sdp": "v=0\r\no=- 1 1 IN FOO 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "o-bad-4",
+    "sdp": "v=0\r\no=- 1 1 IN IP4\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "o-bad-5",
+    "sdp": "v=0\r\no=\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "t-bad-0",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=x 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "t-bad-1",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 x\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "t-bad-2",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=-1 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "t-bad-3",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "t-bad-4",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "m-bad-0",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio x RTP/AVP 0\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "m-bad-1",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio -1 RTP/AVP 0\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "m-bad-2",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 65536 RTP/AVP 0\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "m-bad-3",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 FOO 0\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "m-bad-4",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 RTP/AVP\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "m-bad-5",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "c-bad-0",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=XX IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "c-bad-1",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN FOO 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "c-bad-2",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "c-bad-3",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "missing-v",
+    "sdp": "o=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "missing-o",
+    "sdp": "v=0\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "missing-s",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "missing-t",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "unknown-session-field",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nz=unsupported\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "unknown-media-field",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\nx=not-sdp\r\n"
+  },
+  {
+    "id": "unicode-session-name",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=\u89c6\u9891\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "invalid-nul",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=\u0000\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "duplicate-version",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nv=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\n"
+  },
+  {
+    "id": "syntactic-unknown-attribute",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=rtpmap:111 opus/48000/2\r\na=sendonly\r\na=rtcp-mux\r\na=unknown:something\r\n"
+  },
+  {
+    "id": "grammar-but-not-webrtc",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 RTP/AVP 0\r\na=mid:0\r\n"
+  }
+]

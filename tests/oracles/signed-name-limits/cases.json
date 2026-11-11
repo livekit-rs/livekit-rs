@@ -1,0 +1,322 @@
+[
+  {
+    "id": "limit-0-value-0",
+    "limit": -9223372036854775808,
+    "value": ""
+  },
+  {
+    "id": "limit-0-value-1",
+    "limit": -9223372036854775808,
+    "value": "a"
+  },
+  {
+    "id": "limit-0-value-2",
+    "limit": -9223372036854775808,
+    "value": "é"
+  },
+  {
+    "id": "limit-0-value-3",
+    "limit": -9223372036854775808,
+    "value": "éa"
+  },
+  {
+    "id": "limit-0-value-4",
+    "limit": -9223372036854775808,
+    "value": "中"
+  },
+  {
+    "id": "limit-0-value-5",
+    "limit": -9223372036854775808,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-0-value-6",
+    "limit": -9223372036854775808,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-0-value-7",
+    "limit": -9223372036854775808,
+    "value": "éé"
+  },
+  {
+    "id": "limit-1-value-0",
+    "limit": -2,
+    "value": ""
+  },
+  {
+    "id": "limit-1-value-1",
+    "limit": -2,
+    "value": "a"
+  },
+  {
+    "id": "limit-1-value-2",
+    "limit": -2,
+    "value": "é"
+  },
+  {
+    "id": "limit-1-value-3",
+    "limit": -2,
+    "value": "éa"
+  },
+  {
+    "id": "limit-1-value-4",
+    "limit": -2,
+    "value": "中"
+  },
+  {
+    "id": "limit-1-value-5",
+    "limit": -2,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-1-value-6",
+    "limit": -2,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-1-value-7",
+    "limit": -2,
+    "value": "éé"
+  },
+  {
+    "id": "limit-2-value-0",
+    "limit": -1,
+    "value": ""
+  },
+  {
+    "id": "limit-2-value-1",
+    "limit": -1,
+    "value": "a"
+  },
+  {
+    "id": "limit-2-value-2",
+    "limit": -1,
+    "value": "é"
+  },
+  {
+    "id": "limit-2-value-3",
+    "limit": -1,
+    "value": "éa"
+  },
+  {
+    "id": "limit-2-value-4",
+    "limit": -1,
+    "value": "中"
+  },
+  {
+    "id": "limit-2-value-5",
+    "limit": -1,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-2-value-6",
+    "limit": -1,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-2-value-7",
+    "limit": -1,
+    "value": "éé"
+  },
+  {
+    "id": "limit-3-value-0",
+    "limit": 0,
+    "value": ""
+  },
+  {
+    "id": "limit-3-value-1",
+    "limit": 0,
+    "value": "a"
+  },
+  {
+    "id": "limit-3-value-2",
+    "limit": 0,
+    "value": "é"
+  },
+  {
+    "id": "limit-3-value-3",
+    "limit": 0,
+    "value": "éa"
+  },
+  {
+    "id": "limit-3-value-4",
+    "limit": 0,
+    "value": "中"
+  },
+  {
+    "id": "limit-3-value-5",
+    "limit": 0,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-3-value-6",
+    "limit": 0,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-3-value-7",
+    "limit": 0,
+    "value": "éé"
+  },
+  {
+    "id": "limit-4-value-0",
+    "limit": 1,
+    "value": ""
+  },
+  {
+    "id": "limit-4-value-1",
+    "limit": 1,
+    "value": "a"
+  },
+  {
+    "id": "limit-4-value-2",
+    "limit": 1,
+    "value": "é"
+  },
+  {
+    "id": "limit-4-value-3",
+    "limit": 1,
+    "value": "éa"
+  },
+  {
+    "id": "limit-4-value-4",
+    "limit": 1,
+    "value": "中"
+  },
+  {
+    "id": "limit-4-value-5",
+    "limit": 1,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-4-value-6",
+    "limit": 1,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-4-value-7",
+    "limit": 1,
+    "value": "éé"
+  },
+  {
+    "id": "limit-5-value-0",
+    "limit": 2,
+    "value": ""
+  },
+  {
+    "id": "limit-5-value-1",
+    "limit": 2,
+    "value": "a"
+  },
+  {
+    "id": "limit-5-value-2",
+    "limit": 2,
+    "value": "é"
+  },
+  {
+    "id": "limit-5-value-3",
+    "limit": 2,
+    "value": "éa"
+  },
+  {
+    "id": "limit-5-value-4",
+    "limit": 2,
+    "value": "中"
+  },
+  {
+    "id": "limit-5-value-5",
+    "limit": 2,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-5-value-6",
+    "limit": 2,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-5-value-7",
+    "limit": 2,
+    "value": "éé"
+  },
+  {
+    "id": "limit-6-value-0",
+    "limit": 3,
+    "value": ""
+  },
+  {
+    "id": "limit-6-value-1",
+    "limit": 3,
+    "value": "a"
+  },
+  {
+    "id": "limit-6-value-2",
+    "limit": 3,
+    "value": "é"
+  },
+  {
+    "id": "limit-6-value-3",
+    "limit": 3,
+    "value": "éa"
+  },
+  {
+    "id": "limit-6-value-4",
+    "limit": 3,
+    "value": "中"
+  },
+  {
+    "id": "limit-6-value-5",
+    "limit": 3,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-6-value-6",
+    "limit": 3,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-6-value-7",
+    "limit": 3,
+    "value": "éé"
+  },
+  {
+    "id": "limit-7-value-0",
+    "limit": 9223372036854775807,
+    "value": ""
+  },
+  {
+    "id": "limit-7-value-1",
+    "limit": 9223372036854775807,
+    "value": "a"
+  },
+  {
+    "id": "limit-7-value-2",
+    "limit": 9223372036854775807,
+    "value": "é"
+  },
+  {
+    "id": "limit-7-value-3",
+    "limit": 9223372036854775807,
+    "value": "éa"
+  },
+  {
+    "id": "limit-7-value-4",
+    "limit": 9223372036854775807,
+    "value": "中"
+  },
+  {
+    "id": "limit-7-value-5",
+    "limit": 9223372036854775807,
+    "value": "🙂"
+  },
+  {
+    "id": "limit-7-value-6",
+    "limit": 9223372036854775807,
+    "value": "a\u0000b"
+  },
+  {
+    "id": "limit-7-value-7",
+    "limit": 9223372036854775807,
+    "value": "éé"
+  }
+]

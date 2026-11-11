@@ -1,0 +1,16 @@
+{
+  "id": "PION_GCC_REAL_SENT_AND_WIRE_ADAPTER_ORACLE",
+  "status": "PUBLIC_FIXTURE_REAL_GO_RUN_RECORDED_SEPARATELY",
+  "case_count": 11,
+  "target": "github.com/pion/interceptor v0.1.49",
+  "reference_path": "references/go-modules/pion-interceptor-v0.1.49",
+  "inputs": {
+    "oracle_test.go": "f2d79c580c2d2129960d687c42a2e08d985613a93c7e6da294f72daf5a27525e",
+    "cases.jsonl": "11db15f2cd121f6dea1a365bcf14b55482211486b0d5a4a61b0bf0dd76884ae1",
+    "prepare.py": "8b091111b181641300817c836ae8608e15d371cf9603037642214ff994ab7bd9",
+    "README.md": "df597ab35861ad1fc9f8891e5741e0d20286510423c302887ecedb4af369cb8f"
+  },
+  "production_source_changes": [],
+  "expected": "None authored; actual original methods required",
+  "source_lock": "livekit-rs-docs/specs/0018-go-module-archives-lock.json"
+}

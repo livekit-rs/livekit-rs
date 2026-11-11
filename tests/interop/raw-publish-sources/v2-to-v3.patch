@@ -1,0 +1,44 @@
+--- v2/run.mjs
++++ v3/run.mjs
+@@ -14,7 +14,7 @@
+ const sdk=await identity('livekit-server-sdk','2.19.2'),protocol=await identity('@livekit/protocol','1.52.1');
+ const {AccessToken,RoomServiceClient}=loader(sdk.entry),{SignalRequest,SignalResponse}=loader(protocol.entry);
+ const key=env.LIVEKIT_API_KEY||'devkey',secret=env.LIVEKIT_API_SECRET||'secret',TIMEOUT=10000;
+-const report={status:'RUNNING',scope:'actual ServerSDK owner GetParticipant+UpdateParticipant and binary WS raw source JWT refresh/AddTrack reservation responses; no SDP/ICE/RTP/RTC/media claim',sdk,protocol,lock_sha256:hash(await readFile(resolve(dirname(env.INTEROP_PACKAGE),'package-lock.json'))),campaigns:[],cleanup_errors:[]};
++const report={status:'RUNNING',scope:'unchanged official ServerSDK HTTP with independently HS256-signed legal protocol source vectors, actual WS refresh/reservation/resume; not SDK raw token mint or RTC/media',sdk,protocol,lock_sha256:hash(await readFile(resolve(dirname(env.INTEROP_PACKAGE),'package-lock.json'))),campaigns:[],cleanup_errors:[]};
+ let stage='setup';async function save(){await writeFile(env.RESULT,JSON.stringify(report,null,2)+'\n',{mode:0o600});}
+ async function processProof(pidText,binary,config){
+  const pid=Number(pidText);assert(Number.isSafeInteger(pid)&&pid>1);process.kill(pid,0);const expected=await realpath(binary),configPath=await realpath(config);let observed,argv;
+@@ -53,6 +53,17 @@
+ report.source_cases_sha256=hash(caseBytes);report.actual_fixed_go16_sha256=hash(actualBytes);
+ function expectedVideo(actual,row,room,changed){const base=structuredClone(changed?actual.changed_refresh_video:actual.refresh_video);assert.equal(base.room,'owned');base.room=room;base.canSubscribe=false;base.canPublishData=false;base.canUpdateOwnMetadata=true;assert.equal(base.roomJoin,true);return base;}
+ function safeVideo(video,room){assert.equal(video.room,room);return {...video,room:'<actual-owned-room>'};}
++function independentProtocolToken(baselineToken,rawSources){
++ const parts=baselineToken.split('.');assert.equal(parts.length,3);const baseline=claims(baselineToken); // true original SDK signature already verified
++ const header=JSON.parse(Buffer.from(parts[0],'base64url'));assert.equal(header.alg,'HS256');assert.equal(header.typ,'JWT');
++ assert.equal(Object.hasOwn(baseline.video,'canPublishSources'),false,'SDK canonical baseline must not receive raw source vector');
++ const payload=structuredClone(baseline);payload.video.canPublishSources=structuredClone(rawSources);
++ const encodedHeader=Buffer.from(JSON.stringify(header)).toString('base64url'),encodedPayload=Buffer.from(JSON.stringify(payload)).toString('base64url');
++ const signed=encodedHeader+'.'+encodedPayload,token=signed+'.'+createHmac('sha256',secret).update(signed).digest('base64url');
++ const verified=claims(token);assert.deepEqual(verified,payload);assert.equal(verified.sub,baseline.sub);assert.equal(verified.video.room,baseline.video.room);
++ assert.equal(verified.exp,baseline.exp);assert.equal(verified.nbf,baseline.nbf);return token;
++}
++
+ async function reserveFive(peer,actual,phase,raw){const results=[];const allowed=phase==='before'?actual.admission_before:actual.admission_after;assert.equal(allowed.length,5);
+  for(let source=0;source<5;source++){
+   const cid=`raw-source-${phase}-${source}`,start=peer.events.length;peer.send({addTrack:{cid,name:'owned-source-reservation',type:source===1||source===3?'VIDEO':'AUDIO',source:['UNKNOWN','CAMERA','MICROPHONE','SCREEN_SHARE','SCREEN_SHARE_AUDIO'][source]}});
+@@ -70,11 +81,11 @@
+   const made=await api.createRoom({name:room});owned=true;assert.equal(made.name,room);const roomSid=made.sid;
+   for(let index=0;index<cases.length;index++){
+    const raw=cases[index],actual=sourceRows[index];assert.equal(actual.id,raw.id);assert.equal(actual.same_matches,true);assert.equal(actual.changed_matches,false);
+-   const identity='source-'+randomUUID(),mint=new AccessToken(key,secret,{identity,ttl:'2m'}),grant={roomJoin:true,room,canSubscribe:false,canPublishData:false,canUpdateOwnMetadata:true,canPublishSources:raw.sources};if(raw.can_publish!==null)grant.canPublish=raw.can_publish;mint.addGrant(grant);
+-   const token=await mint.toJwt(),initial=claims(token);assert.deepEqual(initial.video.canPublishSources,raw.sources,'unchanged official SDK minted exact requested raw array/null');
++   const identity='source-'+randomUUID(),mint=new AccessToken(key,secret,{identity,ttl:'2m'}),grant={roomJoin:true,room,canSubscribe:false,canPublishData:false,canUpdateOwnMetadata:true};if(raw.can_publish!==null)grant.canPublish=raw.can_publish;mint.addGrant(grant);
++   const baselineToken=await mint.toJwt();claims(baselineToken);const token=independentProtocolToken(baselineToken,raw.sources),initial=claims(token);assert.deepEqual(initial.video.canPublishSources,raw.sources,'independent legal protocol vector retains exact array/null');
+    let peer=new Peer(url,token,identity,room);peer.video=expectedVideo(actual,raw,room,false);peers.push(peer);await peer.join();
+    let owner=await ownerParticipant(api,room,identity,p=>p.sid===peer.sid);assert.equal(owner.sid,peer.sid);assert.deepEqual(owner.permission.canPublishSources,actual.permission_sources,'actual owner API ordered enum projection incl duplicates/unknown');assert.equal(owner.permission.canUpdateMetadata,true);assert.equal(owner.permission.canSubscribe,false);assert.equal(owner.permission.canPublishData,false);assert.equal(owner.permission.canPublish,raw.can_publish===null?true:raw.can_publish);
+-   const observed={id:raw.id,raw_sources:raw.sources,owner_permission_sources:[...owner.permission.canPublishSources],steps:[]};
++   const observed={id:raw.id,input_signer:'standard HS256 protocol vector derived from verified unchanged SDK canonical baseline',baseline_sdk_signature_verified:true,independent_vector_signature_verified:true,raw_sources:raw.sources,owner_permission_sources:[...owner.permission.canPublishSources],steps:[]};
+    // Metadata + equivalent public permission: real SetPermission must preserve
+    // original raw source strings when the ordered projected permission matches.
+    let start=peer.events.length,count=refreshCount(peer),previous=owner;

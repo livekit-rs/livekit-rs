@@ -1,0 +1,1 @@
+Run with Go1.26.3: `go run main.go`. This observes the exact language uint32 conversion used by the fixed positive-RTT statement, not the whole signaling handler or media timing. Invoke the Rust ignored reader with RTT_CAST_GO_RESULTS pointing to actual-go8.jsonl. The normal public decoder counterexample is recorded separately in final evidence.

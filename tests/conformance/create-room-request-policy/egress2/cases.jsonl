@@ -1,0 +1,2 @@
+{"id":"accepted-short-expiry-unlimited-worker","attempts":1,"timeout":"100ms","worker_attempts":0}
+{"id":"accepted-default-expiry-unlimited-worker","attempts":1,"timeout":"10s","worker_attempts":0}

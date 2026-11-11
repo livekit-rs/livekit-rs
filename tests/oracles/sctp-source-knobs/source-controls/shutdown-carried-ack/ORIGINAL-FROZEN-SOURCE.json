@@ -1,0 +1,37 @@
+{
+  "status": "FROZEN_NOT_COMPILED_NOT_RUN",
+  "scope": "SHUTDOWN carried ACK + endpoint lifetime; no heartbeat dependency",
+  "targets": [
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/mod.rs",
+      "before_sha256": "c3786dd0f3e58f945a48af84452847d462694945859a7cb64cd7c5e3c2d78971",
+      "after_sha256": "daecec7ff78812b50c39a7232d7e63e9a75ea56cbcf4e697a1c1bdacae785837"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/source_shutdown.rs",
+      "before_sha256": null,
+      "after_sha256": "7a7053faeca7d95de0b72d59fb2debefccbda70adf14484a4bd046d227381853"
+    },
+    {
+      "path": "livekit-rs-server/vendor/sctp-proto/src/association/source_shutdown_tests.rs",
+      "before_sha256": null,
+      "after_sha256": "9ef30e627f86de656a929f9af584a7e47df4e8988727c163ada5443adefa3b75"
+    }
+  ],
+  "assets_sha256": {
+    "prepare_payload.py": "1277f5bd7206049c968e83d9991636342ddea721686982b051767f9cae719799",
+    "finalize_payload.py": "4e6d226f46d653e904f1904662c5835bbfe4ceea695ad2d8757b8bd6261e7488",
+    "baseline-red-only.patch": "cb1cd06cfc918b553f732c974376c7d531844a5d49fe5a100e3099f5c43f7218",
+    "CONTRACT.md": "8f5166d13ed2e2f736ba62408388c2d3a4b23c46067a9d29854fb22abdcfbe9c",
+    "fix_peer_ack.py": "034f0ad3d46432efc8b6d66423e3ced08d14b4817cccb7315b86ebc80ad20efc",
+    "extracted-ack-blocks.txt": "3e221ea133871543f67878c8c8ac1e92b47b4e9989761ce442a92c993e99291a",
+    "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "oracle/shutdown_carried_ack_test.go": "d32c4ab4d2a1361560ca2580aff65e602b5ff482063deb39654a497c971e025e",
+    "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "oracle/prepare.py": "c126dca98d38030ea8031680677fc32ca091c1d25af12dc3bd168510accdfc30",
+    "payload/livekit-rs-server/vendor/sctp-proto/src/association/source_shutdown_tests.rs": "9ef30e627f86de656a929f9af584a7e47df4e8988727c163ada5443adefa3b75",
+    "payload/livekit-rs-server/vendor/sctp-proto/src/association/mod.rs": "daecec7ff78812b50c39a7232d7e63e9a75ea56cbcf4e697a1c1bdacae785837",
+    "payload/livekit-rs-server/vendor/sctp-proto/src/association/source_shutdown.rs": "7a7053faeca7d95de0b72d59fb2debefccbda70adf14484a4bd046d227381853",
+    "base/livekit-rs-server/vendor/sctp-proto/src/association/mod.rs": "c3786dd0f3e58f945a48af84452847d462694945859a7cb64cd7c5e3c2d78971"
+  }
+}

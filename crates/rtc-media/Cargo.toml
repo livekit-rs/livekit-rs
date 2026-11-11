@@ -1,0 +1,30 @@
+[package]
+name = "rtc-media"
+description = "SFU media engine on str0m (frame-level MediaData API): transports, forwarding, simulcast, dynacast, BWE allocation, speakers, quality (ARCH-01: no lk-* deps)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rtc-core.workspace = true
+rtc-crypto.workspace = true
+# default-features = false comes from the workspace entry. Never enable the str0m
+# crypto features (`rust-crypto`, `aws-lc-rs`, `openssl`): the provider is
+# injected from rtc-crypto (DEP-06).
+str0m.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+# Independent fixed-source Pion and runtime JSON-vector tests.
+serde_json.workspace = true
+# Compile exact vendored ACK estimator source vectors without vendor dev/native backends.
+str0m-proto.workspace = true
+serde.workspace = true
+
+# Exact vendored pacer private tests use the already locked test-only RNG.
+fastrand = "=2.5.0"

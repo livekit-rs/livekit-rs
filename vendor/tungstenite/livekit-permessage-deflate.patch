@@ -1,0 +1,864 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -209,3 +209,8 @@
+ 
+ [profile.bench]
+ lto = "thin"
++
++[dependencies.flate2]
++version = "=1.1.10"
++default-features = false
++features = ["rust_backend"]
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -2,9 +2,9 @@
+ 
+ use std::{io, result, str, string};
+ 
+-use crate::protocol::{frame::coding::Data, Message};
+-#[cfg(feature = "handshake")]
+-use http::{header::HeaderName, Response};
++use crate::protocol::{Message, frame::coding::Data};
++#[cfg(feature = "handshake")]
++use http::{Response, header::HeaderName};
+ use thiserror::Error;
+ 
+ /// Result type of all Tungstenite library calls.
+@@ -138,6 +138,15 @@
+     /// Too many headers provided (see [`httparse::Error::TooManyHeaders`]).
+     #[error("Too many headers")]
+     TooManyHeaders,
++    /// A negotiated compressed message exceeded an independent decoded cap.
++    /// This is the signal decoder's limit, not Gorilla's wire-level 1009 limit.
++    #[error("Decompressed message too long: {size} > {max_size}")]
++    DecompressedMessageTooLong {
++        /// Decoded bytes observed before rejection.
++        size: usize,
++        /// Independent decoded-message budget.
++        max_size: usize,
++    },
+     /// Received header is too long.
+     /// Message is bigger than the maximum allowed size.
+     #[error("Message too long: {size} > {max_size}")]
+@@ -220,6 +229,9 @@
+     /// Reserved bits in frame header are non-zero.
+     #[error("Reserved bits are non-zero")]
+     NonZeroReservedBits,
++    /// The negotiated raw DEFLATE message was malformed or incomplete.
++    #[error("Invalid permessage-deflate payload")]
++    InvalidCompression,
+     /// The server must close the connection when an unmasked frame is received.
+     #[error("Received an unmasked frame from client")]
+     UnmaskedFrameFromClient,
+--- /dev/null
++++ b/src/protocol/deflate.rs
+@@ -0,0 +1,169 @@
++//! RFC 7692 raw DEFLATE with fresh state per message. Gorilla websocket
++//! v1.5.3 compression.go uses the same sync-flush suffix and final empty block.
++use crate::error::{CapacityError, Error, ProtocolError, Result};
++use bytes::Bytes;
++use flate2::{Compression, Decompress, FlushDecompress, Status};
++use std::io::Write;
++
++pub(super) fn encode(payload: &[u8]) -> Result<Bytes> {
++    let mut writer = flate2::write::DeflateEncoder::new(Vec::new(), Compression::fast());
++    writer.write_all(payload)?;
++    writer.flush()?;
++    let mut wire = std::mem::take(writer.get_mut());
++    if !wire.ends_with(&[0, 0, 0xff, 0xff]) {
++        return Err(ProtocolError::InvalidCompression.into());
++    }
++    wire.truncate(wire.len() - 4);
++    Ok(wire.into())
++}
++
++#[derive(Debug)]
++pub(super) struct Decoder {
++    inner: Decompress,
++    ended: bool,
++    pending: Vec<u8>,
++}
++impl Decoder {
++    pub(super) fn new() -> Self {
++        Self {
++            inner: Decompress::new(false),
++            ended: false,
++            pending: Vec::new(),
++        }
++    }
++    pub(super) fn decode(&mut self, wire: &[u8], fin: bool, limit: Option<usize>) -> Result<Bytes> {
++        let mut input = std::mem::take(&mut self.pending);
++        input.extend_from_slice(wire);
++        if fin {
++            input.extend_from_slice(&[0, 0, 0xff, 0xff, 1, 0, 0, 0xff, 0xff]);
++        }
++        let mut output = Vec::new();
++        let used = self.feed(&input, limit, &mut output)?;
++        if fin && !self.ended {
++            return Err(ProtocolError::InvalidCompression.into());
++        }
++        if !fin && !self.ended {
++            self.pending.extend_from_slice(&input[used..]);
++        }
++        Ok(output.into())
++    }
++    fn feed(
++        &mut self,
++        mut input: &[u8],
++        limit: Option<usize>,
++        output: &mut Vec<u8>,
++    ) -> Result<usize> {
++        let original_len = input.len();
++        // Fixed scratch size; a tiny compressed message never authorizes an
++        // unchecked decompressed allocation. Optional decoded cap is independent
++        // of Gorilla's wire-length read limit and is None by default.
++        let mut scratch = [0u8; 4096];
++        while !self.ended {
++            let before_in = self.inner.total_in();
++            let before_out = self.inner.total_out();
++            let status = self
++                .inner
++                .decompress(input, &mut scratch, FlushDecompress::Sync)
++                .map_err(|_| Error::Protocol(ProtocolError::InvalidCompression))?;
++            let used = (self.inner.total_in() - before_in) as usize;
++            let produced = (self.inner.total_out() - before_out) as usize;
++            if let Some(max_size) = limit {
++                if self.inner.total_out() > max_size as u64 {
++                    return Err(CapacityError::DecompressedMessageTooLong {
++                        size: usize::try_from(self.inner.total_out()).unwrap_or(usize::MAX),
++                        max_size,
++                    }
++                    .into());
++                }
++            }
++            output.extend_from_slice(&scratch[..produced]);
++            input = &input[used..];
++            if status == Status::StreamEnd {
++                self.ended = true;
++                break;
++            }
++            if used == 0 && produced == 0 {
++                break;
++            }
++            if input.is_empty() && produced < scratch.len() {
++                break;
++            }
++        }
++        Ok(original_len - input.len())
++    }
++}
++
++/// Match Gorilla's extension-list parser: extension names are case-sensitive,
++/// parameters can be tokens or quoted strings, and malformed remainder in one
++/// header does not authorize negotiation from later text in that same header.
++pub fn offers_permessage_deflate<'a>(headers: impl IntoIterator<Item = &'a str>) -> bool {
++    fn token(byte: u8) -> bool {
++        byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
++    }
++    fn space(input: &[u8]) -> &[u8] {
++        input.trim_ascii_start()
++    }
++    'headers: for value in headers {
++        let mut input = value.as_bytes();
++        loop {
++            input = space(input);
++            let n = input.iter().take_while(|byte| token(**byte)).count();
++            if n == 0 {
++                continue 'headers;
++            }
++            let offered = &input[..n] == b"permessage-deflate";
++            input = &input[n..];
++            loop {
++                input = space(input);
++                if input.first() != Some(&b';') {
++                    break;
++                }
++                input = space(&input[1..]);
++                let n = input.iter().take_while(|byte| token(**byte)).count();
++                if n == 0 {
++                    continue 'headers;
++                }
++                input = space(&input[n..]);
++                if input.first() == Some(&b'=') {
++                    input = space(&input[1..]);
++                    if input.first() == Some(&b'"') {
++                        input = &input[1..];
++                        let mut escaped = false;
++                        let mut end = None;
++                        for (n, byte) in input.iter().enumerate() {
++                            if escaped {
++                                escaped = false;
++                            } else if *byte == b'\\' {
++                                escaped = true;
++                            } else if *byte == b'"' {
++                                end = Some(n + 1);
++                                break;
++                            }
++                        }
++                        // Gorilla nextTokenOrQuoted returns an empty rest on
++                        // unterminated quoting; preserve that parser behavior.
++                        input = end.map_or(&[][..], |n| &input[n..]);
++                    } else {
++                        let n = input.iter().take_while(|byte| token(**byte)).count();
++                        input = &input[n..];
++                    }
++                }
++                input = space(input);
++                if !input.is_empty() && !matches!(input[0], b',' | b';') {
++                    continue 'headers;
++                }
++            }
++            if !input.is_empty() && input[0] != b',' {
++                continue 'headers;
++            }
++            if offered {
++                return true;
++            }
++            if input.is_empty() {
++                continue 'headers;
++            }
++            input = &input[1..];
++        }
++    }
++    false
++}
+--- a/src/protocol/mod.rs
++++ b/src/protocol/mod.rs
+@@ -2,14 +2,16 @@
+ 
+ pub mod frame;
+ 
++mod deflate;
++pub use deflate::offers_permessage_deflate;
+ mod message;
+ 
+ pub use self::{frame::CloseFrame, message::Message};
+ 
+ use self::{
+     frame::{
++        Frame, FrameCodec,
+         coding::{CloseCode, Control as OpCtl, Data as OpData, OpCode},
+-        Frame, FrameCodec,
+     },
+     message::{IncompleteMessage, MessageType},
+ };
+@@ -90,6 +92,12 @@
+     /// some popular libraries that are sending unmasked frames, ignoring the RFC.
+     /// By default this option is set to `false`, i.e. according to RFC 6455.
+     pub accept_unmasked_frames: bool,
++    /// RFC 7692 has already been negotiated, with both directions using
++    /// no-context-takeover. Raw-socket callers own the HTTP negotiation.
++    pub permessage_deflate: bool,
++    /// Optional independent decoded-message cap. None preserves Gorilla's
++    /// wire-only SetReadLimit contract; no unchecked decoded preallocation.
++    pub max_decompressed_message_size: Option<usize>,
+ }
+ 
+ impl Default for WebSocketConfig {
+@@ -101,11 +109,24 @@
+             max_message_size: Some(64 << 20),
+             max_frame_size: Some(16 << 20),
+             accept_unmasked_frames: false,
++            permessage_deflate: false,
++            max_decompressed_message_size: None,
+         }
+     }
+ }
+ 
+ impl WebSocketConfig {
++    /// Set the already-negotiated no-context-takeover DEFLATE extension.
++    pub fn permessage_deflate(mut self, enabled: bool) -> Self {
++        self.permessage_deflate = enabled;
++        self
++    }
++    /// Set an independent decoded cap; it does not replace the wire read budget.
++    pub fn max_decompressed_message_size(mut self, limit: Option<usize>) -> Self {
++        self.max_decompressed_message_size = limit;
++        self
++    }
++
+     /// Set [`Self::read_buffer_size`].
+     pub fn read_buffer_size(mut self, read_buffer_size: usize) -> Self {
+         self.read_buffer_size = read_buffer_size;
+@@ -176,7 +197,10 @@
+     /// # Panics
+     /// Panics if config is invalid e.g. `max_write_buffer_size <= write_buffer_size`.
+     pub fn from_raw_socket(stream: Stream, role: Role, config: Option<WebSocketConfig>) -> Self {
+-        WebSocket { socket: stream, context: WebSocketContext::new(role, config) }
++        WebSocket {
++            socket: stream,
++            context: WebSocketContext::new(role, config),
++        }
+     }
+ 
+     /// Convert a raw socket into a WebSocket without performing a handshake.
+@@ -368,6 +392,8 @@
+     state: WebSocketState,
+     /// Receive: an incomplete message being processed.
+     incomplete: Option<IncompleteMessage>,
++    incoming_deflate: Option<deflate::Decoder>,
++    wire_message_size: usize,
+     /// Send in addition to regular messages E.g. "pong" or "close".
+     additional_send: Option<Frame>,
+     /// True indicates there is an additional message (like a pong)
+@@ -393,7 +419,11 @@
+     /// Panics if config is invalid e.g. `max_write_buffer_size <= write_buffer_size`.
+     pub fn from_partially_read(part: Vec<u8>, role: Role, config: Option<WebSocketConfig>) -> Self {
+         let conf = config.unwrap_or_default();
+-        Self::_new(role, FrameCodec::from_partially_read(part, conf.read_buffer_size), conf)
++        Self::_new(
++            role,
++            FrameCodec::from_partially_read(part, conf.read_buffer_size),
++            conf,
++        )
+     }
+ 
+     fn _new(role: Role, mut frame: FrameCodec, config: WebSocketConfig) -> Self {
+@@ -405,6 +435,8 @@
+             frame,
+             state: WebSocketState::Active,
+             incomplete: None,
++            incoming_deflate: None,
++            wire_message_size: 0,
+             additional_send: None,
+             unflushed_additional: false,
+             config,
+@@ -418,8 +450,10 @@
+     pub fn set_config(&mut self, set_func: impl FnOnce(&mut WebSocketConfig)) {
+         set_func(&mut self.config);
+         self.config.assert_valid();
+-        self.frame.set_max_out_buffer_len(self.config.max_write_buffer_size);
+-        self.frame.set_out_buffer_write_len(self.config.write_buffer_size);
++        self.frame
++            .set_max_out_buffer_len(self.config.max_write_buffer_size);
++        self.frame
++            .set_out_buffer_write_len(self.config.write_buffer_size);
+     }
+ 
+     /// Read the configuration.
+@@ -501,8 +535,8 @@
+         }
+ 
+         let frame = match message {
+-            Message::Text(data) => Frame::message(data, OpCode::Data(OpData::Text), true),
+-            Message::Binary(data) => Frame::message(data, OpCode::Data(OpData::Binary), true),
++            Message::Text(data) => self.message_frame(data.into(), OpData::Text)?,
++            Message::Binary(data) => self.message_frame(data, OpData::Binary)?,
+             Message::Ping(data) => Frame::ping(data),
+             Message::Pong(data) => {
+                 self.set_additional(Frame::pong(data));
+@@ -518,6 +552,16 @@
+             self.flush(stream)?;
+         }
+         Ok(())
++    }
++
++    fn message_frame(&self, payload: bytes::Bytes, kind: OpData) -> Result<Frame> {
++        let mut frame = if self.config.permessage_deflate {
++            Frame::message(deflate::encode(&payload)?, OpCode::Data(kind), true)
++        } else {
++            Frame::message(payload, OpCode::Data(kind), true)
++        };
++        frame.header_mut().rsv1 = self.config.permessage_deflate;
++        Ok(frame)
+     }
+ 
+     /// Flush writes.
+@@ -611,9 +655,10 @@
+         #[cfg(feature = "livekit-server-header-read-budget")]
+         let read = if self.role == Role::Server {
+             let can_read = self.state.can_read();
+-            let incomplete = self.incomplete.as_ref().map(IncompleteMessage::len);
++            let incomplete = self.incomplete.as_ref().map(|_| self.wire_message_size);
+             let message_limit = self.config.max_message_size;
+             let accept_unmasked = self.config.accept_unmasked_frames;
++            let compressed = self.config.permessage_deflate;
+             self.frame.read_frame_with_header_check(
+                 stream,
+                 self.config.max_frame_size,
+@@ -621,7 +666,13 @@
+                 accept_unmasked,
+                 |header, payload_len| {
+                     check_server_header_budget(
+-                        header, payload_len, can_read, incomplete, message_limit, accept_unmasked,
++                        header,
++                        payload_len,
++                        can_read,
++                        incomplete,
++                        message_limit,
++                        accept_unmasked,
++                        compressed,
+                     )
+                 },
+             )
+@@ -640,7 +691,7 @@
+             matches!(self.role, Role::Server),
+             self.config.accept_unmasked_frames,
+         );
+-        let frame = match read.check_connection_reset(self.state)? {
++        let mut frame = match read.check_connection_reset(self.state)? {
+             None => {
+                 // Connection closed by peer
+                 return match replace(&mut self.state, WebSocketState::Terminated) {
+@@ -663,7 +714,9 @@
+         // Connection_.
+         {
+             let hdr = frame.header();
+-            if hdr.rsv1 || hdr.rsv2 || hdr.rsv3 {
++            let valid_rsv1 = self.config.permessage_deflate
++                && matches!(hdr.opcode, OpCode::Data(OpData::Text | OpData::Binary));
++            if (hdr.rsv1 && !valid_rsv1) || hdr.rsv2 || hdr.rsv3 {
+                 return Err(Error::Protocol(ProtocolError::NonZeroReservedBits));
+             }
+         }
+@@ -684,7 +737,13 @@
+                     _ if frame.payload().len() > 125 => {
+                         Err(Error::Protocol(ProtocolError::ControlFrameTooBig))
+                     }
+-                    OpCtl::Close => Ok(self.do_close(frame.into_close()?).map(Message::Close)),
++                    OpCtl::Close => {
++                        let close = frame.into_close()?;
++                        self.incoming_deflate = None;
++                        self.incomplete = None;
++                        self.wire_message_size = 0;
++                        Ok(self.do_close(close).map(Message::Close))
++                    }
+                     OpCtl::Reserved(i) => {
+                         Err(Error::Protocol(ProtocolError::UnknownControlFrameType(i)))
+                     }
+@@ -702,11 +761,52 @@
+ 
+             OpCode::Data(data) => {
+                 let fin = frame.header().is_final;
++                match (data, self.incomplete.is_some()) {
++                    (OpData::Continue, false) => {
++                        return Err(ProtocolError::UnexpectedContinueFrame.into());
++                    }
++                    (OpData::Text | OpData::Binary, true) => {
++                        return Err(ProtocolError::ExpectedFragment(data).into());
++                    }
++                    _ => {}
++                }
++                if data != OpData::Continue {
++                    self.wire_message_size = 0;
++                    if frame.header().rsv1 {
++                        self.incoming_deflate = Some(deflate::Decoder::new());
++                    }
++                }
++                self.wire_message_size =
++                    self.wire_message_size.saturating_add(frame.payload().len());
++                check_max_size(self.wire_message_size, self.config.max_message_size)?;
++                let decoded_limit = if self.incoming_deflate.is_some() {
++                    self.config.max_decompressed_message_size
++                } else {
++                    self.config.max_message_size
++                };
++                if let Some(decoder) = &mut self.incoming_deflate {
++                    let decoded = match decoder.decode(frame.payload(), fin, decoded_limit) {
++                        Ok(payload) => payload,
++                        Err(error) => {
++                            self.incoming_deflate = None;
++                            self.incomplete = None;
++                            self.wire_message_size = 0;
++                            return Err(error);
++                        }
++                    };
++                    let mut header = frame.header().clone();
++                    header.rsv1 = false;
++                    frame = Frame::from_payload(header, decoded);
++                }
++                if fin {
++                    self.incoming_deflate = None;
++                    self.wire_message_size = 0;
++                }
+ 
+                 let payload = match (data, self.incomplete.as_mut()) {
+                     (OpData::Continue, None) => Err(ProtocolError::UnexpectedContinueFrame),
+                     (OpData::Continue, Some(incomplete)) => {
+-                        incomplete.extend(frame.into_payload(), self.config.max_message_size)?;
++                        incomplete.extend(frame.into_payload(), decoded_limit)?;
+                         Ok(None)
+                     }
+                     (_, Some(_)) => Err(ProtocolError::ExpectedFragment(data)),
+@@ -719,7 +819,7 @@
+                     (None, true) => Ok(Some(self.incomplete.take().unwrap().complete()?)),
+                     (None, false) => Ok(None),
+                     (Some((payload, t)), true) => {
+-                        check_max_size(payload.len(), self.config.max_message_size)?;
++                        check_max_size(payload.len(), decoded_limit)?;
+                         match t {
+                             MessageType::Text => Ok(Some(Message::Text(payload.try_into()?))),
+                             MessageType::Binary => Ok(Some(Message::Binary(payload))),
+@@ -727,7 +827,7 @@
+                     }
+                     (Some((payload, t)), false) => {
+                         let mut incomplete = IncompleteMessage::new(t);
+-                        incomplete.extend(payload, self.config.max_message_size)?;
++                        incomplete.extend(payload, decoded_limit)?;
+                         self.incomplete = Some(incomplete);
+                         Ok(None)
+                     }
+@@ -807,7 +907,9 @@
+         }
+ 
+         trace!("Sending frame: {frame:?}");
+-        self.frame.buffer_frame(stream, frame).check_connection_reset(self.state)
++        self.frame
++            .buffer_frame(stream, frame)
++            .check_connection_reset(self.state)
+     }
+ 
+     /// Replace `additional_send` if it is currently a `Pong` message.
+@@ -834,11 +936,14 @@
+     incomplete: Option<usize>,
+     message_limit: Option<usize>,
+     accept_unmasked: bool,
++    permessage_deflate: bool,
+ ) -> Result<()> {
+     if !can_read {
+         return Err(Error::Protocol(ProtocolError::ReceivedAfterClosing));
+     }
+-    if header.rsv1 || header.rsv2 || header.rsv3 {
++    let valid_rsv1 =
++        permessage_deflate && matches!(header.opcode, OpCode::Data(OpData::Text | OpData::Binary));
++    if (header.rsv1 && !valid_rsv1) || header.rsv2 || header.rsv3 {
+         return Err(Error::Protocol(ProtocolError::NonZeroReservedBits));
+     }
+     match header.opcode {
+@@ -882,7 +987,10 @@
+ fn check_max_size(size: usize, max_size: Option<usize>) -> crate::Result<()> {
+     if let Some(max_size) = max_size {
+         if size > max_size {
+-            return Err(Error::Capacity(CapacityError::MessageTooLong { size, max_size }));
++            return Err(Error::Capacity(CapacityError::MessageTooLong {
++                size,
++                max_size,
++            }));
+         }
+     }
+     Ok(())
+@@ -979,8 +1087,14 @@
+         let mut socket = WebSocket::from_raw_socket(WriteMoc(incoming), Role::Client, None);
+         assert_eq!(socket.read().unwrap(), Message::Ping(vec![1, 2].into()));
+         assert_eq!(socket.read().unwrap(), Message::Pong(vec![3].into()));
+-        assert_eq!(socket.read().unwrap(), Message::Text("Hello, World!".into()));
+-        assert_eq!(socket.read().unwrap(), Message::Binary(vec![0x01, 0x02, 0x03].into()));
++        assert_eq!(
++            socket.read().unwrap(),
++            Message::Text("Hello, World!".into())
++        );
++        assert_eq!(
++            socket.read().unwrap(),
++            Message::Binary(vec![0x01, 0x02, 0x03].into())
++        );
+     }
+ 
+     #[test]
+@@ -989,24 +1103,303 @@
+             0x01, 0x07, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x80, 0x06, 0x57, 0x6f, 0x72,
+             0x6c, 0x64, 0x21,
+         ]);
+-        let limit = WebSocketConfig { max_message_size: Some(10), ..WebSocketConfig::default() };
++        let limit = WebSocketConfig {
++            max_message_size: Some(10),
++            ..WebSocketConfig::default()
++        };
+         let mut socket = WebSocket::from_raw_socket(WriteMoc(incoming), Role::Client, Some(limit));
+ 
+         assert!(matches!(
+             socket.read(),
+-            Err(Error::Capacity(CapacityError::MessageTooLong { size: 13, max_size: 10 }))
++            Err(Error::Capacity(CapacityError::MessageTooLong {
++                size: 13,
++                max_size: 10
++            }))
+         ));
+     }
+ 
+     #[test]
+     fn size_limiting_binary() {
+         let incoming = Cursor::new(vec![0x82, 0x03, 0x01, 0x02, 0x03]);
+-        let limit = WebSocketConfig { max_message_size: Some(2), ..WebSocketConfig::default() };
++        let limit = WebSocketConfig {
++            max_message_size: Some(2),
++            ..WebSocketConfig::default()
++        };
+         let mut socket = WebSocket::from_raw_socket(WriteMoc(incoming), Role::Client, Some(limit));
+ 
+         assert!(matches!(
+             socket.read(),
+-            Err(Error::Capacity(CapacityError::MessageTooLong { size: 3, max_size: 2 }))
++            Err(Error::Capacity(CapacityError::MessageTooLong {
++                size: 3,
++                max_size: 2
++            }))
+         ));
+     }
+ }
++
++#[cfg(test)]
++mod deflate_frame_tests {
++    use super::*;
++    use std::io::{Cursor, Read, Write};
++    #[derive(Default)]
++    struct Wire {
++        input: Cursor<Vec<u8>>,
++        output: Vec<u8>,
++    }
++    impl Read for Wire {
++        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
++            self.input.read(bytes)
++        }
++    }
++    impl Write for Wire {
++        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
++            self.output.extend_from_slice(bytes);
++            Ok(bytes.len())
++        }
++        fn flush(&mut self) -> io::Result<()> {
++            Ok(())
++        }
++    }
++    fn config() -> WebSocketConfig {
++        WebSocketConfig::default().permessage_deflate(true)
++    }
++    fn raw(kind: OpCode, fin: bool, compressed: bool, bytes: &[u8], mask: bool) -> Vec<u8> {
++        let mut frame = Frame::message(bytes::Bytes::copy_from_slice(bytes), kind, fin);
++        frame.header_mut().rsv1 = compressed;
++        if mask {
++            frame.header_mut().mask = Some([1, 2, 3, 4]);
++        }
++        let mut wire = Vec::new();
++        frame.format(&mut wire).unwrap();
++        wire
++    }
++    fn reader(input: Vec<u8>, role: Role, config: WebSocketConfig) -> WebSocket<Wire> {
++        WebSocket::from_raw_socket(
++            Wire {
++                input: Cursor::new(input),
++                ..Default::default()
++            },
++            role,
++            Some(config),
++        )
++    }
++    #[test]
++    fn rfc7692_known_messages_decode_through_actual_websocket_frames() {
++        // RFC 7692 §7.2.3.1/.3/.4/.5: fixed Huffman, uncompressed
++        // DEFLATE block, BFINAL=1, and multiple blocks in one message.
++        for payload in [
++            vec![0xf2, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00],
++            vec![
++                0x00, 0x05, 0x00, 0xfa, 0xff, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00,
++            ],
++            vec![0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00, 0x00],
++            vec![
++                0xf2, 0x48, 0x05, 0x00, 0x00, 0x00, 0xff, 0xff, 0xca, 0xc9, 0xc9, 0x07, 0x00,
++            ],
++        ] {
++            for role in [Role::Client, Role::Server] {
++                let input = raw(
++                    OpCode::Data(OpData::Text),
++                    true,
++                    true,
++                    &payload,
++                    role == Role::Server,
++                );
++                assert_eq!(
++                    reader(input, role, config()).read().unwrap(),
++                    Message::text("Hello")
++                );
++            }
++        }
++    }
++    #[test]
++    fn fragmented_compression_keeps_ping_and_close_uncompressed_and_resets_context() {
++        let compressed = [0xf2, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00];
++        let mut input = raw(
++            OpCode::Data(OpData::Text),
++            false,
++            true,
++            &compressed[..1],
++            true,
++        );
++        input.extend(raw(
++            OpCode::Control(OpCtl::Ping),
++            true,
++            false,
++            b"ping",
++            true,
++        ));
++        input.extend(raw(
++            OpCode::Data(OpData::Continue),
++            false,
++            false,
++            &compressed[1..3],
++            true,
++        ));
++        input.extend(raw(
++            OpCode::Data(OpData::Continue),
++            true,
++            false,
++            &compressed[3..],
++            true,
++        ));
++        input.extend(raw(
++            OpCode::Data(OpData::Text),
++            true,
++            true,
++            &compressed,
++            true,
++        ));
++        input.extend(raw(OpCode::Data(OpData::Text), true, false, b"plain", true));
++        input.extend(raw(
++            OpCode::Control(OpCtl::Close),
++            true,
++            false,
++            &[3, 232],
++            true,
++        ));
++        let mut socket = reader(
++            input,
++            Role::Server,
++            config().max_message_size(Some(compressed.len())),
++        );
++        assert_eq!(
++            socket.read().unwrap(),
++            Message::Ping(b"ping".as_slice().into())
++        );
++        assert_eq!(socket.read().unwrap(), Message::text("Hello"));
++        assert_eq!(socket.read().unwrap(), Message::text("Hello"));
++        assert_eq!(socket.read().unwrap(), Message::text("plain"));
++        assert!(
++            matches!(socket.read().unwrap(), Message::Close(Some(close)) if close.code == CloseCode::Normal)
++        );
++        let _ = socket.flush();
++        assert!(socket.context.incoming_deflate.is_none());
++        assert!(socket.context.incomplete.is_none());
++        let output = &socket.get_ref().output;
++        assert!(!output.is_empty());
++        assert_eq!(
++            output[0] & 0x40,
++            0,
++            "automatic PONG must never be compressed"
++        );
++    }
++    #[test]
++    fn compressed_wire_budget_and_optional_decoded_cap_are_different_domains() {
++        let plain = vec![b'x'; 8192];
++        let compressed = deflate::encode(&plain).unwrap();
++        assert!(compressed.len() < 128);
++        let mut input = raw(
++            OpCode::Data(OpData::Binary),
++            false,
++            true,
++            &compressed[..1],
++            true,
++        );
++        input.extend(raw(
++            OpCode::Data(OpData::Continue),
++            true,
++            false,
++            &compressed[1..],
++            true,
++        ));
++        let cfg = config().max_message_size(Some(compressed.len()));
++        assert_eq!(
++            reader(input.clone(), Role::Server, cfg).read().unwrap(),
++            Message::Binary(plain.into())
++        );
++        assert!(matches!(
++            reader(
++                input.clone(),
++                Role::Server,
++                cfg.max_decompressed_message_size(Some(64))
++            )
++            .read(),
++            Err(Error::Capacity(CapacityError::DecompressedMessageTooLong {
++                max_size: 64,
++                ..
++            }))
++        ));
++        assert!(matches!(
++            reader(
++                input,
++                Role::Server,
++                cfg.max_message_size(Some(compressed.len() - 1))
++            )
++            .read(),
++            Err(Error::Capacity(CapacityError::MessageTooLong { .. }))
++        ));
++    }
++    #[test]
++    fn malformed_deflate_reserved_bits_and_context_takeover_are_rejected() {
++        let good = [0xf2, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00];
++        let input = raw(OpCode::Data(OpData::Text), true, true, &good, true);
++        assert!(matches!(
++            reader(input, Role::Server, WebSocketConfig::default()).read(),
++            Err(Error::Protocol(ProtocolError::NonZeroReservedBits))
++        ));
++        for opcode in [OpCode::Control(OpCtl::Ping), OpCode::Data(OpData::Continue)] {
++            let input = raw(opcode, true, true, &good, true);
++            assert!(matches!(
++                reader(input, Role::Server, config()).read(),
++                Err(Error::Protocol(ProtocolError::NonZeroReservedBits))
++            ));
++        }
++        let input = raw(OpCode::Data(OpData::Binary), true, true, &[0x06], true);
++        assert!(matches!(
++            reader(input, Role::Server, config()).read(),
++            Err(Error::Protocol(ProtocolError::InvalidCompression))
++        ));
++        let mut input = raw(OpCode::Data(OpData::Text), true, true, &good, true);
++        // RFC 7692 §7.2.3.2's second message needs the first message's history.
++        input.extend(raw(
++            OpCode::Data(OpData::Text),
++            true,
++            true,
++            &[0xf2, 0x00, 0x11, 0x00, 0x00],
++            true,
++        ));
++        let mut socket = reader(input, Role::Server, config());
++        assert_eq!(socket.read().unwrap(), Message::text("Hello"));
++        assert!(matches!(
++            socket.read(),
++            Err(Error::Protocol(ProtocolError::InvalidCompression))
++        ));
++    }
++    #[test]
++    fn outgoing_text_and_binary_use_fresh_deflate_state_for_each_message() {
++        let mut server = WebSocket::from_raw_socket(Wire::default(), Role::Server, Some(config()));
++        let message = Message::text("same message with a fresh compression dictionary");
++        server.send(message.clone()).unwrap();
++        let first = server.get_ref().output.clone();
++        assert_ne!(first[0] & 0x40, 0);
++        server.send(message.clone()).unwrap();
++        assert_eq!(&server.get_ref().output[first.len()..], &first);
++        server
++            .send(Message::Binary(vec![0, 1, 2, 255].into()))
++            .unwrap();
++        let mut client = reader(server.into_inner().output, Role::Client, config());
++        assert_eq!(client.read().unwrap(), message);
++        assert_eq!(client.read().unwrap(), message);
++        assert_eq!(
++            client.read().unwrap(),
++            Message::Binary(vec![0, 1, 2, 255].into())
++        );
++    }
++    #[test]
++    fn extension_offer_parser_matches_gorilla_token_and_header_boundaries() {
++        assert!(offers_permessage_deflate([
++            "foo; x=\"a,b\", permessage-deflate; client_max_window_bits"
++        ]));
++        assert!(offers_permessage_deflate([
++            "bad invalid",
++            "permessage-deflate"
++        ]));
++        assert!(!offers_permessage_deflate(["PerMessage-Deflate"]));
++        assert!(!offers_permessage_deflate([
++            "foo invalid, permessage-deflate"
++        ]));
++        assert!(!offers_permessage_deflate(["permessage-deflate; =invalid"]));
++        assert!(!offers_permessage_deflate([""]));
++    }
++}

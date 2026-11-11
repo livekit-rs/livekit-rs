@@ -1,0 +1,156 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -54,6 +54,8 @@
+ [features]
+ # Opt-in LiveKit/Gorilla server compatibility. Default and client roles unchanged.
+ livekit-server-close-reply-empty-reason = []
++# Opt-in server data-message budget check before reading frame payload.
++livekit-server-header-read-budget = []
+ __rustls-tls = [
+     "rustls",
+     "rustls-pki-types",
+--- a/src/protocol/mod.rs
++++ b/src/protocol/mod.rs
+@@ -608,16 +608,39 @@
+ 
+     /// Try to decode one message frame. May return None.
+     fn read_message_frame(&mut self, stream: &mut impl Read) -> Result<Option<Message>> {
+-        let frame = match self
+-            .frame
+-            .read_frame(
++        #[cfg(feature = "livekit-server-header-read-budget")]
++        let read = if self.role == Role::Server {
++            let can_read = self.state.can_read();
++            let incomplete = self.incomplete.as_ref().map(IncompleteMessage::len);
++            let message_limit = self.config.max_message_size;
++            let accept_unmasked = self.config.accept_unmasked_frames;
++            self.frame.read_frame_with_header_check(
+                 stream,
+                 self.config.max_frame_size,
+-                matches!(self.role, Role::Server),
++                true,
++                accept_unmasked,
++                |header, payload_len| {
++                    check_server_header_budget(
++                        header, payload_len, can_read, incomplete, message_limit, accept_unmasked,
++                    )
++                },
++            )
++        } else {
++            self.frame.read_frame(
++                stream,
++                self.config.max_frame_size,
++                false,
+                 self.config.accept_unmasked_frames,
+             )
+-            .check_connection_reset(self.state)?
+-        {
++        };
++        #[cfg(not(feature = "livekit-server-header-read-budget"))]
++        let read = self.frame.read_frame(
++            stream,
++            self.config.max_frame_size,
++            matches!(self.role, Role::Server),
++            self.config.accept_unmasked_frames,
++        );
++        let frame = match read.check_connection_reset(self.state)? {
+             None => {
+                 // Connection closed by peer
+                 return match replace(&mut self.state, WebSocketState::Terminated) {
+@@ -795,8 +818,65 @@
+             .map_or(true, |f| f.header().opcode == OpCode::Control(OpCtl::Pong));
+         if empty_or_pong {
+             self.additional_send.replace(add);
++        }
++    }
++}
++
++// Copyright (c) 2013 The Gorilla WebSocket Authors. All rights reserved.
++// Source-derived BSD-2-Clause logic; see LICENSE-GORILLA (workspace notice also retained in LICENSES).
++// Source: Gorilla1.5.3 conn.go advanceFrame steps2-5. Invalid protocol
++// headers retain priority over data-budget failures. Controls consume no budget.
++#[cfg(feature = "livekit-server-header-read-budget")]
++fn check_server_header_budget(
++    header: &frame::FrameHeader,
++    payload_len: u64,
++    can_read: bool,
++    incomplete: Option<usize>,
++    message_limit: Option<usize>,
++    accept_unmasked: bool,
++) -> Result<()> {
++    if !can_read {
++        return Err(Error::Protocol(ProtocolError::ReceivedAfterClosing));
++    }
++    if header.rsv1 || header.rsv2 || header.rsv3 {
++        return Err(Error::Protocol(ProtocolError::NonZeroReservedBits));
++    }
++    match header.opcode {
++        OpCode::Control(_) if !header.is_final => {
++            return Err(Error::Protocol(ProtocolError::FragmentedControlFrame));
+         }
++        OpCode::Control(_) if payload_len > 125 => {
++            return Err(Error::Protocol(ProtocolError::ControlFrameTooBig));
++        }
++        OpCode::Control(OpCtl::Reserved(i)) => {
++            return Err(Error::Protocol(ProtocolError::UnknownControlFrameType(i)));
++        }
++        OpCode::Data(OpData::Continue) if incomplete.is_none() => {
++            return Err(Error::Protocol(ProtocolError::UnexpectedContinueFrame));
++        }
++        OpCode::Data(data @ (OpData::Text | OpData::Binary)) if incomplete.is_some() => {
++            return Err(Error::Protocol(ProtocolError::ExpectedFragment(data)));
++        }
++        OpCode::Data(OpData::Reserved(i)) => {
++            return Err(Error::Protocol(ProtocolError::UnknownDataFrameType(i)));
++        }
++        _ => {}
+     }
++    if header.mask.is_none() && !accept_unmasked {
++        return Err(Error::Protocol(ProtocolError::UnmaskedFrameFromClient));
++    }
++    if let OpCode::Data(_) = header.opcode {
++        let preceding = incomplete.unwrap_or(0);
++        let max_size = message_limit.unwrap_or(usize::MAX);
++        let remaining = max_size.saturating_sub(preceding);
++        if preceding > max_size || payload_len > remaining as u64 {
++            return Err(Error::Capacity(CapacityError::MessageTooLong {
++                size: preceding.saturating_add(usize::try_from(payload_len).unwrap_or(usize::MAX)),
++                max_size,
++            }));
++        }
++    }
++    Ok(())
+ }
+ 
+ fn check_max_size(size: usize, max_size: Option<usize>) -> crate::Result<()> {
+--- a/src/protocol/frame/mod.rs
++++ b/src/protocol/frame/mod.rs
+@@ -165,6 +165,18 @@
+         unmask: bool,
+         accept_unmasked: bool,
+     ) -> Result<Option<Frame>> {
++        self.read_frame_with_header_check(stream, max_size, unmask, accept_unmasked, |_, _| Ok(()))
++    }
++
++    // A complete parsed header including mask, before reserve/read of payload.
++    pub(super) fn read_frame_with_header_check(
++        &mut self,
++        stream: &mut impl Read,
++        max_size: Option<usize>,
++        unmask: bool,
++        accept_unmasked: bool,
++        mut check_header: impl FnMut(&FrameHeader, u64) -> Result<()>,
++    ) -> Result<Option<Frame>> {
+         let max_size = max_size.unwrap_or_else(usize::max_value);
+ 
+         let mut payload = loop {
+@@ -174,7 +186,8 @@
+                 let advanced = cursor.position();
+                 bytes::Buf::advance(&mut self.in_buffer, advanced as _);
+ 
+-                if let Some((_, len)) = &self.header {
++                if let Some((header, len)) = &self.header {
++                    check_header(header, *len)?;
+                     let len = *len as usize;
+ 
+                     // Enforce frame size limit early

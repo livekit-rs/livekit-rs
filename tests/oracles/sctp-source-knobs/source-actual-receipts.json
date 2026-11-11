@@ -1,0 +1,16 @@
+{
+  "scope": "Actual coordinator Go outputs, Rust candidate NOT_RUN. Old PR12 omitted allInflight and is not a qualification. RTO60 pending coordinator execution.",
+  "sha256": {
+    "livekit-rs-docs/evidence/2026-10-27/sctp-settings-go10-actual.jsonl": "29f3ce5461b05bba3b927ea54e7d048e3ccc5339e45ef9268b66de3b2ff1a938",
+    "livekit-rs-docs/evidence/2026-10-27/sctp-association-go10-actual.jsonl": "fce84ccb9aed00c32c016afd30a7fc2f52a9aeb22c32fb9c450605abc27612d3",
+    "livekit-rs-docs/evidence/2026-10-27/sctp-fast-pr-v2-go12-actual.jsonl": "66b41f84126e0c3b41a2e486416a4753f3345d372fad33d52d4721a717d8053f",
+    "livekit-rs-docs/evidence/2026-10-27/sctp-fragment-pr-go60-execution.json": "d7550d438e3c7691cc14f341f00d53b303f339827c800ee238f903abd7a8a46d",
+    "livekit-rs-docs/evidence/2026-10-27/sctp-fragment-pr-go60-actual.jsonl": "431f4bd0b2df0ac213d514ffd9e26c811670dbb22bfbff6c3505212a1050e234"
+  },
+  "derived_actual_tsv_sha256": {
+    "pr-actual.tsv": "2729648e667f794989754a2fa97dd4131ebf64656da1c1028bca7c60a82e37e4",
+    "fragment-actual.tsv": "48b8398d3290b20630d785b13a4eabcbad9ea50dc8dd77aab9cf770672a0e510"
+  },
+  "original_v1_source_sha256": "20e26740c661574c0f9bf6ba0de30e016817c6ac83963545d35c9a1418fcd524",
+  "original_oracle_lock_sha256": "b356a74c043805e7560896bd253466ca570f941a9261bb99b8a64d6f7babfa3e"
+}

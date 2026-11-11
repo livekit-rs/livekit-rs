@@ -1,0 +1,122 @@
+<!doctype html><meta charset="utf-8"><title>Actual SDK room API effects</title><body><script src="/sdk.js"></script><script>
+const {Room,RoomEvent,Track}=LivekitClient;
+let room,ac,oscillator,canvasTimer;
+const media=[],timers=[],elements=[];const STREAM="capability-shared";
+// Read only the pinned SDK's existing physical handles. In particular, avoid
+// PCTransport.pc: its getter creates a new PC when the stored _pc is null.
+const pcIds=new WeakMap();let nextPcId=0;
+function actualTopology(){
+ const manager=room?.engine?.pcManager;
+ const publisher=manager?.publisher?._pc,subscriber=manager?.subscriber?._pc;
+ const publisherNative=publisher instanceof RTCPeerConnection;
+ const subscriberNative=subscriber instanceof RTCPeerConnection;
+ const id=pc=>{if(!(pc instanceof RTCPeerConnection))return null;if(!pcIds.has(pc))pcIds.set(pc,++nextPcId);return pcIds.get(pc);};
+ return {mode:manager?.mode??null,publisherNative,subscriberNative,
+  sameNative:publisherNative&&subscriberNative&&publisher===subscriber,
+  uniqueNativeCount:new Set([publisher,subscriber].filter(pc=>pc instanceof RTCPeerConnection)).size,
+  publisherId:id(publisher),subscriberId:id(subscriber),
+  publisherState:publisherNative?publisher.connectionState:null,
+  subscriberState:subscriberNative?subscriber.connectionState:null};
+}
+const state={events:[],data:[],errors:[],errorDetails:[],playback:[],frames:0,audible:0,audioSamples:0,lastWidth:0,lastHeight:0,rpcCalls:0};
+function safeLocation(error){return String(error?.stack??'').split('\n').flatMap(line=>{const m=line.match(/:(\d+):(\d+)\)?$/);return m?[{line:Number(m[1]),column:Number(m[2])}]:[];}).slice(0,4);}
+function safeBrowserError(error){
+ const names=new Set(['AbortError','NotAllowedError','NotSupportedError','InvalidStateError','SyntaxError','TypeError','Error']);
+ const known=new Map([
+  ['The play() request was interrupted by a new load request. https://goo.gl/LdLk22','interrupted-new-load'],
+  ['The play() request was interrupted by a call to pause(). https://goo.gl/LdLk22','interrupted-pause'],
+  ['The play() request was interrupted because the media was removed from the document. https://goo.gl/LdLk22','interrupted-removal'],
+  ["play() failed because the user didn't interact with the document first. https://goo.gl/xX8pDD",'autoplay-interaction'],
+ ]);
+ const message=String(error?.message??'');
+ return {name:names.has(error?.name)?error.name:'Other',message_label:known.get(message)??'unclassified',message_length:message.length,locations:safeLocation(error)};
+}
+const observedMediaIds=new WeakMap();let observedMediaId=0;
+function mediaId(track){if(!track)return null;if(!observedMediaIds.has(track))observedMediaIds.set(track,++observedMediaId);return observedMediaIds.get(track);}
+function mediaElementState(element,track,publication){
+ const native=track?.mediaStreamTrack;
+ const stream=element?.srcObject;
+ return {kind:track?.kind??null,publication_present:!!publication?.trackSid,element:element?.tagName??null,
+  connected:element?.isConnected??false,paused:element?.paused??null,ended:element?.ended??null,
+  readyState:element?.readyState??null,networkState:element?.networkState??null,currentTime:element?.currentTime??null,
+  muted:element?.muted??null,autoplay:element?.autoplay??null,element_error_code:element?.error?.code??null,
+  src_object_present:!!stream,src_object_is_media_stream:stream instanceof MediaStream,
+  native_observation_id:mediaId(native),native_ready_state:native?.readyState??null,native_enabled:native?.enabled??null,native_muted:native?.muted??null,
+  stream_tracks:stream instanceof MediaStream?stream.getTracks().map(t=>({observation_id:mediaId(t),same_as_attached:t===native,kind:t.kind,readyState:t.readyState,enabled:t.enabled,muted:t.muted})):[]};
+}
+function recordFixtureError(label,error,details){
+ state.errors.push(label);
+ state.errorDetails.push({label,at_ms:performance.now(),error:safeBrowserError(error),...details});
+}
+window.fixture={
+ async connect({url,token,single}){
+  ac=new AudioContext();await ac.resume();
+  room=new Room({singlePeerConnection:single,adaptiveStream:false,dynacast:false});
+  room.localParticipant.registerRpcMethod('api.three.echo',async({payload})=>{state.rpcCalls++;return 'three:'+payload;});
+  room.on(RoomEvent.DataReceived,(payload,participant,kind,topic,_encryptionType,participantIdentity)=>{
+   try{const value=JSON.parse(new TextDecoder().decode(payload));state.data.push({seq:value.seq,topic,kind,payloadTopic:value.topic,fromServer:participant===undefined,wireIdentityPresent:typeof participantIdentity==='string'&&participantIdentity.length>0,registryLookupPresent:typeof participantIdentity==='string'&&room.remoteParticipants.has(participantIdentity)});}
+   catch(error){recordFixtureError('invalid-controlled-data',error,{payload_bytes:payload?.byteLength??null,participant_present:participant!==undefined,kind});}
+  });
+  room.on(RoomEvent.TrackSubscribed,(track,publication,participant)=>{
+   state.events.push({event:'subscribed',kind:track.kind,sid:publication.trackSid,identity:participant.identity});
+   const element=track.attach();element.autoplay=true;element.muted=true;elements.push(element);document.body.append(element);
+   const playback={index:state.playback.length,requested_at_ms:performance.now(),initial:mediaElementState(element,track,publication),invoked:false,settled:false};state.playback.push(playback);
+   // Original SDK attach owns its autoplay and Firefox/Safari deferred srcObject
+   // assignment. Our one extra explicit play must not race that pending load.
+   const loadedPlay=()=>{
+    if(playback.invoked||element.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return;
+    playback.invoked=true;element.removeEventListener('loadeddata',loadedPlay);
+    playback.invoked_at_ms=performance.now();playback.at_invoke=mediaElementState(element,track,publication);
+    element.play().then(()=>{playback.settled=true;playback.result='fulfilled';playback.at_settle=mediaElementState(element,track,publication);},error=>{
+     playback.settled=true;playback.result='rejected';playback.at_settle=mediaElementState(element,track,publication);
+     recordFixtureError('play',error,{playback_index:playback.index,initial:playback.initial,at_invoke:playback.at_invoke,at_rejection:playback.at_settle});
+    });
+   };
+   element.addEventListener('loadeddata',loadedPlay);loadedPlay();
+   if(track.kind===Track.Kind.Video){
+    const tick=(_,metadata)=>{state.frames++;state.lastWidth=metadata.width;state.lastHeight=metadata.height;element.requestVideoFrameCallback(tick);};
+    element.requestVideoFrameCallback(tick);
+   }else{
+    const source=ac.createMediaStreamSource(new MediaStream([track.mediaStreamTrack]));const analyser=ac.createAnalyser();const silent=ac.createGain();silent.gain.value=0;source.connect(analyser);analyser.connect(silent);silent.connect(ac.destination);
+    const samples=new Float32Array(analyser.fftSize);
+    timers.push(setInterval(()=>{analyser.getFloatTimeDomainData(samples);state.audioSamples++;const rms=Math.sqrt(samples.reduce((sum,x)=>sum+x*x,0)/samples.length);if(rms>.01)state.audible++;},100));
+   }
+  });
+  // Observation only: do not stop/detach a track or cancel frame callbacks here.
+  room.on(RoomEvent.TrackUnsubscribed,(track,publication,participant)=>state.events.push({event:'unsubscribed',kind:track.kind,sid:publication.trackSid,identity:participant.identity}));
+  await room.connect(url,token);
+  return {sid:room.localParticipant.sid,identity:room.localParticipant.identity};
+ },
+ async publish(){
+  oscillator=ac.createOscillator();oscillator.frequency.value=440;const gain=ac.createGain();gain.gain.value=.2;const destination=ac.createMediaStreamDestination();destination.channelCount=1;oscillator.connect(gain);gain.connect(destination);oscillator.start();const audio=destination.stream.getAudioTracks()[0];media.push(audio);const audioPublication=await room.localParticipant.publishTrack(audio,{source:Track.Source.Microphone,name:'controlled440',stream:STREAM,red:true,forceStereo:false,dtx:false});
+  const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;const context=canvas.getContext('2d');let frame=0;
+  canvasTimer=setInterval(()=>{context.fillStyle=`hsl(${frame++%360} 80% 40%)`;context.fillRect(0,0,640,360);context.fillStyle='white';context.fillText(String(frame),40,40);},66);
+  const video=canvas.captureStream(15).getVideoTracks()[0];media.push(video);const publication=await room.localParticipant.publishTrack(video,{source:Track.Source.Camera,name:'controlled-video',stream:STREAM,videoCodec:'vp8',simulcast:false,videoEncoding:{maxBitrate:800000,maxFramerate:15}});return {videoSid:publication.trackSid,audioSid:audioPublication.trackSid,stream:STREAM};
+ },
+ async prepareReliableData(){
+  // Invoke the original pinned SDK transport method; no packet, SDK override,
+  // room event, PC state or remote participant is manufactured here.
+  if(typeof room.engine.ensureDataTransportConnected!=='function')throw Error('pinned SDK data transport method missing');
+  await room.engine.ensureDataTransportConnected(0,false);
+  const dc=room.engine.dataChannelForKind(0,false);
+  if(!(dc instanceof RTCDataChannel)||dc.readyState!=='open')throw Error('real reliable publisher data channel not open');
+  return {readyState:dc.readyState,label:dc.label};
+ },
+ async send(seq){await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({seq,topic:'capability-native'})),{reliable:true,topic:'capability-native'});},
+ async native(){
+  const manager=room?.engine?.pcManager;const rows=[];
+  for(const [role,pc] of [['publisher',manager?.publisher?._pc],['subscriber',manager?.subscriber?._pc]])if(pc instanceof RTCPeerConnection){
+   const stats=await pc.getStats(),transports=[],pairs=[],inbound=[],outbound=[];
+   for(const row of stats.values()){
+    if(row.type==='transport')transports.push({dtlsState:row.dtlsState??null});
+    if(row.type==='candidate-pair')pairs.push({state:row.state,nominated:row.nominated??false,bytesSent:row.bytesSent??0,bytesReceived:row.bytesReceived??0});
+    if((row.type==='inbound-rtp'||row.type==='outbound-rtp')&&!row.isRemote){const codec=stats.get(row.codecId);const value={kind:row.kind??row.mediaType,packets:row.packetsReceived??row.packetsSent??0,bytes:row.bytesReceived??row.bytesSent??0,frames:row.framesDecoded??row.framesEncoded??0,codec:codec?.mimeType??null};(row.type==='inbound-rtp'?inbound:outbound).push(value);}
+   }
+   rows.push({role,native:true,connection:pc.connectionState,signaling:pc.signalingState,localType:pc.localDescription?.type??null,localSdp:pc.localDescription?.sdp??'',remoteType:pc.remoteDescription?.type??null,remoteSdp:pc.remoteDescription?.sdp??'',transports,pairs,inbound,outbound});
+  }
+  return {userAgent:navigator.userAgent,rows};
+ },
+ snapshot(){return {sid:room.localParticipant.sid,identity:room.localParticipant.identity,remoteParticipants:[...room.remoteParticipants.values()].map(p=>({identity:p.identity,sid:p.sid})),audioContextState:ac?.state,audioClock:ac?.currentTime,remoteTracks:[...room.remoteParticipants.values()].flatMap(p=>[...p.trackPublications.values()].filter(t=>t.track).map(t=>({sid:t.trackSid,nativeTrackId:t.track.mediaStreamTrack.id,kind:t.kind}))),topology:actualTopology(),frames:state.frames,audible:state.audible,audioSamples:state.audioSamples,width:state.lastWidth,height:state.lastHeight,rpcCalls:state.rpcCalls,errors:state.errors.length,errorLabels:state.errors.slice(),errorDetails:state.errorDetails.slice(),playback:state.playback.slice(),data:state.data.slice(),events:state.events.slice(),connection:room?.state,publications:[...room.remoteParticipants.values()].flatMap(p=>[...p.trackPublications.values()].map(t=>({identity:p.identity,sid:t.trackSid,isSubscribed:t.isSubscribed,hasTrack:!!t.track}))) };},
+ async close(){clearInterval(canvasTimer);for(const timer of timers)clearInterval(timer);oscillator?.stop();for(const track of media)track.stop();await room?.disconnect();await ac?.close();}
+};
+</script>

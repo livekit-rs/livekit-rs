@@ -1,0 +1,88 @@
+--- a/src/rtp/srtp.rs
++++ b/src/rtp/srtp.rs
+@@ -203,6 +203,15 @@
+ impl RefUnwindSafe for SrtpContext {}
+ 
+ impl SrtpContext {
++    /// Authentication overhead of the actual installed receive cipher.
++    pub(crate) fn rtp_auth_tag_len(&self) -> usize {
++        match self.rtp {
++            Derived::Aes128CmSha1_80 { .. } => Aes128CmSha1_80::HMAC_TAG_LEN,
++            Derived::AeadAes128Gcm { .. } => AeadAes128Gcm::TAG_LEN,
++            Derived::AeadAes256Gcm { .. } => AeadAes256Gcm::TAG_LEN,
++        }
++    }
++
+     pub fn protect_rtp(
+         &mut self,
+         buf: &[u8],
+@@ -971,6 +980,38 @@
+     use super::*;
+ 
+     #[test]
++    fn receive_auth_tag_matches_actual_protected_packet_for_every_profile() {
++        use crate::rtp::ExtensionMap;
++        let crypto = crate::crypto::test_default_provider();
++        for (profile, expected) in [
++            (SrtpProfile::AES128_CM_SHA1_80, 10usize),
++            (SrtpProfile::AEAD_AES_128_GCM, 16),
++            (SrtpProfile::AEAD_AES_256_GCM, 16),
++        ] {
++            let material = vec![0x41; profile.keying_material_len()];
++            let key = KeyingMaterial::new(&material);
++            let mut tx = SrtpContext::new(crypto, profile, &key, true);
++            let mut rx = SrtpContext::new(crypto, profile, &key, true);
++            assert_eq!(rx.rtp_auth_tag_len(), expected);
++            for padding in [0usize, 20] {
++                let mut packet = vec![0x55; 12 + 100 + padding];
++                packet[0] = if padding == 0 { 0x80 } else { 0xa0 };
++                packet[1] = 111;
++                packet[2..4].copy_from_slice(&(padding as u16 + 1).to_be_bytes());
++                if padding != 0 {
++                    *packet.last_mut().unwrap() = padding as u8;
++                }
++                let header = RtpHeader::parse(&packet, &ExtensionMap::empty()).unwrap();
++                let seq = u64::from(header.sequence_number);
++                let encrypted = tx.protect_rtp(&packet, &header, seq);
++                assert_eq!(encrypted.len() - packet.len(), rx.rtp_auth_tag_len());
++                let decrypted = rx.unprotect_rtp(&encrypted, &header, seq).unwrap();
++                assert_eq!(decrypted, &packet[12..]);
++            }
++        }
++    }
++
++    #[test]
+     fn derive_key() {
+         crate::init_crypto_default();
+         let provider = crate::crypto::from_feature_flags();
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -335,6 +335,10 @@
+         &self.app
+     }
+ 
++    pub(crate) fn receive_srtp_auth_tag_len(&self) -> Option<usize> {
++        self.srtp_rx.as_ref().map(SrtpContext::rtp_auth_tag_len)
++    }
++
+     pub fn set_keying_material(
+         &mut self,
+         mat: KeyingMaterial,
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1425,6 +1425,15 @@
+     /// ```
+     pub fn sdp_api(&mut self) -> SdpApi {
+         SdpApi::new(self)
++    }
++
++    /// Authentication tag bytes of the currently installed receive SRTP cipher.
++    ///
++    /// Returns `None` before DTLS keying material installs the receive context.
++    /// AES-CM/HMAC-SHA1-80 uses 10 bytes; AES-GCM uses 16 bytes. This observes
++    /// the actual per-session cipher rather than inferring a profile from RTP.
++    pub fn receive_srtp_auth_tag_len(&self) -> Option<usize> {
++        self.session.receive_srtp_auth_tag_len()
+     }
+ 
+     /// Makes direct changes to the Rtc session.

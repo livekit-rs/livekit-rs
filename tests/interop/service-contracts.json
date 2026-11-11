@@ -1,0 +1,294 @@
+{
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "schema_sha256": {
+    "livekit_room.proto": "5135d7f8cd0b0c76362448ec3d6a0c52aee6c276a92c128369b15c5dc0393481",
+    "livekit_agent_dispatch.proto": "d7d513a303ae4a468d0e70029f464ba5b52065e907f495e25db1e7ef83bd7b59",
+    "livekit_egress.proto": "20c87b9d0a798fe4176720af0acb5471d6fd7bf654c0b15b11a9cbe765bc4290",
+    "livekit_ingress.proto": "c04ed0c0deb05c76c1d9ac1dc64e4284ec88b92441ec08be846173cf7dceb86b",
+    "livekit_sip.proto": "eab546a338a218b1eb9351265171506654b10b854d17e0f829081035bbc19009"
+  },
+  "methods": [
+    {
+      "service": "livekit.RoomService",
+      "method": "CreateRoom",
+      "request": "CreateRoomRequest",
+      "response": "Room"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "ListRooms",
+      "request": "ListRoomsRequest",
+      "response": "ListRoomsResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "DeleteRoom",
+      "request": "DeleteRoomRequest",
+      "response": "DeleteRoomResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "ListParticipants",
+      "request": "ListParticipantsRequest",
+      "response": "ListParticipantsResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "GetParticipant",
+      "request": "RoomParticipantIdentity",
+      "response": "ParticipantInfo"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "RemoveParticipant",
+      "request": "RoomParticipantIdentity",
+      "response": "RemoveParticipantResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "MutePublishedTrack",
+      "request": "MuteRoomTrackRequest",
+      "response": "MuteRoomTrackResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "UpdateParticipant",
+      "request": "UpdateParticipantRequest",
+      "response": "ParticipantInfo"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "UpdateSubscriptions",
+      "request": "UpdateSubscriptionsRequest",
+      "response": "UpdateSubscriptionsResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "SendData",
+      "request": "SendDataRequest",
+      "response": "SendDataResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "UpdateRoomMetadata",
+      "request": "UpdateRoomMetadataRequest",
+      "response": "Room"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "ForwardParticipant",
+      "request": "ForwardParticipantRequest",
+      "response": "ForwardParticipantResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "MoveParticipant",
+      "request": "MoveParticipantRequest",
+      "response": "MoveParticipantResponse"
+    },
+    {
+      "service": "livekit.RoomService",
+      "method": "PerformRpc",
+      "request": "PerformRpcRequest",
+      "response": "PerformRpcResponse"
+    },
+    {
+      "service": "livekit.AgentDispatchService",
+      "method": "CreateDispatch",
+      "request": "CreateAgentDispatchRequest",
+      "response": "AgentDispatch"
+    },
+    {
+      "service": "livekit.AgentDispatchService",
+      "method": "DeleteDispatch",
+      "request": "DeleteAgentDispatchRequest",
+      "response": "AgentDispatch"
+    },
+    {
+      "service": "livekit.AgentDispatchService",
+      "method": "ListDispatch",
+      "request": "ListAgentDispatchRequest",
+      "response": "ListAgentDispatchResponse"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "StartEgress",
+      "request": "StartEgressRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "UpdateLayout",
+      "request": "UpdateLayoutRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "UpdateStream",
+      "request": "UpdateStreamRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "ListEgress",
+      "request": "ListEgressRequest",
+      "response": "ListEgressResponse"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "StopEgress",
+      "request": "StopEgressRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "StartRoomCompositeEgress",
+      "request": "RoomCompositeEgressRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "StartWebEgress",
+      "request": "WebEgressRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "StartParticipantEgress",
+      "request": "ParticipantEgressRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "StartTrackCompositeEgress",
+      "request": "TrackCompositeEgressRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Egress",
+      "method": "StartTrackEgress",
+      "request": "TrackEgressRequest",
+      "response": "EgressInfo"
+    },
+    {
+      "service": "livekit.Ingress",
+      "method": "CreateIngress",
+      "request": "CreateIngressRequest",
+      "response": "IngressInfo"
+    },
+    {
+      "service": "livekit.Ingress",
+      "method": "UpdateIngress",
+      "request": "UpdateIngressRequest",
+      "response": "IngressInfo"
+    },
+    {
+      "service": "livekit.Ingress",
+      "method": "ListIngress",
+      "request": "ListIngressRequest",
+      "response": "ListIngressResponse"
+    },
+    {
+      "service": "livekit.Ingress",
+      "method": "DeleteIngress",
+      "request": "DeleteIngressRequest",
+      "response": "IngressInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "ListSIPTrunk",
+      "request": "ListSIPTrunkRequest",
+      "response": "ListSIPTrunkResponse"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "CreateSIPInboundTrunk",
+      "request": "CreateSIPInboundTrunkRequest",
+      "response": "SIPInboundTrunkInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "CreateSIPOutboundTrunk",
+      "request": "CreateSIPOutboundTrunkRequest",
+      "response": "SIPOutboundTrunkInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "UpdateSIPInboundTrunk",
+      "request": "UpdateSIPInboundTrunkRequest",
+      "response": "SIPInboundTrunkInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "UpdateSIPOutboundTrunk",
+      "request": "UpdateSIPOutboundTrunkRequest",
+      "response": "SIPOutboundTrunkInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "GetSIPInboundTrunk",
+      "request": "GetSIPInboundTrunkRequest",
+      "response": "GetSIPInboundTrunkResponse"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "GetSIPOutboundTrunk",
+      "request": "GetSIPOutboundTrunkRequest",
+      "response": "GetSIPOutboundTrunkResponse"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "ListSIPInboundTrunk",
+      "request": "ListSIPInboundTrunkRequest",
+      "response": "ListSIPInboundTrunkResponse"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "ListSIPOutboundTrunk",
+      "request": "ListSIPOutboundTrunkRequest",
+      "response": "ListSIPOutboundTrunkResponse"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "DeleteSIPTrunk",
+      "request": "DeleteSIPTrunkRequest",
+      "response": "SIPTrunkInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "CreateSIPDispatchRule",
+      "request": "CreateSIPDispatchRuleRequest",
+      "response": "SIPDispatchRuleInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "UpdateSIPDispatchRule",
+      "request": "UpdateSIPDispatchRuleRequest",
+      "response": "SIPDispatchRuleInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "ListSIPDispatchRule",
+      "request": "ListSIPDispatchRuleRequest",
+      "response": "ListSIPDispatchRuleResponse"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "DeleteSIPDispatchRule",
+      "request": "DeleteSIPDispatchRuleRequest",
+      "response": "SIPDispatchRuleInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "CreateSIPParticipant",
+      "request": "CreateSIPParticipantRequest",
+      "response": "SIPParticipantInfo"
+    },
+    {
+      "service": "livekit.SIP",
+      "method": "TransferSIPParticipant",
+      "request": "TransferSIPParticipantRequest",
+      "response": "TransferSIPParticipantResponse"
+    }
+  ]
+}

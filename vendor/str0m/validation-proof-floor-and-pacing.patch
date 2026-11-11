@@ -1,0 +1,397 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -6,7 +6,8 @@
+ 
+ pub use crate::bwe_::probe::ProbeKind;
+ pub use crate::bwe_::validation::{
+-    BweValidationObservation, BweValidationStatus, BweValidationTotals,
++    BweValidationObservation, BweValidationProof, BweValidationProofScope, BweValidationStatus,
++    BweValidationTotals,
+ };
+ 
+ pub use crate::rtp_::Bitrate;
+@@ -153,6 +154,21 @@
+         self.0.session.start_bwe_validation(target, now)
+     }
+ 
++    /// Explicit experiment with protected proof floor and bounded pacing strength.
++    /// Requires finite representable 0 < floor <= pacing <= 1.2 * floor. Success proves
++    /// only actual selected evidence at floor, never the requested pacing rate.
++    /// Whole-request proof fallback is available only through this opt-in API.
++    pub fn start_validation_with_pacing(
++        &mut self,
++        floor: Bitrate,
++        pacing: Bitrate,
++        now: Instant,
++    ) -> Option<u64> {
++        self.0
++            .session
++            .start_bwe_validation_with_pacing(floor, pacing, now)
++    }
++
+     /// Cancel this validation and its generated padding, preserving media/RTX.
+     pub fn cancel_validation(&mut self, now: Instant) {
+         self.0.session.cancel_bwe_validation(now);
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -152,6 +152,26 @@
+             .set_estimated_bitrate(estimate, cause);
+         let config = self.bwe.probe_control.validation_config(target, now)?;
+         self.bwe.validation = Some(Validation::new(*config.cluster(), target, now));
++        Some(config)
++    }
++    pub fn begin_validation_with_pacing(
++        &mut self,
++        floor: Bitrate,
++        pacing: Bitrate,
++        now: Instant,
++    ) -> Option<ProbeClusterConfig> {
++        if !Validation::valid_pacing_pair(floor, pacing)
++            || self.bwe.validation.as_ref().is_some_and(Validation::active)
++        {
++            return None;
++        }
++        let estimate = self.bwe.last_estimate()?;
++        let cause = self.bwe.bandwidth_limited_cause();
++        self.bwe
++            .probe_control
++            .set_estimated_bitrate(estimate, cause);
++        let config = self.bwe.probe_control.validation_config(pacing, now)?;
++        self.bwe.validation = Validation::with_pacing(*config.cluster(), floor, pacing, now);
+         Some(config)
+     }
+     pub fn cancel_validation(&mut self, now: Instant) {
+--- a/src/bwe/validation.rs
++++ b/src/bwe/validation.rs
+@@ -34,6 +34,36 @@
+     /// Full-request minimum raw rate once both spans cover one second.
+     pub measured_bitrate: Option<Bitrate>,
+ }
++/// Actual packet collection selected as the completed validation proof.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum BweValidationProofScope {
++    /// One existing credit-delimited measurement segment.
++    CurrentSegment,
++    /// Every unique matched received packet from this immutable request.
++    WholeRequest,
++}
++/// Completed raw evidence; requested pacing strength is never a measured rate.
++#[derive(Debug, Clone, Copy)]
++pub struct BweValidationProof {
++    /// Which actual packet collection supplied every following field.
++    pub scope: BweValidationProofScope,
++    /// First actual acknowledged local send in the selected collection.
++    pub started_at: Instant,
++    /// Raw local send span with all internal gaps retained.
++    pub send_span: Duration,
++    /// Raw remote receive span with all internal gaps retained.
++    pub recv_span: Duration,
++    /// Actual protected bytes excluding the final sent packet.
++    pub send_bytes: u64,
++    /// Actual protected bytes excluding the first received packet.
++    pub recv_bytes: u64,
++    /// Unique received packets in this selected collection.
++    pub received_packets: u64,
++    /// Minimum actual protected send and receive rates.
++    pub measured_bitrate: Bitrate,
++    /// Minimum actual payload rate from exactly the same packets and endpoints.
++    pub measured_payload_bitrate: Bitrate,
++}
+ /// Actual encrypted RTP delivery, excluding IP/UDP overhead. Current measurement
+ /// segment and full-request cumulative facts are deliberately different fields.
+ #[derive(Debug, Clone, Copy)]
+@@ -48,6 +78,11 @@
+     pub started_at: Option<Instant>,
+     /// Required measured protected bitrate, never a measured result.
+     pub target_bitrate: Bitrate,
++    /// Immutable protected-byte sending strength, distinct from proof floor.
++    pub pacing_bitrate: Bitrate,
++    /// Completed selected evidence. Current segment diagnostics below are not
++    /// rewritten when an explicit dual request selects the whole collection.
++    pub selected_proof: Option<BweValidationProof>,
+     /// Request lifecycle; any matching loss permanently fails the request.
+     pub status: BweValidationStatus,
+     /// Current segment's raw local send span.
+@@ -140,6 +175,21 @@
+             .min(recv_bytes as f64 * 8.0 / recv_span.as_secs_f64());
+         (rate > 0.0 && rate.is_finite()).then(|| rate.into())
+     }
++    fn proof(&self, scope: BweValidationProofScope, floor: Bitrate) -> Option<BweValidationProof> {
++        let totals = self.totals();
++        let measured = totals.measured_bitrate.filter(|rate| *rate >= floor)?;
++        Some(BweValidationProof {
++            scope,
++            started_at: self.first_send?,
++            send_span: totals.send_span,
++            recv_span: totals.recv_span,
++            send_bytes: totals.send_bytes,
++            recv_bytes: totals.recv_bytes,
++            received_packets: totals.received_packets,
++            measured_bitrate: measured,
++            measured_payload_bitrate: self.payload_rate().unwrap_or(Bitrate::ZERO),
++        })
++    }
+     fn payload_rate(&self) -> Option<Bitrate> {
+         let totals = self.totals();
+         Self::rate(
+@@ -162,9 +212,26 @@
+     segment_cutoff: Instant,
+     segment_first_seq: Option<u64>,
+     native_result_taken: bool,
++    allow_whole_request: bool,
+ }
+ impl Validation {
+     pub(super) fn new(id: u64, target: Bitrate, now: Instant) -> Self {
++        Self::create(id, target, target, now, false)
++    }
++    pub(super) fn valid_pacing_pair(floor: Bitrate, pacing: Bitrate) -> bool {
++        let p = floor.as_f64();
++        let q = pacing.as_f64();
++        p.is_finite() && q.is_finite() && p > 0.0 && q >= p && q <= p * 1.2 && q < u64::MAX as f64
++    }
++    pub(super) fn with_pacing(
++        id: u64,
++        floor: Bitrate,
++        pacing: Bitrate,
++        now: Instant,
++    ) -> Option<Self> {
++        Self::valid_pacing_pair(floor, pacing).then(|| Self::create(id, floor, pacing, now, true))
++    }
++    fn create(id: u64, target: Bitrate, pacing: Bitrate, now: Instant, whole: bool) -> Self {
+         Self {
+             observation: BweValidationObservation {
+                 id,
+@@ -172,6 +239,8 @@
+                 requested_at: now,
+                 started_at: None,
+                 target_bitrate: target,
++                pacing_bitrate: pacing,
++                selected_proof: None,
+                 status: BweValidationStatus::Pending,
+                 send_span: Duration::ZERO,
+                 recv_span: Duration::ZERO,
+@@ -194,6 +263,7 @@
+             segment_cutoff: now,
+             segment_first_seq: None,
+             native_result_taken: false,
++            allow_whole_request: whole,
+         }
+     }
+     pub(super) fn snapshot(&self) -> BweValidationObservation {
+@@ -218,6 +288,7 @@
+                 measurement_started_at=?self.observation.measurement_started_at, measurement_segments=self.observation.measurement_segments,
+                 cancelled_local_credit_us=self.observation.cancelled_local_credit.as_micros(),
+                 last_credit_discard_at=?self.observation.last_credit_discard_at, request_totals=?self.observation.request_totals,
++                pacing_bps=self.observation.pacing_bitrate.as_f64(), selected_proof=?self.observation.selected_proof,
+                 "native sustained validation terminal");
+         }
+     }
+@@ -353,7 +424,10 @@
+         if overuse || batch_has_loss {
+             return None;
+         }
+-        self.segment.payload_rate()
++        self.observation
++            .selected_proof
++            .map(|proof| proof.measured_payload_bitrate)
++            .filter(|rate| !rate.is_zero())
+     }
+     pub(super) fn finish_batch(&mut self, now: Instant) {
+         self.timeout(now);
+@@ -368,11 +442,24 @@
+         }) {
+             return;
+         }
+-        if self
+-            .observation
+-            .measured_bitrate
+-            .is_some_and(|rate| rate >= self.observation.target_bitrate)
+-        {
++        let selected = self
++            .segment
++            .proof(
++                BweValidationProofScope::CurrentSegment,
++                self.observation.target_bitrate,
++            )
++            .or_else(|| {
++                self.allow_whole_request
++                    .then(|| {
++                        self.request.proof(
++                            BweValidationProofScope::WholeRequest,
++                            self.observation.target_bitrate,
++                        )
++                    })
++                    .flatten()
++            });
++        if let Some(proof) = selected {
++            self.observation.selected_proof = Some(proof);
+             self.terminate(BweValidationStatus::Passed, now);
+         }
+     }
+@@ -721,3 +808,93 @@
+         assert_eq!(v.snapshot().status, BweValidationStatus::Failed);
+     }
+ }
++
++#[cfg(test)]
++mod dual_proof_tests {
++    use super::*;
++
++    fn segmented(start: Instant, dual: bool, bytes: usize) -> Validation {
++        let mut v = if dual {
++            Validation::with_pacing(77, Bitrate::kbps(80), Bitrate::kbps(96), start).unwrap()
++        } else {
++            Validation::new(77, Bitrate::kbps(80), start)
++        };
++        for i in 0..=12 {
++            let at = start + Duration::from_millis(i * 100);
++            if i > 0 && i % 3 == 0 {
++                v.on_credit_discard(77, at, Duration::from_millis(20));
++            }
++            v.record_packet(
++                i,
++                at,
++                Some(at + Duration::from_secs(20)),
++                bytes,
++                bytes / 2,
++                at,
++            );
++        }
++        v
++    }
++
++    #[test]
++    fn only_explicit_dual_can_select_complete_raw_request_with_short_segments() {
++        let start = Instant::now();
++        let at = start + Duration::from_millis(1220);
++        let mut single = segmented(start, false, 1000);
++        assert!(single.finish_feedback(false, false, at).is_none());
++        assert_eq!(single.snapshot().status, BweValidationStatus::Running);
++        let mut dual = segmented(start, true, 1000);
++        assert_eq!(
++            dual.finish_feedback(false, false, at),
++            Some(Bitrate::kbps(40))
++        );
++        let o = dual.snapshot();
++        let proof = o.selected_proof.unwrap();
++        assert_eq!(proof.scope, BweValidationProofScope::WholeRequest);
++        assert_eq!(proof.measured_bitrate, Bitrate::kbps(80));
++        assert_eq!(proof.measured_payload_bitrate, Bitrate::kbps(40));
++        assert_eq!(proof.send_span, Duration::from_millis(1200));
++        assert!(o.send_span < Duration::from_secs(1));
++        assert!(o.measured_bitrate.is_none());
++        assert!(dual.finish_feedback(false, false, at).is_none());
++    }
++
++    #[test]
++    fn higher_pacing_does_not_replace_actual_insufficient_prefix_or_clear_loss() {
++        let start = Instant::now();
++        let at = start + Duration::from_millis(1220);
++        let mut slow = segmented(start, true, 999);
++        assert!(slow.finish_feedback(false, false, at).is_none());
++        assert!(slow.snapshot().request_totals.measured_bitrate.unwrap() < Bitrate::kbps(80));
++        assert!(slow.snapshot().selected_proof.is_none());
++        let mut unresolved = segmented(start, true, 1000);
++        unresolved.on_sent(77, 99, start);
++        assert!(unresolved.finish_feedback(false, false, at).is_none());
++        unresolved.record_packet(99, start, None, 1000, 500, at);
++        assert!(unresolved.finish_feedback(false, false, at).is_none());
++        assert_eq!(unresolved.snapshot().status, BweValidationStatus::Failed);
++        let mut overuse = segmented(start, true, 1000);
++        assert!(overuse.finish_feedback(true, false, at).is_none());
++        assert_eq!(overuse.snapshot().status, BweValidationStatus::Failed);
++    }
++
++    #[test]
++    fn pacing_pair_rejects_nonfinite_negative_unrepresentable_and_one_ulp_excess() {
++        let start = Instant::now();
++        let limit = 100_000.0_f64 * 1.2;
++        let above = f64::from_bits(limit.to_bits() + 1);
++        for (p, q) in [
++            (0.0, 1.0),
++            (-1.0, 1.0),
++            (f64::NAN, 1.0),
++            (1.0, f64::NAN),
++            (1.0, f64::INFINITY),
++            (100_000.0, 99_999.0),
++            (100_000.0, above),
++            (u64::MAX as f64, u64::MAX as f64),
++        ] {
++            assert!(Validation::with_pacing(1, p.into(), q.into(), start).is_none());
++        }
++        assert!(Validation::with_pacing(1, Bitrate::kbps(100), limit.into(), start).is_some());
++    }
++}
+--- a/src/bwe/probe/cluster.rs
++++ b/src/bwe/probe/cluster.rs
+@@ -565,6 +565,40 @@
+     }
+ 
+     #[test]
++    fn explicit_dual_pacing_strength_has_its_own_bounded_packet_envelope() {
++        let floor = Bitrate::mbps(2);
++        let pacing = floor * 1.2;
++        let start = Instant::now();
++        let mut state = ProbeClusterState::new(
++            ProbeClusterConfig::new(99.into(), pacing, ProbeKind::Validation)
++                .with_duration(Duration::from_secs(2)),
++        );
++        let mut now = start;
++        let mut sends = Vec::new();
++        for delay in [1, 5, 10, 50, 2, 3, 1000, 2, 7, 8] {
++            now += Duration::from_millis(delay);
++            for _ in 0..16 {
++                if state.next_probe_time() > now {
++                    break;
++                }
++                let bytes = DataSize::bytes([240, 358, 1200][sends.len() % 3]);
++                state.record_packet(now, bytes);
++                sends.push((now, bytes));
++            }
++        }
++        for first in 0..sends.len() {
++            let mut bytes = DataSize::ZERO;
++            for last in first..sends.len() {
++                bytes += sends[last].1;
++                let elapsed = sends[last].0.duration_since(sends[first].0);
++                assert!(bytes <= pacing * (elapsed + MAX_PROBE_DELAY) + DataSize::bytes(1200));
++            }
++        }
++        assert_eq!(state.config().target_bitrate(), pacing);
++        assert!(state.is_complete(start + Duration::from_secs(2) + Duration::from_millis(1)));
++    }
++
++    #[test]
+     fn late_probe_boundary_is_strict_and_uses_actual_send_progress() {
+         let now = Instant::now();
+         for bitrate in [Bitrate::kbps(200), Bitrate::mbps(2), Bitrate::mbps(20)] {
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1439,6 +1439,27 @@
+         Some(*config.cluster())
+     }
+ 
++    pub fn start_bwe_validation_with_pacing(
++        &mut self,
++        floor: Bitrate,
++        pacing: Bitrate,
++        now: Instant,
++    ) -> Option<u64> {
++        if self.srtp_tx.is_none() || self.probe_media().is_none() {
++            return None;
++        }
++        let bwe = self.bwe.as_mut()?;
++        let config = bwe.begin_validation_with_pacing(floor, pacing, now)?;
++        self.pacer.cancel_probes(false);
++        while let Some(id) = self.pacer.check_probe_complete(now) {
++            bwe.end_probe(now, id);
++        }
++        self.streams.clear_pending_padding();
++        self.streams.set_probe_media(None);
++        self.pacer.start_probe(config);
++        Some(*config.cluster())
++    }
++
+     pub fn cancel_bwe_validation(&mut self, now: Instant) {
+         if let Some(bwe) = self.bwe.as_mut() {
+             bwe.cancel_validation(now);

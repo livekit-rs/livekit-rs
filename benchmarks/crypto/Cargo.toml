@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+
+[package]
+name = "livekit-rs-crypto-benchmark"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rtc-crypto = { path = "../../crates/rtc-crypto" }
+str0m-proto = { version = "=0.7.0", default-features = false, features = ["dtls"] }
+str0m-aws-lc-rs = "=0.6.0"
+libc = "=0.2.191"
+serde_json = "=1.0.154"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

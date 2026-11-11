@@ -1,0 +1,8 @@
+{"name":"negative-large-zero","stage":"kalman","initial_uncertainty":0,"values":[-100000001000000,-100000001000000]}
+{"name":"positive-root-branch","stage":"kalman","initial_uncertainty":49,"values":[100000001000000,1000000,150000000]}
+{"name":"negative-large-positive-uncertainty","stage":"kalman","initial_uncertainty":49,"values":[-100000001000000,-99999999000000]}
+{"name":"root-branch-large-uncertainty","stage":"kalman","initial_uncertainty":1000000,"values":[100000001000000,100000001000000]}
+{"name":"small-sign-mixed","stage":"kalman","initial_uncertainty":1,"values":[1,-1,1000000,-1000000,10000001,-10000001]}
+{"name":"requested-ema-state","stage":"ema","values":[1000000,1000003,800001,1400009,700003,900021]}
+{"name":"ema-small-deltas","stage":"ema","values":[1000000,1000001,1000002,999997,999999,1000003]}
+{"name":"ema-reset-zero","stage":"ema","values":[0,0,1000000,0,1,0,-1]}

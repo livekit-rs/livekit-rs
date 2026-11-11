@@ -1,0 +1,47 @@
+{
+  "status": "STATIC_REVIEW_AND_DRIVER_NOT_RUN",
+  "verdict": "Source-confirmed startup window; current actual causal attribution remains unproven.",
+  "original_execution": {
+    "actual_path": "/tmp/livekit-rs-metrics-actual-main-old-owned/actual.json",
+    "sha256": "e5f5ec92acdf8d2ecc62717fc9c14f31650301418827fae93008daf092e0eefb",
+    "status": "FAIL retained",
+    "official": "4profiles all17 auth source matches and precedence pass; each firstSIGINT exceeded10s and fallback forced=true exit0",
+    "rust": "4profiles each15 auth mismatches; firstSIGINT exit0 forced=false"
+  },
+  "confirmed_source": [
+    {
+      "file": "references/livekit-stable/pkg/service/server.go:309-347",
+      "detail": "Prometheus Serve runs before signalServer.Start, main Serve, background worker and100ms Sleep; running.Store(true) follows Sleep. Listener ready is not running ready."
+    },
+    {
+      "file": "references/livekit-stable/pkg/service/server.go:375-402",
+      "detail": "Stop(false) drains router, checks no participants, then running.Swap(false). If Start has not stored true, it returns without closing doneChan. Start may later store true and wait forever until another signal."
+    },
+    {
+      "file": "references/livekit-stable/cmd/server/main.go:309-321",
+      "detail": "Signal receiver installed before server.Start; first signal asynchronously calls Stop(false), second Stop(true). This permits rather than proves observed early-stop interleaving."
+    },
+    {
+      "file": "references/livekit-stable/pkg/service/server.go:443-464",
+      "detail": "GET / returns node stats freshness health. It never reads IsRunning; node stats initialized before Start. Public HTTP has no exact running barrier."
+    }
+  ],
+  "causality_limits": [
+    "Actual old profile logs are empty at configured logging:error; driver lacks startup/request/signal monotonic timestamps. Forced=true exit0 alone cannot prove first signal happened within100ms.",
+    "No new source, binary or OS execution was performed by reviewer; do not call this actual causal RED."
+  ],
+  "driver_change": {
+    "same_cases_bytes": true,
+    "same_configs_env_argv": true,
+    "same_17_and_precedence_asserts": true,
+    "same_SIGINT_10s": true,
+    "same_fallback_signals_cleanup": true,
+    "same_original_30s_startup_budget": true,
+    "addition": "After original metrics readiness, observe real primary health status200/bodyOK plus metrics200/401 continuously for1second, resetting on failures, all inside original30second startup deadline; record all monotonic boundaries/count/resets. Apply identically to Go/Rust fourprofiles.",
+    "semantics": "Explicit finite fixture startup-stability premise (1second > fixed source100ms); not proof that private running flag is visible under arbitrary scheduler suspension. If failure persists retain it, do not normalize forced or extend stop timeout.",
+    "observation_detail": "Every startup observation retained immediately in report including monotonic start/end, real process alive status, primary health200/bodyOK, metricsHTTP status, error kind and healthy flag. Failures retain accumulated history, no silent discard."
+  },
+  "stronger_causal_gate": "If exact state proof is required, add a separate source-only observer around real Start/IsRunning/Stop with owned goroutines and controlled entry barrier, not changes to fixed official process/profile. Preserve original binary campaign FAIL independently.",
+  "execution": "Coordinator only: use this new run-http.py with unchanged official/rust/go-results argv and fresh output directory; compare all original rows and shutdown requirements. Never overwrite old actual.json/logs.",
+  "parent_v3_request": "One second continuous healthy observation inside original30s budget, identical Go/Rust; auth17/precedence/HTTP2s/stop10s/forcedFAIL unchanged."
+}

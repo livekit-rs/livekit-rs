@@ -1,0 +1,4540 @@
+diff --git a/src/association/ack_rack_source_tests.rs b/src/association/ack_rack_source_tests.rs
+--- /dev/null
++++ b/src/association/ack_rack_source_tests.rs
+@@ -0,0 +1,200 @@
++use super::*;
++use crate::chunk::chunk_selective_ack::GapAckBlock;
++use alloc::{borrow::ToOwned, string::ToString};
++fn fixture(source: bool, kind: ReliabilityType, payload: PayloadProtocolIdentifier) -> Association {
++    let mut a = Association {
++        state: AssociationState::Established,
++        use_forward_tsn: true,
++        source_partial_reliability: source,
++        my_next_tsn: 1,
++        max_payload_size: 2,
++        max_send_message_size: 100,
++        cwnd: 10000,
++        rwnd: 10000,
++        mtu: 1228,
++        ..Default::default()
++    };
++    a.create_stream(0, false, payload)
++        .unwrap()
++        .set_reliability_params(false, kind, 0)
++        .unwrap();
++    a.outbound_queue.push(
++        (0..5)
++            .map(|i| ChunkPayloadData {
++                beginning_fragment: i == 0,
++                ending_fragment: i == 4,
++                stream_identifier: 0,
++                payload_type: payload,
++                user_data: Bytes::from(vec![i, 2]),
++                ..Default::default()
++            })
++            .collect(),
++    );
++    a
++}
++fn ack(a: &mut Association, through: u16, now: Instant, duplicate: bool) {
++    let sack = ChunkSelectiveAck {
++        cumulative_tsn_ack: 0,
++        advertised_receiver_window_credit: 10000,
++        gap_ack_blocks: vec![GapAckBlock {
++            start: 2,
++            end: through,
++        }],
++        duplicate_tsn: if duplicate { vec![2] } else { vec![] },
++    };
++    a.handle_sack(&sack, now).unwrap();
++}
++fn history(a: &mut Association, base: Instant, later: Instant) {
++    a.send_next_data_chunk(base).unwrap();
++    a.send_next_data_chunk(base).unwrap();
++    a.timers.start(Timer::T3RTX, base, 1000);
++    ack(a, 2, base + Duration::from_millis(100), false);
++    assert!(
++        !a.outbound_queue.get(1).unwrap().retransmit,
++        "equal original send-time cohort is not RACK loss"
++    );
++    a.send_next_data_chunk(later).unwrap();
++    ack(a, 3, base + Duration::from_millis(101), false);
++}
++#[test]
++fn ack_rack_later_cohort_marks_and_repeats_missing_fragment_before_tail() {
++    let now = Instant::now();
++    let mut a = fixture(
++        true,
++        ReliabilityType::Rexmit,
++        PayloadProtocolIdentifier::Binary,
++    );
++    history(&mut a, now, now + Duration::from_millis(1));
++    assert!(a.outbound_queue.pending_len() > 0);
++    assert!(!a.outbound_queue.get(1).unwrap().abandoned);
++    assert!(
++        a.outbound_queue.get(1).unwrap().retransmit,
++        "real later send-cohort ACK must select missing head without three misses"
++    );
++    assert_eq!(a.outbound_queue.get(1).unwrap().miss_indicator, 2);
++    let packets = a.get_data_packets_to_retransmit(now + Duration::from_millis(101));
++    assert!(
++        !packets.is_empty(),
++        "ordinary retransmission actually emits selected DATA"
++    );
++    assert_eq!(a.outbound_queue.get(1).unwrap().nsent, 2);
++    assert_eq!(a.stats.get_num_fast_retrans(), 0);
++}
++#[test]
++fn ack_rack_equal_cohort_and_source_false_do_not_gain_new_recovery() {
++    let now = Instant::now();
++    for source in [false, true] {
++        let mut a = fixture(
++            source,
++            ReliabilityType::Reliable,
++            PayloadProtocolIdentifier::Binary,
++        );
++        history(
++            &mut a,
++            now,
++            if source {
++                now
++            } else {
++                now + Duration::from_millis(1)
++            },
++        );
++        assert!(!a.outbound_queue.get(1).unwrap().retransmit);
++        assert!(a
++            .get_data_packets_to_retransmit(now + Duration::from_millis(101))
++            .is_empty());
++    }
++}
++
++#[test]
++#[ignore = "requires actual fixed-Pion GO_SCTP_ACK_RACK_OUTPUT TSV"]
++fn actual_go_ack_rack_zero_window_history_matches_native() {
++    let text =
++        std::fs::read_to_string(std::env::var_os("GO_SCTP_ACK_RACK_OUTPUT").unwrap()).unwrap();
++    let mut seen = std::collections::BTreeSet::new();
++    for line in text.lines() {
++        let fields: Vec<_> = line.split('\t').collect();
++        assert_eq!(fields.len(), 7);
++        let id = fields[0];
++        assert!(seen.insert(id.to_owned()), "duplicate actual source id");
++        let third_ns = match id {
++            "equal-send-cohort" => 0,
++            "earlier-send-cohort" => -1_000_000i64,
++            "later-send-cohort"
++            | "later-reliable"
++            | "later-retransmitted-head"
++            | "later-fully-inflight-abandoned"
++            | "later-dcep-reliable"
++            | "later-duplicate-tsn"
++            | "later-reordering-observed" => 1_000_000,
++            _ => panic!("unexpected actual source id {id}"),
++        };
++        let kind = if id == "later-reliable" {
++            ReliabilityType::Reliable
++        } else {
++            ReliabilityType::Rexmit
++        };
++        let payload = if id == "later-dcep-reliable" {
++            PayloadProtocolIdentifier::Dcep
++        } else {
++            PayloadProtocolIdentifier::Binary
++        };
++        let mut a = fixture(true, kind, payload);
++        let base = Instant::now();
++        a.send_next_data_chunk(base).unwrap();
++        a.send_next_data_chunk(base).unwrap();
++        if id == "later-retransmitted-head" {
++            a.outbound_queue.get_mut(1).unwrap().nsent = 2;
++        }
++        if id == "later-reordering-observed" {
++            a.source_rack_ack.highest_delivered_tsn = 100;
++        }
++        a.timers.start(Timer::T3RTX, base, 1000);
++        ack(&mut a, 2, base + Duration::from_millis(100), false);
++        let first = a.outbound_queue.get(1).unwrap().retransmit;
++        let third = if third_ns < 0 {
++            base - Duration::from_nanos(third_ns.unsigned_abs())
++        } else {
++            base + Duration::from_nanos(third_ns as u64)
++        };
++        a.send_next_data_chunk(third).unwrap();
++        if id == "later-fully-inflight-abandoned" {
++            while a.outbound_queue.pending_len() > 0 {
++                a.send_next_data_chunk(third).unwrap();
++            }
++        }
++        ack(
++            &mut a,
++            3,
++            base + Duration::from_millis(101),
++            id == "later-duplicate-tsn",
++        );
++        let second = a.outbound_queue.get(1).unwrap().retransmit;
++        let packets = a.get_data_packets_to_retransmit(base + Duration::from_millis(101));
++        let mut tsns = vec![];
++        for p in packets {
++            let b = p.marshal().unwrap();
++            let mut offset = 12;
++            while offset + 4 <= b.len() {
++                let length = u16::from_be_bytes([b[offset + 2], b[offset + 3]]) as usize;
++                assert!(length >= 4 && offset + length <= b.len());
++                if b[offset] == 0 {
++                    tsns.push(
++                        u32::from_be_bytes(b[offset + 4..offset + 8].try_into().unwrap())
++                            .to_string(),
++                    );
++                }
++                offset += (length + 3) & !3;
++            }
++        }
++        let head = a.outbound_queue.get(1).unwrap();
++        let actual = format!(
++            "{id}\t{first}\t{second}\t{}\t{}\t{}\t{}",
++            head.nsent,
++            head.abandoned,
++            a.source_rack_ack.reordering_seen,
++            tsns.join(",")
++        );
++        assert_eq!(actual, line, "actual Pion ACK history {id}");
++    }
++    assert_eq!(seen.len(), 9, "all frozen source inputs must be observed");
++}
+diff --git a/src/association/adaptive_rack_cases.rs b/src/association/adaptive_rack_cases.rs
+--- /dev/null
++++ b/src/association/adaptive_rack_cases.rs
+@@ -0,0 +1,402 @@
++// Generated ONLY from frozen input cases.jsonl; no expected output values.
++struct Input {
++    id: &'static str,
++    initial: u32,
++    delivered_tsn: u32,
++    highest: u32,
++    keep: u32,
++    head_age: u64,
++    delivered_age: u64,
++    prior_min: u64,
++    prior_reo: u64,
++    samples: &'static [(u64, u64)],
++    reordered: bool,
++    recovery: bool,
++    t3: bool,
++    duplicate: bool,
++    delivered: bool,
++    abandoned: bool,
++    retried: bool,
++}
++const INPUTS: &[Input] = &[
++    Input {
++        id: "normal-zero-window",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "high-initial-nonzero-positive",
++        initial: 2415919104,
++        delivered_tsn: 2415919105,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "high-initial-equal-send",
++        initial: 2415919104,
++        delivered_tsn: 2415919105,
++        highest: 0,
++        keep: 0,
++        head_age: 8000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "high-initial-insufficient-gap",
++        initial: 2415919104,
++        delivered_tsn: 2415919105,
++        highest: 0,
++        keep: 0,
++        head_age: 8500000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "duplicate-inflated-positive",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: true,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "duplicate-without-min-positive",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: true,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "no-t3-nonzero-positive",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: false,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "window-exact-thirty-seconds",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 8500000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(30000000000, 4000000)],
++        reordered: true,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "window-after-thirty-seconds",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 8500000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(30000000001, 4000000)],
++        reordered: true,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "keep-inflation-fifteen",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 16,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 6000000,
++        samples: &[(0, 4000000)],
++        reordered: true,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "keep-inflation-reset",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 1,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 6000000,
++        samples: &[(0, 4000000)],
++        reordered: true,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "recovery-keeps-inflation",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 16,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 6000000,
++        samples: &[(0, 4000000)],
++        reordered: true,
++        recovery: true,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "srtt-caps-reordering",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 100000000,
++        samples: &[(0, 4000000)],
++        reordered: true,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "retransmitted-member-not-marked",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: true,
++    },
++    Input {
++        id: "effectively-abandoned-removed",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: true,
++        retried: false,
++    },
++    Input {
++        id: "submillisecond-window",
++        initial: 2415919104,
++        delivered_tsn: 2415919105,
++        highest: 0,
++        keep: 0,
++        head_age: 8200000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 400000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "no-delivery-no-deadline",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: false,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "zero-rtt-sample",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 0)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "monotonic-min-deque",
++        initial: 1,
++        delivered_tsn: 2,
++        highest: 0,
++        keep: 0,
++        head_age: 10000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(2000000, 8000000), (1000000, 4000000), (0, 6000000)],
++        reordered: true,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++    Input {
++        id: "high-tsn-full-roundtrip-equal",
++        initial: 4294967295,
++        delivered_tsn: 0,
++        highest: 0,
++        keep: 0,
++        head_age: 8000000,
++        delivered_age: 8000000,
++        prior_min: 0,
++        prior_reo: 0,
++        samples: &[(0, 4000000)],
++        reordered: false,
++        recovery: false,
++        t3: true,
++        duplicate: false,
++        delivered: true,
++        abandoned: false,
++        retried: false,
++    },
++];
+diff --git a/src/association/adaptive_rack_old_api_test.rs b/src/association/adaptive_rack_old_api_test.rs
+--- /dev/null
++++ b/src/association/adaptive_rack_old_api_test.rs
+@@ -0,0 +1,69 @@
++use super::*;
++use crate::chunk::chunk_selective_ack::GapAckBlock;
++#[test]
++fn adaptive_rack_high_initial_tsn_real_ack_history_recovers_pending_head() {
++    let now = Instant::now();
++    let initial = 0x9000_0000u32;
++    let mut a = Association {
++        state: AssociationState::Established,
++        use_forward_tsn: true,
++        source_partial_reliability: true,
++        my_next_tsn: initial,
++        min_tsn2measure_rtt: initial,
++        cumulative_tsn_ack_point: initial.wrapping_sub(1),
++        advanced_peer_tsn_ack_point: initial.wrapping_sub(1),
++        cwnd: 10000,
++        rwnd: 10000,
++        mtu: 1228,
++        ..Default::default()
++    };
++    a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++        .unwrap()
++        .set_reliability_params(false, ReliabilityType::Rexmit, 0)
++        .unwrap();
++    a.outbound_queue.push(
++        (0..5)
++            .map(|i| ChunkPayloadData {
++                beginning_fragment: i == 0,
++                ending_fragment: i == 4,
++                stream_identifier: 0,
++                payload_type: PayloadProtocolIdentifier::Binary,
++                user_data: Bytes::from(vec![i, 2]),
++                ..Default::default()
++            })
++            .collect(),
++    );
++    a.send_next_data_chunk(now).unwrap();
++    a.send_next_data_chunk(now).unwrap();
++    a.timers.start(Timer::T3RTX, now, 1000);
++    let mut sack = ChunkSelectiveAck {
++        cumulative_tsn_ack: initial.wrapping_sub(1),
++        advertised_receiver_window_credit: 10000,
++        gap_ack_blocks: vec![GapAckBlock { start: 2, end: 2 }],
++        duplicate_tsn: vec![],
++    };
++    a.handle_sack(&sack, now + Duration::from_millis(1))
++        .unwrap();
++    assert!(
++        a.source_rack_ack.reordering_seen,
++        "preserve actual source high-watermark comparison"
++    );
++    assert!(
++        !a.outbound_queue.get(initial).unwrap().retransmit,
++        "equal cohort is not lost"
++    );
++    a.send_next_data_chunk(now + Duration::from_millis(1))
++        .unwrap();
++    sack.gap_ack_blocks[0].end = 3;
++    a.handle_sack(&sack, now + Duration::from_millis(2))
++        .unwrap();
++    assert!(a.outbound_queue.pending_len() > 0);
++    assert!(!a.outbound_queue.get(initial).unwrap().abandoned);
++    assert!(a.outbound_queue.get(initial).unwrap().retransmit,
++        "real ACK of later cohort must not be permanently declined after source-observed reordering");
++    assert!(!a
++        .get_data_packets_to_retransmit(now + Duration::from_millis(2))
++        .is_empty());
++    assert_eq!(a.outbound_queue.get(initial).unwrap().nsent, 2);
++    assert_eq!(a.stats.get_num_fast_retrans(), 0);
++}
+diff --git a/src/association/adaptive_rack_tests.rs b/src/association/adaptive_rack_tests.rs
+--- /dev/null
++++ b/src/association/adaptive_rack_tests.rs
+@@ -0,0 +1,344 @@
++use super::*;
++use alloc::borrow::ToOwned;
++include!("adaptive_rack_cases.rs");
++fn prepare(input: &Input, now: Instant) -> Association {
++    let mut a = Association {
++        state: AssociationState::Established,
++        use_forward_tsn: true,
++        source_partial_reliability: true,
++        my_next_tsn: input.initial,
++        cumulative_tsn_ack_point: input.initial.wrapping_sub(1),
++        advanced_peer_tsn_ack_point: input.initial.wrapping_sub(1),
++        cwnd: 10000,
++        rwnd: 10000,
++        mtu: 1228,
++        ..Default::default()
++    };
++    a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++        .unwrap()
++        .set_reliability_params(false, ReliabilityType::Reliable, 0)
++        .unwrap();
++    a.outbound_queue.push(vec![ChunkPayloadData {
++        beginning_fragment: true,
++        ending_fragment: true,
++        stream_identifier: 0,
++        payload_type: PayloadProtocolIdentifier::Binary,
++        user_data: Bytes::from(vec![1, 2]),
++        ..Default::default()
++    }]);
++    a.send_next_data_chunk(now - Duration::from_nanos(input.head_age))
++        .unwrap();
++    let c = a.outbound_queue.get_mut(input.initial).unwrap();
++    if input.retried {
++        c.nsent = 2;
++    }
++    if input.abandoned {
++        c.abandoned = true;
++    }
++    a.source_rack_ack.highest_delivered_tsn = input.highest;
++    a.source_rack_ack.reordering_seen = input.reordered;
++    a.source_rack_ack.keep_inflated = input.keep;
++    a.source_rack_ack.min_rtt = Duration::from_nanos(input.prior_min);
++    a.source_rack_ack.reo = Duration::from_nanos(input.prior_reo);
++    a.in_fast_recovery = input.recovery;
++    for &(age, value) in input.samples {
++        a.source_rack_ack
++            .rtt(now - Duration::from_nanos(age), Duration::from_nanos(value));
++    }
++    if input.t3 {
++        a.timers.start(Timer::T3RTX, now, 1000);
++    }
++    a
++}
++fn observe(input: &Input, a: &mut Association, now: Instant) {
++    let delivery = SourceRackDelivery {
++        newest: input.delivered.then(|| {
++            (
++                now - Duration::from_nanos(input.delivered_age),
++                input.delivered_tsn,
++            )
++        }),
++        next_measure: a
++            .source_rack_ack
++            .min_tsn_measure
++            .unwrap_or(a.min_tsn2measure_rtt),
++        ..SourceRackDelivery::default()
++    };
++    let sack = ChunkSelectiveAck {
++        duplicate_tsn: if input.duplicate {
++            vec![input.initial.wrapping_add(1)]
++        } else {
++            vec![]
++        },
++        ..Default::default()
++    };
++    a.source_rack_after_ack(delivery, &sack, now);
++}
++#[test]
++#[ignore = "requires actual fixed-Pion GO_SCTP_ADAPTIVE_RACK_OUTPUT TSV20"]
++fn actual_go_adaptive_rack_state_and_deadline_match_native() {
++    let text =
++        std::fs::read_to_string(std::env::var_os("GO_SCTP_ADAPTIVE_RACK_OUTPUT").unwrap()).unwrap();
++    let mut seen = std::collections::BTreeSet::new();
++    for line in text.lines() {
++        let id = line.split('\t').next().unwrap();
++        assert!(seen.insert(id.to_owned()), "duplicate actual source id");
++        let input = INPUTS.iter().find(|row| row.id == id).unwrap();
++        let now = Instant::now();
++        let mut a = prepare(input, now);
++        observe(input, &mut a, now);
++        let rack = &a.source_rack_ack;
++        let head = a.outbound_queue.get(input.initial).unwrap();
++        let deadline = rack
++            .deadline
++            .map_or(-1i128, |at| at.duration_since(now).as_nanos() as i128);
++        let actual = format!(
++            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:016x}\t{}",
++            id,
++            rack.min_rtt.as_nanos(),
++            rack.reo.as_nanos(),
++            rack.keep_inflated,
++            rack.highest_delivered_tsn,
++            rack.reordering_seen,
++            head.retransmit,
++            rack.order.contains(&input.initial),
++            deadline,
++            rack.srtt_ms.to_bits(),
++            rack.window_len()
++        );
++        assert_eq!(actual, line, "actual Pion adaptive RACK {id}");
++    }
++    assert_eq!(seen.len(), INPUTS.len());
++    assert_eq!(INPUTS.len(), 20);
++}
++#[test]
++fn high_initial_tsn_uses_observed_submillisecond_window_without_resetting_watermark() {
++    let input = INPUTS
++        .iter()
++        .find(|r| r.id == "submillisecond-window")
++        .unwrap();
++    let now = Instant::now();
++    let mut a = prepare(input, now);
++    observe(input, &mut a, now);
++    assert!(a.source_rack_ack.reordering_seen);
++    assert_eq!(a.source_rack_ack.highest_delivered_tsn, 0);
++    assert_eq!(a.source_rack_ack.reo, Duration::from_micros(100));
++    assert!(a.outbound_queue.get(input.initial).unwrap().retransmit);
++    assert!(!a.get_data_packets_to_retransmit(now).is_empty());
++}
++#[test]
++fn actual_rack_deadline_is_polled_and_not_fired_early_or_rearmed_by_polling() {
++    let input = INPUTS
++        .iter()
++        .find(|r| r.id == "high-initial-insufficient-gap")
++        .unwrap();
++    let now = Instant::now();
++    let mut a = prepare(input, now);
++    observe(input, &mut a, now);
++    assert!(!a.outbound_queue.get(input.initial).unwrap().retransmit);
++    let deadline = a.source_rack_ack.deadline.unwrap();
++    assert_eq!(a.poll_timeout(), Some(deadline));
++    a.handle_timeout(deadline - Duration::from_nanos(1));
++    assert_eq!(a.source_rack_ack.deadline, Some(deadline));
++    a.handle_timeout(deadline);
++    assert!(a.source_rack_ack.deadline.is_none());
++    assert!(
++        !a.outbound_queue.get(input.initial).unwrap().retransmit,
++        "source RACK timeout reuses delivered-time threshold, not fabricated elapsed-age loss"
++    );
++    a.handle_timeout(deadline + Duration::from_nanos(1));
++    assert!(a.source_rack_ack.deadline.is_none());
++}
++#[test]
++fn adaptive_state_and_deadline_retire_with_actual_association_close() {
++    let input = INPUTS
++        .iter()
++        .find(|r| r.id == "high-initial-insufficient-gap")
++        .unwrap();
++    let now = Instant::now();
++    let mut a = prepare(input, now);
++    observe(input, &mut a, now);
++    a.close().unwrap();
++    assert!(a.source_rack_ack.deadline.is_none());
++    assert!(a.source_rack_ack.order.is_empty());
++    assert_eq!(a.source_rack_ack.window_len(), 0);
++}
++
++#[test]
++#[ignore = "requires actual original-Pion GO_SCTP_ACK_RTT_OUTPUT TSV12"]
++fn actual_go_real_ack_karn_and_next_measure_history_matches_native() {
++    use crate::chunk::chunk_selective_ack::GapAckBlock;
++    let text =
++        std::fs::read_to_string(std::env::var_os("GO_SCTP_ACK_RTT_OUTPUT").unwrap()).unwrap();
++    assert_eq!(
++        text.lines().count(),
++        12,
++        "all actual rows including duplicate detection"
++    );
++    let expected: std::collections::BTreeMap<_, _> = text
++        .lines()
++        .map(|line| {
++            let f: Vec<_> = line.split('\t').collect();
++            assert_eq!(f.len(), 7);
++            (format!("{}\t{}", f[0], f[1]), line.to_owned())
++        })
++        .collect();
++    assert_eq!(expected.len(), 12);
++    let mut count = 0;
++    for (id, initial) in [("low", 1u32), ("high", 0x90000000), ("wrap", 0xffffffff)] {
++        let now = Instant::now();
++        let mut a = Association {
++            state: AssociationState::Established,
++            use_forward_tsn: true,
++            source_partial_reliability: true,
++            my_next_tsn: initial,
++            min_tsn2measure_rtt: initial,
++            cumulative_tsn_ack_point: initial.wrapping_sub(1),
++            advanced_peer_tsn_ack_point: initial.wrapping_sub(1),
++            cwnd: 10000,
++            rwnd: 10000,
++            mtu: 1228,
++            ..Default::default()
++        };
++        a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++            .unwrap()
++            .set_reliability_params(false, ReliabilityType::Reliable, 0)
++            .unwrap();
++        a.outbound_queue.push(
++            (0..5)
++                .map(|i| ChunkPayloadData {
++                    beginning_fragment: true,
++                    ending_fragment: true,
++                    stream_identifier: 0,
++                    payload_type: PayloadProtocolIdentifier::Binary,
++                    user_data: Bytes::from(vec![i, 2]),
++                    ..Default::default()
++                })
++                .collect(),
++        );
++        a.send_next_data_chunk(now).unwrap();
++        a.send_next_data_chunk(now + Duration::from_millis(1))
++            .unwrap();
++        a.timers.start(Timer::T3RTX, now, 1000);
++        let mut sack = ChunkSelectiveAck {
++            cumulative_tsn_ack: initial.wrapping_sub(1),
++            advertised_receiver_window_credit: 10000,
++            gap_ack_blocks: vec![GapAckBlock { start: 2, end: 2 }],
++            duplicate_tsn: vec![],
++        };
++        let mut check = |stage: &str, a: &Association| {
++            let r = &a.source_rack_ack;
++            let actual = format!(
++                "{id}\t{stage}\t{:016x}\t{}\t{}\t{}\t{}",
++                r.srtt_ms.to_bits(),
++                r.window_len(),
++                r.min_tsn_measure.unwrap(),
++                r.min_rtt.as_nanos(),
++                r.reordering_seen
++            );
++            assert_eq!(expected.get(&format!("{id}\t{stage}")).unwrap(), &actual);
++            count += 1;
++        };
++        a.handle_sack(&sack, now + Duration::from_millis(2))
++            .unwrap();
++        check("first-original", &a);
++        a.handle_sack(&sack, now + Duration::from_micros(2500))
++            .unwrap();
++        check("duplicate-ack", &a);
++        let packets = a.get_data_packets_to_retransmit(now + Duration::from_millis(3));
++        assert!(!packets.is_empty());
++        assert_eq!(a.outbound_queue.get(initial).unwrap().nsent, 2);
++        sack = ChunkSelectiveAck {
++            cumulative_tsn_ack: initial,
++            advertised_receiver_window_credit: 10000,
++            ..Default::default()
++        };
++        a.handle_sack(&sack, now + Duration::from_millis(4))
++            .unwrap();
++        check("retransmitted-ack-karn", &a);
++        a.send_next_data_chunk(now + Duration::from_millis(4))
++            .unwrap();
++        sack.gap_ack_blocks = vec![GapAckBlock { start: 1, end: 2 }];
++        a.handle_sack(&sack, now + Duration::from_millis(7))
++            .unwrap();
++        check("next-original", &a);
++    }
++    assert_eq!(count, 12);
++}
++
++// Additive test inside adaptive_rack_tests.rs; no expected outputs copied from Go.
++#[test]
++#[ignore = "requires actual original-Pion GO_SCTP_FRACTIONAL_ACK_OUTPUT TSV24"]
++fn actual_go_fractional_ack_history_matches_every_srtt_bit() {
++    let text = std::fs::read_to_string(std::env::var_os("GO_SCTP_FRACTIONAL_ACK_OUTPUT").unwrap())
++        .unwrap();
++    let expected: std::collections::BTreeMap<_, _> = text
++        .lines()
++        .map(|l| {
++            let f: Vec<_> = l.split('\t').collect();
++            assert_eq!(f.len(), 8);
++            (format!("{}\t{}", f[0], f[1]), l.to_owned())
++        })
++        .collect();
++    assert_eq!(text.lines().count(), 24);
++    assert_eq!(expected.len(), 24);
++    let samples = [
++        1234567u64, 177777, 999999, 2345678, 333333, 1000001, 7654321, 123457,
++    ];
++    let mut count = 0;
++    for (id, initial) in [("low", 1u32), ("high", 0x90000000), ("wrap", 0xfffffffc)] {
++        let now = Instant::now();
++        let mut a = Association {
++            state: AssociationState::Established,
++            use_forward_tsn: true,
++            source_partial_reliability: true,
++            my_next_tsn: initial,
++            min_tsn2measure_rtt: initial,
++            cumulative_tsn_ack_point: initial.wrapping_sub(1),
++            advanced_peer_tsn_ack_point: initial.wrapping_sub(1),
++            cwnd: 10000,
++            rwnd: 10000,
++            mtu: 1228,
++            ..Default::default()
++        };
++        a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++            .unwrap()
++            .set_reliability_params(false, ReliabilityType::Reliable, 0)
++            .unwrap();
++        for (i, ns) in samples.into_iter().enumerate() {
++            let sent = now + Duration::from_millis(i as u64 * 20);
++            a.outbound_queue.push(vec![ChunkPayloadData {
++                beginning_fragment: true,
++                ending_fragment: true,
++                stream_identifier: 0,
++                payload_type: PayloadProtocolIdentifier::Binary,
++                user_data: Bytes::from(vec![i as u8, 2]),
++                ..Default::default()
++            }]);
++            let chunk = a.send_next_data_chunk(sent).unwrap();
++            assert_eq!(chunk.tsn, initial.wrapping_add(i as u32));
++            assert_eq!(chunk.nsent, 1);
++            a.handle_sack(
++                &ChunkSelectiveAck {
++                    cumulative_tsn_ack: initial.wrapping_add(i as u32),
++                    advertised_receiver_window_credit: 10000,
++                    ..Default::default()
++                },
++                sent + Duration::from_nanos(ns),
++            )
++            .unwrap();
++            let rack = &a.source_rack_ack;
++            let actual = format!(
++                "{id}\t{i}\t{ns}\t{:016x}\t{}\t{}\t{}\t{}",
++                rack.srtt_ms.to_bits(),
++                rack.window_len(),
++                rack.min_tsn_measure.unwrap(),
++                rack.min_rtt.as_nanos(),
++                rack.reordering_seen
++            );
++            assert_eq!(expected.get(&format!("{id}\t{i}")).unwrap(), &actual);
++            count += 1;
++        }
++    }
++    assert_eq!(count, 24);
++}
+diff --git a/src/association/configured_physical_timer_tests.rs b/src/association/configured_physical_timer_tests.rs
+--- /dev/null
++++ b/src/association/configured_physical_timer_tests.rs
+@@ -0,0 +1,220 @@
++// Test-only real UDP/T3 consumer. No timer shortening or recovery selector calls.
++struct PhysicalTimerPeer {
++    ep: crate::Endpoint,
++    assoc: Association,
++    handle: crate::AssociationHandle,
++    socket: std::net::UdpSocket,
++}
++impl PhysicalTimerPeer {
++    fn receive_available(&mut self, now: Instant) {
++        let mut bytes = [0u8; 8192];
++        loop {
++            let (n, remote) = match self.socket.recv_from(&mut bytes) {
++                Ok(value) => value,
++                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
++                Err(e) => panic!("actual UDP receive: {e}"),
++            };
++            let (_, event) = self
++                .ep
++                .handle(now, remote, None, None, Bytes::copy_from_slice(&bytes[..n]))
++                .expect("routable actual SCTP packet");
++            match event {
++                crate::DatagramEvent::AssociationEvent(e) => self.assoc.handle_event(e),
++                _ => panic!("unexpected real association event"),
++            }
++        }
++    }
++    fn packets(&mut self, now: Instant) -> Vec<Bytes> {
++        let mut output = vec![];
++        loop {
++            while let Some(e) = self.assoc.poll_endpoint_event() {
++                if let Some(e) = self.ep.handle_event(self.handle, e) {
++                    self.assoc.handle_event(e);
++                }
++            }
++            while self.assoc.poll().is_some() {}
++            let Some(t) = self
++                .assoc
++                .poll_transmit(now)
++                .or_else(|| self.ep.poll_transmit())
++            else {
++                break;
++            };
++            match t.payload {
++                crate::Payload::RawEncode(packets) => output.extend(packets),
++                _ => panic!("outgoing SCTP packet is not encoded"),
++            }
++        }
++        output
++    }
++}
++fn physical_timer_pair(source: bool, reliable: bool) -> (PhysicalTimerPeer, PhysicalTimerPeer) {
++    let left = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
++    let right = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
++    left.set_nonblocking(true).unwrap();
++    right.set_nonblocking(true).unwrap();
++    let tc = Arc::new(TransportConfig::default().with_source_partial_reliability(source));
++    let ta = crate::generate_snap_token(&tc).unwrap();
++    let tb = crate::generate_snap_token(&tc).unwrap();
++    let mut ea = crate::Endpoint::new(Arc::new(crate::EndpointConfig::new()), None);
++    let mut eb = crate::Endpoint::new(Arc::new(crate::EndpointConfig::new()), None);
++    let mut ca = crate::ClientConfig::new().with_snap(ta.clone(), tb.clone());
++    ca.transport = tc.clone();
++    let mut cb = crate::ClientConfig::new().with_snap(tb, ta);
++    cb.transport = tc;
++    let (ha, mut a) = ea.connect(ca, right.local_addr().unwrap()).unwrap();
++    let (hb, mut b) = eb.connect(cb, left.local_addr().unwrap()).unwrap();
++    let kind = if reliable {
++        ReliabilityType::Reliable
++    } else {
++        ReliabilityType::Rexmit
++    };
++    for association in [&mut a, &mut b] {
++        association
++            .open_stream(0, PayloadProtocolIdentifier::Binary)
++            .unwrap()
++            .set_reliability_params(true, kind, 0)
++            .unwrap();
++    }
++    assert_eq!(a.fast_rtx_wnd, 0);
++    (
++        PhysicalTimerPeer {
++            ep: ea,
++            assoc: a,
++            handle: ha,
++            socket: left,
++        },
++        PhysicalTimerPeer {
++            ep: eb,
++            assoc: b,
++            handle: hb,
++            socket: right,
++        },
++    )
++}
++fn physical_data_tsns(packet: &[u8]) -> Vec<u32> {
++    assert!(packet.len() >= 12);
++    let mut tsns = vec![];
++    let mut offset = 12;
++    while offset < packet.len() {
++        assert!(offset + 4 <= packet.len());
++        let size = usize::from(u16::from_be_bytes(
++            packet[offset + 2..offset + 4].try_into().unwrap(),
++        ));
++        assert!(size >= 4 && offset + size <= packet.len());
++        if packet[offset] == 0 {
++            assert!(size >= 16);
++            tsns.push(u32::from_be_bytes(
++                packet[offset + 4..offset + 8].try_into().unwrap(),
++            ));
++        }
++        offset += (size + 3) & !3;
++    }
++    tsns
++}
++#[test]
++#[ignore = "real UDP/wall-clock T3; coordinator runs only after original Go physical oracle"]
++fn real_udp_default_fast_zero_fragmented_message_matches_actual_go_timer_result() {
++    // This TSV is derived strictly from the actual original Go JSON observations.
++    // No predicted source delivery value is hard-coded into this test.
++    let actual = std::fs::read_to_string(std::env::var("GO_SCTP_PHYSICAL_TSV").unwrap()).unwrap();
++    let mut rows = 0;
++    for line in actual.lines() {
++        let columns: Vec<_> = line.split('\t').collect();
++        assert_eq!(columns.len(), 5);
++        let id = columns[0];
++        let size: usize = columns[1].parse().unwrap();
++        let reliable = columns[2] == "true";
++        let loss = columns[3] == "true";
++        let delivered = columns[4] == "true";
++        for source in [false, true] {
++            let (mut a, mut b) = physical_timer_pair(source, reliable);
++            let expected: Vec<u8> = (0..size).map(|i| (i * 31 + 7) as u8).collect();
++            assert_eq!(a.assoc.stream(0).unwrap().write(&expected).unwrap(), size);
++            let start = Instant::now();
++            let mut received = vec![];
++            let mut dropped = 0u64;
++            let mut repeated = 0u64;
++            let mut seen = std::collections::BTreeSet::new();
++            // Keep the original positive deadline; negatives observe the same
++            // full15s window as the actual original Go outer context.
++            let observation = Duration::from_secs(if delivered { 12 } else { 15 });
++            while start.elapsed() < observation {
++                let now = Instant::now();
++                a.assoc.handle_timeout(now);
++                b.assoc.handle_timeout(now);
++                let before_t3 = a.assoc.stats.get_num_t3timeouts() == 0;
++                for packet in a.packets(now) {
++                    let tsns = physical_data_tsns(&packet);
++                    for tsn in &tsns {
++                        if !seen.insert(*tsn) {
++                            repeated += 1;
++                        }
++                    }
++                    if loss && before_t3 && !tsns.is_empty() {
++                        dropped += 1;
++                        continue;
++                    }
++                    assert_eq!(
++                        a.socket
++                            .send_to(&packet, b.socket.local_addr().unwrap())
++                            .unwrap(),
++                        packet.len()
++                    );
++                }
++                b.receive_available(now);
++                for packet in b.packets(now) {
++                    assert_eq!(
++                        b.socket
++                            .send_to(&packet, a.socket.local_addr().unwrap())
++                            .unwrap(),
++                        packet.len()
++                    );
++                }
++                a.receive_available(now);
++                while let Some(chunks) = b.assoc.stream(0).unwrap().read().unwrap() {
++                    let mut body = vec![0; chunks.len()];
++                    chunks.read(&mut body).unwrap();
++                    received.push(body);
++                }
++                if !received.is_empty() {
++                    break;
++                }
++                std::thread::sleep(Duration::from_millis(1));
++            }
++            let t3 = a.assoc.stats.get_num_t3timeouts();
++            if loss {
++                assert!(
++                    dropped > 0 && t3 > 0,
++                    "{id}: actual loss and real timer required"
++                );
++            }
++            assert!(
++                received.len() <= 1,
++                "{id}: whole messages only, no duplication"
++            );
++            if let Some(body) = received.first() {
++                assert_eq!(body, &expected, "{id}: actual payload");
++            }
++            std::eprintln!("physical SCTP {id} source={source} delivered={} t3={t3} dropped={dropped} repeated={repeated}", !received.is_empty());
++            if source {
++                assert_eq!(
++                    !received.is_empty(),
++                    delivered,
++                    "{id}: actual fixed Go result, default fast0"
++                );
++            } else if !loss || reliable {
++                assert_eq!(
++                    !received.is_empty(),
++                    delivered,
++                    "{id}: unchanged native reliable/unlost controls"
++                );
++            }
++            // Legacy native's fragmented MaxRTX0 outcome is recorded, not asserted
++            // to be equivalent to source. Source-only mutation false must fail the
++            // same actual-Go assertion when the source loss observation is positive.
++        }
++        rows += 1;
++    }
++    assert_eq!(rows, 4);
++}
+diff --git a/src/association/mod.rs b/src/association/mod.rs
+--- a/src/association/mod.rs
++++ b/src/association/mod.rs
+@@ -1,8 +1,5 @@
+ use crate::association::state::{AckMode, AckState, AssociationState};
+ use crate::association::stats::AssociationStats;
+-use crate::chunk::Chunk;
+-use crate::chunk::ErrorCauseUnrecognizedChunkType;
+-use crate::chunk::USER_INITIATED_ABORT;
+ use crate::chunk::chunk_abort::ChunkAbort;
+ use crate::chunk::chunk_cookie_ack::ChunkCookieAck;
+ use crate::chunk::chunk_cookie_echo::ChunkCookieEcho;
+@@ -19,17 +16,20 @@
+ use crate::chunk::chunk_shutdown_ack::ChunkShutdownAck;
+ use crate::chunk::chunk_shutdown_complete::ChunkShutdownComplete;
+ use crate::chunk::chunk_type::CT_FORWARD_TSN;
++use crate::chunk::Chunk;
++use crate::chunk::ErrorCauseUnrecognizedChunkType;
++use crate::chunk::USER_INITIATED_ABORT;
+ use crate::config::COMMON_HEADER_SIZE;
+ use crate::config::DATA_CHUNK_HEADER_SIZE;
+ use crate::config::{ServerConfig, TransportConfig};
+ use crate::error::{Error, Result};
+ use crate::packet::{CommonHeader, Packet};
+-use crate::param::Param;
+ use crate::param::param_heartbeat_info::ParamHeartbeatInfo;
+ use crate::param::param_outgoing_reset_request::ParamOutgoingResetRequest;
+ use crate::param::param_reconfig_response::{ParamReconfigResponse, ReconfigResult};
+ use crate::param::param_state_cookie::ParamStateCookie;
+ use crate::param::param_supported_extensions::ParamSupportedExtensions;
++use crate::param::Param;
+ use crate::queue::outbound_queue::OutboundQueue;
+ use crate::queue::payload_queue::PayloadQueue;
+ use crate::queue::reassembly_queue::ReassemblyQueue;
+@@ -38,7 +38,7 @@
+ use crate::{AssociationEvent, Payload, Side, Transmit};
+ use stream::DataChannelStats;
+ use stream::{ReliabilityType, Stream, StreamEvent, StreamId, StreamResetError, StreamState};
+-use timer::{ACK_INTERVAL, RtoManager, Timer, TimerTable};
++use timer::{RtoManager, Timer, TimerTable, ACK_INTERVAL};
+ 
+ use crate::association::stream::RecvSendState;
+ use alloc::boxed::Box;
+@@ -51,6 +51,7 @@
+ use core::net::{IpAddr, SocketAddr};
+ use core::num::NonZeroU32;
+ use core::str::FromStr;
++use core::sync::atomic::{AtomicBool, Ordering};
+ use core::time::Duration;
+ use log::{debug, error, trace, warn};
+ use rand::random;
+@@ -70,6 +71,12 @@
+ #[cfg(test)]
+ mod timed_reliability_test;
+ 
++mod source_rack;
++mod source_shutdown;
++mod source_tlr;
++use source_rack::{SourceRackAck, SourceRackDelivery};
++use source_tlr::{SourceBurst, SourceTlr};
++
+ /// Reasons why an association might be lost
+ #[non_exhaustive]
+ #[derive(Debug, Error, Clone, PartialEq)]
+@@ -299,6 +306,17 @@
+     max_receive_buffer_size: u32,
+     // my congestion window size
+     pub(crate) cwnd: u32,
++    min_cwnd: u32,
++    fast_rtx_wnd: u32,
++    source_partial_reliability: bool,
++    source_rack_ack: SourceRackAck,
++    source_tlr: SourceTlr,
++    source_writer_pending: AtomicBool,
++    ordinary_write_pending: bool,
++    source_shutdown_complete_pending: bool,
++    source_burst: Option<SourceBurst>,
++    cwnd_ca_step: u32,
++    source_pr_abandoned: FxHashSet<u64>,
+     // calculated peer's receiver windows size
+     rwnd: u32,
+     // slow start threshold
+@@ -400,6 +418,17 @@
+             max_receive_buffer_size: 0,
+             // my congestion window size
+             cwnd: 0,
++            min_cwnd: 0,
++            fast_rtx_wnd: 0,
++            source_partial_reliability: false,
++            source_rack_ack: SourceRackAck::default(),
++            source_tlr: SourceTlr::default(),
++            source_writer_pending: AtomicBool::new(true),
++            ordinary_write_pending: false,
++            source_shutdown_complete_pending: false,
++            source_burst: None,
++            cwnd_ca_step: 0,
++            source_pr_abandoned: FxHashSet::default(),
+             // calculated peer's receiver windows size
+             rwnd: 0,
+             // slow start threshold
+@@ -431,6 +460,18 @@
+ }
+ 
+ impl Association {
++    /// Actual current association congestion window in bytes.
++    pub fn congestion_window(&self) -> u32 {
++        self.cwnd
++    }
++    /// Configured minimum, fast retransmit window, and congestion avoidance step.
++    pub fn congestion_parameters(&self) -> (u32, u32, u32) {
++        (self.min_cwnd, self.fast_rtx_wnd, self.cwnd_ca_step)
++    }
++    fn set_cwnd(&mut self, value: u32) {
++        self.cwnd = value.max(self.min_cwnd);
++    }
++
+     fn new_common(
+         config: Arc<TransportConfig>,
+         max_payload_size: u32,
+@@ -447,7 +488,7 @@
+         // RFC 4960 Sec 7.2.1
+         // The initial cwnd before DATA transmission or after a sufficiently
+         // long idle period MUST be set to min(4*MTU, max (2*MTU, 4380bytes)).
+-        let cwnd = (4 * mtu).min((2 * mtu).max(4380));
++        let cwnd = (4 * mtu).min((2 * mtu).max(4380)).max(config.min_cwnd());
+ 
+         Association {
+             side,
+@@ -472,6 +513,16 @@
+ 
+             mtu,
+             cwnd,
++            min_cwnd: config.min_cwnd(),
++            fast_rtx_wnd: config.fast_rtx_wnd(),
++            source_partial_reliability: config.source_partial_reliability(),
++            source_rack_ack: SourceRackAck::with_min_tsn(initial_tsn),
++            source_tlr: SourceTlr::default(),
++            source_writer_pending: AtomicBool::new(true),
++            ordinary_write_pending: false,
++            source_shutdown_complete_pending: false,
++            source_burst: None,
++            cwnd_ca_step: config.cwnd_ca_step(),
+             remote_addr,
+             local_ip,
+ 
+@@ -732,7 +783,16 @@
+     /// - a call was made to `handle_timeout`
+     #[must_use]
+     pub fn poll_timeout(&self) -> Option<Instant> {
+-        self.timers.next_timeout()
++        let ordinary = self.timers.next_timeout();
++        if self.source_partial_reliability {
++            ordinary
++                .into_iter()
++                .chain(self.source_rack_ack.deadline)
++                .chain(self.source_tlr.pto_deadline)
++                .min()
++        } else {
++            ordinary
++        }
+     }
+ 
+     /// Returns packets to transmit
+@@ -743,6 +803,13 @@
+     /// - a call was made to `handle_timeout`
+     #[must_use]
+     pub fn poll_transmit(&mut self, now: Instant) -> Option<Transmit> {
++        // The source writeLoop gathers once and then consumes one coalesced
++        // wake token, rather than obtaining a fresh TLR budget on every poll.
++        if self.source_partial_reliability
++            && !self.source_writer_pending.swap(false, Ordering::Relaxed)
++        {
++            return None;
++        }
+         let (contents, _) = self.gather_outbound(now);
+         if contents.is_empty() {
+             None
+@@ -773,6 +840,18 @@
+     /// `Instant` that was output by `poll_timeout`; however spurious extra calls will simply
+     /// no-op and therefore are safe.
+     pub fn handle_timeout(&mut self, now: Instant) {
++        if self.source_partial_reliability
++            && self.source_rack_ack.deadline.is_some_and(|at| at <= now)
++        {
++            self.source_rack_ack.deadline = None;
++            self.source_rack_mark(now);
++        }
++        if self.source_partial_reliability
++            && self.source_tlr.pto_deadline.is_some_and(|at| at <= now)
++        {
++            self.source_tlr.pto_deadline = None;
++            self.source_on_pto(now);
++        }
+         for &timer in &Timer::VALUES {
+             let (expired, failure, n_rtos) = self.timers.is_expired(timer, now);
+             if !expired {
+@@ -864,6 +943,9 @@
+         };
+         self.control_queue
+             .push_back(self.create_packet(vec![Box::new(abort)]));
++        // Closing clears the old wake token before this terminal control is
++        // queued. The actual new producer must admit its one final write.
++        self.awake_write_loop();
+     }
+ 
+     /// Returns Association statistics
+@@ -953,14 +1035,22 @@
+         // Attempt a graceful shutdown.
+         self.set_state(AssociationState::ShutdownPending);
+ 
+-        if self.inflight_queue_length == 0 {
++        if if self.source_partial_reliability {
++            !self.source_has_pending_or_inflight()
++        } else {
++            self.inflight_queue_length == 0
++        } {
+             // No more outstanding, send shutdown.
+             self.will_send_shutdown = true;
+             self.awake_write_loop();
+             self.set_state(AssociationState::ShutdownSent);
+         }
+ 
+-        self.endpoint_events.push_back(EndpointEventInner::Drained);
++        if self.source_partial_reliability {
++            self.awake_write_loop();
++        } else {
++            self.endpoint_events.push_back(EndpointEventInner::Drained);
++        }
+ 
+         Ok(())
+     }
+@@ -977,6 +1067,9 @@
+             debug!("[{}] closing association..", self.side);
+ 
+             self.close_all_timers();
++            if self.source_partial_reliability {
++                self.endpoint_events.push_back(EndpointEventInner::Drained);
++            }
+ 
+             for si in self.streams.keys().cloned().collect::<Vec<u16>>() {
+                 self.unregister_stream(si, false);
+@@ -1490,6 +1583,14 @@
+ 
+     /// set_state atomically sets the state of the Association.
+     fn set_state(&mut self, new_state: AssociationState) {
++        if new_state == AssociationState::Closed {
++            self.source_rack_ack = SourceRackAck::default();
++            self.source_tlr = SourceTlr::default();
++            self.source_writer_pending.store(false, Ordering::Relaxed);
++            self.ordinary_write_pending = false;
++            self.source_burst = None;
++            self.source_shutdown_complete_pending = false;
++        }
+         if new_state != self.state {
+             debug!(
+                 "[{}] state change: '{}' => '{}'",
+@@ -1686,9 +1787,17 @@
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkIForwardTsn>() {
+             self.handle_i_forward_tsn(c)?
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkShutdown>() {
+-            self.handle_shutdown(c)?
++            if self.source_partial_reliability {
++                self.source_handle_shutdown(c, now)?
++            } else {
++                self.handle_shutdown(c)?
++            }
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkShutdownAck>() {
+-            self.handle_shutdown_ack(c)?
++            if self.source_partial_reliability {
++                self.source_handle_shutdown_ack(c)?
++            } else {
++                self.handle_shutdown_ack(c)?
++            }
+         } else if let Some(c) = chunk_any.downcast_ref::<ChunkShutdownComplete>() {
+             self.handle_shutdown_complete(c)?
+         } else {
+@@ -2402,6 +2511,22 @@
+     }
+ 
+     fn handle_data(&mut self, d: &ChunkPayloadData) -> Result<Vec<Packet>> {
++        if self.source_partial_reliability {
++            if self.source_shutdown_complete_pending
++                || !matches!(
++                    self.state(),
++                    AssociationState::Established
++                        | AssociationState::ShutdownPending
++                        | AssociationState::ShutdownSent
++                )
++            {
++                return Ok(vec![]);
++            }
++            if self.state() == AssociationState::ShutdownSent {
++                self.will_send_shutdown = true;
++                self.timers.stop(Timer::T2Shutdown);
++            }
++        }
+         trace!(
+             "[{}] DATA: tsn={} immediateSack={} len={}",
+             self.side,
+@@ -2454,11 +2579,16 @@
+                 // silently discard the data. (sender will retry on T3-rtx timeout)
+                 // see pion/sctp#30
+                 debug!("[{}] discard {}", self.side, d.stream_sequence_number);
++                if self.source_partial_reliability && self.state() == AssociationState::ShutdownSent
++                {
++                    return self.handle_peer_last_tsn_and_acknowledgement(true);
++                }
+                 return Ok(vec![]);
+             }
+         }
+ 
+-        let immediate_sack = d.immediate_sack;
++        let immediate_sack = d.immediate_sack
++            || (self.source_partial_reliability && self.state() == AssociationState::ShutdownSent);
+ 
+         if defer_stream_data {
+             self.validate_deferred_reset_data(d)?;
+@@ -2521,6 +2651,49 @@
+             return Ok(vec![]);
+         }
+ 
++        let (source_delivery, htna, cum_tsn_ack_point_advanced) =
++            self.process_acknowledged_data(d, now)?;
++
++        // New rwnd value
++        // RFC 4960 sec 6.2.1.  Processing a Received SACK
++        // D)
++        //   ii) Set rwnd equal to the newly received a_rwnd minus the number
++        //       of bytes still outstanding after processing the Cumulative
++        //       TSN Ack and the Gap Ack Blocks.
++
++        // bytes acked were already subtracted by markAsAcked() method
++        let bytes_outstanding = self.outbound_queue.inflight_bytes() as u32;
++        if bytes_outstanding >= d.advertised_receiver_window_credit {
++            self.rwnd = 0;
++        } else {
++            self.rwnd = d.advertised_receiver_window_credit - bytes_outstanding;
++        }
++
++        self.finish_acknowledged_data(d, htna, cum_tsn_ack_point_advanced, now)?;
++
++        self.postprocess_sack(state, cum_tsn_ack_point_advanced, now);
++        let source_ack_progress = cum_tsn_ack_point_advanced || source_delivery.newest.is_some();
++        self.source_rack_after_ack(source_delivery, d, now);
++        if self.source_partial_reliability {
++            self.source_tlr
++                .finish(source_ack_progress, self.cumulative_tsn_ack_point);
++        }
++
++        Ok(vec![])
++    }
++
++    fn process_acknowledged_data(
++        &mut self,
++        d: &ChunkSelectiveAck,
++        now: Instant,
++    ) -> Result<(SourceRackDelivery, u32, bool)> {
++        if self.source_partial_reliability {
++            self.source_validate_acknowledgement(d)?;
++        }
++        // Observe existing original/retransmitted send metadata before ACK
++        // removal, but commit it only after this actual SACK succeeds.
++        let source_delivery = self.source_rack_delivery(d, now);
++
+         // Process selective ack
+         let outstanding_before = self.outbound_queue.inflight_bytes();
+         let (bytes_acked_per_stream, htna) = self.process_selective_ack(d, now)?;
+@@ -2532,7 +2705,9 @@
+         if sna32lt(self.cumulative_tsn_ack_point, d.cumulative_tsn_ack) {
+             trace!(
+                 "[{}] SACK: cumTSN advanced: {} -> {}",
+-                self.side, self.cumulative_tsn_ack_point, d.cumulative_tsn_ack
++                self.side,
++                self.cumulative_tsn_ack_point,
++                d.cumulative_tsn_ack
+             );
+ 
+             self.cumulative_tsn_ack_point = d.cumulative_tsn_ack;
+@@ -2549,22 +2724,21 @@
+             }
+         }
+ 
+-        // New rwnd value
+-        // RFC 4960 sec 6.2.1.  Processing a Received SACK
+-        // D)
+-        //   ii) Set rwnd equal to the newly received a_rwnd minus the number
+-        //       of bytes still outstanding after processing the Cumulative
+-        //       TSN Ack and the Gap Ack Blocks.
+-
+-        // bytes acked were already subtracted by markAsAcked() method
+-        let bytes_outstanding = self.outbound_queue.inflight_bytes() as u32;
+-        if bytes_outstanding >= d.advertised_receiver_window_credit {
+-            self.rwnd = 0;
+-        } else {
+-            self.rwnd = d.advertised_receiver_window_credit - bytes_outstanding;
+-        }
+-
+-        self.process_fast_retransmission(d.cumulative_tsn_ack, htna, cum_tsn_ack_point_advanced)?;
++        Ok((source_delivery, htna, cum_tsn_ack_point_advanced))
++    }
++    fn finish_acknowledged_data(
++        &mut self,
++        d: &ChunkSelectiveAck,
++        htna: u32,
++        cum_tsn_ack_point_advanced: bool,
++        now: Instant,
++    ) -> Result<()> {
++        self.process_fast_retransmission_at(
++            d.cumulative_tsn_ack,
++            htna,
++            cum_tsn_ack_point_advanced,
++            Some(now),
++        )?;
+ 
+         if self.use_forward_tsn {
+             self.advance_peer_tsn_ack_point();
+@@ -2586,9 +2760,7 @@
+             self.awake_write_loop();
+         }
+ 
+-        self.postprocess_sack(state, cum_tsn_ack_point_advanced, now);
+-
+-        Ok(vec![])
++        Ok(())
+     }
+ 
+     fn handle_reconfig(&mut self, c: &ChunkReconfig) -> Result<Vec<Packet>> {
+@@ -2638,7 +2810,9 @@
+ 
+         trace!(
+             "[{}] should send ack? newCumTSN={} peer_last_tsn={}",
+-            self.side, c.new_cumulative_tsn, self.peer_last_tsn
++            self.side,
++            c.new_cumulative_tsn,
++            self.peer_last_tsn
+         );
+         if sna32lte(c.new_cumulative_tsn, self.peer_last_tsn) {
+             trace!("[{}] sending ack on Forward TSN", self.side);
+@@ -2862,6 +3036,10 @@
+             );
+         }
+ 
++        if self.source_partial_reliability && (sack_immediately || has_packet_loss) {
++            self.immediate_ack_triggered = true;
++            return Ok(reply);
++        }
+         if (self.ack_state != AckState::Immediate
+             && !sack_immediately
+             && !has_packet_loss
+@@ -2993,6 +3171,116 @@
+         })]));
+     }
+ 
++    fn source_rack_delivery(&self, d: &ChunkSelectiveAck, now: Instant) -> SourceRackDelivery {
++        let mut result = SourceRackDelivery {
++            next_measure: self
++                .source_rack_ack
++                .min_tsn_measure
++                .unwrap_or(self.min_tsn2measure_rtt),
++            ..SourceRackDelivery::default()
++        };
++        if !self.source_partial_reliability {
++            return result;
++        }
++        let mut seen = FxHashSet::default();
++        let mut observe = |tsn| {
++            if !seen.insert(tsn) {
++                return;
++            }
++            if let Some(c) = self.outbound_queue.get(tsn) {
++                if !c.acked && c.nsent != 0 {
++                    result.acked.push(tsn);
++                    if let Some(sent) = c.since {
++                        if result.newest.is_none_or(|(previous, _)| sent > previous) {
++                            result.newest = Some((sent, tsn));
++                        }
++                        if c.nsent == 1 && sna32gte(tsn, result.next_measure) {
++                            if let Some(rtt) = now.checked_duration_since(sent) {
++                                result.rtts.push(rtt);
++                                result.next_measure = self.my_next_tsn;
++                            }
++                        }
++                    }
++                }
++            }
++        };
++        let mut owned: Vec<_> = self.outbound_queue.inflight_tsns().collect();
++        owned.sort_by_key(|tsn| tsn.wrapping_sub(self.cumulative_tsn_ack_point));
++        for &tsn in &owned {
++            if sna32lte(tsn, d.cumulative_tsn_ack) {
++                observe(tsn);
++            }
++        }
++        for gap in &d.gap_ack_blocks {
++            for &tsn in &owned {
++                let offset = tsn.wrapping_sub(d.cumulative_tsn_ack);
++                if offset >= u32::from(gap.start) && offset <= u32::from(gap.end) {
++                    observe(tsn);
++                }
++            }
++        }
++        result
++    }
++
++    fn source_rack_after_ack(
++        &mut self,
++        delivery: SourceRackDelivery,
++        sack: &ChunkSelectiveAck,
++        now: Instant,
++    ) {
++        if !self.source_partial_reliability {
++            return;
++        }
++        self.source_rack_ack.observe(
++            delivery,
++            !sack.duplicate_tsn.is_empty(),
++            self.in_fast_recovery,
++            self.timers.get(Timer::T3RTX).is_some(),
++            now,
++        );
++        self.source_rack_mark(now);
++        self.source_rack_ack.arm(now);
++        self.source_schedule_pto(now);
++    }
++
++    fn source_rack_mark(&mut self, now: Instant) {
++        let Some(delivered) = self.source_rack_ack.delivered_at else {
++            return;
++        };
++        // Source transmission-list order is preserved, including retransmitted
++        // entries. A strict too-new original stops later examination.
++        let order: Vec<_> = self.source_rack_ack.order.iter().copied().collect();
++        let mut marked = false;
++        for tsn in order {
++            let Some(c) = self.outbound_queue.get(tsn) else {
++                self.source_rack_ack.remove(tsn);
++                continue;
++            };
++            if c.acked || c.abandoned {
++                self.source_rack_ack.remove(tsn);
++                continue;
++            }
++            if c.retransmit || c.nsent > 1 {
++                continue;
++            }
++            if !c
++                .since
++                .and_then(|sent| sent.checked_add(self.source_rack_ack.reo))
++                .is_some_and(|threshold| threshold < delivered)
++            {
++                break;
++            }
++            self.outbound_queue.get_mut(tsn).unwrap().retransmit = true;
++            self.source_rack_ack.remove(tsn);
++            marked = true;
++        }
++        if marked {
++            self.source_tlr
++                .additional_loss(now, self.source_rack_ack.srtt_duration());
++            self.awake_write_loop();
++        }
++    }
++
+     fn process_selective_ack(
+         &mut self,
+         d: &ChunkSelectiveAck,
+@@ -3011,7 +3299,7 @@
+         while sna32lte(i, d.cumulative_tsn_ack) {
+             if let Some(c) = self.outbound_queue.pop(i) {
+                 newly_acked_data |= !c.acked && c.nsent > 0;
+-                if !c.acked && !c.abandoned {
++                if !c.acked && (!c.abandoned || self.uses_source_partial_reliability()) {
+                     let n_bytes_acked = c.user_data.len() as i64;
+ 
+                     // Sum the number of bytes acknowledged per stream
+@@ -3083,7 +3371,7 @@
+                 };
+ 
+                 if let Some(c) = self.outbound_queue.get(tsn) {
+-                    if !is_acked && !c.abandoned {
++                    if !is_acked && (!c.abandoned || self.uses_source_partial_reliability()) {
+                         // Sum the number of bytes acknowledged per stream
+                         if !self
+                             .streams
+@@ -3170,11 +3458,17 @@
+             //      outstanding DATA chunk(s) acknowledged, and 2) the destination's
+             //      path MTU.
+             if !self.in_fast_recovery && self.outbound_queue.pending_len() != 0 {
+-                self.cwnd += core::cmp::min(total_bytes_acked as u32, self.cwnd); // TCP way
+-                // self.cwnd += min32(uint32(total_bytes_acked), self.mtu) // SCTP way (slow)
++                self.set_cwnd(
++                    self.cwnd
++                        .wrapping_add(core::cmp::min(total_bytes_acked as u32, self.cwnd)),
++                ); // TCP way
++                   // self.cwnd += min32(uint32(total_bytes_acked), self.mtu) // SCTP way (slow)
+                 trace!(
+                     "[{}] updated cwnd={} ssthresh={} acked={} (SS)",
+-                    self.side, self.cwnd, self.ssthresh, total_bytes_acked
++                    self.side,
++                    self.cwnd,
++                    self.ssthresh,
++                    total_bytes_acked
+                 );
+             } else {
+                 trace!(
+@@ -3203,20 +3497,33 @@
+             //      reset partial_bytes_acked to (partial_bytes_acked - cwnd).
+             if self.partial_bytes_acked >= self.cwnd && self.outbound_queue.pending_len() != 0 {
+                 self.partial_bytes_acked -= self.cwnd;
+-                self.cwnd += self.mtu;
++                self.set_cwnd(self.cwnd.wrapping_add(self.mtu.max(self.cwnd_ca_step)));
+                 trace!(
+                     "[{}] updated cwnd={} ssthresh={} acked={} (CA)",
+-                    self.side, self.cwnd, self.ssthresh, total_bytes_acked
++                    self.side,
++                    self.cwnd,
++                    self.ssthresh,
++                    total_bytes_acked
+                 );
+             }
+         }
+     }
+ 
++    #[cfg(test)]
+     fn process_fast_retransmission(
++        &mut self,
++        cumulative: u32,
++        htna: u32,
++        advanced: bool,
++    ) -> Result<()> {
++        self.process_fast_retransmission_at(cumulative, htna, advanced, None)
++    }
++    fn process_fast_retransmission_at(
+         &mut self,
+         cum_tsn_ack_point: u32,
+         htna: u32,
+         cum_tsn_ack_point_advanced: bool,
++        now: Option<Instant>,
+     ) -> Result<()> {
+         // HTNA algorithm - RFC 4960 Sec 7.2.4
+         // Increment missIndicator of each chunks that the SACK reported missing
+@@ -3243,6 +3550,12 @@
+                 if let Some(c) = self.outbound_queue.get_mut(tsn) {
+                     if !c.acked && !c.abandoned && c.miss_indicator < 3 {
+                         c.miss_indicator += 1;
++                        if c.miss_indicator == 3 && self.source_partial_reliability {
++                            if let Some(now) = now {
++                                self.source_tlr
++                                    .additional_loss(now, self.source_rack_ack.srtt_duration());
++                            }
++                        }
+                         if c.miss_indicator == 3 && !self.in_fast_recovery {
+                             // 2)  If not in Fast Recovery, adjust the ssthresh and cwnd of the
+                             //     destination address(es) to which the missing DATA chunks were
+@@ -3250,7 +3563,7 @@
+                             self.in_fast_recovery = true;
+                             self.fast_recover_exit_point = htna;
+                             self.ssthresh = core::cmp::max(self.cwnd / 2, 4 * self.mtu);
+-                            self.cwnd = self.ssthresh;
++                            self.set_cwnd(self.ssthresh);
+                             self.partial_bytes_acked = 0;
+                             self.will_retransmit_fast = true;
+ 
+@@ -3291,6 +3604,9 @@
+             trace!("[{}] T3-rtx timer start (pt3)", self.side);
+             self.timers
+                 .restart_if_stale(Timer::T3RTX, now, self.rto_mgr.get_rto());
++        } else if self.source_partial_reliability && self.outbound_queue.pending_len() != 0 {
++            // Previously accepted DATA must leave before entering terminal shutdown.
++            should_awake_write_loop = true;
+         } else if state == AssociationState::ShutdownPending {
+             // No more outstanding, send shutdown.
+             should_awake_write_loop = true;
+@@ -3487,15 +3803,49 @@
+     /// gather_outbound gathers outgoing packets. The returned bool value set to
+     /// false means the association should be closed down after the final send.
+     fn gather_outbound(&mut self, now: Instant) -> (Vec<Bytes>, bool) {
+-        let mut raw_packets = self.gather_outbound_control_packets(vec![], now);
++        if self.uses_source_partial_reliability() {
++            self.source_prune_messages();
++        }
++        if self.source_partial_reliability && self.source_shutdown_complete_pending {
++            // In a sans-I/O API this is the terminal packet's ownership handoff.
++            // It must be returned before the endpoint's Drained event is polled.
++            let (raw, ok) = self.gather_outbound_shutdown_packets(vec![], now);
++            if !ok {
++                let _ = self.close();
++            }
++            return (raw, ok);
++        }
++        let mut raw_packets = vec![];
++        if self.source_partial_reliability {
++            if self.state() == AssociationState::ShutdownAckSent && self.will_send_shutdown_ack {
++                raw_packets = self.gather_outbound_shutdown_packets(raw_packets, now).0;
++            } else if self.state() == AssociationState::ShutdownSent && self.will_send_shutdown {
++                raw_packets = self.gather_outbound_sack_packets(raw_packets);
++                raw_packets = self.gather_outbound_shutdown_packets(raw_packets, now).0;
++            }
++        }
++        let mut raw_packets = self.gather_outbound_control_packets(raw_packets, now);
+ 
++        if self.source_partial_reliability {
++            self.source_burst =
++                self.source_tlr
++                    .budget(now, self.source_rack_ack.srtt_duration(), self.mtu);
++        }
+         let state = self.state();
+-        match state {
++        let result = match state {
+             AssociationState::Established => {
+                 raw_packets = self.gather_data_packets_to_retransmit(raw_packets, now);
+-                // Decide fast-recovery abandonment before selecting any pending tail.
+-                raw_packets = self.gather_outbound_fast_retransmission_packets(raw_packets, now);
+-                raw_packets = self.gather_outbound_data_and_reconfig_packets(raw_packets, now);
++                if self.source_partial_reliability {
++                    // Original Pion gather order shares one budget: RTX, new DATA, fast RTX.
++                    raw_packets = self.gather_outbound_data_and_reconfig_packets(raw_packets, now);
++                    raw_packets =
++                        self.gather_outbound_fast_retransmission_packets(raw_packets, now);
++                } else {
++                    // Keep the previously accepted native/legacy path unchanged.
++                    raw_packets =
++                        self.gather_outbound_fast_retransmission_packets(raw_packets, now);
++                    raw_packets = self.gather_outbound_data_and_reconfig_packets(raw_packets, now);
++                }
+                 // A queued reciprocal reset may have been held back until the
+                 // DATA it covers received TSNs above. Give it another chance in
+                 // this same poll so DATA and RE-CONFIG can leave together.
+@@ -3507,8 +3857,16 @@
+             AssociationState::ShutdownPending
+             | AssociationState::ShutdownSent
+             | AssociationState::ShutdownReceived => {
+-                raw_packets = self.gather_data_packets_to_retransmit(raw_packets, now);
+-                raw_packets = self.gather_outbound_fast_retransmission_packets(raw_packets, now);
++                if !self.source_partial_reliability || state != AssociationState::ShutdownSent {
++                    raw_packets = self.gather_data_packets_to_retransmit(raw_packets, now);
++                }
++                if self.source_partial_reliability && state != AssociationState::ShutdownSent {
++                    raw_packets = self.gather_outbound_data_and_reconfig_packets(raw_packets, now);
++                }
++                if !self.source_partial_reliability || state != AssociationState::ShutdownSent {
++                    raw_packets =
++                        self.gather_outbound_fast_retransmission_packets(raw_packets, now);
++                }
+                 raw_packets = self.gather_outbound_sack_packets(raw_packets);
+                 raw_packets = self.gather_outbound_forward_tsn_packets(raw_packets);
+                 self.gather_outbound_shutdown_packets(raw_packets, now)
+@@ -3517,7 +3875,9 @@
+                 self.gather_outbound_shutdown_packets(raw_packets, now)
+             }
+             _ => (raw_packets, true),
+-        }
++        };
++        self.source_burst = None;
++        result
+     }
+ 
+     fn gather_outbound_control_packets(
+@@ -3615,6 +3975,9 @@
+         // cwnd and rwnd allow.
+         let chunks = self.pop_pending_data_chunks_to_send(now);
+         if !chunks.is_empty() {
++            if self.source_partial_reliability {
++                self.source_schedule_pto(now);
++            }
+             // Start timer. (noop if already started)
+             trace!("[{}] T3-rtx timer start (pt1)", self.side);
+             self.timers
+@@ -3713,11 +4076,98 @@
+         raw_packets
+     }
+ 
++    // Pion fastRtxWnd is a burst budget, not a larger MTU. Each actual packet
++    // remains MTU-bounded and includes its own SCTP header/chunk padding.
++    fn gather_configured_fast_retransmission(
++        &mut self,
++        mut raw_packets: Vec<Bytes>,
++        now: Instant,
++    ) -> Vec<Bytes> {
++        if !self.will_retransmit_fast {
++            return raw_packets;
++        }
++        self.will_retransmit_fast = false;
++        let limit = u64::from(self.mtu.max(self.fast_rtx_wnd));
++        let mut selected = Vec::new();
++        let mut burst = u64::from(COMMON_HEADER_SIZE);
++        let mut bytes_in_packet = 0;
++        let mut i = 0u32;
++        loop {
++            let tsn = self
++                .cumulative_tsn_ack_point
++                .wrapping_add(i)
++                .wrapping_add(1);
++            let Some(c) = self.outbound_queue.get(tsn) else {
++                break;
++            };
++            if c.acked || c.abandoned || c.nsent > 1 || c.miss_indicator < 3 {
++                i = i.wrapping_add(1);
++                continue;
++            }
++            let size = (DATA_CHUNK_HEADER_SIZE + c.user_data.len() as u32 + 3) & !3;
++            if burst + u64::from(size) > limit || COMMON_HEADER_SIZE + size > self.mtu {
++                break;
++            }
++            if self.source_partial_reliability
++                && !self.source_reserve_chunk(size, &mut bytes_in_packet)
++            {
++                break;
++            }
++            let c = self.outbound_queue.get_mut(tsn).unwrap();
++            c.nsent = c.nsent.wrapping_add(1);
++            c.since = Some(now);
++            self.stats.inc_fast_retrans();
++            // Source checks PR after updating nSent/since, but still sends this
++            // selected original payload even if the check marks it abandoned.
++            if self.source_partial_reliability {
++                self.source_rack_ack.insert(tsn);
++            }
++            self.source_check_partial_reliability(tsn, now);
++            selected.push(self.outbound_queue.get(tsn).unwrap().clone());
++            burst += u64::from(size);
++            i = i.wrapping_add(1);
++        }
++        // Unlike native default PR, source bundles all already-selected chunks.
++        // A later fragment's shared head state never erases those wire bytes.
++        self.source_bundle_into_raw(&mut raw_packets, selected);
++        raw_packets
++    }
++    fn source_bundle_into_raw(
++        &self,
++        raw_packets: &mut Vec<Bytes>,
++        selected: Vec<ChunkPayloadData>,
++    ) {
++        let mut packet_chunks: Vec<Box<dyn Chunk + Send + Sync>> = vec![];
++        let mut used = COMMON_HEADER_SIZE;
++        for c in selected {
++            let size = (DATA_CHUNK_HEADER_SIZE + c.user_data.len() as u32 + 3) & !3;
++            if used + size > self.mtu {
++                if let Ok(raw) = self
++                    .create_packet(core::mem::take(&mut packet_chunks))
++                    .marshal()
++                {
++                    raw_packets.push(raw);
++                }
++                used = COMMON_HEADER_SIZE;
++            }
++            used += size;
++            packet_chunks.push(Box::new(c));
++        }
++        if !packet_chunks.is_empty() {
++            if let Ok(raw) = self.create_packet(packet_chunks).marshal() {
++                raw_packets.push(raw);
++            }
++        }
++    }
++
+     fn gather_outbound_fast_retransmission_packets(
+         &mut self,
+         mut raw_packets: Vec<Bytes>,
+         now: Instant,
+     ) -> Vec<Bytes> {
++        if self.uses_source_partial_reliability() {
++            return self.gather_configured_fast_retransmission(raw_packets, now);
++        }
+         self.expire_inflight_messages(now);
+         if self.will_retransmit_fast {
+             self.will_retransmit_fast = false;
+@@ -3769,7 +4219,10 @@
+                     to_fast_retrans.push(Box::new(c.clone()));
+                     trace!(
+                         "[{}] fast-retransmit: tsn={} sent={} htna={}",
+-                        self.side, c.tsn, c.nsent, self.fast_recover_exit_point
++                        self.side,
++                        c.tsn,
++                        c.nsent,
++                        self.fast_recover_exit_point
+                     );
+                 }
+                 i += 1;
+@@ -3827,7 +4280,7 @@
+     fn gather_outbound_forward_tsn_packets(&mut self, mut raw_packets: Vec<Bytes>) -> Vec<Bytes> {
+         // Retransmission decisions above may have just abandoned DATA. Advance
+         // now, including after a timeout with no subsequent incoming SACK.
+-        if self.use_forward_tsn {
++        if self.use_forward_tsn && !self.uses_source_partial_reliability() {
+             let previous = self.advanced_peer_tsn_ack_point;
+             self.advance_peer_tsn_ack_point();
+             if sna32gt(self.advanced_peer_tsn_ack_point, previous)
+@@ -3873,7 +4326,11 @@
+             self.will_send_shutdown = false;
+ 
+             let shutdown = ChunkShutdown {
+-                cumulative_tsn_ack: self.cumulative_tsn_ack_point,
++                cumulative_tsn_ack: if self.source_partial_reliability {
++                    self.peer_last_tsn
++                } else {
++                    self.cumulative_tsn_ack_point
++                },
+             };
+ 
+             if let Ok(raw) = self.create_packet(vec![Box::new(shutdown)]).marshal() {
+@@ -3921,6 +4378,9 @@
+     /// out and retransmit outstanding data chunks that are not acked
+     /// or abandoned yet.
+     fn get_data_packets_to_retransmit(&mut self, now: Instant) -> Vec<Packet> {
++        if self.uses_source_partial_reliability() {
++            return self.get_source_data_packets_to_retransmit(now);
++        }
+         self.expire_inflight_messages(now);
+         let awnd = core::cmp::min(self.cwnd, self.rwnd);
+         let mut chunks: Vec<ChunkPayloadData> = vec![];
+@@ -3961,7 +4421,10 @@
+             if let Some(c) = self.outbound_queue.get_mut(tsn) {
+                 trace!(
+                     "[{}] retransmitting tsn={} ssn={} sent={}",
+-                    self.side, c.tsn, c.stream_sequence_number, c.nsent
++                    self.side,
++                    c.tsn,
++                    c.stream_sequence_number,
++                    c.nsent
+                 );
+ 
+                 chunks.push(c.clone());
+@@ -3985,6 +4448,7 @@
+     fn pop_pending_data_chunks_to_send(&mut self, now: Instant) -> Vec<ChunkPayloadData> {
+         self.expire_inflight_messages(now);
+         let mut chunks = vec![];
++        let mut bytes_in_packet = 0;
+         if self.outbound_queue.pending_len() != 0 {
+             // RFC 4960 sec 6.1.  Transmission of DATA Chunks
+             //   A) At any given time, the data sender MUST NOT transmit new data to
+@@ -3995,7 +4459,7 @@
+             //      the receiver if allowed by cwnd (see rule B, below).
+ 
+             loop {
+-                if self.use_forward_tsn {
++                if self.use_forward_tsn && !self.uses_source_partial_reliability() {
+                     if let Some((id, unordered, bytes)) = self.outbound_queue.expire_pending(now) {
+                         if let Some(stream) = self.streams.get_mut(&id) {
+                             if !unordered {
+@@ -4023,6 +4487,12 @@
+                     break; // no more rwnd
+                 }
+ 
++                if self.source_partial_reliability {
++                    let size = (DATA_CHUNK_HEADER_SIZE + data_len as u32 + 3) & !3;
++                    if !self.source_reserve_chunk(size, &mut bytes_in_packet) {
++                        break;
++                    }
++                }
+                 self.rwnd -= data_len as u32;
+ 
+                 if let Some(chunk) = self.send_next_data_chunk(now) {
+@@ -4032,13 +4502,26 @@
+ 
+             // the data sender can always have one DATA chunk in flight to the receiver
+             if chunks.is_empty() && self.outbound_queue.inflight_len() == 0 {
+-                // Send zero window probe
+-                if let Some(chunk) = self.send_next_data_chunk(now) {
+-                    chunks.push(chunk);
++                // Source zero-window probe still consumes its actual packet budget.
++                let permitted = if self.source_partial_reliability {
++                    self.outbound_queue
++                        .peek_pending()
++                        .map(|c| (DATA_CHUNK_HEADER_SIZE + c.user_data.len() as u32 + 3) & !3)
++                        .is_some_and(|size| self.source_reserve_chunk(size, &mut bytes_in_packet))
++                } else {
++                    true
++                };
++                if permitted {
++                    if let Some(chunk) = self.send_next_data_chunk(now) {
++                        chunks.push(chunk);
++                    }
+                 }
+             }
+         }
+ 
++        if !chunks.is_empty() && self.outbound_queue.pending_len() == 0 {
++            self.ordinary_write_pending = false;
++        }
+         chunks
+     }
+ 
+@@ -4046,6 +4529,9 @@
+     /// DATA chunks into a packet so long as the resulting packet size does not exceed
+     /// the path MTU.
+     fn bundle_data_chunks_into_packets(&self, chunks: Vec<ChunkPayloadData>) -> Vec<Packet> {
++        if self.source_partial_reliability {
++            return self.source_bundle_packets(chunks);
++        }
+         let mut packets = vec![];
+         let mut chunks_to_send = vec![];
+         let mut bytes_in_packet = COMMON_HEADER_SIZE;
+@@ -4080,9 +4566,128 @@
+         rsn
+     }
+ 
++    fn uses_source_partial_reliability(&self) -> bool {
++        // Preserve the previously selected positive-burst compatibility mode;
++        // source RTC semantics no longer depend on configuring that numeric knob.
++        self.source_partial_reliability || self.fast_rtx_wnd != 0
++    }
++
++    fn source_prune_messages(&mut self) {
++        let queue = &self.outbound_queue;
++        self.source_pr_abandoned
++            .retain(|id| queue.source_message_present(*id));
++    }
++    // Source shared raw head flag -> effective all-inflight abandonment. The
++    // set is bounded by actual pending/inflight messages and never retains IDs
++    // after queue ownership ends; no association-global tombstones are created.
++    fn source_check_partial_reliability(&mut self, tsn: u32, now: Instant) {
++        self.source_prune_messages();
++        if !self.use_forward_tsn {
++            return;
++        }
++        let Some(c) = self.outbound_queue.get(tsn) else {
++            return;
++        };
++        if c.payload_type == PayloadProtocolIdentifier::Dcep {
++            return;
++        }
++        let id = c.message_id;
++        // Fixed Pion checkPartialReliabilityStatus reads the stream currently
++        // registered at this exact selection. A removed/reset stream does not
++        // apply PR; a changed stream policy is not the enqueue-time snapshot.
++        // Keep the default native path's per-message policy behavior untouched.
++        let policy = self
++            .streams
++            .get(&c.stream_identifier)
++            .map(|s| (s.reliability_type, s.reliability_value));
++        let expired = match policy {
++            Some((ReliabilityType::Rexmit, value)) => c.nsent > value,
++            Some((ReliabilityType::Timed, value)) => c.since.is_some_and(|since| {
++                now.saturating_duration_since(since).as_millis() >= u128::from(value)
++            }),
++            _ => false,
++        };
++        if expired {
++            self.source_pr_abandoned.insert(id);
++            if self.source_partial_reliability {
++                self.source_rack_ack.remove(tsn);
++            }
++        }
++        if self.source_pr_abandoned.contains(&id) && !self.outbound_queue.source_message_pending(id)
++        {
++            self.outbound_queue.source_mark_message_abandoned(id);
++        }
++    }
++    fn get_source_data_packets_to_retransmit(&mut self, now: Instant) -> Vec<Packet> {
++        let awnd = self.cwnd.min(self.rwnd) as usize;
++        let mut selected = vec![];
++        let mut bytes = 0usize;
++        let mut bytes_in_packet = 0;
++        let mut i = 0u32;
++        loop {
++            let tsn = self
++                .cumulative_tsn_ack_point
++                .wrapping_add(i)
++                .wrapping_add(1);
++            let Some(c) = self.outbound_queue.get(tsn) else {
++                break;
++            };
++            if !c.retransmit {
++                i = i.wrapping_add(1);
++                continue;
++            }
++            let length = c.user_data.len();
++            let size = (DATA_CHUNK_HEADER_SIZE + length as u32 + 3) & !3;
++            if COMMON_HEADER_SIZE + size > self.mtu {
++                break;
++            }
++            if !(i == 0 && (self.rwnd as usize) < length) && bytes + length > awnd {
++                break;
++            }
++            if self.source_partial_reliability
++                && !self.source_reserve_chunk(size, &mut bytes_in_packet)
++            {
++                break;
++            }
++            let c = self.outbound_queue.get_mut(tsn).unwrap();
++            c.retransmit = false;
++            c.nsent = c.nsent.wrapping_add(1);
++            c.since = Some(now);
++            if self.source_partial_reliability {
++                self.source_rack_ack.insert(tsn);
++            }
++            self.source_check_partial_reliability(tsn, now);
++            selected.push(self.outbound_queue.get(tsn).unwrap().clone());
++            bytes += length;
++            i = i.wrapping_add(1);
++        }
++        let mut packets = vec![];
++        let mut chunks: Vec<Box<dyn Chunk + Send + Sync>> = vec![];
++        let mut used = COMMON_HEADER_SIZE;
++        for c in selected {
++            let size = (DATA_CHUNK_HEADER_SIZE + c.user_data.len() as u32 + 3) & !3;
++            if COMMON_HEADER_SIZE + size > self.mtu {
++                break;
++            }
++            if used + size > self.mtu {
++                packets.push(self.create_packet(core::mem::take(&mut chunks)));
++                used = COMMON_HEADER_SIZE;
++            }
++            used += size;
++            chunks.push(Box::new(c));
++        }
++        if !chunks.is_empty() {
++            packets.push(self.create_packet(chunks));
++        }
++        packets
++    }
++
+     /// Timed messages expire at their deadline, before any DATA is selected.
+     /// In particular, a blocked early chunk must not hide later expired DATA.
+     fn expire_inflight_messages(&mut self, now: Instant) {
++        if self.uses_source_partial_reliability() {
++            return;
++        }
+         if self.use_forward_tsn {
+             self.outbound_queue.start_timed_messages(now);
+             let mut abandoned = false;
+@@ -4204,7 +4809,10 @@
+         }
+         trace!(
+             "[{}] building fwd_tsn: newCumulativeTSN={} cumTSN={} - {}",
+-            self.side, fwd_tsn.new_cumulative_tsn, self.cumulative_tsn_ack_point, stream_str
++            self.side,
++            fwd_tsn.new_cumulative_tsn,
++            self.cumulative_tsn_ack_point,
++            stream_str
+         );
+ 
+         fwd_tsn
+@@ -4213,6 +4821,12 @@
+     /// Assign a TSN to the next pending fragment and retain it for retransmission.
+     fn send_next_data_chunk(&mut self, now: Instant) -> Option<ChunkPayloadData> {
+         let chunk = self.outbound_queue.send_next(&mut self.my_next_tsn, now)?;
++        if self.uses_source_partial_reliability() {
++            self.source_check_partial_reliability(chunk.tsn, now);
++        }
++        if self.source_partial_reliability {
++            self.source_rack_ack.insert(chunk.tsn);
++        }
+         trace!(
+             "[{}] sending ppi={} tsn={} ssn={} len={}",
+             self.side,
+@@ -4243,12 +4857,23 @@
+             return Err(Error::ErrPayloadDataStateNotExist);
+         }
+ 
++        self.ordinary_write_pending = true;
+         self.outbound_queue.push(message);
+ 
+         self.awake_write_loop();
+         Ok(())
+     }
+ 
++    /// Source BlockWrite latch: set by enqueue; cleared only by the original
++    /// new-DATA/nonempty and pending-empty writer notification, or closure.
++    /// This intentionally differs from asking whether the pending queue is empty.
++    pub fn has_pending_data(&mut self, id: u16) -> bool {
++        !self.is_closing()
++            && !self.is_closed()
++            && self.ordinary_write_pending
++            && self.stream(id).is_ok_and(|stream| stream.is_writable())
++    }
++
+     /// buffered_amount returns total amount (in bytes) of currently buffered user data.
+     /// This is used only by testing.
+     pub(crate) fn buffered_amount(&self) -> usize {
+@@ -4256,7 +4881,10 @@
+     }
+ 
+     fn awake_write_loop(&self) {
+-        // No Op on Purpose
++        if self.source_partial_reliability {
++            // Source channel capacity one: any number of producer wakes coalesce.
++            self.source_writer_pending.store(true, Ordering::Relaxed);
++        }
+     }
+ 
+     fn close_all_timers(&mut self) {
+@@ -4269,7 +4897,8 @@
+     fn on_ack_timeout(&mut self) {
+         trace!(
+             "[{}] ack timed out (ack_state: {})",
+-            self.side, self.ack_state
++            self.side,
++            self.ack_state
+         );
+         self.stats.inc_ack_timeouts();
+         self.ack_state = AckState::Immediate;
+@@ -4329,7 +4958,7 @@
+                 //      cwnd = 1*MTU
+ 
+                 self.ssthresh = core::cmp::max(self.cwnd / 2, 4 * self.mtu);
+-                self.cwnd = self.mtu;
++                self.set_cwnd(self.mtu);
+                 trace!(
+                     "[{}] updated cwnd={} ssthresh={} inflight={} (RTO)",
+                     self.side,
+@@ -4435,3 +5064,612 @@
+             .is_none()
+     }
+ }
++
++#[cfg(test)]
++mod configured_congestion_tests {
++    use super::*;
++    fn assoc(min: u32, fast: u32, step: u32) -> Association {
++        Association::new(
++            None,
++            Arc::new(
++                TransportConfig::default()
++                    .with_min_cwnd(min)
++                    .with_fast_rtx_wnd(fast)
++                    .with_cwnd_ca_step(step),
++            ),
++            1200,
++            0,
++            "127.0.0.1:5000".parse().unwrap(),
++            None,
++            Instant::now(),
++        )
++    }
++    fn fast_packets(a: &mut Association, now: Instant) -> (usize, Vec<usize>) {
++        a.cumulative_tsn_ack_point = 0;
++        for tsn in 1..=5 {
++            a.outbound_queue.push(vec![ChunkPayloadData {
++                beginning_fragment: true,
++                ending_fragment: true,
++                user_data: Bytes::from(vec![0; 500]),
++                ..Default::default()
++            }]);
++            a.outbound_queue.send_next(&mut { tsn }, now).unwrap();
++            a.outbound_queue.get_mut(tsn).unwrap().miss_indicator = 3;
++        }
++        a.will_retransmit_fast = true;
++        let packets = a.gather_outbound_fast_retransmission_packets(vec![], now);
++        let selected = (1..=5)
++            .filter(|&tsn| a.outbound_queue.get(tsn).unwrap().nsent > 1)
++            .count();
++        (selected, packets.iter().map(|p| p.len()).collect())
++    }
++    #[test]
++    fn configured_minimum_survives_timeout_reduction_and_ca_step_is_actual() {
++        let mut a = assoc(14000, 14000, 2800);
++        assert_eq!(a.congestion_window(), 14000);
++        a.set_cwnd(a.mtu);
++        assert_eq!(a.congestion_window(), 14000);
++        a.ssthresh = 0;
++        a.partial_bytes_acked = a.cwnd;
++        a.outbound_queue.push(vec![ChunkPayloadData {
++            beginning_fragment: true,
++            ending_fragment: true,
++            user_data: Bytes::from_static(&[1]),
++            ..Default::default()
++        }]);
++        a.on_cumulative_tsn_ack_point_advanced(0, Instant::now());
++        assert_eq!(a.congestion_window(), 16800);
++    }
++    #[test]
++    fn configured_fast_window_is_multiple_real_packets_never_a_larger_mtu() {
++        let mut baseline = assoc(0, 0, 0);
++        let (n, sizes) = fast_packets(&mut baseline, Instant::now());
++        assert_eq!(n, 2);
++        assert_eq!(sizes, vec![1044]);
++        let mut expanded = assoc(0, 3000, 0);
++        let (n, sizes) = fast_packets(&mut expanded, Instant::now());
++        assert_eq!(n, 5);
++        assert_eq!(sizes, vec![1044, 1044, 528]);
++        assert!(sizes.iter().all(|&size| size <= expanded.mtu as usize));
++    }
++    #[test]
++    #[ignore = "requires actual fixed Go association output converted losslessly to GO_SCTP_KNOB_TSV"]
++    fn actual_go_knob_rows_match_constructor_floor_ca_and_fast_packets() {
++        let data = std::fs::read_to_string(std::env::var("GO_SCTP_KNOB_TSV").unwrap()).unwrap();
++        let mut count = 0;
++        for line in data.lines() {
++            let cols: Vec<_> = line.split('\t').collect();
++            assert_eq!(cols.len(), 14);
++            let input: Vec<i64> = cols[1..4].iter().map(|s| s.parse().unwrap()).collect();
++            let expected: Vec<u32> = cols[4..12].iter().map(|s| s.parse().unwrap()).collect();
++            let expected_selected: usize = cols[12].parse().unwrap();
++            let expected_sizes: Vec<usize> = cols[13]
++                .split(',')
++                .filter(|s| !s.is_empty())
++                .map(|s| s.parse().unwrap())
++                .collect();
++            let positive = |value: i64| if value > 0 { value as u32 } else { 0 };
++            let (min, fast, step) = (positive(input[0]), positive(input[1]), positive(input[2]));
++            let mut a = assoc(min, fast, step);
++            assert_eq!(
++                a.congestion_parameters(),
++                (expected[0], expected[1], expected[2]),
++                "{}",
++                cols[0]
++            );
++            assert_eq!(a.mtu, expected[3]);
++            assert_eq!(a.cwnd, expected[4]);
++            a.set_cwnd(1);
++            assert_eq!(a.cwnd, expected[5]);
++            a.set_cwnd(5000);
++            assert_eq!(a.cwnd, expected[6]);
++            a.ssthresh = 0;
++            a.partial_bytes_acked = a.cwnd;
++            a.outbound_queue.push(vec![ChunkPayloadData {
++                beginning_fragment: true,
++                ending_fragment: true,
++                user_data: Bytes::from_static(&[1]),
++                ..Default::default()
++            }]);
++            a.on_cumulative_tsn_ack_point_advanced(0, Instant::now());
++            assert_eq!(a.cwnd, expected[7], "{}", cols[0]);
++            let (selected, sizes) = fast_packets(&mut assoc(min, fast, step), Instant::now());
++            assert_eq!(selected, expected_selected, "{}", cols[0]);
++            assert_eq!(sizes, expected_sizes, "{}", cols[0]);
++            count += 1;
++        }
++        assert_eq!(count, 10);
++    }
++
++    fn source_stream_queue(a: &mut Association, kind: ReliabilityType, value: u32, bytes: usize) {
++        a.set_state(AssociationState::Established);
++        a.use_forward_tsn = true;
++        a.cumulative_tsn_ack_point = 0;
++        a.my_next_tsn = 1;
++        a.advanced_peer_tsn_ack_point = 0;
++        a.min_tsn2measure_rtt = 1;
++        let mut stream = a
++            .create_stream(0, false, PayloadProtocolIdentifier::Binary)
++            .unwrap();
++        stream.set_reliability_params(false, kind, value).unwrap();
++        stream
++            .write_sctp(
++                &Bytes::from(vec![0; bytes]),
++                PayloadProtocolIdentifier::Binary,
++            )
++            .unwrap();
++    }
++    fn source_ack_all(a: &mut Association, now: Instant) {
++        a.handle_sack(
++            &ChunkSelectiveAck {
++                cumulative_tsn_ack: a.my_next_tsn.wrapping_sub(1),
++                advertised_receiver_window_credit: 1024 * 1024,
++                ..Default::default()
++            },
++            now,
++        )
++        .unwrap();
++        a.gather_outbound(now);
++        assert_eq!(a.outbound_queue.inflight_bytes(), 0);
++        assert_eq!(a.streams.get(&0).unwrap().buffered_amount, 0);
++        assert!(
++            a.source_pr_abandoned.is_empty(),
++            "raw PR identity must retire with actual queue ownership"
++        );
++    }
++    #[test]
++    fn source_zero_rtx_fragment_tail_and_buffer_survive_until_actual_sack() {
++        let mut a = assoc(0, 3000, 0);
++        source_stream_queue(&mut a, ReliabilityType::Rexmit, 0, 3000);
++        let now = Instant::now();
++        for (i, size) in [1200, 1200, 600].into_iter().enumerate() {
++            let original = a.send_next_data_chunk(now).unwrap();
++            assert_eq!(original.user_data.len(), size);
++            assert_eq!(a.streams.get(&0).unwrap().buffered_amount, 3000);
++            assert_eq!(a.outbound_queue.get(1).unwrap().abandoned, i == 2);
++        }
++        assert_eq!(a.outbound_queue.inflight_bytes(), 3000);
++        a.will_retransmit_fast = true;
++        assert!(a
++            .gather_outbound_fast_retransmission_packets(vec![], now)
++            .is_empty());
++        source_ack_all(&mut a, now + Duration::from_millis(1));
++    }
++    fn source_wire_tsns(packets: &[Bytes]) -> Vec<u32> {
++        let mut result = vec![];
++        for packet in packets {
++            let mut off = 12;
++            while off < packet.len() {
++                assert!(off + 4 <= packet.len());
++                let n = u16::from_be_bytes([packet[off + 2], packet[off + 3]]) as usize;
++                assert!(n >= 4 && off + n <= packet.len());
++                if packet[off] == 0 {
++                    assert!(n >= 16);
++                    result.push(u32::from_be_bytes(
++                        packet[off + 4..off + 8].try_into().unwrap(),
++                    ));
++                }
++                off += (n + 3) & !3;
++            }
++        }
++        result
++    }
++    #[test]
++    #[ignore = "requires actual fixed Go PRv2 output converted to GO_SCTP_PR_TSV; zero/native branch remains separate"]
++    fn actual_go_pr_enabled_fast_rows_match_initial_state_final_state_and_real_packets() {
++        let data = std::fs::read_to_string(std::env::var("GO_SCTP_PR_TSV").unwrap()).unwrap();
++        let mut rows = 0;
++        let mut enabled = 0;
++        let mut native_controls = 0;
++        for line in data.lines() {
++            let cols: Vec<_> = line.split('\t').collect();
++            assert_eq!(cols.len(), 9);
++            rows += 1;
++            let fast: u32 = cols[3].parse().unwrap();
++            if fast == 0 {
++                native_controls += 1;
++                continue;
++            } // Explicit unmodified native0 scope, not asserted as source PR parity.
++            enabled += 1;
++            let value: u32 = cols[2].parse().unwrap();
++            let kind = match cols[1] {
++                "reliable" => ReliabilityType::Reliable,
++                "rexmit" => ReliabilityType::Rexmit,
++                "timed" => ReliabilityType::Timed,
++                _ => panic!("source kind"),
++            };
++            let initial = Instant::now();
++            let later = initial + Duration::from_secs(7200);
++            let mut a = assoc(0, fast, 0);
++            a.use_forward_tsn = true;
++            a.cumulative_tsn_ack_point = 0;
++            a.my_next_tsn = 1;
++            // The fixed Go observer creates stream0 and sets its real current
++            // policy before queuing chunks. Enqueue-only snapshots cannot stand
++            // in for the source stream registration consumed by PR selection.
++            a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++                .unwrap()
++                .set_reliability_params(false, kind, value)
++                .unwrap();
++            let mut initial_bits = String::new();
++            for _ in 0..5 {
++                a.outbound_queue.push(vec![ChunkPayloadData {
++                    beginning_fragment: true,
++                    ending_fragment: true,
++                    payload_type: PayloadProtocolIdentifier::Binary,
++                    user_data: Bytes::from(vec![0; 500]),
++                    reliability: Some((kind, value)),
++                    ..Default::default()
++                }]);
++                let ch = a.send_next_data_chunk(initial).unwrap();
++                initial_bits.push(if a.outbound_queue.get(ch.tsn).unwrap().abandoned {
++                    '1'
++                } else {
++                    '0'
++                });
++                a.outbound_queue.get_mut(ch.tsn).unwrap().miss_indicator = 3;
++            }
++            a.will_retransmit_fast = true;
++            let packets = a.gather_outbound_fast_retransmission_packets(vec![], later);
++            let sent: Vec<u32> = (1..=5)
++                .map(|tsn| a.outbound_queue.get(tsn).unwrap().nsent)
++                .collect();
++            let final_bits: String = (1..=5)
++                .map(|tsn| {
++                    if a.outbound_queue.get(tsn).unwrap().abandoned {
++                        '1'
++                    } else {
++                        '0'
++                    }
++                })
++                .collect();
++            let parse = |s: &str| {
++                s.split(',')
++                    .filter(|s| !s.is_empty())
++                    .map(|s| s.parse::<u32>().unwrap())
++                    .collect::<Vec<_>>()
++            };
++            assert_eq!(initial_bits, cols[4], "{} initial", cols[0]);
++            assert_eq!(sent, parse(cols[5]), "{} sent", cols[0]);
++            assert_eq!(final_bits, cols[6], "{} effective", cols[0]);
++            assert_eq!(
++                packets.iter().map(|p| p.len() as u32).collect::<Vec<_>>(),
++                parse(cols[7]),
++                "{} actual packet lengths",
++                cols[0]
++            );
++            assert_eq!(
++                source_wire_tsns(&packets),
++                parse(cols[8]),
++                "{} actual DATA TSNs",
++                cols[0]
++            );
++            assert_eq!(
++                a.outbound_queue.inflight_bytes(),
++                2500,
++                "PR must not pretend actual ACK/buffer release"
++            );
++        }
++        assert_eq!((rows, enabled, native_controls), (12, 6, 6));
++    }
++
++    #[test]
++    #[ignore = "requires actual fixed Go fragmented source60 rows via GO_SCTP_FRAGMENT_TSV; asserts explicit fast>0 scope"]
++    fn actual_go_fragment_rows_match_real_packetizer_original_fast_and_sack_consumers() {
++        compare_actual_fragment_rows("GO_SCTP_FRAGMENT_TSV", false);
++    }
++
++    #[test]
++    #[ignore = "requires actual fixed Go RTO source60 rows via GO_SCTP_RTO_TSV; explicit fast>0 scope"]
++    fn actual_go_rto_rows_match_real_fragmented_write_retransmission_and_sack() {
++        compare_actual_fragment_rows("GO_SCTP_RTO_TSV", true);
++    }
++
++    fn compare_actual_fragment_rows(variable: &str, rto: bool) {
++        let data = std::fs::read_to_string(std::env::var(variable).unwrap()).unwrap();
++        let rows: Vec<_> = data
++            .lines()
++            .map(|line| line.split('\t').collect::<Vec<_>>())
++            .collect();
++        assert_eq!(rows.len(), 60);
++        let parse = |s: &str| {
++            s.split(',')
++                .filter(|s| !s.is_empty())
++                .map(|s| s.parse::<u32>().unwrap())
++                .collect::<Vec<_>>()
++        };
++        let bitvec = |b: bool| if b { "111" } else { "000" };
++        let mut enabled = 0;
++        let mut native_controls = 0;
++        for group in rows.chunks_exact(5) {
++            for row in group {
++                assert_eq!(row.len(), 14);
++                assert_eq!(row[0], group[0][0]);
++            }
++            let fast: u32 = group[0][4].parse().unwrap();
++            if fast == 0 {
++                native_controls += 5;
++                continue;
++            }
++            enabled += 5;
++            let kind = match group[0][2] {
++                "reliable" => ReliabilityType::Reliable,
++                "rexmit" => ReliabilityType::Rexmit,
++                "timed" => ReliabilityType::Timed,
++                _ => panic!("source kind"),
++            };
++            let value: u32 = group[0][3].parse().unwrap();
++            let initial = Instant::now();
++            let later = initial + Duration::from_secs(7200);
++            let mut a = assoc(0, fast, 0);
++            source_stream_queue(&mut a, kind, value, 3000);
++            let message_id = a.outbound_queue.peek_pending().unwrap().message_id;
++            let mut last_sent = vec![0, 0, 0];
++            let mut last_effective = String::new();
++            let mut last_raw = false;
++            let mut last_all = false;
++            for row in group {
++                let packets = match row[1] {
++                    "original-first" | "original-middle" | "original-last" => {
++                        let ch = a.send_next_data_chunk(initial).unwrap();
++                        assert!((1..=3).contains(&ch.tsn));
++                        vec![]
++                    }
++                    "fast" => {
++                        for tsn in 1..=3 {
++                            a.outbound_queue.get_mut(tsn).unwrap().miss_indicator = 3;
++                        }
++                        a.will_retransmit_fast = true;
++                        a.gather_outbound_fast_retransmission_packets(vec![], later)
++                    }
++                    "rto" if rto => {
++                        a.cwnd = 20000;
++                        a.rwnd = 20000;
++                        a.outbound_queue.mark_all_to_retransmit();
++                        a.get_data_packets_to_retransmit(later)
++                            .into_iter()
++                            .map(|packet| packet.marshal().unwrap())
++                            .collect()
++                    }
++                    "sack" => {
++                        source_ack_all(&mut a, later + Duration::from_millis(1));
++                        vec![]
++                    }
++                    _ => panic!("source stage"),
++                };
++                if row[1] != "sack" {
++                    last_sent = (1..=3)
++                        .map(|tsn| a.outbound_queue.get(tsn).map_or(0, |c| c.nsent))
++                        .collect();
++                    last_raw = a.source_pr_abandoned.contains(&message_id);
++                    last_all = a.outbound_queue.pending_len() == 0;
++                    // All source fragments share the original head. Pending
++                    // fragments have the same effective/raw flag as sent ones.
++                    last_effective = (1..=3)
++                        .map(|tsn| {
++                            if a.outbound_queue.get(tsn).is_some_and(|c| c.abandoned) {
++                                '1'
++                            } else {
++                                '0'
++                            }
++                        })
++                        .collect();
++                }
++                // After SACK the observer retains the last chunk snapshots,
++                // exactly as Go's original pointer-cohort outlives queue pop.
++                // Live queue/buffer/debt below must independently be zero.
++                assert_eq!(last_sent, parse(row[5]), "{} {} nSent", row[0], row[1]);
++                assert_eq!(
++                    last_effective, row[6],
++                    "{} {} effective head",
++                    row[0], row[1]
++                );
++                assert_eq!(bitvec(last_raw), row[7], "{} {} raw head", row[0], row[1]);
++                assert_eq!(
++                    bitvec(last_all),
++                    row[8],
++                    "{} {} all inflight",
++                    row[0],
++                    row[1]
++                );
++                assert_eq!(
++                    a.streams.get(&0).unwrap().buffered_amount,
++                    row[9].parse::<usize>().unwrap(),
++                    "{} {} actual stream buffer",
++                    row[0],
++                    row[1]
++                );
++                assert_eq!(
++                    a.outbound_queue.inflight_bytes(),
++                    row[10].parse::<usize>().unwrap(),
++                    "{} {} flight bytes",
++                    row[0],
++                    row[1]
++                );
++                assert_eq!(
++                    a.outbound_queue.pending_len(),
++                    row[11].parse::<usize>().unwrap(),
++                    "{} {} actual pending",
++                    row[0],
++                    row[1]
++                );
++                assert_eq!(
++                    packets.iter().map(|p| p.len() as u32).collect::<Vec<_>>(),
++                    parse(row[12]),
++                    "{} {} wire lengths",
++                    row[0],
++                    row[1]
++                );
++                assert_eq!(
++                    source_wire_tsns(&packets),
++                    parse(row[13]),
++                    "{} {} actual DATA TSNs",
++                    row[0],
++                    row[1]
++                );
++            }
++        }
++        assert_eq!((enabled, native_controls), (30, 30));
++    }
++    fn policy_selection(a: &mut Association, selector: &str, now: Instant) -> Vec<Bytes> {
++        match selector {
++            "fast" => {
++                a.outbound_queue.get_mut(1).unwrap().miss_indicator = 3;
++                a.will_retransmit_fast = true;
++                a.gather_outbound_fast_retransmission_packets(vec![], now)
++            }
++            "rto" => {
++                a.set_cwnd(20000);
++                a.rwnd = 20000;
++                a.outbound_queue.mark_all_to_retransmit();
++                a.get_data_packets_to_retransmit(now)
++                    .into_iter()
++                    .map(|p| p.marshal().unwrap())
++                    .collect()
++            }
++            _ => panic!("source selector"),
++        }
++    }
++    #[test]
++    fn enabled_source_pr_reads_current_stream_policy_and_removed_stream_does_not_abandon() {
++        for selector in ["fast", "rto"] {
++            for remove in [false, true] {
++                let mut a = assoc(0, 3000, 0);
++                let now = Instant::now();
++                source_stream_queue(&mut a, ReliabilityType::Rexmit, 1, 300);
++                a.send_next_data_chunk(now).unwrap();
++                assert!(!a.outbound_queue.get(1).unwrap().abandoned);
++                if remove {
++                    a.unregister_stream(0, false);
++                } else {
++                    a.stream(0)
++                        .unwrap()
++                        .set_reliability_params(false, ReliabilityType::Reliable, 0)
++                        .unwrap();
++                }
++                let packets = policy_selection(&mut a, selector, now + Duration::from_secs(1));
++                assert_eq!(
++                    source_wire_tsns(&packets),
++                    vec![1],
++                    "selected original DATA still leaves"
++                );
++                let c = a.outbound_queue.get(1).unwrap();
++                assert_eq!(c.nsent, 2);
++                assert!(!c.abandoned, "selector={selector} removed={remove}: old enqueue Rexmit1 must not override actual current stream");
++            }
++            let mut a = assoc(0, 3000, 0);
++            let now = Instant::now();
++            source_stream_queue(&mut a, ReliabilityType::Reliable, 0, 300);
++            a.send_next_data_chunk(now).unwrap();
++            a.stream(0)
++                .unwrap()
++                .set_reliability_params(false, ReliabilityType::Rexmit, 1)
++                .unwrap();
++            let packets = policy_selection(&mut a, selector, now + Duration::from_secs(1));
++            assert_eq!(source_wire_tsns(&packets), vec![1]);
++            assert!(
++                a.outbound_queue.get(1).unwrap().abandoned,
++                "new actual stream policy must be consumed"
++            );
++        }
++    }
++    #[test]
++    #[ignore = "requires actual fixed Go current stream policy source8 via GO_SCTP_POLICY_TSV"]
++    fn actual_go_current_stream_policy_and_removed_stream_match_real_selectors() {
++        let data = std::fs::read_to_string(std::env::var("GO_SCTP_POLICY_TSV").unwrap()).unwrap();
++        let rows: Vec<_> = data
++            .lines()
++            .map(|line| line.split('\t').collect::<Vec<_>>())
++            .collect();
++        assert_eq!(rows.len(), 8);
++        let parse = |text: &str| {
++            text.split(',')
++                .filter(|v| !v.is_empty())
++                .map(|v| v.parse::<u32>().unwrap())
++                .collect::<Vec<_>>()
++        };
++        let kind = |name: &str| match name {
++            "reliable" => ReliabilityType::Reliable,
++            "rexmit" => ReliabilityType::Rexmit,
++            _ => panic!("source input policy"),
++        };
++        for row in rows {
++            assert_eq!(row.len(), 13);
++            let mut a = assoc(0, 3000, 0);
++            let now = Instant::now();
++            source_stream_queue(&mut a, kind(row[3]), row[4].parse().unwrap(), 300);
++            a.send_next_data_chunk(now).unwrap();
++            if row[2] == "remove" {
++                a.unregister_stream(0, false);
++            } else {
++                assert_eq!(row[2], "set");
++                a.stream(0)
++                    .unwrap()
++                    .set_reliability_params(false, kind(row[5]), row[6].parse().unwrap())
++                    .unwrap();
++            }
++            let packets = policy_selection(&mut a, row[1], now + Duration::from_secs(1));
++            let c = a.outbound_queue.get(1).unwrap();
++            assert_eq!(c.nsent, row[7].parse::<u32>().unwrap(), "{} sent", row[0]);
++            assert_eq!(c.abandoned, row[8] == "1", "{} effective abandoned", row[0]);
++            assert_eq!(
++                a.source_pr_abandoned.contains(&c.message_id),
++                row[9] == "1",
++                "{} raw head",
++                row[0]
++            );
++            assert_eq!(
++                packets.iter().map(|v| v.len() as u32).collect::<Vec<_>>(),
++                parse(row[10]),
++                "{} actual wire sizes",
++                row[0]
++            );
++            assert_eq!(
++                source_wire_tsns(&packets),
++                parse(row[11]),
++                "{} DATA TSN",
++                row[0]
++            );
++            assert_eq!(
++                a.streams.contains_key(&0),
++                row[12] == "1",
++                "{} actual stream registration",
++                row[0]
++            );
++        }
++    }
++
++    #[test]
++    fn source_partial_reliability_is_independent_of_zero_fast_burst() {
++        let native = assoc(0, 0, 0);
++        assert!(!native.uses_source_partial_reliability());
++        let mut source = assoc(0, 0, 0);
++        source.source_partial_reliability = true;
++        assert!(source.uses_source_partial_reliability());
++        assert_eq!(source.fast_rtx_wnd, 0);
++        assert_eq!(source.mtu.max(source.fast_rtx_wnd), source.mtu);
++    }
++
++    include!("configured_physical_timer_tests.rs");
++}
++
++#[cfg(test)]
++#[path = "ack_rack_source_tests.rs"]
++mod ack_rack_source_tests;
++
++#[cfg(test)]
++#[path = "adaptive_rack_tests.rs"]
++mod adaptive_rack_tests;
++
++#[cfg(test)]
++#[path = "adaptive_rack_old_api_test.rs"]
++mod adaptive_rack_old_api_test;
++
++#[cfg(test)]
++mod pto_tlr_tests;
++
++#[cfg(test)]
++mod writer_abort_tests;
++
++#[cfg(test)]
++mod source_shutdown_tests;
+diff --git a/src/association/pto_tlr_tests.rs b/src/association/pto_tlr_tests.rs
+--- /dev/null
++++ b/src/association/pto_tlr_tests.rs
+@@ -0,0 +1,368 @@
++use super::*;
++use alloc::borrow::ToOwned;
++fn association(source: bool, now: Instant) -> Association {
++    let mut a = Association {
++        state: AssociationState::Established,
++        source_partial_reliability: source,
++        use_forward_tsn: true,
++        my_next_tsn: 1,
++        min_tsn2measure_rtt: 1,
++        cumulative_tsn_ack_point: 0,
++        advanced_peer_tsn_ack_point: 0,
++        cwnd: 100000,
++        rwnd: 100000,
++        mtu: 1228,
++        ..Default::default()
++    };
++    a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++        .unwrap()
++        .set_reliability_params(false, ReliabilityType::Reliable, 0)
++        .unwrap();
++    queue(&mut a, 1);
++    a.send_next_data_chunk(now).unwrap();
++    a.handle_sack(
++        &ChunkSelectiveAck {
++            cumulative_tsn_ack: 1,
++            advertised_receiver_window_credit: 100000,
++            ..Default::default()
++        },
++        now + Duration::from_millis(2),
++    )
++    .unwrap();
++    a
++}
++fn queue(a: &mut Association, n: usize) {
++    a.outbound_queue.push(
++        (0..n)
++            .map(|i| ChunkPayloadData {
++                beginning_fragment: true,
++                ending_fragment: true,
++                stream_identifier: 0,
++                payload_type: PayloadProtocolIdentifier::Binary,
++                user_data: Bytes::from(vec![i as u8; 1200]),
++                ..Default::default()
++            })
++            .collect(),
++    );
++    a.awake_write_loop();
++}
++fn tsns(payload: &Payload) -> Vec<u32> {
++    let Payload::RawEncode(packets) = payload else {
++        panic!("actual serialized packets required")
++    };
++    let mut out = vec![];
++    for b in packets {
++        let mut off = 12;
++        while off + 4 <= b.len() {
++            let n = u16::from_be_bytes([b[off + 2], b[off + 3]]) as usize;
++            assert!(n >= 4 && off + n <= b.len());
++            if b[off] == 0 {
++                out.push(u32::from_be_bytes(b[off + 4..off + 8].try_into().unwrap()));
++            }
++            off += (n + 3) & !3;
++        }
++    }
++    out
++}
++#[test]
++fn pto_real_ack_then_pending_data_consumes_one_coalesced_source_writer_burst() {
++    let now = Instant::now();
++    let mut a = association(true, now);
++    a.cwnd = 1200;
++    queue(&mut a, 20);
++    let sent = now + Duration::from_millis(3);
++    let first = a.poll_transmit(sent).unwrap();
++    assert_eq!(tsns(&first.payload), vec![2]);
++    let deadline = a.poll_timeout().unwrap();
++    assert_eq!(deadline, sent + Duration::from_millis(204));
++    assert!(a
++        .poll_transmit(deadline - Duration::from_nanos(1))
++        .is_none());
++    a.handle_timeout(deadline - Duration::from_nanos(1));
++    assert!(!a.source_tlr.active);
++    a.handle_timeout(deadline);
++    assert!(a.source_tlr.active);
++    assert!(a.source_tlr.first_rtt);
++    assert!(
++        !a.outbound_queue.get(2).unwrap().retransmit,
++        "pending DATA takes precedence over a PTO retransmission probe"
++    );
++    a.cwnd = 100000;
++    let burst = a.poll_transmit(deadline).unwrap();
++    assert_eq!(tsns(&burst.payload), vec![3, 4, 5, 6]);
++    assert!(
++        a.poll_transmit(deadline).is_none(),
++        "spurious polling must not replenish a TLR budget"
++    );
++    assert!(a
++        .poll_transmit(deadline + Duration::from_nanos(1))
++        .is_none());
++    // Real producer wakes coalesce, rather than queuing three extra budgets.
++    a.awake_write_loop();
++    a.awake_write_loop();
++    a.awake_write_loop();
++    assert_eq!(
++        tsns(&a.poll_transmit(deadline).unwrap().payload),
++        vec![7, 8, 9, 10]
++    );
++    assert!(a.poll_transmit(deadline).is_none());
++    assert_eq!(a.outbound_queue.pending_len(), 11);
++}
++#[test]
++fn pto_without_pending_marks_only_latest_live_data_and_cancels_on_real_ack() {
++    let now = Instant::now();
++    let mut a = association(true, now);
++    queue(&mut a, 2);
++    let sent = now + Duration::from_millis(3);
++    assert_eq!(tsns(&a.poll_transmit(sent).unwrap().payload), vec![2, 3]);
++    let deadline = a.poll_timeout().unwrap();
++    assert_eq!(deadline, sent + Duration::from_millis(6));
++    a.handle_timeout(deadline);
++    assert!(!a.outbound_queue.get(2).unwrap().retransmit);
++    assert!(a.outbound_queue.get(3).unwrap().retransmit);
++    assert_eq!(tsns(&a.poll_transmit(deadline).unwrap().payload), vec![3]);
++    assert_eq!(a.outbound_queue.get(3).unwrap().nsent, 2);
++    a.handle_sack(
++        &ChunkSelectiveAck {
++            cumulative_tsn_ack: 3,
++            advertised_receiver_window_credit: 100000,
++            ..Default::default()
++        },
++        deadline + Duration::from_millis(1),
++    )
++    .unwrap();
++    assert!(!a.source_tlr.active);
++    assert!(a.source_tlr.pto_deadline.is_none());
++}
++#[test]
++fn source_writer_does_not_gate_native_default_or_legacy_fast_window_policy() {
++    let now = Instant::now();
++    let mut a = association(false, now);
++    queue(&mut a, 2);
++    a.source_writer_pending.store(false, Ordering::Relaxed);
++    assert_eq!(tsns(&a.poll_transmit(now).unwrap().payload), vec![2, 3]);
++}
++#[test]
++fn tlr_budget_is_shared_by_ordinary_new_and_fast_selection_in_source_order() {
++    let now = Instant::now();
++    let mut a = association(true, now);
++    queue(&mut a, 4);
++    for _ in 0..4 {
++        a.send_next_data_chunk(now).unwrap();
++    }
++    a.outbound_queue.get_mut(2).unwrap().retransmit = true;
++    a.outbound_queue.get_mut(3).unwrap().retransmit = true;
++    a.outbound_queue.get_mut(4).unwrap().miss_indicator = 3;
++    a.outbound_queue.get_mut(5).unwrap().miss_indicator = 3;
++    a.will_retransmit_fast = true;
++    a.fast_rtx_wnd = 10000;
++    queue(&mut a, 8);
++    a.source_tlr.begin(now, 5);
++    let burst = a.poll_transmit(now).unwrap();
++    assert_eq!(tsns(&burst.payload), vec![2, 3, 6, 7]);
++    assert_eq!(
++        a.outbound_queue.get(4).unwrap().nsent,
++        1,
++        "fast RTX cannot obtain an independent budget"
++    );
++    assert_eq!(a.outbound_queue.pending_len(), 6);
++    assert!(a.poll_transmit(now).is_none());
++}
++#[test]
++fn tlr_state_and_deadline_retire_on_actual_close() {
++    let now = Instant::now();
++    let mut a = association(true, now);
++    queue(&mut a, 1);
++    a.poll_transmit(now).unwrap();
++    a.source_tlr.begin(now, 2);
++    a.close().unwrap();
++    assert!(!a.source_tlr.active);
++    assert!(a.source_tlr.pto_deadline.is_none());
++    assert!(a.source_burst.is_none());
++}
++
++#[test]
++#[ignore = "requires actual fixed-Pion GO_SCTP_PTO_TLR_OUTPUT TSV18"]
++fn actual_go_pto_tlr_and_shared_writer_budget_match_native() {
++    let text =
++        std::fs::read_to_string(std::env::var_os("GO_SCTP_PTO_TLR_OUTPUT").unwrap()).unwrap();
++    let rows = [
++        ("pto-no-rtt-single", 0u64, 1, 0, "pto"),
++        ("pto-no-rtt-multi", 0, 2, 0, "pto"),
++        ("pto-actual-rtt-single", 1000001, 1, 0, "pto"),
++        ("pto-actual-rtt-multi", 1000001, 2, 0, "pto"),
++        ("pto-actual-subms-single", 177777, 1, 0, "pto"),
++        ("pto-pending-burst", 2000000, 1, 10, "pto"),
++        ("phase-before", 2000000, 3, 0, "before"),
++        ("phase-equal", 2000000, 3, 0, "equal"),
++        ("first-loss-once", 2000000, 3, 0, "first1"),
++        ("first-loss-floor", 2000000, 3, 0, "first5"),
++        ("later-loss-once", 2000000, 3, 0, "later1"),
++        ("later-loss-floor", 2000000, 3, 0, "later5"),
++        ("ack-progress-phase", 2000000, 3, 0, "progress"),
++        ("finish-clean", 2000000, 3, 0, "finish"),
++        ("finish-with-loss", 2000000, 3, 0, "finishloss"),
++        ("clean-reset-sixteen", 2000000, 3, 0, "reset16"),
++        ("shared-ordinary-new-fast", 2000000, 4, 8, "shared"),
++        ("first-exceeds-budget", 2000000, 1, 0, "oversize"),
++    ];
++    assert_eq!(text.lines().count(), 18);
++    let expected: std::collections::BTreeMap<_, _> = text
++        .lines()
++        .map(|l| {
++            assert_eq!(l.split('\t').count(), 15);
++            (l.split('\t').next().unwrap().to_owned(), l.to_owned())
++        })
++        .collect();
++    assert_eq!(expected.len(), 18);
++    for (id, rtt, inflight, pending, op) in rows {
++        let base = Instant::now();
++        let mut now = base;
++        let mut a = Association {
++            state: AssociationState::Established,
++            source_partial_reliability: true,
++            use_forward_tsn: true,
++            my_next_tsn: 1,
++            min_tsn2measure_rtt: 1,
++            cumulative_tsn_ack_point: 0,
++            advanced_peer_tsn_ack_point: 0,
++            cwnd: 100000,
++            rwnd: 100000,
++            mtu: 1228,
++            fast_rtx_wnd: 0,
++            ..Default::default()
++        };
++        a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++            .unwrap()
++            .set_reliability_params(false, ReliabilityType::Reliable, 0)
++            .unwrap();
++        if rtt > 0 {
++            queue(&mut a, 1);
++            a.send_next_data_chunk(now).unwrap();
++            now += Duration::from_nanos(rtt);
++            a.handle_sack(
++                &ChunkSelectiveAck {
++                    cumulative_tsn_ack: 1,
++                    advertised_receiver_window_credit: 100000,
++                    ..Default::default()
++                },
++                now,
++            )
++            .unwrap();
++        }
++        now = base + Duration::from_millis(10);
++        queue(&mut a, inflight);
++        for _ in 0..inflight {
++            a.send_next_data_chunk(now).unwrap();
++        }
++        queue(&mut a, pending);
++        a.source_writer_pending.store(false, Ordering::Relaxed);
++        a.source_schedule_pto(now);
++        let delta = a
++            .source_tlr
++            .pto_deadline
++            .unwrap()
++            .duration_since(now)
++            .as_nanos();
++        let mut allow = String::new();
++        match op {
++            "pto" => {
++                now = a.source_tlr.pto_deadline.take().unwrap();
++                a.source_on_pto(now);
++            }
++            "shared" => {
++                a.fast_rtx_wnd = 10000;
++                a.source_begin_tlr(now);
++                let start = a.cumulative_tsn_ack_point.wrapping_add(1);
++                for i in 0..2 {
++                    a.outbound_queue.get_mut(start + i).unwrap().retransmit = true;
++                }
++                for i in 2..4 {
++                    a.outbound_queue.get_mut(start + i).unwrap().miss_indicator = 3;
++                }
++                a.will_retransmit_fast = true;
++                a.awake_write_loop();
++            }
++            _ => {
++                a.source_begin_tlr(now);
++                match op {
++                    "before" => now += Duration::from_nanos(rtt - 1),
++                    "equal" => now += Duration::from_nanos(rtt),
++                    "first1" | "first5" | "later1" | "later5" | "finishloss" => {
++                        if op.starts_with("later") {
++                            now += Duration::from_nanos(rtt);
++                        }
++                        for _ in 0..if op.ends_with('5') { 5 } else { 1 } {
++                            a.source_tlr
++                                .additional_loss(now, a.source_rack_ack.srtt_duration());
++                        }
++                    }
++                    "progress" => a.source_tlr.finish(true, a.cumulative_tsn_ack_point),
++                    "finish" => {
++                        a.cumulative_tsn_ack_point = a.source_tlr.end_tsn;
++                        a.source_tlr.finish(true, a.cumulative_tsn_ack_point);
++                    }
++                    "reset16" => {
++                        a.source_tlr.first_units = 8;
++                        a.source_tlr.later_units = 5;
++                        for _ in 0..16 {
++                            a.source_begin_tlr(now);
++                            a.cumulative_tsn_ack_point = a.source_tlr.end_tsn;
++                            a.source_tlr.finish(true, a.cumulative_tsn_ack_point);
++                        }
++                    }
++                    "oversize" => {
++                        let mut b = SourceBurst {
++                            remaining: 1,
++                            consumed: false,
++                        };
++                        let first = b.allow(1228);
++                        let second = b.allow(1);
++                        allow = format!("{first},{second},{},{}", b.remaining, b.consumed);
++                    }
++                    _ => panic!("unknown source case"),
++                }
++                if op == "finishloss" {
++                    a.cumulative_tsn_ack_point = a.source_tlr.end_tsn;
++                    a.source_tlr.finish(true, a.cumulative_tsn_ack_point);
++                }
++            }
++        }
++        let budget = a
++            .source_tlr
++            .budget(now, a.source_rack_ack.srtt_duration(), a.mtu)
++            .map_or(0, |b| b.remaining);
++        let t = &a.source_tlr;
++        let prefix = format!(
++            "{id}\t{delta}\t{:016x}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
++            a.source_rack_ack.srtt_ms.to_bits(),
++            t.active,
++            t.first_rtt,
++            t.had_additional_loss,
++            t.end_tsn,
++            t.first_units,
++            t.later_units,
++            t.good_ops,
++            budget,
++            u8::from(a.source_writer_pending.load(Ordering::Relaxed))
++        );
++        let mut wire = String::new();
++        let mut bytes = 0;
++        if op == "pto" || op == "shared" {
++            // A direct gather models one already-admitted source writer wake;
++            // normal tests above separately verify actual public poll gating.
++            a.source_writer_pending.store(false, Ordering::Relaxed);
++            let (packets, _) = a.gather_outbound(now);
++            bytes = packets.iter().map(|b| b.len()).sum();
++            let observed = tsns(&Payload::RawEncode(packets));
++            for (i, tsn) in observed.iter().enumerate() {
++                if i > 0 {
++                    wire.push(',');
++                }
++                wire.push_str(&format!("{tsn}"));
++            }
++        }
++        let actual = format!("{prefix}\t{wire}\t{bytes}\t{allow}");
++        assert_eq!(expected.get(id).unwrap(), &actual, "source PTO/TLR {id}");
++    }
++}
+diff --git a/src/association/source_rack.rs b/src/association/source_rack.rs
+--- /dev/null
++++ b/src/association/source_rack.rs
+@@ -0,0 +1,158 @@
++// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
++// SPDX-License-Identifier: MIT
++// Source: fixed Pion SCTP v1.12.0 association.go onRackAfterSACK,
++// onRackTimeoutLocked and windowedmin.go. No socket or alternate runtime.
++use super::*;
++
++#[derive(Debug, Default)]
++pub(super) struct SourceRackDelivery {
++    pub newest: Option<(Instant, u32)>,
++    pub rtts: Vec<Duration>,
++    pub acked: Vec<u32>,
++    pub next_measure: u32,
++}
++
++#[derive(Debug)]
++pub(super) struct SourceRackAck {
++    pub delivered_at: Option<Instant>,
++    pub highest_delivered_tsn: u32,
++    pub reordering_seen: bool,
++    pub min_tsn_measure: Option<u32>,
++    pub reo: Duration,
++    pub min_rtt: Duration,
++    pub srtt_ms: f64,
++    pub keep_inflated: u32,
++    pub deadline: Option<Instant>,
++    pub order: VecDeque<u32>,
++    window: VecDeque<(Instant, Duration)>,
++}
++impl Default for SourceRackAck {
++    fn default() -> Self {
++        Self {
++            delivered_at: None,
++            highest_delivered_tsn: 0,
++            reordering_seen: false,
++            min_tsn_measure: None,
++            reo: Duration::ZERO,
++            min_rtt: Duration::ZERO,
++            srtt_ms: 0.0,
++            keep_inflated: 0,
++            deadline: None,
++            order: VecDeque::new(),
++            window: VecDeque::new(),
++        }
++    }
++}
++impl SourceRackAck {
++    #[cfg(test)]
++    pub fn window_len(&self) -> usize {
++        self.window.len()
++    }
++    pub fn with_min_tsn(tsn: u32) -> Self {
++        Self {
++            min_tsn_measure: Some(tsn),
++            ..Self::default()
++        }
++    }
++    pub fn remove(&mut self, tsn: u32) {
++        self.order.retain(|id| *id != tsn);
++    }
++    pub fn insert(&mut self, tsn: u32) {
++        self.remove(tsn);
++        self.order.push_back(tsn);
++    }
++    fn prune(&mut self, now: Instant) {
++        // Source retains a sample exactly30s old (strict Before cutoff).
++        while self
++            .window
++            .front()
++            .is_some_and(|(at, _)| now.saturating_duration_since(*at) > Duration::from_secs(30))
++        {
++            self.window.pop_front();
++        }
++    }
++    pub fn rtt(&mut self, now: Instant, value: Duration) {
++        self.prune(now);
++        while self.window.back().is_some_and(|(_, old)| *old >= value) {
++            self.window.pop_back();
++        }
++        self.window.push_back((now, value));
++        // Retain sub-millisecond source SRTT separately from native integer RTO.
++        let rtt_ms = value.as_secs_f64() * 1000.0;
++        self.srtt_ms = if self.srtt_ms == 0.0 {
++            rtt_ms
++        } else {
++            (1.0 - 0.125) * self.srtt_ms + 0.125 * rtt_ms
++        };
++    }
++    pub fn srtt_duration(&self) -> Option<Duration> {
++        (self.srtt_ms > 0.0).then(|| Duration::from_nanos((self.srtt_ms * 1e6) as u64))
++    }
++    pub fn observe(
++        &mut self,
++        delivery: SourceRackDelivery,
++        duplicate: bool,
++        fast_recovery: bool,
++        t3_running: bool,
++        now: Instant,
++    ) {
++        self.min_tsn_measure = Some(delivery.next_measure);
++        for tsn in delivery.acked {
++            self.remove(tsn);
++        }
++        for rtt in delivery.rtts {
++            self.rtt(now, rtt);
++        }
++        if let Some((sent, tsn)) = delivery.newest {
++            if sna32lt(self.highest_delivered_tsn, tsn) {
++                self.highest_delivered_tsn = tsn;
++            } else {
++                self.reordering_seen = true;
++            }
++            if self.delivered_at.is_none_or(|old| sent > old) {
++                self.delivered_at = Some(sent);
++            }
++        }
++        self.prune(now);
++        if let Some((_, minimum)) = self.window.front() {
++            if !minimum.is_zero() {
++                self.min_rtt = *minimum;
++            }
++        }
++        let base = self.min_rtt / 4; // fixed app never supplies a nonzero floor
++        if !self.reordering_seen && (fast_recovery || t3_running) {
++            self.reo = Duration::ZERO;
++        } else if self.reo.is_zero() && !base.is_zero() {
++            self.reo = base;
++        }
++        if duplicate && !self.min_rtt.is_zero() {
++            self.reo = self.reo.saturating_add(base);
++            self.keep_inflated = 16;
++        }
++        if !fast_recovery && self.keep_inflated > 0 {
++            self.keep_inflated -= 1;
++            if self.keep_inflated == 0 && !self.min_rtt.is_zero() {
++                self.reo = base;
++            }
++        }
++        if let Some(srtt) = self.srtt_duration() {
++            self.reo = self.reo.min(srtt);
++        }
++    }
++    pub fn arm(&mut self, now: Instant) {
++        self.deadline = if !self.order.is_empty() {
++            self.delivered_at.and_then(|delivered| {
++                let duration = now
++                    .saturating_duration_since(delivered)
++                    .checked_add(self.reo)?;
++                if duration.is_zero() {
++                    None
++                } else {
++                    now.checked_add(duration)
++                }
++            })
++        } else {
++            None
++        };
++    }
++}
+diff --git a/src/association/source_shutdown.rs b/src/association/source_shutdown.rs
+--- /dev/null
++++ b/src/association/source_shutdown.rs
+@@ -0,0 +1,136 @@
++// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
++// SPDX-License-Identifier: MIT
++// Pion SCTP v1.12.0 processShutdownAcknowledgement/handleShutdown and drain.
++use super::*;
++impl Association {
++    pub(super) fn source_has_pending_or_inflight(&self) -> bool {
++        self.outbound_queue.pending_len() != 0 || self.outbound_queue.inflight_len() != 0
++    }
++    pub(super) fn source_validate_acknowledgement(&self, d: &ChunkSelectiveAck) -> Result<()> {
++        // Original source validates the owned cumulative endpoints and every
++        // gap endpoint before any pop/callback/RTT mutation. Queue TSNs are contiguous.
++        if sna32lt(self.cumulative_tsn_ack_point, d.cumulative_tsn_ack)
++            && (self
++                .outbound_queue
++                .get(self.cumulative_tsn_ack_point.wrapping_add(1))
++                .is_none()
++                || self.outbound_queue.get(d.cumulative_tsn_ack).is_none())
++        {
++            return Err(Error::ErrInflightQueueTsnPop);
++        }
++        for gap in &d.gap_ack_blocks {
++            if gap.start == 0
++                || gap.start > gap.end
++                || self
++                    .outbound_queue
++                    .get(d.cumulative_tsn_ack.wrapping_add(u32::from(gap.start)))
++                    .is_none()
++                || self
++                    .outbound_queue
++                    .get(d.cumulative_tsn_ack.wrapping_add(u32::from(gap.end)))
++                    .is_none()
++            {
++                return Err(Error::ErrTsnRequestNotExist);
++            }
++        }
++        Ok(())
++    }
++    pub(super) fn source_handle_shutdown(
++        &mut self,
++        c: &ChunkShutdown,
++        now: Instant,
++    ) -> Result<Vec<Packet>> {
++        if self.source_shutdown_complete_pending {
++            return Ok(vec![]);
++        }
++        let state = self.state();
++        if state == AssociationState::ShutdownAckSent {
++            self.source_retransmit_shutdown_ack();
++            return Ok(vec![]);
++        }
++        if state == AssociationState::ShutdownSent {
++            self.timers.stop(Timer::T2Shutdown);
++            self.will_send_shutdown = false;
++            self.will_send_shutdown_ack = true;
++            self.set_state(AssociationState::ShutdownAckSent);
++            self.awake_write_loop();
++            return Ok(vec![]);
++        }
++        if !matches!(
++            state,
++            AssociationState::Established
++                | AssociationState::ShutdownPending
++                | AssociationState::ShutdownReceived
++        ) {
++            return Ok(vec![]);
++        }
++        let enters = matches!(
++            state,
++            AssociationState::Established | AssociationState::ShutdownPending
++        );
++        if enters {
++            self.set_state(AssociationState::ShutdownReceived);
++        }
++        let previous = self.cumulative_tsn_ack_point;
++        let result = (|| {
++            // This is normalization of the real SHUTDOWN carried cumulative
++            // ACK, exactly like source; no fabricated wire SACK or a_rwnd.
++            if !sna32gt(self.cumulative_tsn_ack_point, c.cumulative_tsn_ack) {
++                let d = ChunkSelectiveAck {
++                    cumulative_tsn_ack: c.cumulative_tsn_ack,
++                    ..Default::default()
++                };
++                let (delivery, htna, advanced) = self.process_acknowledged_data(&d, now)?;
++                self.finish_acknowledged_data(&d, htna, advanced, now)?;
++                let progress = advanced || delivery.newest.is_some();
++                self.source_rack_after_ack(delivery, &d, now);
++                self.source_tlr
++                    .finish(progress, self.cumulative_tsn_ack_point);
++            }
++            Ok(())
++        })();
++        if result.is_err() {
++            if self.cumulative_tsn_ack_point == previous {
++                self.set_state(state);
++            }
++            return result.map(|()| vec![]);
++        }
++        if self.source_has_pending_or_inflight() {
++            self.set_state(AssociationState::ShutdownReceived);
++            if self.outbound_queue.pending_len() != 0 {
++                self.awake_write_loop();
++            }
++        } else {
++            self.will_send_shutdown_ack = true;
++            self.set_state(AssociationState::ShutdownAckSent);
++            self.awake_write_loop();
++        }
++        Ok(vec![])
++    }
++    fn source_retransmit_shutdown_ack(&mut self) {
++        if self.source_shutdown_complete_pending {
++            return;
++        }
++        self.timers.stop(Timer::T2Shutdown);
++        self.will_send_shutdown = false;
++        self.will_send_shutdown_ack = true;
++        self.awake_write_loop();
++    }
++    pub(super) fn source_handle_shutdown_ack(
++        &mut self,
++        _: &ChunkShutdownAck,
++    ) -> Result<Vec<Packet>> {
++        if matches!(
++            self.state(),
++            AssociationState::ShutdownSent | AssociationState::ShutdownAckSent
++        ) {
++            self.timers.stop(Timer::T2Shutdown);
++            self.will_send_shutdown = false;
++            self.will_send_shutdown_ack = false;
++            self.source_shutdown_complete_pending = true;
++            self.will_send_shutdown_complete = true;
++            self.awake_write_loop();
++        }
++        Ok(vec![])
++    }
++}
+diff --git a/src/association/source_shutdown_tests.rs b/src/association/source_shutdown_tests.rs
+--- /dev/null
++++ b/src/association/source_shutdown_tests.rs
+@@ -0,0 +1,304 @@
++// Uses existing public Endpoint/Association APIs; no new candidate types.
++use super::*;
++use crate::{generate_snap_token, ClientConfig, DatagramEvent, Endpoint, EndpointConfig};
++struct Peer {
++    endpoint: Endpoint,
++    association: Association,
++    handle: crate::AssociationHandle,
++    addr: SocketAddr,
++}
++fn pair() -> Result<(Peer, Peer)> {
++    let transport = Arc::new(TransportConfig::default().with_source_partial_reliability(true));
++    let one = generate_snap_token(&transport)?;
++    let two = generate_snap_token(&transport)?;
++    let left_addr = SocketAddr::from_str("127.0.0.1:15000").unwrap();
++    let right_addr = SocketAddr::from_str("127.0.0.1:15001").unwrap();
++    let mut left = Endpoint::new(Arc::new(EndpointConfig::default()), None);
++    let mut right = Endpoint::new(Arc::new(EndpointConfig::default()), None);
++    let mut config = ClientConfig::new().with_snap(one.clone(), two.clone());
++    config.transport = transport.clone();
++    let (lh, la) = left.connect(config, right_addr).unwrap();
++    let mut config = ClientConfig::new().with_snap(two, one);
++    config.transport = transport;
++    let (rh, ra) = right.connect(config, left_addr).unwrap();
++    Ok((
++        Peer {
++            endpoint: left,
++            association: la,
++            handle: lh,
++            addr: left_addr,
++        },
++        Peer {
++            endpoint: right,
++            association: ra,
++            handle: rh,
++            addr: right_addr,
++        },
++    ))
++}
++fn outputs(p: &mut Peer, now: Instant) -> Vec<Bytes> {
++    let mut all = vec![];
++    while let Some(t) = p.association.poll_transmit(now) {
++        let Payload::RawEncode(raw) = t.payload else {
++            panic!("actual wire output required")
++        };
++        all.extend(raw);
++    }
++    all
++}
++fn route(p: &mut Peer, from: SocketAddr, raw: Bytes, now: Instant) {
++    let (h, event) = p
++        .endpoint
++        .handle(now, from, None, None, raw)
++        .expect("existing endpoint route must survive pending SHUTDOWN");
++    assert_eq!(h, p.handle);
++    let DatagramEvent::AssociationEvent(event) = event else {
++        panic!("must use existing association")
++    };
++    p.association.handle_event(event);
++}
++fn contains<T: 'static>(raw: &Bytes) -> bool {
++    crate::packet::PartialDecode::unmarshal(raw)
++        .unwrap()
++        .finish()
++        .unwrap()
++        .chunks
++        .iter()
++        .any(|c| c.as_any().is::<T>())
++}
++#[test]
++fn source_shutdown_public_endpoint_retains_route_through_actual_complete() -> Result<()> {
++    let now = Instant::now();
++    let (mut a, mut b) = pair()?;
++    a.association.shutdown()?;
++    assert!(
++        a.association.poll_endpoint_event().is_none(),
++        "graceful request must not release route before peer ACK"
++    );
++    for raw in outputs(&mut a, now) {
++        route(&mut b, a.addr, raw, now);
++    }
++    assert!(b.association.poll_endpoint_event().is_none());
++    let ack = outputs(&mut b, now);
++    assert!(ack.iter().any(contains::<ChunkShutdownAck>));
++    for raw in ack {
++        route(&mut a, b.addr, raw, now);
++    }
++    assert!(
++        a.association.poll_endpoint_event().is_none(),
++        "route retained until real terminal wire handoff"
++    );
++    let complete = outputs(&mut a, now);
++    assert!(complete.iter().any(contains::<ChunkShutdownComplete>));
++    assert!(a.association.is_closed());
++    let event = a
++        .association
++        .poll_endpoint_event()
++        .expect("actual close releases route exactly once");
++    a.endpoint.handle_event(a.handle, event);
++    assert!(a.association.poll_endpoint_event().is_none());
++    for raw in complete {
++        route(&mut b, a.addr, raw, now);
++    }
++    assert!(b.association.is_closed());
++    let event = b
++        .association
++        .poll_endpoint_event()
++        .expect("peer complete releases route");
++    b.endpoint.handle_event(b.handle, event);
++    assert!(b.association.poll_endpoint_event().is_none());
++    Ok(())
++}
++#[test]
++fn source_shutdown_real_carried_ack_releases_data_without_sack_rwnd() -> Result<()> {
++    let base = Instant::now();
++    let (mut a, mut b) = pair()?;
++    a.association
++        .open_stream(1, PayloadProtocolIdentifier::Binary)?
++        .write_sctp(
++            &Bytes::from_static(b"carried-ack"),
++            PayloadProtocolIdentifier::Binary,
++        )?;
++    let raw = outputs(&mut a, base);
++    assert!(raw.iter().any(contains::<ChunkPayloadData>));
++    assert!(a.association.outbound_queue.inflight_len() > 0);
++    for raw in raw {
++        route(&mut b, a.addr, raw, base + Duration::from_millis(1));
++    }
++    b.association.shutdown()?;
++    let raw = outputs(&mut b, base + Duration::from_millis(2));
++    let shutdown: Vec<_> = raw.into_iter().filter(contains::<ChunkShutdown>).collect();
++    assert_eq!(
++        shutdown.len(),
++        1,
++        "real peer emits carried cumulative ACK; deliberately do not deliver separate SACK"
++    );
++    let rwnd = a.association.rwnd;
++    let sacks = a.association.stats.get_num_sacks();
++    for raw in shutdown {
++        route(&mut a, b.addr, raw, base + Duration::from_millis(3));
++    }
++    assert_eq!(
++        a.association.outbound_queue.inflight_len(),
++        0,
++        "carried ACK must own real DATA release"
++    );
++    assert_eq!(a.association.rwnd, rwnd, "SHUTDOWN has no a_rwnd field");
++    assert_eq!(
++        a.association.stats.get_num_sacks(),
++        sacks,
++        "not a fabricated received SACK"
++    );
++    assert!(outputs(&mut a, base + Duration::from_millis(3))
++        .iter()
++        .any(contains::<ChunkShutdownAck>));
++    Ok(())
++}
++#[test]
++#[ignore = "requires actual fixed-Pion GO_SCTP_SHUTDOWN_OUTPUT; no prefilled expected"]
++fn actual_go_shutdown_carried_ack_fields_match() -> Result<()> {
++    use alloc::{borrow::ToOwned, collections::BTreeSet};
++    let path = std::env::var("GO_SCTP_SHUTDOWN_OUTPUT").expect("actual Go output required");
++    let text = std::fs::read_to_string(path).unwrap();
++    let mut seen = BTreeSet::new();
++    for line in text.lines() {
++        let cols: Vec<_> = line.split('\t').collect();
++        assert_eq!(cols.len(), 10);
++        let id = cols[0];
++        assert!(seen.insert(id.to_owned()));
++        let now = Instant::now();
++        let mut a = Association {
++            state: AssociationState::Established,
++            source_partial_reliability: true,
++            use_forward_tsn: true,
++            my_next_tsn: 1,
++            cumulative_tsn_ack_point: 0,
++            advanced_peer_tsn_ack_point: 0,
++            cwnd: 10000,
++            rwnd: 9999,
++            mtu: 1228,
++            max_payload_size: 1200,
++            ..Default::default()
++        };
++        a.create_stream(0, false, PayloadProtocolIdentifier::Binary)
++            .unwrap();
++        for i in 0..2 {
++            a.outbound_queue.push(vec![ChunkPayloadData {
++                beginning_fragment: true,
++                ending_fragment: true,
++                stream_identifier: 0,
++                payload_type: PayloadProtocolIdentifier::Binary,
++                user_data: Bytes::from(vec![i, 2]),
++                ..Default::default()
++            }]);
++            let chunk = a.send_next_data_chunk(now).unwrap();
++            assert!(a.create_packet(vec![Box::new(chunk)]).marshal()?.len() >= 28);
++        }
++        let mut through = 2;
++        match id {
++            "all-acknowledged" => {}
++            "partial-acknowledged" => through = 1,
++            "invalid-future" => through = 3,
++            "stale-ack" => through = u32::MAX,
++            "pending-data" => a.outbound_queue.push(vec![ChunkPayloadData {
++                beginning_fragment: true,
++                ending_fragment: true,
++                stream_identifier: 0,
++                payload_type: PayloadProtocolIdentifier::Binary,
++                user_data: Bytes::from_static(&[3, 2]),
++                ..Default::default()
++            }]),
++            "crossed-shutdown" | "shutdown-ack" => {
++                a.set_state(AssociationState::ShutdownSent);
++                a.will_send_shutdown = true;
++            }
++            "repeat-shutdown" => a.set_state(AssociationState::ShutdownAckSent),
++            _ => panic!("unrecognized actual source case {id}"),
++        }
++        let result = if id == "shutdown-ack" {
++            a.source_handle_shutdown_ack(&ChunkShutdownAck {})
++        } else {
++            a.source_handle_shutdown(
++                &ChunkShutdown {
++                    cumulative_tsn_ack: through,
++                },
++                now + Duration::from_millis(1),
++            )
++        };
++        let actual = alloc::format!(
++            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
++            id,
++            a.state(),
++            a.outbound_queue.inflight_len(),
++            a.outbound_queue.pending_len(),
++            a.cumulative_tsn_ack_point,
++            a.rwnd,
++            a.will_send_shutdown_ack,
++            a.will_send_shutdown,
++            a.will_send_shutdown_complete,
++            result.is_err()
++        );
++        assert_eq!(actual, line, "strict actual source fields {id}");
++    }
++    assert_eq!(seen.len(), 8);
++    Ok(())
++}
++
++#[test]
++fn source_shutdown_pending_before_first_poll_drains_original_and_rejects_new_write() -> Result<()> {
++    let (mut a, mut b) = pair()?;
++    let now = Instant::now();
++    let payload = Bytes::from_static(b"accepted-before-shutdown");
++    a.association
++        .open_stream(1, PayloadProtocolIdentifier::Binary)?
++        .write_sctp(&payload, PayloadProtocolIdentifier::Binary)?;
++    assert_eq!(a.association.outbound_queue.inflight_len(), 0);
++    assert!(a.association.outbound_queue.pending_len() > 0);
++    a.association.shutdown()?;
++    assert_eq!(a.association.state(), AssociationState::ShutdownPending);
++    assert!(matches!(
++        a.association.stream(1)?.write_sctp(
++            &Bytes::from_static(b"must-not-be-accepted"),
++            PayloadProtocolIdentifier::Binary
++        ),
++        Err(Error::ErrStreamClosed)
++    ));
++    assert!(a.association.poll_endpoint_event().is_none());
++    let mut received = Vec::new();
++    let mut releases = [0, 0];
++    for tick in 0..2000 {
++        let time = now + Duration::from_millis(tick);
++        a.association.handle_timeout(time);
++        b.association.handle_timeout(time);
++        for raw in outputs(&mut a, time) {
++            route(&mut b, a.addr, raw, time);
++            if let Ok(mut stream) = b.association.stream(1) {
++                while let Ok(Some(message)) = stream.read_sctp() {
++                    let mut bytes = vec![0; message.len()];
++                    message.read(&mut bytes)?;
++                    received.extend(bytes);
++                }
++            }
++        }
++        for raw in outputs(&mut b, time) {
++            route(&mut a, b.addr, raw, time);
++        }
++        for (index, peer) in [&mut a, &mut b].into_iter().enumerate() {
++            while let Some(event) = peer.association.poll_endpoint_event() {
++                releases[index] += 1;
++                peer.endpoint.handle_event(peer.handle, event);
++            }
++        }
++        if a.association.is_closed() && b.association.is_closed() {
++            break;
++        }
++    }
++    assert_eq!(
++        received,
++        payload.as_ref(),
++        "all pre-shutdown accepted bytes exactly once"
++    );
++    assert!(a.association.is_closed() && b.association.is_closed());
++    assert_eq!(releases, [1, 1], "each real endpoint route is retired once");
++    Ok(())
++}
+diff --git a/src/association/source_tlr.rs b/src/association/source_tlr.rs
+--- /dev/null
++++ b/src/association/source_tlr.rs
+@@ -0,0 +1,251 @@
++// SPDX-FileCopyrightText: 2026 The Pion community <https://pion.ly>
++// SPDX-License-Identifier: MIT
++// Port of fixed Pion SCTP v1.12.0 association.go DATA PTO and adaptive TLR.
++// Keep native/default policy and its integer-ms RTO unchanged.
++use super::*;
++
++#[derive(Debug)]
++pub(super) struct SourceTlr {
++    pub pto_deadline: Option<Instant>,
++    pub active: bool,
++    pub first_rtt: bool,
++    pub had_additional_loss: bool,
++    pub started: Option<Instant>,
++    pub end_tsn: u32,
++    pub first_units: i64,
++    pub later_units: i64,
++    pub good_ops: u32,
++}
++impl Default for SourceTlr {
++    fn default() -> Self {
++        Self {
++            pto_deadline: None,
++            active: false,
++            first_rtt: false,
++            had_additional_loss: false,
++            started: None,
++            end_tsn: 0,
++            first_units: 16,
++            later_units: 8,
++            good_ops: 0,
++        }
++    }
++}
++#[derive(Debug)]
++pub(super) struct SourceBurst {
++    pub remaining: i64,
++    pub consumed: bool,
++}
++impl SourceBurst {
++    pub(super) fn allow(&mut self, bytes: u32) -> bool {
++        let need = i64::from(bytes) * 4;
++        if self.consumed && self.remaining < need {
++            return false;
++        }
++        self.remaining = (self.remaining - need).max(0);
++        self.consumed = true;
++        true
++    }
++}
++impl SourceTlr {
++    pub fn schedule(&mut self, now: Instant, inflight: usize, srtt: Option<Duration>) {
++        self.pto_deadline = if inflight == 0 {
++            None
++        } else {
++            let pto = srtt.map_or(Duration::from_secs(1), |srtt| {
++                let extra = if inflight == 1 {
++                    Duration::from_millis(200)
++                } else {
++                    Duration::from_millis(2)
++                };
++                srtt.checked_mul(2)
++                    .and_then(|d| d.checked_add(extra))
++                    .expect("source PTO duration")
++            });
++            now.checked_add(pto)
++        };
++    }
++    pub fn begin(&mut self, now: Instant, end_tsn: u32) {
++        self.active = true;
++        self.first_rtt = true;
++        self.had_additional_loss = false;
++        self.started = Some(now);
++        self.end_tsn = end_tsn;
++    }
++    fn phase(&mut self, now: Instant, srtt: Option<Duration>) {
++        if self.active
++            && self.first_rtt
++            && self.started.is_some_and(|start| {
++                now.saturating_duration_since(start) >= srtt.unwrap_or(Duration::from_secs(1))
++            })
++        {
++            self.first_rtt = false;
++        }
++    }
++    pub fn additional_loss(&mut self, now: Instant, srtt: Option<Duration>) {
++        if !self.active {
++            return;
++        }
++        self.phase(now, srtt);
++        self.had_additional_loss = true;
++        self.good_ops = 0;
++        if self.first_rtt {
++            self.first_units = (self.first_units - 4).max(8);
++        } else {
++            self.later_units = (self.later_units - 1).max(5);
++        }
++    }
++    pub fn finish(&mut self, progress: bool, cumulative: u32) {
++        if !self.active {
++            return;
++        }
++        if self.first_rtt && progress {
++            self.first_rtt = false;
++        }
++        if sna32gte(cumulative, self.end_tsn) {
++            if !self.had_additional_loss {
++                self.good_ops += 1;
++                if self.good_ops >= 16 {
++                    self.first_units = 16;
++                    self.later_units = 8;
++                    self.good_ops = 0;
++                }
++            } else {
++                self.good_ops = 0;
++            }
++            self.active = false;
++            self.first_rtt = false;
++            self.had_additional_loss = false;
++            self.end_tsn = 0;
++        }
++    }
++    pub fn budget(
++        &mut self,
++        now: Instant,
++        srtt: Option<Duration>,
++        mtu: u32,
++    ) -> Option<SourceBurst> {
++        if !self.active {
++            return None;
++        }
++        self.phase(now, srtt);
++        let units = if self.first_rtt {
++            self.first_units
++        } else {
++            self.later_units
++        };
++        Some(SourceBurst {
++            remaining: units * i64::from(mtu),
++            consumed: false,
++        })
++    }
++}
++impl Association {
++    pub(super) fn source_schedule_pto(&mut self, now: Instant) {
++        self.source_tlr.schedule(
++            now,
++            self.outbound_queue.inflight_len(),
++            self.source_rack_ack.srtt_duration(),
++        );
++    }
++    pub(super) fn source_on_pto(&mut self, now: Instant) {
++        let count = self.outbound_queue.inflight_len();
++        if count == 0 {
++            self.source_tlr.pto_deadline = None;
++            // Active HEARTBEAT/ACK RTT seeding is the next, separately gated increment.
++            // No DATA/TLR is fabricated on this otherwise unreachable idle-data branch.
++            return;
++        }
++        if self.source_tlr.active {
++            self.source_tlr
++                .additional_loss(now, self.source_rack_ack.srtt_duration());
++        } else {
++            self.source_begin_tlr(now);
++        }
++        if self.outbound_queue.pending_len() != 0 {
++            self.awake_write_loop();
++            return;
++        }
++        let mut latest = None;
++        for i in 0..count {
++            let tsn = self
++                .cumulative_tsn_ack_point
++                .wrapping_add(i as u32)
++                .wrapping_add(1);
++            let Some(c) = self.outbound_queue.get(tsn) else {
++                break;
++            };
++            if !c.acked && !c.abandoned {
++                latest = Some(tsn);
++            }
++        }
++        if let Some(tsn) = latest {
++            let c = self.outbound_queue.get_mut(tsn).unwrap();
++            if !c.retransmit {
++                c.retransmit = true;
++                self.awake_write_loop();
++            }
++        }
++    }
++    pub(super) fn source_begin_tlr(&mut self, now: Instant) {
++        let mut end = self.cumulative_tsn_ack_point;
++        for i in 0..self.outbound_queue.inflight_len() {
++            let tsn = self
++                .cumulative_tsn_ack_point
++                .wrapping_add(i as u32)
++                .wrapping_add(1);
++            if self.outbound_queue.get(tsn).is_none() {
++                break;
++            }
++            end = tsn;
++        }
++        self.source_tlr.begin(now, end);
++    }
++    /// One tracker per selection stage, one budget shared by the whole source gather.
++    pub(super) fn source_reserve_chunk(&mut self, chunk_bytes: u32, in_packet: &mut u32) -> bool {
++        if *in_packet != 0 && *in_packet + chunk_bytes > self.mtu {
++            *in_packet = 0;
++        }
++        let add = chunk_bytes
++            + if *in_packet == 0 {
++                COMMON_HEADER_SIZE
++            } else {
++                0
++            };
++        if *in_packet == 0 && add > self.mtu {
++            return false;
++        }
++        if self
++            .source_burst
++            .as_mut()
++            .is_some_and(|budget| !budget.allow(add))
++        {
++            return false;
++        }
++        if *in_packet == 0 {
++            *in_packet = COMMON_HEADER_SIZE;
++        }
++        *in_packet += chunk_bytes;
++        true
++    }
++    pub(super) fn source_bundle_packets(&self, selected: Vec<ChunkPayloadData>) -> Vec<Packet> {
++        let mut packets = vec![];
++        let mut chunks: Vec<Box<dyn Chunk + Send + Sync>> = vec![];
++        let mut used = COMMON_HEADER_SIZE;
++        for chunk in selected {
++            let size = (DATA_CHUNK_HEADER_SIZE + chunk.user_data.len() as u32 + 3) & !3;
++            if used + size > self.mtu {
++                if !chunks.is_empty() {
++                    packets.push(self.create_packet(core::mem::take(&mut chunks)));
++                }
++                used = COMMON_HEADER_SIZE;
++            }
++            used += size;
++            chunks.push(Box::new(chunk));
++        }
++        if !chunks.is_empty() {
++            packets.push(self.create_packet(chunks));
++        }
++        packets
++    }
++}
+diff --git a/src/association/stream.rs b/src/association/stream.rs
+--- a/src/association/stream.rs
++++ b/src/association/stream.rs
+@@ -1,5 +1,5 @@
++use crate::association::state::AssociationState;
+ use crate::association::Association;
+-use crate::association::state::AssociationState;
+ use crate::chunk::chunk_payload_data::{ChunkPayloadData, PayloadProtocolIdentifier};
+ use crate::error::{Error, Result};
+ use crate::queue::reassembly_queue::{Chunks, ReassemblyQueue};
+@@ -508,7 +508,10 @@
+     ///
+     /// Timed-message lifetimes start at the next [`Association::poll_transmit`], using its
+     /// caller-supplied time, and include waiting for send credit after that poll. Each
+-    /// accepted message retains its reliability policy even if the stream settings change.
++    /// accepted message retains its reliability policy even if the stream settings change
++    /// under the native default (`fast_rtx_wnd == 0`). With a positive source-compatible
++    /// fast window, PR selection consults the currently registered stream policy,
++    /// matching Pion; a removed stream does not apply a stale enqueue-time policy.
+     pub fn set_reliability_params(
+         &mut self,
+         unordered: bool,
+@@ -739,7 +742,10 @@
+ 
+         trace!(
+             "[{}] bufferedAmount = {}, from_amount = {}, buffered_amount_low = {}",
+-            self.side, new_amount, from_amount, buffered_amount_low,
++            self.side,
++            new_amount,
++            from_amount,
++            buffered_amount_low,
+         );
+ 
+         from_amount > buffered_amount_low && new_amount <= buffered_amount_low
+diff --git a/src/association/writer_abort_tests.rs b/src/association/writer_abort_tests.rs
+--- /dev/null
++++ b/src/association/writer_abort_tests.rs
+@@ -0,0 +1,77 @@
++// Regression for the real receive-capacity consumer, using only pre-PTO APIs.
++// Adapted from existing association_test.rs capacity helpers; no synthetic event.
++use super::*;
++fn capacity_fragment(tsn: u32) -> ChunkPayloadData {
++    ChunkPayloadData {
++        tsn,
++        stream_identifier: 1,
++        beginning_fragment: tsn == 1,
++        ending_fragment: false,
++        user_data: Bytes::from(vec![0; 1024]),
++        ..Default::default()
++    }
++}
++fn receive_fragment(a: &mut Association, chunk: ChunkPayloadData, now: Instant) -> Result<()> {
++    let raw = a.create_packet(vec![Box::new(chunk)]).marshal()?;
++    a.handle_event(AssociationEvent(AssociationEventInner::Datagram(
++        Transmit {
++            now,
++            remote: a.remote_addr(),
++            ecn: None,
++            local_ip: None,
++            payload: Payload::PartialDecode(crate::packet::PartialDecode::unmarshal(&raw)?),
++        },
++    )));
++    Ok(())
++}
++#[test]
++fn source_writer_wake_preserves_real_receive_capacity_abort() -> Result<()> {
++    for source in [false, true] {
++        let now = Instant::now();
++        let mut a = Association::new(
++            None,
++            Arc::new(
++                TransportConfig::default()
++                    .with_max_receive_buffer_size(32 * 1024)
++                    .with_source_partial_reliability(source),
++            ),
++            1400,
++            0,
++            SocketAddr::from_str("0.0.0.0:0").unwrap(),
++            None,
++            now,
++        );
++        a.set_state(AssociationState::Established);
++        a.peer_last_tsn = 0;
++        for tsn in 1..=32 {
++            receive_fragment(&mut a, capacity_fragment(tsn), now)?;
++        }
++        assert!(a.is_closed());
++        assert!(core::iter::from_fn(|| a.poll()).any(|e| matches!(
++            e,
++            Event::AssociationLost {
++                reason: AssociationError::ReceiveBufferExhausted
++            }
++        )));
++        let transmit = a
++            .poll_transmit(now)
++            .expect("actual terminal OUT_OF_RESOURCE ABORT must survive close/wake");
++        let Payload::RawEncode(packets) = transmit.payload else {
++            panic!("real serialized SCTP required")
++        };
++        assert_eq!(packets.len(), 1);
++        let packet = crate::packet::PartialDecode::unmarshal(&packets[0])?.finish()?;
++        let abort = packet.chunks[0]
++            .as_any()
++            .downcast_ref::<ChunkAbort>()
++            .unwrap();
++        assert_eq!(abort.error_causes.len(), 1);
++        assert_eq!(abort.error_causes[0].code, crate::chunk::OUT_OF_RESOURCE);
++        assert!(
++            a.poll_transmit(now).is_none(),
++            "terminal output must not repeat or open DATA budgets"
++        );
++        assert_eq!(a.get_my_receiver_window_credit(), 32 * 1024);
++    }
++    Ok(())
++}
+diff --git a/src/config.rs b/src/config.rs
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -26,6 +26,10 @@
+ /// a single structure
+ #[derive(Debug)]
+ pub struct TransportConfig {
++    min_cwnd: u32,
++    fast_rtx_wnd: u32,
++    source_partial_reliability: bool,
++    cwnd_ca_step: u32,
+     max_receive_buffer_size: u32,
+     max_num_outbound_streams: u16,
+     max_num_inbound_streams: u16,
+@@ -74,6 +78,10 @@
+ impl Default for TransportConfig {
+     fn default() -> Self {
+         TransportConfig {
++            min_cwnd: 0,
++            fast_rtx_wnd: 0,
++            source_partial_reliability: false,
++            cwnd_ca_step: 0,
+             max_receive_buffer_size: INITIAL_RECV_BUF_SIZE,
+             max_send_message_size: DEFAULT_MAX_MESSAGE_SIZE,
+             max_receive_message_size: DEFAULT_MAX_MESSAGE_SIZE,
+@@ -91,6 +99,43 @@
+ }
+ 
+ impl TransportConfig {
++    /// Set a minimum congestion window in bytes; zero preserves the native default.
++    pub fn with_min_cwnd(mut self, value: u32) -> Self {
++        self.min_cwnd = value;
++        self
++    }
++    /// Set a fast retransmit burst window in bytes; zero preserves one-MTU native behavior.
++    pub fn with_fast_rtx_wnd(mut self, value: u32) -> Self {
++        self.fast_rtx_wnd = value;
++        self
++    }
++    /// Select Pion's current-stream and shared-fragment partial-reliability policy.
++    ///
++    /// This is independent of the fast-retransmission burst size. False preserves
++    /// the native library default when no configured burst policy is selected.
++    /// The embedding RTC application must explicitly select source compatibility.
++    pub fn with_source_partial_reliability(mut self, value: bool) -> Self {
++        self.source_partial_reliability = value;
++        self
++    }
++    pub(crate) fn source_partial_reliability(&self) -> bool {
++        self.source_partial_reliability
++    }
++    /// Set the congestion-avoidance increment in bytes, with a floor of one MTU.
++    pub fn with_cwnd_ca_step(mut self, value: u32) -> Self {
++        self.cwnd_ca_step = value;
++        self
++    }
++    pub(crate) fn min_cwnd(&self) -> u32 {
++        self.min_cwnd
++    }
++    pub(crate) fn fast_rtx_wnd(&self) -> u32 {
++        self.fast_rtx_wnd
++    }
++    pub(crate) fn cwnd_ca_step(&self) -> u32 {
++        self.cwnd_ca_step
++    }
++
+     /// Set the receive storage budget across all streams, including reset-deferred DATA.
+     ///
+     /// Reads deliver complete messages only. If this budget is exhausted with no
+@@ -428,7 +473,7 @@
+ /// returned bytes and pass them to [`ClientConfig::with_snap`] alongside
+ /// the remote peer's token.
+ pub fn generate_snap_token(config: &TransportConfig) -> Result<Bytes, crate::error::Error> {
+-    use crate::chunk::{Chunk, chunk_init::ChunkInit};
++    use crate::chunk::{chunk_init::ChunkInit, Chunk};
+     use core::num::NonZeroU32;
+     use rand::random;
+ 
+diff --git a/src/queue/outbound_queue.rs b/src/queue/outbound_queue.rs
+--- a/src/queue/outbound_queue.rs
++++ b/src/queue/outbound_queue.rs
+@@ -21,6 +21,36 @@
+ }
+ 
+ impl OutboundQueue {
++    /// Read-only finite inventory for source ACK membership. No TSN is guessed
++    /// from an untrusted ACK range or from a potentially sparse queue length.
++    pub(crate) fn inflight_tsns(&self) -> impl Iterator<Item = u32> + '_ {
++        self.inflight.sorted.iter().copied()
++    }
++
++    // Source PR keeps a shared raw head flag until every fragment has entered
++    // flight. Marking effective abandonment must not clear payload/buffer debt.
++    pub(crate) fn source_message_pending(&self, id: u64) -> bool {
++        self.pending.contains_message(id)
++    }
++    pub(crate) fn source_message_present(&self, id: u64) -> bool {
++        self.pending.contains_message(id)
++            || self
++                .inflight
++                .sorted
++                .iter()
++                .any(|tsn| self.inflight.get(*tsn).is_some_and(|c| c.message_id == id))
++    }
++    pub(crate) fn source_mark_message_abandoned(&mut self, id: u64) {
++        let tsns: Vec<_> = self.inflight.sorted.iter().copied().collect();
++        for tsn in tsns {
++            if let Some(c) = self.inflight.get_mut(tsn) {
++                if c.message_id == id {
++                    c.abandoned = true;
++                }
++            }
++        }
++    }
++
+     pub(crate) fn next_message_id(&self) -> u64 {
+         self.next_message_id
+     }

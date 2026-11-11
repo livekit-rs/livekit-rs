@@ -1,0 +1,29 @@
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -2229,6 +2229,26 @@
+                 "unauthenticated source cannot measure rates"
+             );
+             session.handle_rtp_receive(now, &encrypted);
++            assert!(
++                session.pending_media_packet.is_some(),
++                "actual authenticated native producer queued this original packet before polling"
++            );
++            if sequence == 100 {
++                assert!(
++                    !session.ready_for_srtp(),
++                    "fixture has not installed its real outgoing SRTP context yet"
++                );
++                assert!(
++                    session.poll_event().is_none(),
++                    "production events correctly wait for both SRTP directions"
++                );
++                assert!(
++                    session.pending_media_packet.is_some(),
++                    "readiness gating retains, rather than loses, the accepted source packet"
++                );
++                session.srtp_tx = Some(SrtpContext::new(crypto, profile, &key, false));
++                assert!(session.ready_for_srtp());
++            }
+             let mut observed = None;
+             while let Some(event) = session.poll_event() {
+                 match event {

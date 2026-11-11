@@ -1,0 +1,7 @@
+{"name": "independent-invalid-no-digits-decimal-k", "strict": true, "yaml": "room: {room_configurations: {record: {egress: {participant: {advanced: {audio_bitrate: \".k\"}}}}}}\n"}
+{"name": "independent-invalid-no-digits-binary-Ki", "strict": true, "yaml": "room: {room_configurations: {record: {egress: {participant: {advanced: {audio_bitrate: \".Ki\"}}}}}}\n"}
+{"name": "independent-valid-zero-fraction40", "strict": true, "yaml": "room: {room_configurations: {record: {egress: {participant: {advanced: {audio_bitrate: \"0.0000000000000000000000000000000000000000k\"}}}}}}\n"}
+{"name": "independent-valid-one-fraction40", "strict": true, "yaml": "room: {room_configurations: {record: {egress: {participant: {advanced: {audio_bitrate: \"1.0000000000000000000000000000000000000000k\"}}}}}}\n"}
+{"name": "independent-valid-leadingfrac-truncation", "strict": true, "yaml": "room: {room_configurations: {record: {egress: {participant: {advanced: {audio_bitrate: \"1.123456789012345678901234567890k\"}}}}}}\n"}
+{"name": "independent-control-one-k", "strict": true, "yaml": "room: {room_configurations: {record: {egress: {participant: {advanced: {audio_bitrate: \"1k\"}}}}}}\n"}
+{"name": "independent-control-empty-advanced", "strict": true, "yaml": "room: {room_configurations: {record: {egress: {participant: {advanced: {}}}}}}\n"}

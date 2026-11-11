@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "scope": "Real short native probe train observations from candidate; insufficient as one-second sustained validation. No payload, SDP or credentials.",
+  "sourceLogPathAtCapture": "/tmp/livekit-rs-accuracy-candidate-server.log",
+  "sourceLogSha256AtCapture": "cdcee18c065e3fd151f862d42a81eeee2a6ff26968c42abab0ec09a3d6ecf48b",
+  "observations": [
+    {
+      "clusterId": 3,
+      "totalBytes": 1081,
+      "excludedLastSendBytes": 240,
+      "excludedFirstRecvBytes": 240,
+      "receivedPackets": 5,
+      "sendSpanNs": 16598166,
+      "recvSpanNs": 15750000,
+      "sendSpanUsTruncated": 16598,
+      "recvSpanUsTruncated": 15750,
+      "nativeEstimateBps": 405345.9882254461,
+      "rawLogLine": "2026-10-23T11:47:44.018203Z DEBUG str0m::bwe_::probe::estimator: native probe measurement inputs cluster_id=3 kind=Exponential target_bps=421124 target_bytes=790 min_packet_count=5 received_packets=5 total_bytes=1081 excluded_last_send_bytes=240 excluded_first_recv_bytes=240 send_bytes=841 recv_bytes=841 send_interval_us=Some(16598) recv_interval_us=Some(15750) send_rate_bps=Some(405345.9882254461) recv_rate_bps=Some(427174.6031746032) first_send_at=Some(Instant { tv_sec: 185925, tv_nsec: 141678375 }) last_send_at=Some(Instant { tv_sec: 185925, tv_nsec: 158276541 }) first_recv_at=Some(Instant { tv_sec: 371803, tv_nsec: 615983791 }) last_recv_at=Some(Instant { tv_sec: 371803, tv_nsec: 631733791 }) result=Estimate(Bitrate(405345.9882254461))"
+    },
+    {
+      "clusterId": 4,
+      "totalBytes": 1557,
+      "excludedLastSendBytes": 429,
+      "excludedFirstRecvBytes": 429,
+      "receivedPackets": 5,
+      "sendSpanNs": 17439459,
+      "recvSpanNs": 21250000,
+      "sendSpanUsTruncated": 17439,
+      "recvSpanUsTruncated": 21250,
+      "nativeEstimateBps": 403425.88235294115,
+      "rawLogLine": "2026-10-23T11:47:40.753503Z DEBUG str0m::bwe_::probe::estimator: native probe measurement inputs cluster_id=3 kind=Exponential target_bps=562540 target_bytes=1055 min_packet_count=5 received_packets=5 total_bytes=1557 excluded_last_send_bytes=429 excluded_first_recv_bytes=429 send_bytes=1128 recv_bytes=1128 send_interval_us=Some(18847) recv_interval_us=Some(97250) send_rate_bps=Some(478802.9925187033) recv_rate_bps=Some(92791.77377892031) first_send_at=Some(Instant { tv_sec: 185921, tv_nsec: 814031583 }) last_send_at=Some(Instant { tv_sec: 185921, tv_nsec: 832878583 }) first_recv_at=Some(Instant { tv_sec: 371800, tv_nsec: 347184916 }) last_recv_at=Some(Instant { tv_sec: 371800, tv_nsec: 444434916 }) result=Estimate(Bitrate(88152.18508997429))"
+    }
+  ]
+}

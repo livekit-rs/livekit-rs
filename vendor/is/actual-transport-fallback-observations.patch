@@ -1,0 +1,78 @@
+--- a/src/agent.rs
++++ b/src/agent.rs
+@@ -2169,6 +2169,22 @@
+         self.candidate_pairs.iter().find(|p| p.id() == id)
+     }
+ 
++    /// Actual nominated transport and whether its remote candidate is TURN.
++    /// A peer-reflexive candidate at a signaled relay's IP/protocol is TURN too,
++    /// matching fixed ICEConnectionDetails (TURN port may differ).
++    pub fn nominated_transport(&self) -> Option<(Protocol, bool)> {
++        let pair = self.nominated_pair()?;
++        let remote = pair.remote_candidate(&self.remote_candidates);
++        let relayed = remote.kind() == CandidateKind::Relayed
++            || (remote.kind() == CandidateKind::PeerReflexive
++                && self.remote_candidates.iter().any(|candidate| {
++                    candidate.kind() == CandidateKind::Relayed
++                        && candidate.addr().ip() == remote.addr().ip()
++                        && candidate.proto() == remote.proto()
++                }));
++        Some((remote.proto(), relayed))
++    }
++
+     /// The round-trip time of the most recent successful STUN binding
+     /// transaction on the nominated candidate pair.
+     ///
+@@ -3128,6 +3144,7 @@
+     }
+ 
+     include!("agent_acceptance_tests.rs");
++    include!("agent_transport_fallback_tests.rs");
+ 
+     fn make_serialized_binding_request(
+         local_creds: &IceCreds,
+--- /dev/null
++++ b/src/agent_transport_fallback_tests.rs
+@@ -0,0 +1,42 @@
++#[test]
++fn fallback_selected_route_uses_authenticated_pair_and_prflx_relay_ip_not_port() {
++    let start = Instant::now();
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Host,
++        CandidateKind::Host,
++        [Duration::ZERO; 4],
++        start,
++        ipv4_1(),
++    );
++    assert_eq!(agent.nominated_transport(), Some((Protocol::Udp, false)));
++    let mut relay = Candidate::relayed("3.4.5.6:6000".parse().unwrap(), ipv4_4(), "udp").unwrap();
++    relay.set_ufrag(&agent.remote_credentials().unwrap().ufrag);
++    agent.add_remote_candidate(relay);
++    assert_eq!(
++        agent.nominated_transport(),
++        Some((Protocol::Udp, false)),
++        "a host at a relay IP is still a host"
++    );
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Host,
++        CandidateKind::PeerReflexive,
++        [Duration::ZERO; 4],
++        start,
++        ipv4_1(),
++    );
++    assert_eq!(agent.nominated_transport(), Some((Protocol::Udp, false)));
++    let mut relay = Candidate::relayed("3.4.5.6:6000".parse().unwrap(), ipv4_4(), "udp").unwrap();
++    relay.set_ufrag(&agent.remote_credentials().unwrap().ufrag);
++    agent.add_remote_candidate(relay);
++    assert_eq!(
++        agent.nominated_transport(),
++        Some((Protocol::Udp, true)),
++        "fixed source intentionally ignores TURN port for prflx classification"
++    );
++    agent.ice_restart(IceCreds::new(), true);
++    assert_eq!(
++        agent.nominated_transport(),
++        None,
++        "a retired selected pair cannot classify a replacement connection"
++    );
++}

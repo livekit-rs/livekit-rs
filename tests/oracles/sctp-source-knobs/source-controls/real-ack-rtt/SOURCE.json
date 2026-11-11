@@ -1,0 +1,16 @@
+{
+  "status": "FROZEN_ACTUAL_ACK_PRIVATE_SOURCE_NOT_RUN",
+  "ids": [
+    "low",
+    "high",
+    "wrap"
+  ],
+  "rows": 12,
+  "scope": "Actual original source handleSack -> processSelectiveAck -> minTSN/Karn -> RACK -> actual serialized ordinary retransmission. Clock reads only redirected in5 original methods; no arithmetic or loss decision copied. Virtual source time does not replace actual wire/timer acceptance.",
+  "assets_sha256": {
+    "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "ack_rtt_history_test.go": "a8d60e3cc3154619e6b8745d994a700e6b7458d432f3a01b3cab4f2cd1add121",
+    "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "prepare.py": "5d6613f8e863c9f4dc058e995e6275cc66c04dacc5a6b01ebd0b2a19c4cb4fca"
+  }
+}

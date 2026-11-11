@@ -1,0 +1,48 @@
+{
+  "status": "SOURCE_ONLY_NO_NATIVE_EXECUTION",
+  "findings": [
+    {
+      "capability": "ice_lite",
+      "source": [
+        "references/livekit-stable/pkg/rtc/transport.go:414-425",
+        "references/livekit-stable/pkg/rtc/types/protocol_version.go:57-59"
+      ],
+      "rust_chain": [
+        "lk-compat/src/profile.rs:23",
+        "rtc-core/src/room/join.rs:62-64,151-161",
+        "rtc-media/src/engine.rs:238-248"
+      ],
+      "assessment": "Actually consumed at str0m builder.set_ice_lite; config use_ice_lite and disable_ice_lite are additional real gates. No store-only or ignored capability confirmed."
+    },
+    {
+      "capability": "audio_red",
+      "source": [
+        "references/livekit-stable/pkg/rtc/clientinfo.go:53-55",
+        "references/livekit-stable/pkg/rtc/transport.go:1136,1165"
+      ],
+      "rust_chain": [
+        "lk-compat/src/profile.rs:33",
+        "rtc-core/src/room/join.rs:64,160",
+        "rtc-media/src/engine.rs:259-265",
+        "rtc-media/src/codecs.rs:52-64"
+      ],
+      "assessment": "Actually consumed by configure_codecs\u2192enable_opus(red) for Single/subscriber sending transports, conditional enabled opus+red. Publisher receive role can register RED independently; this is not an ignored send capability or proof of upstream encrypted RED correctness."
+    },
+    {
+      "capability": "sync_stream_id",
+      "source": [
+        "references/livekit-stable/pkg/rtc/participant.go:4160-4162",
+        "references/livekit-stable/pkg/rtc/subscribedtrack.go:124-126",
+        "references/livekit-stable/pkg/rtc/utils.go:45-51"
+      ],
+      "rust_chain": [
+        "rtc-core/src/room/mod.rs:421-432",
+        "rtc-core/src/room/subscribe.rs:176",
+        "rtc-media/src/forward.rs:73",
+        "rtc-media/src/signaling.rs:453-465,817-823"
+      ],
+      "assessment": "Room sync_streams + capability + nonempty track.stream selects packed stream string; actual native add_media or Single SDP rewrite consumes it. No accepted-but-ignored bit confirmed. Actual RTP/SDP source matrix not executed."
+    }
+  ],
+  "scope_limit": "Other public ClientInfo methods (ICETCP, codec-change, transceiver reuse, zero checksum, etc.) not represented as new implemented caps here; their existing/open gates must remain separate."
+}

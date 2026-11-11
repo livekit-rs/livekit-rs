@@ -1,0 +1,198 @@
+{
+  "task": "F107v2 actual observed-generation SDK reconnect consumers",
+  "status": "FROZEN_ISOLATED_PURE_NODE12PASS_BROWSER_NOT_RUN",
+  "ownership": "No shared source changes; parent executes and owns server/browser/cleanup",
+  "scope": {
+    "covered_draft": "data-channel writer error flag only, reliable/lossy and single/dual, false/true genuine configured servers",
+    "not_covered": [
+      "publication error official SDK producer",
+      "fatal subscription error official SDK producer",
+      "congestion/performance acceptance",
+      "WSS trusted-CA profile execution"
+    ]
+  },
+  "original_standards": {
+    "initial_media_timeout_ms": 30000,
+    "initial_and_recovered_video_frames": 30,
+    "initial_and_recovered_audible_samples": 10,
+    "rms_threshold": 0.01,
+    "close_only_observation_ms": 5000,
+    "single_recovery_deadline_ms": 30000,
+    "sustain_ms": 5000,
+    "targeted_data_timeout_ms": 10000
+  },
+  "matrix": {
+    "server_profiles": [
+      "official false",
+      "rust false",
+      "official true",
+      "rust true"
+    ],
+    "rows_per_run": 4,
+    "total_required_rows": 16,
+    "pc_modes": [
+      "single",
+      "dual"
+    ],
+    "kinds": [
+      "reliable",
+      "lossy"
+    ],
+    "participants_per_row": 3
+  },
+  "sdk": {
+    "browser": "2.23.0 unchanged UMD",
+    "server_sdk": "2.19.2 unchanged",
+    "fault_injection": "native RTCDataChannel.close only on actual existing handle inspected via unchanged SDK runtime getter; no method replacement",
+    "causal_trigger": "actual RoomServiceClient.sendData to target identity and closed delivery kind",
+    "required_controls": [
+      "prime actual native message + SDK receipt",
+      "five-second close-only no reconnect with media",
+      "false stable SID and healthy alternate kind",
+      "true Reconnecting/Reconnected,new SID,new handle,republish+subscribe media+data",
+      "non-target no receipt",
+      "owned cleanup failures fatal"
+    ]
+  },
+  "source_inputs": [
+    {
+      "path": "references/livekit-stable/pkg/rtc/transportmanager.go",
+      "sha256": "b8d9ef2ef0bd2059a481ed93682141ee8514ec2d528e3394372324285bc80426"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/transport.go",
+      "sha256": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/participant.go",
+      "sha256": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8"
+    },
+    {
+      "path": "references/client-sdk-js/src/room/RTCEngine.ts",
+      "sha256": "f0f96f5821ecd82621b9f5eea7e3be7d204b82d9ba1722d8268be3d64237597c"
+    },
+    {
+      "path": "references/client-sdk-js/src/room/CoreRoom.ts",
+      "sha256": "adf160b7c3a07168bc5ed926f1af7b9e780b942927f4e48c2ba7c14cc669a054"
+    },
+    {
+      "path": "references/client-sdk-js/src/room/data-channel/DataChannelManager.ts",
+      "sha256": "a17c9405a7d1920abacaf10674b0fc41fbc3c3f51d060076b8794402f2913f33"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-core/src/room/media_events.rs",
+      "sha256": "25f326fc485a104a8f7181b3c9c5ca0ebb06d450f258ca8172a553598aa5c699"
+    },
+    {
+      "path": "livekit-rs-server/crates/rtc-media/src/signaling.rs",
+      "sha256": "592ebcef470b8df81d0f2239f8fd5846603dc33c2fe11527e048c815fd52d773"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/package.json",
+      "sha256": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/package-lock.json",
+      "sha256": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/client.html",
+      "sha256": "fe3e5923595af79794e5dcc6c78f6f40c698388fc993ce9751ec6e36972cea0c"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/run.mjs",
+      "sha256": "78a5ecbf18feea0d98db8f8c987e2a7b406d544a32bdd14a2a382fd6c1d7e15f"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/node_modules/livekit-client/dist/livekit-client.umd.js",
+      "sha256": "fb646f2260d84f91238d0a2dc10726c456631d6a26c7cafc43cfee5959b4d31d"
+    },
+    {
+      "path": "references/client-sdk-js/src/room/CoreRoom.ts",
+      "sha256": "adf160b7c3a07168bc5ed926f1af7b9e780b942927f4e48c2ba7c14cc669a054"
+    },
+    {
+      "path": "references/client-sdk-js/src/room/PCTransport.ts",
+      "sha256": "684873e1dfb88f8a9ac49fcabb4f3067405e07bd94ab422279b9aef8eeef0807"
+    },
+    {
+      "path": "references/client-sdk-js/src/room/PCTransportManager.ts",
+      "sha256": "d6fdf74e9046abef0312bc649439231b49b28aeb51fd941a9a4df3de0229e0dd"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/node_modules/livekit-server-sdk/src/TwirpRPC.ts",
+      "sha256": "13859a150f435f55987aa378527a071ea486e331ec0e67875ce2a64c2f3caf4c"
+    }
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "712721d24ee8658f29a4f1216b68e11ece421578e625212100533cc24dd7dbaf"
+    },
+    {
+      "path": "actual-node-unit.tap",
+      "sha256": "8159ed2b685110eaef38f872eaa29b1536cd68457a1397892aee1efb4a8d5548"
+    },
+    {
+      "path": "client-source-check.js",
+      "sha256": "7a467a5069ed6189f7c3abf2e5209ceeceb9fc51c71b6d70030d9aaafd4f6f78"
+    },
+    {
+      "path": "client.html",
+      "sha256": "6b6d0144f2b4143f3bc88a962cc9b9fa3da537446b7c34d48a7714f276a61f54"
+    },
+    {
+      "path": "compare.mjs",
+      "sha256": "91f851f9aaafa077a43a615f02eb9a8763ec39271d32e44efa1004905dec0880"
+    },
+    {
+      "path": "criteria.mjs",
+      "sha256": "4c057c6372b4bcca945f535f1c6850b2a00489940bf5d931ea26baec2dd89464"
+    },
+    {
+      "path": "criteria.test.mjs",
+      "sha256": "c99ab304f2672c1bf9387e6832de49ab05469271ea9ecd5812b729cda1d7b9df"
+    },
+    {
+      "path": "disabled.yaml",
+      "sha256": "3414898b974b3183f8f43ed36a5d6c77d7c0fcf4411d39442a31e23944979284"
+    },
+    {
+      "path": "enabled.yaml",
+      "sha256": "ffd001a3d6ecc083cf321eac4174c15c8f682cd016310981841f197d5c13fa2b"
+    },
+    {
+      "path": "run.mjs",
+      "sha256": "8a231e8631965f383137473c0fa29d453b181da64fce4f98be934b72d7678e3a"
+    }
+  ],
+  "execution": {
+    "Cargo": "NOT_RUN",
+    "Go": "NOT_RUN",
+    "server": "NOT_RUN",
+    "browser": "NOT_RUN",
+    "NodeUnit": {
+      "actual": "12/12PASS,0fail,0skip",
+      "command": "node --test --test-reporter=tap criteria.test.mjs",
+      "exit_code": 0,
+      "log": "actual-node-unit.tap",
+      "sha256": "8159ed2b685110eaef38f872eaa29b1536cd68457a1397892aee1efb4a8d5548",
+      "scope": "Pure criteria counterexamples and positive controls only; no SDK/server events",
+      "node_version": "v24.19.0 (actual process.version read after the run)"
+    },
+    "NodeSyntax": "run.mjs/compare.mjs/extracted inline script exit0 parse only"
+  },
+  "predecessor": {
+    "path": "/tmp/f107-official-sdk-reconnect-consumers",
+    "source_sha256": "20a4fe9c3aff4d155f014d1f9e9400d8b0ed56d5a2fa313e92dfbfc7891be75e",
+    "unchanged": true,
+    "review": "/tmp/f112-sdk-reconnect-fixture-review/review.json",
+    "review_sha256": "b7b2b8c806d893c38b7e267f9cafaf472677099e161ba5a82318141f7b1e7b8a"
+  },
+  "corrections": {
+    "generation": "Actual SID epochs, current remote participant instance/SID, actual RTCRtpReceiver membership in current nativePC, actual TrackSubscribed epoch. Old media cannot count.",
+    "topology": "Actual pcManager.mode + publisher/subscriber nativeRTCPeerConnection object identity before/after. Requested label is insufficient.",
+    "deadline": "Monotonic immutable30s trigger→writer receipt→events→PC/channel→media→data, Promise race+post-await hard check and final elapsed."
+  },
+  "public_packaging": "Public runner commands use repository paths; historical v1/F112 failures retained. SDK/server16-row matrix remains NOT_RUN."
+}

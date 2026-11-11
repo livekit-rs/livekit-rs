@@ -1,0 +1,101 @@
+[
+  {
+    "id": "dual-chrome",
+    "single": false,
+    "browser": "chrome",
+    "browser_version": "18.4",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "dual-firefox",
+    "single": false,
+    "browser": "firefox",
+    "browser_version": "156.0",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "dual-firefox-mobile",
+    "single": false,
+    "browser": "firefox mobile",
+    "browser_version": "156.0",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "dual-vendor-firefox",
+    "single": false,
+    "browser": "vendor-firefox",
+    "browser_version": "156.0",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "dual-safari",
+    "single": false,
+    "browser": "safari",
+    "browser_version": "18.4",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "dual-long-s-safari",
+    "single": false,
+    "browser": "ſafari",
+    "browser_version": "18.4",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "dual-dotted-i-safari",
+    "single": false,
+    "browser": "SAFARİ",
+    "browser_version": "18.4",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "dual-vendor-safari",
+    "single": false,
+    "browser": "vendor-safari",
+    "browser_version": "18.4",
+    "os": "linux",
+    "device_model": "generic-native",
+    "user_agent": null
+  },
+  {
+    "id": "single-chrome",
+    "single": true,
+    "browser": null,
+    "browser_version": null,
+    "os": null,
+    "device_model": null,
+    "user_agent": null
+  },
+  {
+    "id": "single-firefox",
+    "single": true,
+    "browser": null,
+    "browser_version": null,
+    "os": null,
+    "device_model": null,
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:156.0) Gecko/20100101 Firefox/156.0"
+  },
+  {
+    "id": "single-safari",
+    "single": true,
+    "browser": null,
+    "browser_version": null,
+    "os": null,
+    "device_model": null,
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15"
+  }
+]

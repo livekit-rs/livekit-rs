@@ -1,0 +1,43 @@
+# Dependency graph policy. Use: cargo deny --locked --exclude-dev check
+# Dev-only crypto benchmarks are isolated from the production dependency gate.
+[graph]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+all-features = false
+no-default-features = false
+
+[advisories]
+# Vulnerable/yanked dependencies stay actionable; no advisory blanket waivers.
+# RUSTSEC-2023-0071: rsa crate arithmetic is PUBLIC verification only.
+# RSA private-key TLS signing uses independent stable crypto-bigint constant-time
+# full-modulus/blinded/verify-after-sign adapter, not the affected rsa private API.
+# Owner/review/exit conditions and source gate: crates/rtc-tls/RSA-PUBLIC-ONLY.md.
+ignore = [{ id = "RUSTSEC-2023-0071", reason = "rsa=0.9.10 private arithmetic/signing/decryption API is unreachable; only public verification and DER/prefix types are used. Endpoint signing is independent stable crypto-bigint adapter. Source gate and review/exit conditions: crates/rtc-tls/RSA-PUBLIC-ONLY.md." }]
+
+[licenses]
+allow = [
+    "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause", "BSD-3-Clause", "0BSD",
+    "Unicode-3.0", "Zlib", "BSL-1.0", "Unlicense",
+    # webpki/untrusted ISC copyright and permission notices remain in upstream
+    # sources/distribution attribution; Mozilla root data retains CDLA terms.
+    "ISC", "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+# RustCrypto and protocol dependencies currently require compatible 0.x series.
+# Every duplicate is reported; upgrades are tracked rather than universally denied.
+multiple-versions = "warn"
+wildcards = "deny"
+# Internal publish=false crates use workspace path dependencies without versions.
+allow-wildcard-paths = true
+highlight = "all"
+deny = [
+    "ring", "aws-lc-rs", "aws-lc-sys", "openssl", "openssl-sys", "openssl-src", "rcgen",
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

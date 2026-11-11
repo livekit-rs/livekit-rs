@@ -1,0 +1,74 @@
+{
+  "immutable_original4": [
+    {
+      "id": "permission-first-audio",
+      "canPublish": false,
+      "type": "AUDIO",
+      "reason": 2
+    },
+    {
+      "id": "permission-before-unsupported-data",
+      "canPublish": false,
+      "type": "DATA",
+      "reason": 2
+    },
+    {
+      "id": "unsupported-data-when-permitted",
+      "canPublish": true,
+      "type": "DATA",
+      "reason": 5
+    },
+    {
+      "id": "supported-audio-positive",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null
+    }
+  ],
+  "additive6": [
+    {
+      "id": "unknown99-when-permitted",
+      "canPublish": true,
+      "type": 99,
+      "source": 99,
+      "reason": 5,
+      "newPublication": true
+    },
+    {
+      "id": "minus1-when-permitted",
+      "canPublish": true,
+      "type": -1,
+      "reason": 5,
+      "newPublication": true
+    },
+    {
+      "id": "min-i32-when-permitted",
+      "canPublish": true,
+      "type": -2147483648,
+      "reason": 5,
+      "newPublication": true
+    },
+    {
+      "id": "max-i32-when-permitted",
+      "canPublish": true,
+      "type": 2147483647,
+      "reason": 5,
+      "newPublication": true
+    },
+    {
+      "id": "permission-before-unknown99",
+      "canPublish": false,
+      "type": 99,
+      "source": 99,
+      "reason": 2,
+      "newPublication": true
+    },
+    {
+      "id": "permission-before-minus1",
+      "canPublish": false,
+      "type": -1,
+      "reason": 2,
+      "newPublication": true
+    }
+  ]
+}

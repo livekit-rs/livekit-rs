@@ -1,0 +1,1829 @@
+{
+  "status": "OFFICIAL_ONLY_NOT_RUST_PASS",
+  "cases": [
+    {
+      "case": "CreateRoomRequest-0-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-0-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-1-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-1-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-2-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-2-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-3-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: -1",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-3-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"-1\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-4-raw",
+      "decoded": false,
+      "error": "invalid character '1' after object key:value pair",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-4-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"01\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-5-raw",
+      "decoded": false,
+      "error": "invalid character '+' looking for beginning of value",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-5-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"+1\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-6-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-6-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-7-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-7-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-8-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 0.1",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-8-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"0.1\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-9-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-9-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-10-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-10-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-11-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 1e-99999999",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-11-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1e-99999999\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-12-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-12-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-13-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-13-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": ""
+    },
+    {
+      "case": "CreateRoomRequest-14-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "CreateRoomRequest-14-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "CreateRoomRequest-15-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "CreateRoomRequest-15-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "CreateRoomRequest-16-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-16-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-17-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "CreateRoomRequest-17-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 100
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EGQ="
+    },
+    {
+      "case": "CreateRoomRequest-18-raw",
+      "decoded": false,
+      "error": "invalid character '}' in exponent of numeric literal",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-18-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1e\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-19-raw",
+      "decoded": false,
+      "error": "invalid character '}' in exponent of numeric literal",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-19-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1e+\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-20-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 1e2147483647",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-20-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1e2147483647\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-21-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 1e-2147483648",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-21-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1e-2147483648\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-22-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 4294967295
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EP////8P"
+    },
+    {
+      "case": "CreateRoomRequest-22-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 4294967295
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EP////8P"
+    },
+    {
+      "case": "CreateRoomRequest-23-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 4294967296",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-23-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"4294967296\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-24-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 2147483647
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EP////8H"
+    },
+    {
+      "case": "CreateRoomRequest-24-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 2147483647
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EP////8H"
+    },
+    {
+      "case": "CreateRoomRequest-25-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 2147483648
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EICAgIAI"
+    },
+    {
+      "case": "CreateRoomRequest-25-quoted",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 2147483648
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EICAgIAI"
+    },
+    {
+      "case": "CreateRoomRequest-26-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: -2147483648",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-26-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"-2147483648\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-27-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: -2147483649",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-27-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"-2147483649\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-28-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 9007199254740993",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-28-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"9007199254740993\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-29-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 9.007199254740993e15",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-29-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"9.007199254740993e15\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-30-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 9223372036854775807",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-30-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"9223372036854775807\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-31-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 9223372036854775808",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-31-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"9223372036854775808\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-32-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: -9223372036854775808",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-32-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"-9223372036854775808\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-33-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: -9223372036854775809",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-33-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"-9223372036854775809\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-34-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 18446744073709551615",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-34-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"18446744073709551615\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-35-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 18446744073709551616",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-35-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"18446744073709551616\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-36-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: 1.8446744073709551615e19",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-36-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1.8446744073709551615e19\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-37-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-37-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \" 1\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-38-raw",
+      "decoded": true,
+      "message": {
+        "empty_timeout": 1
+      },
+      "type": "livekit.CreateRoomRequest",
+      "wire_base64": "EAE="
+    },
+    {
+      "case": "CreateRoomRequest-38-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1 \"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-39-raw",
+      "decoded": false,
+      "error": "invalid character '}' looking for beginning of value",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-39-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-40-raw",
+      "decoded": false,
+      "error": "invalid character '_' after object key:value pair",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "CreateRoomRequest-40-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for uint32 field emptyTimeout: \"1_0\"",
+      "type": "livekit.CreateRoomRequest"
+    },
+    {
+      "case": "Room-0-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-0-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-1-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-1-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-2-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-2-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-3-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "-1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP///////////wE="
+    },
+    {
+      "case": "Room-3-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "-1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP///////////wE="
+    },
+    {
+      "case": "Room-4-raw",
+      "decoded": false,
+      "error": "invalid character '1' after object key:value pair",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-4-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"01\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-5-raw",
+      "decoded": false,
+      "error": "invalid character '+' looking for beginning of value",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-5-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"+1\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-6-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-6-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-7-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-7-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-8-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 0.1",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-8-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"0.1\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-9-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-9-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-10-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-10-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-11-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 1e-99999999",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-11-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1e-99999999\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-12-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-12-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-13-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-13-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.Room",
+      "wire_base64": ""
+    },
+    {
+      "case": "Room-14-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "100"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KGQ="
+    },
+    {
+      "case": "Room-14-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "100"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KGQ="
+    },
+    {
+      "case": "Room-15-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "100"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KGQ="
+    },
+    {
+      "case": "Room-15-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "100"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KGQ="
+    },
+    {
+      "case": "Room-16-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-16-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-17-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "100"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KGQ="
+    },
+    {
+      "case": "Room-17-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "100"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KGQ="
+    },
+    {
+      "case": "Room-18-raw",
+      "decoded": false,
+      "error": "invalid character '}' in exponent of numeric literal",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-18-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1e\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-19-raw",
+      "decoded": false,
+      "error": "invalid character '}' in exponent of numeric literal",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-19-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1e+\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-20-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 1e2147483647",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-20-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1e2147483647\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-21-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 1e-2147483648",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-21-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1e-2147483648\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-22-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "4294967295"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP////8P"
+    },
+    {
+      "case": "Room-22-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "4294967295"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP////8P"
+    },
+    {
+      "case": "Room-23-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "4294967296"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgIAQ"
+    },
+    {
+      "case": "Room-23-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "4294967296"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgIAQ"
+    },
+    {
+      "case": "Room-24-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "2147483647"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP////8H"
+    },
+    {
+      "case": "Room-24-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "2147483647"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP////8H"
+    },
+    {
+      "case": "Room-25-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "2147483648"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgIAI"
+    },
+    {
+      "case": "Room-25-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "2147483648"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgIAI"
+    },
+    {
+      "case": "Room-26-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "-2147483648"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgID4/////wE="
+    },
+    {
+      "case": "Room-26-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "-2147483648"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgID4/////wE="
+    },
+    {
+      "case": "Room-27-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "-2147483649"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP/////3/////wE="
+    },
+    {
+      "case": "Room-27-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "-2147483649"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP/////3/////wE="
+    },
+    {
+      "case": "Room-28-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "9007199254740993"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KIGAgICAgIAQ"
+    },
+    {
+      "case": "Room-28-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "9007199254740993"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KIGAgICAgIAQ"
+    },
+    {
+      "case": "Room-29-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "9007199254740993"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KIGAgICAgIAQ"
+    },
+    {
+      "case": "Room-29-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "9007199254740993"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KIGAgICAgIAQ"
+    },
+    {
+      "case": "Room-30-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "9223372036854775807"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP//////////fw=="
+    },
+    {
+      "case": "Room-30-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "9223372036854775807"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KP//////////fw=="
+    },
+    {
+      "case": "Room-31-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 9223372036854775808",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-31-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"9223372036854775808\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-32-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "-9223372036854775808"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgICAgICAgAE="
+    },
+    {
+      "case": "Room-32-quoted",
+      "decoded": true,
+      "message": {
+        "creation_time": "-9223372036854775808"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KICAgICAgICAgAE="
+    },
+    {
+      "case": "Room-33-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: -9223372036854775809",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-33-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"-9223372036854775809\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-34-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 18446744073709551615",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-34-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"18446744073709551615\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-35-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 18446744073709551616",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-35-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"18446744073709551616\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-36-raw",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: 1.8446744073709551615e19",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-36-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1.8446744073709551615e19\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-37-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-37-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \" 1\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-38-raw",
+      "decoded": true,
+      "message": {
+        "creation_time": "1"
+      },
+      "type": "livekit.Room",
+      "wire_base64": "KAE="
+    },
+    {
+      "case": "Room-38-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1 \"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-39-raw",
+      "decoded": false,
+      "error": "invalid character '}' looking for beginning of value",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-39-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-40-raw",
+      "decoded": false,
+      "error": "invalid character '_' after object key:value pair",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "Room-40-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:17): invalid value for int64 field creationTime: \"1_0\"",
+      "type": "livekit.Room"
+    },
+    {
+      "case": "RTPStats-0-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-0-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-1-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-1-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-2-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-2-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-3-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: -1",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-3-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"-1\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-4-raw",
+      "decoded": false,
+      "error": "invalid character '1' after object key:value pair",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-4-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"01\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-5-raw",
+      "decoded": false,
+      "error": "invalid character '+' looking for beginning of value",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-5-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"+1\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-6-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-6-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-7-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-7-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-8-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: 0.1",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-8-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"0.1\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-9-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-9-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-10-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-10-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-11-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: 1e-99999999",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-11-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"1e-99999999\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-12-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-12-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-13-raw",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-13-quoted",
+      "decoded": true,
+      "message": {},
+      "type": "livekit.RTPStats",
+      "wire_base64": ""
+    },
+    {
+      "case": "RTPStats-14-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "100"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MGQ="
+    },
+    {
+      "case": "RTPStats-14-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "100"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MGQ="
+    },
+    {
+      "case": "RTPStats-15-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "100"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MGQ="
+    },
+    {
+      "case": "RTPStats-15-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "100"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MGQ="
+    },
+    {
+      "case": "RTPStats-16-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-16-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-17-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "100"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MGQ="
+    },
+    {
+      "case": "RTPStats-17-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "100"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MGQ="
+    },
+    {
+      "case": "RTPStats-18-raw",
+      "decoded": false,
+      "error": "invalid character '}' in exponent of numeric literal",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-18-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"1e\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-19-raw",
+      "decoded": false,
+      "error": "invalid character '}' in exponent of numeric literal",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-19-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"1e+\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-20-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: 1e2147483647",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-20-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"1e2147483647\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-21-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: 1e-2147483648",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-21-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"1e-2147483648\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-22-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "4294967295"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP////8P"
+    },
+    {
+      "case": "RTPStats-22-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "4294967295"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP////8P"
+    },
+    {
+      "case": "RTPStats-23-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "4294967296"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MICAgIAQ"
+    },
+    {
+      "case": "RTPStats-23-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "4294967296"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MICAgIAQ"
+    },
+    {
+      "case": "RTPStats-24-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "2147483647"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP////8H"
+    },
+    {
+      "case": "RTPStats-24-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "2147483647"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP////8H"
+    },
+    {
+      "case": "RTPStats-25-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "2147483648"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MICAgIAI"
+    },
+    {
+      "case": "RTPStats-25-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "2147483648"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MICAgIAI"
+    },
+    {
+      "case": "RTPStats-26-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: -2147483648",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-26-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"-2147483648\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-27-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: -2147483649",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-27-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"-2147483649\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-28-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "9007199254740993"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MIGAgICAgIAQ"
+    },
+    {
+      "case": "RTPStats-28-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "9007199254740993"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MIGAgICAgIAQ"
+    },
+    {
+      "case": "RTPStats-29-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "9007199254740993"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MIGAgICAgIAQ"
+    },
+    {
+      "case": "RTPStats-29-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "9007199254740993"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MIGAgICAgIAQ"
+    },
+    {
+      "case": "RTPStats-30-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "9223372036854775807"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP//////////fw=="
+    },
+    {
+      "case": "RTPStats-30-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "9223372036854775807"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP//////////fw=="
+    },
+    {
+      "case": "RTPStats-31-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "9223372036854775808"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MICAgICAgICAgAE="
+    },
+    {
+      "case": "RTPStats-31-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "9223372036854775808"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MICAgICAgICAgAE="
+    },
+    {
+      "case": "RTPStats-32-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: -9223372036854775808",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-32-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"-9223372036854775808\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-33-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: -9223372036854775809",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-33-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"-9223372036854775809\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-34-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "18446744073709551615"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP///////////wE="
+    },
+    {
+      "case": "RTPStats-34-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "18446744073709551615"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP///////////wE="
+    },
+    {
+      "case": "RTPStats-35-raw",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: 18446744073709551616",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-35-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"18446744073709551616\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-36-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "18446744073709551615"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP///////////wE="
+    },
+    {
+      "case": "RTPStats-36-quoted",
+      "decoded": true,
+      "message": {
+        "bytes": "18446744073709551615"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MP///////////wE="
+    },
+    {
+      "case": "RTPStats-37-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-37-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \" 1\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-38-raw",
+      "decoded": true,
+      "message": {
+        "bytes": "1"
+      },
+      "type": "livekit.RTPStats",
+      "wire_base64": "MAE="
+    },
+    {
+      "case": "RTPStats-38-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"1 \"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-39-raw",
+      "decoded": false,
+      "error": "invalid character '}' looking for beginning of value",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-39-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"\"",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-40-raw",
+      "decoded": false,
+      "error": "invalid character '_' after object key:value pair",
+      "type": "livekit.RTPStats"
+    },
+    {
+      "case": "RTPStats-40-quoted",
+      "decoded": false,
+      "error": "proto: (line 1:10): invalid value for uint64 field bytes: \"1_0\"",
+      "type": "livekit.RTPStats"
+    }
+  ]
+}

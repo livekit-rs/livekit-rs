@@ -1,0 +1,8548 @@
+[
+  {
+    "id": "empty",
+    "op": "create",
+    "request": {}
+  },
+  {
+    "id": "missing-sipNumber",
+    "op": "create",
+    "request": {
+      "sipNumber": "",
+      "sipCallTo": "456",
+      "roomName": "room"
+    }
+  },
+  {
+    "id": "missing-sipCallTo",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "",
+      "roomName": "room"
+    }
+  },
+  {
+    "id": "missing-roomName",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": ""
+    }
+  },
+  {
+    "id": "to-4",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "toUserOverride": "to@example"
+    }
+  },
+  {
+    "id": "to-5",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "toUserOverride": "bad space"
+    }
+  },
+  {
+    "id": "to-6",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "toUserOverride": "\u00e9"
+    }
+  },
+  {
+    "id": "to-7",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "toUserOverride": "a.b-+_!*%`'~"
+    }
+  },
+  {
+    "id": "to-8",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "toUserOverride": ""
+    }
+  },
+  {
+    "id": "display-9",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": ""
+    }
+  },
+  {
+    "id": "display-10",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\\a\\v\\377\\xff"
+    }
+  },
+  {
+    "id": "display-11",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\\u2764"
+    }
+  },
+  {
+    "id": "display-12",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\\400"
+    }
+  },
+  {
+    "id": "display-13",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\\uD800"
+    }
+  },
+  {
+    "id": "display-14",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\\'"
+    }
+  },
+  {
+    "id": "display-15",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\""
+    }
+  },
+  {
+    "id": "display-16",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\n"
+    }
+  },
+  {
+    "id": "display-17",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+    }
+  },
+  {
+    "id": "display-18",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "displayName": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+    }
+  },
+  {
+    "id": "inline-19",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "trunk": {}
+    }
+  },
+  {
+    "id": "inline-20",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "trunk": {
+        "hostname": "sip:x"
+      }
+    }
+  },
+  {
+    "id": "inline-21",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "trunk": {
+        "hostname": "example.org",
+        "attributesToHeaders": {
+          "x": "bad key"
+        }
+      }
+    }
+  },
+  {
+    "id": "inline-22",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "trunk": {
+        "hostname": "example.org",
+        "headersToAttributes": {
+          "X-Test": "a"
+        }
+      }
+    }
+  },
+  {
+    "id": "country-AA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AA"
+      }
+    }
+  },
+  {
+    "id": "country-AB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AB"
+      }
+    }
+  },
+  {
+    "id": "country-AC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AC"
+      }
+    }
+  },
+  {
+    "id": "country-AD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AD"
+      }
+    }
+  },
+  {
+    "id": "country-AE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AE"
+      }
+    }
+  },
+  {
+    "id": "country-AF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AF"
+      }
+    }
+  },
+  {
+    "id": "country-AG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AG"
+      }
+    }
+  },
+  {
+    "id": "country-AH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AH"
+      }
+    }
+  },
+  {
+    "id": "country-AI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AI"
+      }
+    }
+  },
+  {
+    "id": "country-AJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AJ"
+      }
+    }
+  },
+  {
+    "id": "country-AK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AK"
+      }
+    }
+  },
+  {
+    "id": "country-AL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AL"
+      }
+    }
+  },
+  {
+    "id": "country-AM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AM"
+      }
+    }
+  },
+  {
+    "id": "country-AN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AN"
+      }
+    }
+  },
+  {
+    "id": "country-AO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AO"
+      }
+    }
+  },
+  {
+    "id": "country-AP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AP"
+      }
+    }
+  },
+  {
+    "id": "country-AQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AQ"
+      }
+    }
+  },
+  {
+    "id": "country-AR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AR"
+      }
+    }
+  },
+  {
+    "id": "country-AS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AS"
+      }
+    }
+  },
+  {
+    "id": "country-AT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AT"
+      }
+    }
+  },
+  {
+    "id": "country-AU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AU"
+      }
+    }
+  },
+  {
+    "id": "country-AV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AV"
+      }
+    }
+  },
+  {
+    "id": "country-AW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AW"
+      }
+    }
+  },
+  {
+    "id": "country-AX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AX"
+      }
+    }
+  },
+  {
+    "id": "country-AY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AY"
+      }
+    }
+  },
+  {
+    "id": "country-AZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "AZ"
+      }
+    }
+  },
+  {
+    "id": "country-BA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BA"
+      }
+    }
+  },
+  {
+    "id": "country-BB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BB"
+      }
+    }
+  },
+  {
+    "id": "country-BC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BC"
+      }
+    }
+  },
+  {
+    "id": "country-BD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BD"
+      }
+    }
+  },
+  {
+    "id": "country-BE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BE"
+      }
+    }
+  },
+  {
+    "id": "country-BF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BF"
+      }
+    }
+  },
+  {
+    "id": "country-BG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BG"
+      }
+    }
+  },
+  {
+    "id": "country-BH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BH"
+      }
+    }
+  },
+  {
+    "id": "country-BI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BI"
+      }
+    }
+  },
+  {
+    "id": "country-BJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BJ"
+      }
+    }
+  },
+  {
+    "id": "country-BK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BK"
+      }
+    }
+  },
+  {
+    "id": "country-BL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BL"
+      }
+    }
+  },
+  {
+    "id": "country-BM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BM"
+      }
+    }
+  },
+  {
+    "id": "country-BN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BN"
+      }
+    }
+  },
+  {
+    "id": "country-BO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BO"
+      }
+    }
+  },
+  {
+    "id": "country-BP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BP"
+      }
+    }
+  },
+  {
+    "id": "country-BQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BQ"
+      }
+    }
+  },
+  {
+    "id": "country-BR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BR"
+      }
+    }
+  },
+  {
+    "id": "country-BS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BS"
+      }
+    }
+  },
+  {
+    "id": "country-BT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BT"
+      }
+    }
+  },
+  {
+    "id": "country-BU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BU"
+      }
+    }
+  },
+  {
+    "id": "country-BV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BV"
+      }
+    }
+  },
+  {
+    "id": "country-BW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BW"
+      }
+    }
+  },
+  {
+    "id": "country-BX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BX"
+      }
+    }
+  },
+  {
+    "id": "country-BY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BY"
+      }
+    }
+  },
+  {
+    "id": "country-BZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "BZ"
+      }
+    }
+  },
+  {
+    "id": "country-CA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CA"
+      }
+    }
+  },
+  {
+    "id": "country-CB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CB"
+      }
+    }
+  },
+  {
+    "id": "country-CC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CC"
+      }
+    }
+  },
+  {
+    "id": "country-CD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CD"
+      }
+    }
+  },
+  {
+    "id": "country-CE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CE"
+      }
+    }
+  },
+  {
+    "id": "country-CF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CF"
+      }
+    }
+  },
+  {
+    "id": "country-CG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CG"
+      }
+    }
+  },
+  {
+    "id": "country-CH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CH"
+      }
+    }
+  },
+  {
+    "id": "country-CI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CI"
+      }
+    }
+  },
+  {
+    "id": "country-CJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CJ"
+      }
+    }
+  },
+  {
+    "id": "country-CK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CK"
+      }
+    }
+  },
+  {
+    "id": "country-CL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CL"
+      }
+    }
+  },
+  {
+    "id": "country-CM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CM"
+      }
+    }
+  },
+  {
+    "id": "country-CN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CN"
+      }
+    }
+  },
+  {
+    "id": "country-CO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CO"
+      }
+    }
+  },
+  {
+    "id": "country-CP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CP"
+      }
+    }
+  },
+  {
+    "id": "country-CQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CQ"
+      }
+    }
+  },
+  {
+    "id": "country-CR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CR"
+      }
+    }
+  },
+  {
+    "id": "country-CS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CS"
+      }
+    }
+  },
+  {
+    "id": "country-CT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CT"
+      }
+    }
+  },
+  {
+    "id": "country-CU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CU"
+      }
+    }
+  },
+  {
+    "id": "country-CV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CV"
+      }
+    }
+  },
+  {
+    "id": "country-CW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CW"
+      }
+    }
+  },
+  {
+    "id": "country-CX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CX"
+      }
+    }
+  },
+  {
+    "id": "country-CY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CY"
+      }
+    }
+  },
+  {
+    "id": "country-CZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "CZ"
+      }
+    }
+  },
+  {
+    "id": "country-DA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DA"
+      }
+    }
+  },
+  {
+    "id": "country-DB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DB"
+      }
+    }
+  },
+  {
+    "id": "country-DC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DC"
+      }
+    }
+  },
+  {
+    "id": "country-DD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DD"
+      }
+    }
+  },
+  {
+    "id": "country-DE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DE"
+      }
+    }
+  },
+  {
+    "id": "country-DF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DF"
+      }
+    }
+  },
+  {
+    "id": "country-DG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DG"
+      }
+    }
+  },
+  {
+    "id": "country-DH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DH"
+      }
+    }
+  },
+  {
+    "id": "country-DI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DI"
+      }
+    }
+  },
+  {
+    "id": "country-DJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DJ"
+      }
+    }
+  },
+  {
+    "id": "country-DK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DK"
+      }
+    }
+  },
+  {
+    "id": "country-DL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DL"
+      }
+    }
+  },
+  {
+    "id": "country-DM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DM"
+      }
+    }
+  },
+  {
+    "id": "country-DN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DN"
+      }
+    }
+  },
+  {
+    "id": "country-DO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DO"
+      }
+    }
+  },
+  {
+    "id": "country-DP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DP"
+      }
+    }
+  },
+  {
+    "id": "country-DQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DQ"
+      }
+    }
+  },
+  {
+    "id": "country-DR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DR"
+      }
+    }
+  },
+  {
+    "id": "country-DS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DS"
+      }
+    }
+  },
+  {
+    "id": "country-DT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DT"
+      }
+    }
+  },
+  {
+    "id": "country-DU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DU"
+      }
+    }
+  },
+  {
+    "id": "country-DV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DV"
+      }
+    }
+  },
+  {
+    "id": "country-DW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DW"
+      }
+    }
+  },
+  {
+    "id": "country-DX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DX"
+      }
+    }
+  },
+  {
+    "id": "country-DY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DY"
+      }
+    }
+  },
+  {
+    "id": "country-DZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "DZ"
+      }
+    }
+  },
+  {
+    "id": "country-EA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EA"
+      }
+    }
+  },
+  {
+    "id": "country-EB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EB"
+      }
+    }
+  },
+  {
+    "id": "country-EC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EC"
+      }
+    }
+  },
+  {
+    "id": "country-ED",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ED"
+      }
+    }
+  },
+  {
+    "id": "country-EE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EE"
+      }
+    }
+  },
+  {
+    "id": "country-EF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EF"
+      }
+    }
+  },
+  {
+    "id": "country-EG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EG"
+      }
+    }
+  },
+  {
+    "id": "country-EH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EH"
+      }
+    }
+  },
+  {
+    "id": "country-EI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EI"
+      }
+    }
+  },
+  {
+    "id": "country-EJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EJ"
+      }
+    }
+  },
+  {
+    "id": "country-EK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EK"
+      }
+    }
+  },
+  {
+    "id": "country-EL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EL"
+      }
+    }
+  },
+  {
+    "id": "country-EM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EM"
+      }
+    }
+  },
+  {
+    "id": "country-EN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EN"
+      }
+    }
+  },
+  {
+    "id": "country-EO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EO"
+      }
+    }
+  },
+  {
+    "id": "country-EP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EP"
+      }
+    }
+  },
+  {
+    "id": "country-EQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EQ"
+      }
+    }
+  },
+  {
+    "id": "country-ER",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ER"
+      }
+    }
+  },
+  {
+    "id": "country-ES",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ES"
+      }
+    }
+  },
+  {
+    "id": "country-ET",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ET"
+      }
+    }
+  },
+  {
+    "id": "country-EU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EU"
+      }
+    }
+  },
+  {
+    "id": "country-EV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EV"
+      }
+    }
+  },
+  {
+    "id": "country-EW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EW"
+      }
+    }
+  },
+  {
+    "id": "country-EX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EX"
+      }
+    }
+  },
+  {
+    "id": "country-EY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EY"
+      }
+    }
+  },
+  {
+    "id": "country-EZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "EZ"
+      }
+    }
+  },
+  {
+    "id": "country-FA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FA"
+      }
+    }
+  },
+  {
+    "id": "country-FB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FB"
+      }
+    }
+  },
+  {
+    "id": "country-FC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FC"
+      }
+    }
+  },
+  {
+    "id": "country-FD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FD"
+      }
+    }
+  },
+  {
+    "id": "country-FE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FE"
+      }
+    }
+  },
+  {
+    "id": "country-FF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FF"
+      }
+    }
+  },
+  {
+    "id": "country-FG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FG"
+      }
+    }
+  },
+  {
+    "id": "country-FH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FH"
+      }
+    }
+  },
+  {
+    "id": "country-FI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FI"
+      }
+    }
+  },
+  {
+    "id": "country-FJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FJ"
+      }
+    }
+  },
+  {
+    "id": "country-FK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FK"
+      }
+    }
+  },
+  {
+    "id": "country-FL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FL"
+      }
+    }
+  },
+  {
+    "id": "country-FM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FM"
+      }
+    }
+  },
+  {
+    "id": "country-FN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FN"
+      }
+    }
+  },
+  {
+    "id": "country-FO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FO"
+      }
+    }
+  },
+  {
+    "id": "country-FP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FP"
+      }
+    }
+  },
+  {
+    "id": "country-FQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FQ"
+      }
+    }
+  },
+  {
+    "id": "country-FR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FR"
+      }
+    }
+  },
+  {
+    "id": "country-FS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FS"
+      }
+    }
+  },
+  {
+    "id": "country-FT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FT"
+      }
+    }
+  },
+  {
+    "id": "country-FU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FU"
+      }
+    }
+  },
+  {
+    "id": "country-FV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FV"
+      }
+    }
+  },
+  {
+    "id": "country-FW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FW"
+      }
+    }
+  },
+  {
+    "id": "country-FX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FX"
+      }
+    }
+  },
+  {
+    "id": "country-FY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FY"
+      }
+    }
+  },
+  {
+    "id": "country-FZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "FZ"
+      }
+    }
+  },
+  {
+    "id": "country-GA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GA"
+      }
+    }
+  },
+  {
+    "id": "country-GB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GB"
+      }
+    }
+  },
+  {
+    "id": "country-GC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GC"
+      }
+    }
+  },
+  {
+    "id": "country-GD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GD"
+      }
+    }
+  },
+  {
+    "id": "country-GE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GE"
+      }
+    }
+  },
+  {
+    "id": "country-GF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GF"
+      }
+    }
+  },
+  {
+    "id": "country-GG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GG"
+      }
+    }
+  },
+  {
+    "id": "country-GH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GH"
+      }
+    }
+  },
+  {
+    "id": "country-GI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GI"
+      }
+    }
+  },
+  {
+    "id": "country-GJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GJ"
+      }
+    }
+  },
+  {
+    "id": "country-GK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GK"
+      }
+    }
+  },
+  {
+    "id": "country-GL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GL"
+      }
+    }
+  },
+  {
+    "id": "country-GM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GM"
+      }
+    }
+  },
+  {
+    "id": "country-GN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GN"
+      }
+    }
+  },
+  {
+    "id": "country-GO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GO"
+      }
+    }
+  },
+  {
+    "id": "country-GP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GP"
+      }
+    }
+  },
+  {
+    "id": "country-GQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GQ"
+      }
+    }
+  },
+  {
+    "id": "country-GR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GR"
+      }
+    }
+  },
+  {
+    "id": "country-GS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GS"
+      }
+    }
+  },
+  {
+    "id": "country-GT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GT"
+      }
+    }
+  },
+  {
+    "id": "country-GU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GU"
+      }
+    }
+  },
+  {
+    "id": "country-GV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GV"
+      }
+    }
+  },
+  {
+    "id": "country-GW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GW"
+      }
+    }
+  },
+  {
+    "id": "country-GX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GX"
+      }
+    }
+  },
+  {
+    "id": "country-GY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GY"
+      }
+    }
+  },
+  {
+    "id": "country-GZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "GZ"
+      }
+    }
+  },
+  {
+    "id": "country-HA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HA"
+      }
+    }
+  },
+  {
+    "id": "country-HB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HB"
+      }
+    }
+  },
+  {
+    "id": "country-HC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HC"
+      }
+    }
+  },
+  {
+    "id": "country-HD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HD"
+      }
+    }
+  },
+  {
+    "id": "country-HE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HE"
+      }
+    }
+  },
+  {
+    "id": "country-HF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HF"
+      }
+    }
+  },
+  {
+    "id": "country-HG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HG"
+      }
+    }
+  },
+  {
+    "id": "country-HH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HH"
+      }
+    }
+  },
+  {
+    "id": "country-HI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HI"
+      }
+    }
+  },
+  {
+    "id": "country-HJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HJ"
+      }
+    }
+  },
+  {
+    "id": "country-HK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HK"
+      }
+    }
+  },
+  {
+    "id": "country-HL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HL"
+      }
+    }
+  },
+  {
+    "id": "country-HM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HM"
+      }
+    }
+  },
+  {
+    "id": "country-HN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HN"
+      }
+    }
+  },
+  {
+    "id": "country-HO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HO"
+      }
+    }
+  },
+  {
+    "id": "country-HP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HP"
+      }
+    }
+  },
+  {
+    "id": "country-HQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HQ"
+      }
+    }
+  },
+  {
+    "id": "country-HR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HR"
+      }
+    }
+  },
+  {
+    "id": "country-HS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HS"
+      }
+    }
+  },
+  {
+    "id": "country-HT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HT"
+      }
+    }
+  },
+  {
+    "id": "country-HU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HU"
+      }
+    }
+  },
+  {
+    "id": "country-HV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HV"
+      }
+    }
+  },
+  {
+    "id": "country-HW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HW"
+      }
+    }
+  },
+  {
+    "id": "country-HX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HX"
+      }
+    }
+  },
+  {
+    "id": "country-HY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HY"
+      }
+    }
+  },
+  {
+    "id": "country-HZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "HZ"
+      }
+    }
+  },
+  {
+    "id": "country-IA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IA"
+      }
+    }
+  },
+  {
+    "id": "country-IB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IB"
+      }
+    }
+  },
+  {
+    "id": "country-IC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IC"
+      }
+    }
+  },
+  {
+    "id": "country-ID",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ID"
+      }
+    }
+  },
+  {
+    "id": "country-IE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IE"
+      }
+    }
+  },
+  {
+    "id": "country-IF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IF"
+      }
+    }
+  },
+  {
+    "id": "country-IG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IG"
+      }
+    }
+  },
+  {
+    "id": "country-IH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IH"
+      }
+    }
+  },
+  {
+    "id": "country-II",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "II"
+      }
+    }
+  },
+  {
+    "id": "country-IJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IJ"
+      }
+    }
+  },
+  {
+    "id": "country-IK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IK"
+      }
+    }
+  },
+  {
+    "id": "country-IL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IL"
+      }
+    }
+  },
+  {
+    "id": "country-IM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IM"
+      }
+    }
+  },
+  {
+    "id": "country-IN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IN"
+      }
+    }
+  },
+  {
+    "id": "country-IO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IO"
+      }
+    }
+  },
+  {
+    "id": "country-IP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IP"
+      }
+    }
+  },
+  {
+    "id": "country-IQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IQ"
+      }
+    }
+  },
+  {
+    "id": "country-IR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IR"
+      }
+    }
+  },
+  {
+    "id": "country-IS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IS"
+      }
+    }
+  },
+  {
+    "id": "country-IT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IT"
+      }
+    }
+  },
+  {
+    "id": "country-IU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IU"
+      }
+    }
+  },
+  {
+    "id": "country-IV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IV"
+      }
+    }
+  },
+  {
+    "id": "country-IW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IW"
+      }
+    }
+  },
+  {
+    "id": "country-IX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IX"
+      }
+    }
+  },
+  {
+    "id": "country-IY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IY"
+      }
+    }
+  },
+  {
+    "id": "country-IZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "IZ"
+      }
+    }
+  },
+  {
+    "id": "country-JA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JA"
+      }
+    }
+  },
+  {
+    "id": "country-JB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JB"
+      }
+    }
+  },
+  {
+    "id": "country-JC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JC"
+      }
+    }
+  },
+  {
+    "id": "country-JD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JD"
+      }
+    }
+  },
+  {
+    "id": "country-JE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JE"
+      }
+    }
+  },
+  {
+    "id": "country-JF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JF"
+      }
+    }
+  },
+  {
+    "id": "country-JG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JG"
+      }
+    }
+  },
+  {
+    "id": "country-JH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JH"
+      }
+    }
+  },
+  {
+    "id": "country-JI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JI"
+      }
+    }
+  },
+  {
+    "id": "country-JJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JJ"
+      }
+    }
+  },
+  {
+    "id": "country-JK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JK"
+      }
+    }
+  },
+  {
+    "id": "country-JL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JL"
+      }
+    }
+  },
+  {
+    "id": "country-JM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JM"
+      }
+    }
+  },
+  {
+    "id": "country-JN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JN"
+      }
+    }
+  },
+  {
+    "id": "country-JO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JO"
+      }
+    }
+  },
+  {
+    "id": "country-JP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JP"
+      }
+    }
+  },
+  {
+    "id": "country-JQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JQ"
+      }
+    }
+  },
+  {
+    "id": "country-JR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JR"
+      }
+    }
+  },
+  {
+    "id": "country-JS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JS"
+      }
+    }
+  },
+  {
+    "id": "country-JT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JT"
+      }
+    }
+  },
+  {
+    "id": "country-JU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JU"
+      }
+    }
+  },
+  {
+    "id": "country-JV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JV"
+      }
+    }
+  },
+  {
+    "id": "country-JW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JW"
+      }
+    }
+  },
+  {
+    "id": "country-JX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JX"
+      }
+    }
+  },
+  {
+    "id": "country-JY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JY"
+      }
+    }
+  },
+  {
+    "id": "country-JZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "JZ"
+      }
+    }
+  },
+  {
+    "id": "country-KA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KA"
+      }
+    }
+  },
+  {
+    "id": "country-KB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KB"
+      }
+    }
+  },
+  {
+    "id": "country-KC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KC"
+      }
+    }
+  },
+  {
+    "id": "country-KD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KD"
+      }
+    }
+  },
+  {
+    "id": "country-KE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KE"
+      }
+    }
+  },
+  {
+    "id": "country-KF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KF"
+      }
+    }
+  },
+  {
+    "id": "country-KG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KG"
+      }
+    }
+  },
+  {
+    "id": "country-KH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KH"
+      }
+    }
+  },
+  {
+    "id": "country-KI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KI"
+      }
+    }
+  },
+  {
+    "id": "country-KJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KJ"
+      }
+    }
+  },
+  {
+    "id": "country-KK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KK"
+      }
+    }
+  },
+  {
+    "id": "country-KL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KL"
+      }
+    }
+  },
+  {
+    "id": "country-KM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KM"
+      }
+    }
+  },
+  {
+    "id": "country-KN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KN"
+      }
+    }
+  },
+  {
+    "id": "country-KO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KO"
+      }
+    }
+  },
+  {
+    "id": "country-KP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KP"
+      }
+    }
+  },
+  {
+    "id": "country-KQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KQ"
+      }
+    }
+  },
+  {
+    "id": "country-KR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KR"
+      }
+    }
+  },
+  {
+    "id": "country-KS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KS"
+      }
+    }
+  },
+  {
+    "id": "country-KT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KT"
+      }
+    }
+  },
+  {
+    "id": "country-KU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KU"
+      }
+    }
+  },
+  {
+    "id": "country-KV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KV"
+      }
+    }
+  },
+  {
+    "id": "country-KW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KW"
+      }
+    }
+  },
+  {
+    "id": "country-KX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KX"
+      }
+    }
+  },
+  {
+    "id": "country-KY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KY"
+      }
+    }
+  },
+  {
+    "id": "country-KZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "KZ"
+      }
+    }
+  },
+  {
+    "id": "country-LA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LA"
+      }
+    }
+  },
+  {
+    "id": "country-LB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LB"
+      }
+    }
+  },
+  {
+    "id": "country-LC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LC"
+      }
+    }
+  },
+  {
+    "id": "country-LD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LD"
+      }
+    }
+  },
+  {
+    "id": "country-LE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LE"
+      }
+    }
+  },
+  {
+    "id": "country-LF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LF"
+      }
+    }
+  },
+  {
+    "id": "country-LG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LG"
+      }
+    }
+  },
+  {
+    "id": "country-LH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LH"
+      }
+    }
+  },
+  {
+    "id": "country-LI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LI"
+      }
+    }
+  },
+  {
+    "id": "country-LJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LJ"
+      }
+    }
+  },
+  {
+    "id": "country-LK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LK"
+      }
+    }
+  },
+  {
+    "id": "country-LL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LL"
+      }
+    }
+  },
+  {
+    "id": "country-LM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LM"
+      }
+    }
+  },
+  {
+    "id": "country-LN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LN"
+      }
+    }
+  },
+  {
+    "id": "country-LO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LO"
+      }
+    }
+  },
+  {
+    "id": "country-LP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LP"
+      }
+    }
+  },
+  {
+    "id": "country-LQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LQ"
+      }
+    }
+  },
+  {
+    "id": "country-LR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LR"
+      }
+    }
+  },
+  {
+    "id": "country-LS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LS"
+      }
+    }
+  },
+  {
+    "id": "country-LT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LT"
+      }
+    }
+  },
+  {
+    "id": "country-LU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LU"
+      }
+    }
+  },
+  {
+    "id": "country-LV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LV"
+      }
+    }
+  },
+  {
+    "id": "country-LW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LW"
+      }
+    }
+  },
+  {
+    "id": "country-LX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LX"
+      }
+    }
+  },
+  {
+    "id": "country-LY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LY"
+      }
+    }
+  },
+  {
+    "id": "country-LZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "LZ"
+      }
+    }
+  },
+  {
+    "id": "country-MA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MA"
+      }
+    }
+  },
+  {
+    "id": "country-MB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MB"
+      }
+    }
+  },
+  {
+    "id": "country-MC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MC"
+      }
+    }
+  },
+  {
+    "id": "country-MD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MD"
+      }
+    }
+  },
+  {
+    "id": "country-ME",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ME"
+      }
+    }
+  },
+  {
+    "id": "country-MF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MF"
+      }
+    }
+  },
+  {
+    "id": "country-MG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MG"
+      }
+    }
+  },
+  {
+    "id": "country-MH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MH"
+      }
+    }
+  },
+  {
+    "id": "country-MI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MI"
+      }
+    }
+  },
+  {
+    "id": "country-MJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MJ"
+      }
+    }
+  },
+  {
+    "id": "country-MK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MK"
+      }
+    }
+  },
+  {
+    "id": "country-ML",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ML"
+      }
+    }
+  },
+  {
+    "id": "country-MM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MM"
+      }
+    }
+  },
+  {
+    "id": "country-MN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MN"
+      }
+    }
+  },
+  {
+    "id": "country-MO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MO"
+      }
+    }
+  },
+  {
+    "id": "country-MP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MP"
+      }
+    }
+  },
+  {
+    "id": "country-MQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MQ"
+      }
+    }
+  },
+  {
+    "id": "country-MR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MR"
+      }
+    }
+  },
+  {
+    "id": "country-MS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MS"
+      }
+    }
+  },
+  {
+    "id": "country-MT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MT"
+      }
+    }
+  },
+  {
+    "id": "country-MU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MU"
+      }
+    }
+  },
+  {
+    "id": "country-MV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MV"
+      }
+    }
+  },
+  {
+    "id": "country-MW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MW"
+      }
+    }
+  },
+  {
+    "id": "country-MX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MX"
+      }
+    }
+  },
+  {
+    "id": "country-MY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MY"
+      }
+    }
+  },
+  {
+    "id": "country-MZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "MZ"
+      }
+    }
+  },
+  {
+    "id": "country-NA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NA"
+      }
+    }
+  },
+  {
+    "id": "country-NB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NB"
+      }
+    }
+  },
+  {
+    "id": "country-NC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NC"
+      }
+    }
+  },
+  {
+    "id": "country-ND",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ND"
+      }
+    }
+  },
+  {
+    "id": "country-NE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NE"
+      }
+    }
+  },
+  {
+    "id": "country-NF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NF"
+      }
+    }
+  },
+  {
+    "id": "country-NG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NG"
+      }
+    }
+  },
+  {
+    "id": "country-NH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NH"
+      }
+    }
+  },
+  {
+    "id": "country-NI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NI"
+      }
+    }
+  },
+  {
+    "id": "country-NJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NJ"
+      }
+    }
+  },
+  {
+    "id": "country-NK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NK"
+      }
+    }
+  },
+  {
+    "id": "country-NL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NL"
+      }
+    }
+  },
+  {
+    "id": "country-NM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NM"
+      }
+    }
+  },
+  {
+    "id": "country-NN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NN"
+      }
+    }
+  },
+  {
+    "id": "country-NO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NO"
+      }
+    }
+  },
+  {
+    "id": "country-NP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NP"
+      }
+    }
+  },
+  {
+    "id": "country-NQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NQ"
+      }
+    }
+  },
+  {
+    "id": "country-NR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NR"
+      }
+    }
+  },
+  {
+    "id": "country-NS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NS"
+      }
+    }
+  },
+  {
+    "id": "country-NT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NT"
+      }
+    }
+  },
+  {
+    "id": "country-NU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NU"
+      }
+    }
+  },
+  {
+    "id": "country-NV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NV"
+      }
+    }
+  },
+  {
+    "id": "country-NW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NW"
+      }
+    }
+  },
+  {
+    "id": "country-NX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NX"
+      }
+    }
+  },
+  {
+    "id": "country-NY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NY"
+      }
+    }
+  },
+  {
+    "id": "country-NZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "NZ"
+      }
+    }
+  },
+  {
+    "id": "country-OA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OA"
+      }
+    }
+  },
+  {
+    "id": "country-OB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OB"
+      }
+    }
+  },
+  {
+    "id": "country-OC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OC"
+      }
+    }
+  },
+  {
+    "id": "country-OD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OD"
+      }
+    }
+  },
+  {
+    "id": "country-OE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OE"
+      }
+    }
+  },
+  {
+    "id": "country-OF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OF"
+      }
+    }
+  },
+  {
+    "id": "country-OG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OG"
+      }
+    }
+  },
+  {
+    "id": "country-OH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OH"
+      }
+    }
+  },
+  {
+    "id": "country-OI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OI"
+      }
+    }
+  },
+  {
+    "id": "country-OJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OJ"
+      }
+    }
+  },
+  {
+    "id": "country-OK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OK"
+      }
+    }
+  },
+  {
+    "id": "country-OL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OL"
+      }
+    }
+  },
+  {
+    "id": "country-OM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OM"
+      }
+    }
+  },
+  {
+    "id": "country-ON",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ON"
+      }
+    }
+  },
+  {
+    "id": "country-OO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OO"
+      }
+    }
+  },
+  {
+    "id": "country-OP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OP"
+      }
+    }
+  },
+  {
+    "id": "country-OQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OQ"
+      }
+    }
+  },
+  {
+    "id": "country-OR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OR"
+      }
+    }
+  },
+  {
+    "id": "country-OS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OS"
+      }
+    }
+  },
+  {
+    "id": "country-OT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OT"
+      }
+    }
+  },
+  {
+    "id": "country-OU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OU"
+      }
+    }
+  },
+  {
+    "id": "country-OV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OV"
+      }
+    }
+  },
+  {
+    "id": "country-OW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OW"
+      }
+    }
+  },
+  {
+    "id": "country-OX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OX"
+      }
+    }
+  },
+  {
+    "id": "country-OY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OY"
+      }
+    }
+  },
+  {
+    "id": "country-OZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "OZ"
+      }
+    }
+  },
+  {
+    "id": "country-PA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PA"
+      }
+    }
+  },
+  {
+    "id": "country-PB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PB"
+      }
+    }
+  },
+  {
+    "id": "country-PC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PC"
+      }
+    }
+  },
+  {
+    "id": "country-PD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PD"
+      }
+    }
+  },
+  {
+    "id": "country-PE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PE"
+      }
+    }
+  },
+  {
+    "id": "country-PF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PF"
+      }
+    }
+  },
+  {
+    "id": "country-PG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PG"
+      }
+    }
+  },
+  {
+    "id": "country-PH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PH"
+      }
+    }
+  },
+  {
+    "id": "country-PI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PI"
+      }
+    }
+  },
+  {
+    "id": "country-PJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PJ"
+      }
+    }
+  },
+  {
+    "id": "country-PK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PK"
+      }
+    }
+  },
+  {
+    "id": "country-PL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PL"
+      }
+    }
+  },
+  {
+    "id": "country-PM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PM"
+      }
+    }
+  },
+  {
+    "id": "country-PN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PN"
+      }
+    }
+  },
+  {
+    "id": "country-PO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PO"
+      }
+    }
+  },
+  {
+    "id": "country-PP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PP"
+      }
+    }
+  },
+  {
+    "id": "country-PQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PQ"
+      }
+    }
+  },
+  {
+    "id": "country-PR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PR"
+      }
+    }
+  },
+  {
+    "id": "country-PS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PS"
+      }
+    }
+  },
+  {
+    "id": "country-PT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PT"
+      }
+    }
+  },
+  {
+    "id": "country-PU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PU"
+      }
+    }
+  },
+  {
+    "id": "country-PV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PV"
+      }
+    }
+  },
+  {
+    "id": "country-PW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PW"
+      }
+    }
+  },
+  {
+    "id": "country-PX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PX"
+      }
+    }
+  },
+  {
+    "id": "country-PY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PY"
+      }
+    }
+  },
+  {
+    "id": "country-PZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "PZ"
+      }
+    }
+  },
+  {
+    "id": "country-QA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QA"
+      }
+    }
+  },
+  {
+    "id": "country-QB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QB"
+      }
+    }
+  },
+  {
+    "id": "country-QC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QC"
+      }
+    }
+  },
+  {
+    "id": "country-QD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QD"
+      }
+    }
+  },
+  {
+    "id": "country-QE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QE"
+      }
+    }
+  },
+  {
+    "id": "country-QF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QF"
+      }
+    }
+  },
+  {
+    "id": "country-QG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QG"
+      }
+    }
+  },
+  {
+    "id": "country-QH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QH"
+      }
+    }
+  },
+  {
+    "id": "country-QI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QI"
+      }
+    }
+  },
+  {
+    "id": "country-QJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QJ"
+      }
+    }
+  },
+  {
+    "id": "country-QK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QK"
+      }
+    }
+  },
+  {
+    "id": "country-QL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QL"
+      }
+    }
+  },
+  {
+    "id": "country-QM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QM"
+      }
+    }
+  },
+  {
+    "id": "country-QN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QN"
+      }
+    }
+  },
+  {
+    "id": "country-QO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QO"
+      }
+    }
+  },
+  {
+    "id": "country-QP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QP"
+      }
+    }
+  },
+  {
+    "id": "country-QQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QQ"
+      }
+    }
+  },
+  {
+    "id": "country-QR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QR"
+      }
+    }
+  },
+  {
+    "id": "country-QS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QS"
+      }
+    }
+  },
+  {
+    "id": "country-QT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QT"
+      }
+    }
+  },
+  {
+    "id": "country-QU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QU"
+      }
+    }
+  },
+  {
+    "id": "country-QV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QV"
+      }
+    }
+  },
+  {
+    "id": "country-QW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QW"
+      }
+    }
+  },
+  {
+    "id": "country-QX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QX"
+      }
+    }
+  },
+  {
+    "id": "country-QY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QY"
+      }
+    }
+  },
+  {
+    "id": "country-QZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "QZ"
+      }
+    }
+  },
+  {
+    "id": "country-RA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RA"
+      }
+    }
+  },
+  {
+    "id": "country-RB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RB"
+      }
+    }
+  },
+  {
+    "id": "country-RC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RC"
+      }
+    }
+  },
+  {
+    "id": "country-RD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RD"
+      }
+    }
+  },
+  {
+    "id": "country-RE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RE"
+      }
+    }
+  },
+  {
+    "id": "country-RF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RF"
+      }
+    }
+  },
+  {
+    "id": "country-RG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RG"
+      }
+    }
+  },
+  {
+    "id": "country-RH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RH"
+      }
+    }
+  },
+  {
+    "id": "country-RI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RI"
+      }
+    }
+  },
+  {
+    "id": "country-RJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RJ"
+      }
+    }
+  },
+  {
+    "id": "country-RK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RK"
+      }
+    }
+  },
+  {
+    "id": "country-RL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RL"
+      }
+    }
+  },
+  {
+    "id": "country-RM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RM"
+      }
+    }
+  },
+  {
+    "id": "country-RN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RN"
+      }
+    }
+  },
+  {
+    "id": "country-RO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RO"
+      }
+    }
+  },
+  {
+    "id": "country-RP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RP"
+      }
+    }
+  },
+  {
+    "id": "country-RQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RQ"
+      }
+    }
+  },
+  {
+    "id": "country-RR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RR"
+      }
+    }
+  },
+  {
+    "id": "country-RS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RS"
+      }
+    }
+  },
+  {
+    "id": "country-RT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RT"
+      }
+    }
+  },
+  {
+    "id": "country-RU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RU"
+      }
+    }
+  },
+  {
+    "id": "country-RV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RV"
+      }
+    }
+  },
+  {
+    "id": "country-RW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RW"
+      }
+    }
+  },
+  {
+    "id": "country-RX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RX"
+      }
+    }
+  },
+  {
+    "id": "country-RY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RY"
+      }
+    }
+  },
+  {
+    "id": "country-RZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "RZ"
+      }
+    }
+  },
+  {
+    "id": "country-SA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SA"
+      }
+    }
+  },
+  {
+    "id": "country-SB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SB"
+      }
+    }
+  },
+  {
+    "id": "country-SC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SC"
+      }
+    }
+  },
+  {
+    "id": "country-SD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SD"
+      }
+    }
+  },
+  {
+    "id": "country-SE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SE"
+      }
+    }
+  },
+  {
+    "id": "country-SF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SF"
+      }
+    }
+  },
+  {
+    "id": "country-SG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SG"
+      }
+    }
+  },
+  {
+    "id": "country-SH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SH"
+      }
+    }
+  },
+  {
+    "id": "country-SI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SI"
+      }
+    }
+  },
+  {
+    "id": "country-SJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SJ"
+      }
+    }
+  },
+  {
+    "id": "country-SK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SK"
+      }
+    }
+  },
+  {
+    "id": "country-SL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SL"
+      }
+    }
+  },
+  {
+    "id": "country-SM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SM"
+      }
+    }
+  },
+  {
+    "id": "country-SN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SN"
+      }
+    }
+  },
+  {
+    "id": "country-SO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SO"
+      }
+    }
+  },
+  {
+    "id": "country-SP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SP"
+      }
+    }
+  },
+  {
+    "id": "country-SQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SQ"
+      }
+    }
+  },
+  {
+    "id": "country-SR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SR"
+      }
+    }
+  },
+  {
+    "id": "country-SS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SS"
+      }
+    }
+  },
+  {
+    "id": "country-ST",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ST"
+      }
+    }
+  },
+  {
+    "id": "country-SU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SU"
+      }
+    }
+  },
+  {
+    "id": "country-SV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SV"
+      }
+    }
+  },
+  {
+    "id": "country-SW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SW"
+      }
+    }
+  },
+  {
+    "id": "country-SX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SX"
+      }
+    }
+  },
+  {
+    "id": "country-SY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SY"
+      }
+    }
+  },
+  {
+    "id": "country-SZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "SZ"
+      }
+    }
+  },
+  {
+    "id": "country-TA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TA"
+      }
+    }
+  },
+  {
+    "id": "country-TB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TB"
+      }
+    }
+  },
+  {
+    "id": "country-TC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TC"
+      }
+    }
+  },
+  {
+    "id": "country-TD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TD"
+      }
+    }
+  },
+  {
+    "id": "country-TE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TE"
+      }
+    }
+  },
+  {
+    "id": "country-TF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TF"
+      }
+    }
+  },
+  {
+    "id": "country-TG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TG"
+      }
+    }
+  },
+  {
+    "id": "country-TH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TH"
+      }
+    }
+  },
+  {
+    "id": "country-TI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TI"
+      }
+    }
+  },
+  {
+    "id": "country-TJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TJ"
+      }
+    }
+  },
+  {
+    "id": "country-TK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TK"
+      }
+    }
+  },
+  {
+    "id": "country-TL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TL"
+      }
+    }
+  },
+  {
+    "id": "country-TM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TM"
+      }
+    }
+  },
+  {
+    "id": "country-TN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TN"
+      }
+    }
+  },
+  {
+    "id": "country-TO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TO"
+      }
+    }
+  },
+  {
+    "id": "country-TP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TP"
+      }
+    }
+  },
+  {
+    "id": "country-TQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TQ"
+      }
+    }
+  },
+  {
+    "id": "country-TR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TR"
+      }
+    }
+  },
+  {
+    "id": "country-TS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TS"
+      }
+    }
+  },
+  {
+    "id": "country-TT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TT"
+      }
+    }
+  },
+  {
+    "id": "country-TU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TU"
+      }
+    }
+  },
+  {
+    "id": "country-TV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TV"
+      }
+    }
+  },
+  {
+    "id": "country-TW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TW"
+      }
+    }
+  },
+  {
+    "id": "country-TX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TX"
+      }
+    }
+  },
+  {
+    "id": "country-TY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TY"
+      }
+    }
+  },
+  {
+    "id": "country-TZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "TZ"
+      }
+    }
+  },
+  {
+    "id": "country-UA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UA"
+      }
+    }
+  },
+  {
+    "id": "country-UB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UB"
+      }
+    }
+  },
+  {
+    "id": "country-UC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UC"
+      }
+    }
+  },
+  {
+    "id": "country-UD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UD"
+      }
+    }
+  },
+  {
+    "id": "country-UE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UE"
+      }
+    }
+  },
+  {
+    "id": "country-UF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UF"
+      }
+    }
+  },
+  {
+    "id": "country-UG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UG"
+      }
+    }
+  },
+  {
+    "id": "country-UH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UH"
+      }
+    }
+  },
+  {
+    "id": "country-UI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UI"
+      }
+    }
+  },
+  {
+    "id": "country-UJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UJ"
+      }
+    }
+  },
+  {
+    "id": "country-UK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UK"
+      }
+    }
+  },
+  {
+    "id": "country-UL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UL"
+      }
+    }
+  },
+  {
+    "id": "country-UM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UM"
+      }
+    }
+  },
+  {
+    "id": "country-UN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UN"
+      }
+    }
+  },
+  {
+    "id": "country-UO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UO"
+      }
+    }
+  },
+  {
+    "id": "country-UP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UP"
+      }
+    }
+  },
+  {
+    "id": "country-UQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UQ"
+      }
+    }
+  },
+  {
+    "id": "country-UR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UR"
+      }
+    }
+  },
+  {
+    "id": "country-US",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "US"
+      }
+    }
+  },
+  {
+    "id": "country-UT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UT"
+      }
+    }
+  },
+  {
+    "id": "country-UU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UU"
+      }
+    }
+  },
+  {
+    "id": "country-UV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UV"
+      }
+    }
+  },
+  {
+    "id": "country-UW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UW"
+      }
+    }
+  },
+  {
+    "id": "country-UX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UX"
+      }
+    }
+  },
+  {
+    "id": "country-UY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UY"
+      }
+    }
+  },
+  {
+    "id": "country-UZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "UZ"
+      }
+    }
+  },
+  {
+    "id": "country-VA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VA"
+      }
+    }
+  },
+  {
+    "id": "country-VB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VB"
+      }
+    }
+  },
+  {
+    "id": "country-VC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VC"
+      }
+    }
+  },
+  {
+    "id": "country-VD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VD"
+      }
+    }
+  },
+  {
+    "id": "country-VE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VE"
+      }
+    }
+  },
+  {
+    "id": "country-VF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VF"
+      }
+    }
+  },
+  {
+    "id": "country-VG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VG"
+      }
+    }
+  },
+  {
+    "id": "country-VH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VH"
+      }
+    }
+  },
+  {
+    "id": "country-VI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VI"
+      }
+    }
+  },
+  {
+    "id": "country-VJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VJ"
+      }
+    }
+  },
+  {
+    "id": "country-VK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VK"
+      }
+    }
+  },
+  {
+    "id": "country-VL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VL"
+      }
+    }
+  },
+  {
+    "id": "country-VM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VM"
+      }
+    }
+  },
+  {
+    "id": "country-VN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VN"
+      }
+    }
+  },
+  {
+    "id": "country-VO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VO"
+      }
+    }
+  },
+  {
+    "id": "country-VP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VP"
+      }
+    }
+  },
+  {
+    "id": "country-VQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VQ"
+      }
+    }
+  },
+  {
+    "id": "country-VR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VR"
+      }
+    }
+  },
+  {
+    "id": "country-VS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VS"
+      }
+    }
+  },
+  {
+    "id": "country-VT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VT"
+      }
+    }
+  },
+  {
+    "id": "country-VU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VU"
+      }
+    }
+  },
+  {
+    "id": "country-VV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VV"
+      }
+    }
+  },
+  {
+    "id": "country-VW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VW"
+      }
+    }
+  },
+  {
+    "id": "country-VX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VX"
+      }
+    }
+  },
+  {
+    "id": "country-VY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VY"
+      }
+    }
+  },
+  {
+    "id": "country-VZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "VZ"
+      }
+    }
+  },
+  {
+    "id": "country-WA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WA"
+      }
+    }
+  },
+  {
+    "id": "country-WB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WB"
+      }
+    }
+  },
+  {
+    "id": "country-WC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WC"
+      }
+    }
+  },
+  {
+    "id": "country-WD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WD"
+      }
+    }
+  },
+  {
+    "id": "country-WE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WE"
+      }
+    }
+  },
+  {
+    "id": "country-WF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WF"
+      }
+    }
+  },
+  {
+    "id": "country-WG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WG"
+      }
+    }
+  },
+  {
+    "id": "country-WH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WH"
+      }
+    }
+  },
+  {
+    "id": "country-WI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WI"
+      }
+    }
+  },
+  {
+    "id": "country-WJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WJ"
+      }
+    }
+  },
+  {
+    "id": "country-WK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WK"
+      }
+    }
+  },
+  {
+    "id": "country-WL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WL"
+      }
+    }
+  },
+  {
+    "id": "country-WM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WM"
+      }
+    }
+  },
+  {
+    "id": "country-WN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WN"
+      }
+    }
+  },
+  {
+    "id": "country-WO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WO"
+      }
+    }
+  },
+  {
+    "id": "country-WP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WP"
+      }
+    }
+  },
+  {
+    "id": "country-WQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WQ"
+      }
+    }
+  },
+  {
+    "id": "country-WR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WR"
+      }
+    }
+  },
+  {
+    "id": "country-WS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WS"
+      }
+    }
+  },
+  {
+    "id": "country-WT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WT"
+      }
+    }
+  },
+  {
+    "id": "country-WU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WU"
+      }
+    }
+  },
+  {
+    "id": "country-WV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WV"
+      }
+    }
+  },
+  {
+    "id": "country-WW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WW"
+      }
+    }
+  },
+  {
+    "id": "country-WX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WX"
+      }
+    }
+  },
+  {
+    "id": "country-WY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WY"
+      }
+    }
+  },
+  {
+    "id": "country-WZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "WZ"
+      }
+    }
+  },
+  {
+    "id": "country-XA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XA"
+      }
+    }
+  },
+  {
+    "id": "country-XB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XB"
+      }
+    }
+  },
+  {
+    "id": "country-XC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XC"
+      }
+    }
+  },
+  {
+    "id": "country-XD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XD"
+      }
+    }
+  },
+  {
+    "id": "country-XE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XE"
+      }
+    }
+  },
+  {
+    "id": "country-XF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XF"
+      }
+    }
+  },
+  {
+    "id": "country-XG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XG"
+      }
+    }
+  },
+  {
+    "id": "country-XH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XH"
+      }
+    }
+  },
+  {
+    "id": "country-XI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XI"
+      }
+    }
+  },
+  {
+    "id": "country-XJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XJ"
+      }
+    }
+  },
+  {
+    "id": "country-XK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XK"
+      }
+    }
+  },
+  {
+    "id": "country-XL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XL"
+      }
+    }
+  },
+  {
+    "id": "country-XM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XM"
+      }
+    }
+  },
+  {
+    "id": "country-XN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XN"
+      }
+    }
+  },
+  {
+    "id": "country-XO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XO"
+      }
+    }
+  },
+  {
+    "id": "country-XP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XP"
+      }
+    }
+  },
+  {
+    "id": "country-XQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XQ"
+      }
+    }
+  },
+  {
+    "id": "country-XR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XR"
+      }
+    }
+  },
+  {
+    "id": "country-XS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XS"
+      }
+    }
+  },
+  {
+    "id": "country-XT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XT"
+      }
+    }
+  },
+  {
+    "id": "country-XU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XU"
+      }
+    }
+  },
+  {
+    "id": "country-XV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XV"
+      }
+    }
+  },
+  {
+    "id": "country-XW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XW"
+      }
+    }
+  },
+  {
+    "id": "country-XX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XX"
+      }
+    }
+  },
+  {
+    "id": "country-XY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XY"
+      }
+    }
+  },
+  {
+    "id": "country-XZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "XZ"
+      }
+    }
+  },
+  {
+    "id": "country-YA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YA"
+      }
+    }
+  },
+  {
+    "id": "country-YB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YB"
+      }
+    }
+  },
+  {
+    "id": "country-YC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YC"
+      }
+    }
+  },
+  {
+    "id": "country-YD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YD"
+      }
+    }
+  },
+  {
+    "id": "country-YE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YE"
+      }
+    }
+  },
+  {
+    "id": "country-YF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YF"
+      }
+    }
+  },
+  {
+    "id": "country-YG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YG"
+      }
+    }
+  },
+  {
+    "id": "country-YH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YH"
+      }
+    }
+  },
+  {
+    "id": "country-YI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YI"
+      }
+    }
+  },
+  {
+    "id": "country-YJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YJ"
+      }
+    }
+  },
+  {
+    "id": "country-YK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YK"
+      }
+    }
+  },
+  {
+    "id": "country-YL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YL"
+      }
+    }
+  },
+  {
+    "id": "country-YM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YM"
+      }
+    }
+  },
+  {
+    "id": "country-YN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YN"
+      }
+    }
+  },
+  {
+    "id": "country-YO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YO"
+      }
+    }
+  },
+  {
+    "id": "country-YP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YP"
+      }
+    }
+  },
+  {
+    "id": "country-YQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YQ"
+      }
+    }
+  },
+  {
+    "id": "country-YR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YR"
+      }
+    }
+  },
+  {
+    "id": "country-YS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YS"
+      }
+    }
+  },
+  {
+    "id": "country-YT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YT"
+      }
+    }
+  },
+  {
+    "id": "country-YU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YU"
+      }
+    }
+  },
+  {
+    "id": "country-YV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YV"
+      }
+    }
+  },
+  {
+    "id": "country-YW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YW"
+      }
+    }
+  },
+  {
+    "id": "country-YX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YX"
+      }
+    }
+  },
+  {
+    "id": "country-YY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YY"
+      }
+    }
+  },
+  {
+    "id": "country-YZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "YZ"
+      }
+    }
+  },
+  {
+    "id": "country-ZA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZA"
+      }
+    }
+  },
+  {
+    "id": "country-ZB",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZB"
+      }
+    }
+  },
+  {
+    "id": "country-ZC",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZC"
+      }
+    }
+  },
+  {
+    "id": "country-ZD",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZD"
+      }
+    }
+  },
+  {
+    "id": "country-ZE",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZE"
+      }
+    }
+  },
+  {
+    "id": "country-ZF",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZF"
+      }
+    }
+  },
+  {
+    "id": "country-ZG",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZG"
+      }
+    }
+  },
+  {
+    "id": "country-ZH",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZH"
+      }
+    }
+  },
+  {
+    "id": "country-ZI",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZI"
+      }
+    }
+  },
+  {
+    "id": "country-ZJ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZJ"
+      }
+    }
+  },
+  {
+    "id": "country-ZK",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZK"
+      }
+    }
+  },
+  {
+    "id": "country-ZL",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZL"
+      }
+    }
+  },
+  {
+    "id": "country-ZM",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZM"
+      }
+    }
+  },
+  {
+    "id": "country-ZN",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZN"
+      }
+    }
+  },
+  {
+    "id": "country-ZO",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZO"
+      }
+    }
+  },
+  {
+    "id": "country-ZP",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZP"
+      }
+    }
+  },
+  {
+    "id": "country-ZQ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZQ"
+      }
+    }
+  },
+  {
+    "id": "country-ZR",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZR"
+      }
+    }
+  },
+  {
+    "id": "country-ZS",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZS"
+      }
+    }
+  },
+  {
+    "id": "country-ZT",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZT"
+      }
+    }
+  },
+  {
+    "id": "country-ZU",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZU"
+      }
+    }
+  },
+  {
+    "id": "country-ZV",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZV"
+      }
+    }
+  },
+  {
+    "id": "country-ZW",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZW"
+      }
+    }
+  },
+  {
+    "id": "country-ZX",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZX"
+      }
+    }
+  },
+  {
+    "id": "country-ZY",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZY"
+      }
+    }
+  },
+  {
+    "id": "country-ZZ",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "ZZ"
+      }
+    }
+  },
+  {
+    "id": "country-us",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "us"
+      }
+    }
+  },
+  {
+    "id": "country-USA",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "USA"
+      }
+    }
+  },
+  {
+    "id": "country-001",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "country": "001"
+      }
+    }
+  },
+  {
+    "id": "destination-city-only",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "city": "town"
+      }
+    }
+  },
+  {
+    "id": "destination-city-region",
+    "op": "create",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "destination": {
+        "city": "town",
+        "region": "region"
+      }
+    }
+  },
+  {
+    "id": "transfer-704",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": ""
+    }
+  },
+  {
+    "id": "transfer-705",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "sip:callee@example.org"
+    }
+  },
+  {
+    "id": "transfer-706",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "<sip:callee@example.org>"
+    }
+  },
+  {
+    "id": "transfer-707",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "sips:callee@example.org"
+    }
+  },
+  {
+    "id": "transfer-708",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "<tel:+123>"
+    }
+  },
+  {
+    "id": "transfer-709",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "tel:+123"
+    }
+  },
+  {
+    "id": "transfer-710",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "SIP:callee"
+    }
+  },
+  {
+    "id": "transfer-711",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "<sip:callee"
+    }
+  },
+  {
+    "id": "transfer-712",
+    "op": "transfer",
+    "request": {
+      "roomName": "room",
+      "participantIdentity": "person",
+      "transferTo": "https://x"
+    }
+  },
+  {
+    "id": "map-explicit",
+    "op": "map",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room"
+    }
+  },
+  {
+    "id": "map-twilio",
+    "op": "map",
+    "request": {
+      "sipNumber": "",
+      "sipCallTo": "456",
+      "roomName": "room"
+    },
+    "trunk": {
+      "address": "fixture.twilio.com",
+      "numbers": [
+        "123"
+      ],
+      "fromHost": "ignored-by-mapper-context",
+      "authUsername": "fixture",
+      "headers": {
+        "X-Test": "trunk"
+      },
+      "includeHeaders": 999
+    }
+  },
+  {
+    "id": "map-overrides",
+    "op": "map",
+    "request": {
+      "sipNumber": "123",
+      "sipCallTo": "456",
+      "roomName": "room",
+      "hidePhoneNumber": true,
+      "participantAttributes": {
+        "sip.callID": "spoof",
+        "sip.phoneNumber": "keep-source-behavior"
+      },
+      "headers": {
+        "X-Test": "request"
+      },
+      "displayName": ""
+    },
+    "trunk": {
+      "sipTrunkId": "ST_fixture",
+      "address": "target",
+      "headers": {
+        "X-Test": "trunk"
+      },
+      "media": {
+        "encryption": "SIP_MEDIA_ENCRYPT_REQUIRE"
+      }
+    }
+  }
+]

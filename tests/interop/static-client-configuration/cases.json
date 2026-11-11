@@ -1,0 +1,170 @@
+[
+  {
+    "id": "join-config-00",
+    "browser": "safari",
+    "browser_version": "18.2",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-01",
+    "browser": "safari",
+    "browser_version": "18.3",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-02",
+    "browser": "safari",
+    "browser_version": "18.3.0",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-03",
+    "browser": "safari",
+    "browser_version": "18.4",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-04",
+    "browser": "safari",
+    "browser_version": "18.3.1",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-05",
+    "browser": "safari",
+    "browser_version": "19.0.0",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-06",
+    "browser": "safari",
+    "browser_version": "018.4",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-07",
+    "browser": "safari",
+    "browser_version": "18.3rc",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-08",
+    "browser": "SAFARİ",
+    "browser_version": "18.4",
+    "os": "macos",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-09",
+    "browser": "chrome",
+    "browser_version": "157.0",
+    "os": "linux",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-10",
+    "browser": "vendor-safari",
+    "browser_version": "18.4",
+    "os": "linux",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-11",
+    "browser": "firefox",
+    "browser_version": "156.0",
+    "os": "linux",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-12",
+    "browser": "firefox",
+    "browser_version": "157.0",
+    "os": "linux",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-13",
+    "browser": "firefox",
+    "browser_version": "157.0.0-rc.1",
+    "os": "linux",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-14",
+    "browser": "firefox",
+    "browser_version": "157rc",
+    "os": "linux",
+    "device_model": "generic-desktop"
+  },
+  {
+    "id": "join-config-15",
+    "browser": "firefox mobile",
+    "browser_version": "156.0",
+    "os": "android",
+    "device_model": "generic-mobile"
+  },
+  {
+    "id": "join-config-16",
+    "browser": "firefox mobile",
+    "browser_version": "157.0",
+    "os": "android",
+    "device_model": "generic-mobile"
+  },
+  {
+    "id": "join-config-17",
+    "browser": "chrome",
+    "browser_version": "157.0",
+    "os": "android",
+    "device_model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "join-config-18",
+    "browser": "chrome",
+    "browser_version": "157.0",
+    "os": "linux",
+    "device_model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "join-config-19",
+    "browser": "chrome",
+    "browser_version": "157.0",
+    "os": "android",
+    "device_model": "xiaomi other"
+  },
+  {
+    "id": "join-config-20",
+    "browser": "chrome",
+    "browser_version": "157.0",
+    "os": "android-x",
+    "device_model": "xiaomi 2201117ti"
+  },
+  {
+    "id": "join-config-21",
+    "browser": "vendor-firefox",
+    "browser_version": "156.0",
+    "os": "android",
+    "device_model": "generic-mobile"
+  },
+  {
+    "id": "join-config-22",
+    "browser": "chrome",
+    "browser_version": "157.0",
+    "os": "ANDROİD",
+    "device_model": "XİAOMİ 2201117Tİ"
+  },
+  {
+    "id": "join-config-23",
+    "browser": "safari",
+    "browser_version": "18.4",
+    "os": "android",
+    "device_model": "xiaomi 2201117ti"
+  }
+]

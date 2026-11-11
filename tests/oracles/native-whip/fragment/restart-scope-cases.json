@@ -1,0 +1,12 @@
+[
+  {
+    "id": "old-fixture-session-fragment-vs-chrome-media-offer",
+    "fragment": "a=group:BUNDLE 0\r\na=ice-ufrag:newClient\r\na=ice-pwd:newClientPassword0123456789\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\na=candidate:2 1 udp 2122260223 192.0.2.1 50001 typ host\r\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:oldClient\r\na=ice-pwd:oldClientPassword0123456789\r\na=candidate:1 1 udp 2122260223 192.0.2.1 50000 typ host\r\n"
+  },
+  {
+    "id": "corrected-media-fragment-vs-chrome-media-offer",
+    "fragment": "a=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\na=ice-ufrag:newClient\r\na=ice-pwd:newClientPassword0123456789\r\na=candidate:2 1 udp 2122260223 192.0.2.1 50001 typ host\r\n",
+    "sdp": "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=ice-ufrag:oldClient\r\na=ice-pwd:oldClientPassword0123456789\r\na=candidate:1 1 udp 2122260223 192.0.2.1 50000 typ host\r\n"
+  }
+]

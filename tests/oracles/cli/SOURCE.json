@@ -1,0 +1,20 @@
+{
+  "status": "IMPLEMENTED_NOT_EXECUTED",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "source_files": {
+    "references/livekit-stable/cmd/server/commands.go": "5d678d42b9b396007eae9a22d5dd6c6963cae3c625ea6a8735bab0cead4c79d0",
+    "references/protocol-stable/protobufs/livekit_internal.proto": "7b99b4093409e1ad9ce5a7c4849223dce6a4296451e9e5f8cdad85d4385d8814",
+    "references/go-cli/github.com/jxskiss/base62@v1.1.0/base62.go": "0b98119427277fe3d5beb801c99452e3ca30e07a8c0e1226eb94d393aedb76f3",
+    "references/go-cli/github.com/jxskiss/base62@v1.1.0/default.go": "9e3bbd929e2ccf3a2c1f9e3d2597c97991a5117facd907f75ad9a0d31a1fc33c"
+  },
+  "oracle_transformations": [
+    "commands.go listNodes render body copied: writer os.Stdout becomes bytes.Buffer; acquisition/auth untouched production Go used separately",
+    "base62 delegates to actual locked jxskiss/base62 v1.1.0; no ported oracle math"
+  ],
+  "limits": [
+    "No Go or Rust execution by implementing agent",
+    "node display Unicode/tablewriter branches require real oracle comparison",
+    "simple Redis only; Sentinel/Cluster/TLS/pool not implemented"
+  ]
+}

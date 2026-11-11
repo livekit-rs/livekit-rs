@@ -1,0 +1,14 @@
+# Private guest fixture, real worker and actual local Rust. No CPU override.
+api_key: devkey
+api_secret: secret
+ws_url: ws://127.0.0.1:17880
+redis:
+  address: 127.0.0.1:17842
+health_port: 19080
+template_port: 17980
+logging:
+  level: info
+  json: true
+session_limits:
+  file_output_max_duration: 1m
+# Actual source falls back to local filesystem storage, no fake output URL.

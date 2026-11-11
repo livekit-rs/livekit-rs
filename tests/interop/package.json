@@ -1,0 +1,17 @@
+{
+  "name": "livekit-rs-interop",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs",
+    "test:normalize": "node --test normalize.test.mjs",
+    "test:fixtures": "node --test normalize.test.mjs fixtures.test.mjs",
+    "tls:fixture": "node generate-tls-fixture.mjs"
+  },
+  "dependencies": {
+    "@livekit/protocol": "1.52.1",
+    "livekit-client": "2.23.0",
+    "livekit-server-sdk": "2.19.2",
+    "playwright": "1.64.1"
+  }
+}

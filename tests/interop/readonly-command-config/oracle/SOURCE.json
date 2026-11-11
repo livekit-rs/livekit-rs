@@ -1,0 +1,17 @@
+{
+  "status": "NOT_RUN",
+  "case_count": 12,
+  "fixed_inputs_sha256": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/livekit-stable/cmd/server/main.go": "9006ed033eb2786629d950b08321206cdd0f1202fe89f999c9a331e1e0dc691f",
+    "references/livekit-stable/cmd/server/commands.go": "5d678d42b9b396007eae9a22d5dd6c6963cae3c625ea6a8735bab0cead4c79d0",
+    "references/livekit-stable/pkg/config/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "references/go-modules/mediatransportutil-f234b534b095/pkg/rtcconfig/config.go": "9ee3e62387fd102bc993c7cd85f9f2218dc3b9541b1a015c0b595cba6a7594ac",
+    "references/protocol-stable/auth/accesstoken.go": "69925afa571f79dc3715496bdfb3f4e2453fa543596f80aa77afa7d87811471b"
+  },
+  "assets_sha256": {
+    "prepare.py": "53e34355ef0d537793b2fb26b88c20589ce800458cd20666140be4f5172b7f57",
+    "source_test.go": "4df89d6fa8d4eabf21c140902fa5d67e4f83cbbefdea46f21ffa97daa93b4acd"
+  }
+}

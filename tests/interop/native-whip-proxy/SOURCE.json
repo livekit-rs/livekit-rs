@@ -1,0 +1,49 @@
+{
+  "status": "ACTUAL_ORIGINAL_WORKER_RUNTIME_PASS_SCOPED",
+  "scope": "isolated real original Ingress WHIP proxy functional fixture",
+  "ingress_tag": "v1.5.0",
+  "ingress_commit": "363f6090d572db8eef5b60c273c0970826fb7ca6",
+  "reference_files_sha256": {
+    "references/ingress/pkg/whip/server.go": "78abfbe60d8cd10045cee0721a5cac8cb350533f1fa4c8cfa6af4ad547911218",
+    "references/ingress/pkg/whip/whip_proxy_handler.go": "b5f303bc03ed94ccb1762cb4fb6ab0adeee6f7147d1016f4ad2a2fbe88176698",
+    "references/ingress/pkg/service/service.go": "0226b3c03dde7cf6941513f0465e4ff0a153ab71e8f7c31967f041972f2fccda",
+    "references/ingress/pkg/params/params.go": "340a18b797eddc4664c91a88a691e1ac643569cde1bcf11f7b880b3cb3cf071e",
+    "references/ingress/pkg/config/config.go": "6e5b87633b61810e6e34bae06e57efeadc6d2e774040dd1ce506b51706562142",
+    "references/protocol-stable/ingress/token.go": "63a2b6df42a1558f404530a52229c18bd7ad6780119f1a5a34b7e6ca79440eee",
+    "references/livekit-stable/pkg/service/roommanager_service.go": "7c6f0c50ae8a96e7975397748cf56b6e659be37a7603f063c70d17b636ae8266",
+    "references/protocol-stable/protobufs/rpc/io.proto": "f647e42b6579b8a7c3491af84d335a52e63779dcaef525b8a7eaec4c6a50bf39",
+    "references/protocol-stable/protobufs/rpc/ingress.proto": "9a6f772b8ca7c73cd8fce7318afc39f5c9ca4add3b9164415dfd08761450d799",
+    "references/psrpc/pkg/bus/serialization.go": "f4b03f777fae29f9b989d6e16710d47f1df9a021806921b0c82b62d960665e5d",
+    "references/psrpc/pkg/info/channels.go": "a283dff70db2e4f41dc0aae243b18deba294dc040c17050af2f1ff0400f4538e",
+    "livekit-rs-server/tests/interop/native-whip/client.html": "aa8915d6649a73856358a63a998ef5c64185ecc095230dc290d0cf9cebd3d1d9",
+    "livekit-rs-server/tests/interop/native-whip/run.mjs": "8f20c675cbcd6603efbaeceffc914a26881e2e2f77ef8c16e7a1cf45229adc49",
+    "livekit-rs-server/tests/interop/native-whip/native.js": "e1e569a11fe53b5de6e2fe43da670884e882b94234a724ff5dc33f965d13360d",
+    "livekit-rs-server/crates/lk-compat/src/whip/notify.rs": "7f4d7d3405bcf9002d1b4b8a0384ddb0207cf89a35bcf86724c19c7055c90109"
+  },
+  "checks": {
+    "python39_ast": "PASS",
+    "actual_original_go_worker_build": "PASS",
+    "actual_redis_http_browser_worker": "PASS",
+    "idle_recorder_sigterm_exit_zero": "PASS"
+  },
+  "historical_draft_files_sha256": {
+    "README.md": "b2e513ceba4fb5aa65c4f8c412c69fa65869805b265ef6a0ad47aaa16c6d3b54",
+    "configure.py": "95384783a506cbbd5e55bf765d30a0425dfc739a2aa00ae72d5e4961d1d2cfaa",
+    "proxy-peer.js": "9655564cc6bf67e0d66a3b1e0de7e3081152590d0b0a5fdec85426e21eff54d6",
+    "run.mjs": "ddfb2eba02ba653c3dc7e867048d368312a61b438e038f0376e3e8f5d6b27609",
+    "trace/go.mod": "d64ae39ed736c61ced026cf1bf0997243a04596c1830f44631996970e89cb107",
+    "trace/go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "trace/main.go": "4e685b78bd40b59c127d3b7b278fc2f41df1c096fe9fc448da989616f072c3b6"
+  },
+  "fixture_files_sha256": {
+    "README.md": "270951f1520739d89435a39f183770481e7e69764d0ea1c9f7ab1984bdc8fcd1",
+    "configure.py": "95384783a506cbbd5e55bf765d30a0425dfc739a2aa00ae72d5e4961d1d2cfaa",
+    "proxy-peer.js": "b6cf4bcc444a3d316a950642d10f55cd705d3f1305db558ea2f03c457c09cf2b",
+    "run.mjs": "5e4269fdffed76602c0688f683f1ebff4421141d3971bbddb9a2bbfdacffb938",
+    "trace/go.mod": "780d8d06355ec13efa16e4f863551d8b9917b0608432f19c9f5f13769863b56a",
+    "trace/go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "trace/main.go": "73faf1d15853994df35fbdc236b37f7e337f16af14e916fa5c2aeccda1e7d51f"
+  },
+  "source_quick_correction": "Fixed OSS GetIngressInfo returns Info only; original worker derives local token/config wsURL. Preserve original fixture RED, actual201/tone+alive/Closed and source-shaped expectation.",
+  "evidence": "livekit-rs-docs/evidence/2026-10-25/f14-functional-delivery.json"
+}

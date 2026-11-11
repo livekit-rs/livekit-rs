@@ -1,0 +1,40 @@
+{
+  "status": "SOURCE_COMPLETE_NOT_COMPILED_NOT_RUN",
+  "purpose": "Restores an omitted pre-existing source oracle module and its exact fixed-Go executable oracle inputs. No production semantics changed.",
+  "historical": {
+    "path": "/tmp/f45-cluster-final",
+    "SOURCE_sha256": "72d6b6e03b1f5f9968e88002a5945304f4124bb57963eec51ea1ec4c1df63a6b"
+  },
+  "source_files": [
+    {
+      "source": "/tmp/f45-cluster-final/oracle/selector/main.go",
+      "sha256": "4a01f854477a9f4f67a50550ecce02b6d7e97c24913b24f942aa0a470c8eef7d",
+      "payload": "livekit-rs-server/tests/oracles/node-selector/main.go"
+    },
+    {
+      "source": "/tmp/f45-cluster-final/oracle/selector/go.mod",
+      "sha256": "3ed117bf5ca4976e0774477daaf6d6c17e46a44e72fb40c31bb4984d604c0127",
+      "payload": "livekit-rs-server/tests/oracles/node-selector/go.mod"
+    },
+    {
+      "source": "/tmp/f45-cluster-final/oracle/selector/go.sum",
+      "sha256": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+      "payload": "livekit-rs-server/tests/oracles/node-selector/go.sum"
+    },
+    {
+      "source": "/tmp/f45-cluster-final/oracle/selector/vectors.json",
+      "sha256": "d7ba17daa6d0a2af578d12773da2bdf4650fc6a93fe9834f47a3b8a76eef2043",
+      "payload": "livekit-rs-server/tests/oracles/node-selector/vectors.json"
+    }
+  ],
+  "test_origin": {
+    "source": "/tmp/f45-cluster-final/payload/livekit-rs-server/crates/lk-compat/src/routing/selector_oracle_tests.rs",
+    "sha256": "a1f42c49bc5d6f6908fd5ca0a8c141704273e77e43e304f3757d83f10941efb1"
+  },
+  "licenses": {
+    "installed": "livekit-rs-server/crates/lk-compat/src/room_control/go-sort.LICENSE",
+    "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "Go_algorithm_source": "selector_go_sort.rs sibling retains original Go Authors notice; no license file removed"
+  },
+  "known_scope": "Actual Go oracle expected25 ordinary rows +1 separately reported nil-stats PANIC, not panic HTTP equivalence."
+}

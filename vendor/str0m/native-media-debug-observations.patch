@@ -1,0 +1,134 @@
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -1,3 +1,5 @@
++#[path = "send_debug.rs"]
++mod debug;
+ use std::collections::VecDeque;
+ use std::sync::Arc;
+ use std::time::Duration;
+@@ -111,6 +113,7 @@
+     /// The last seq_no that we sent, either by increasing seq_no ourselves (media API), or by
+     /// direct RTP mode writing.
+     last_sent_seq_no: SeqNo,
++    debug_primary: debug::PrimaryPacketHistory,
+ 
+     /// When we last sent something for this encoded stream, packet or RTCP.
+     last_used: Instant,
+@@ -319,6 +322,7 @@
+             seq_no: SeqNo::default(),
+             seq_no_rtx: SeqNo::default(),
+             last_sent_seq_no: SeqNo::default(),
++            debug_primary: Default::default(),
+             last_used: already_happened(),
+             rtp_and_wallclock: None,
+             send_queue: SendQueue::new(),
+@@ -820,6 +824,8 @@
+         let is_retransmission = matches!(next.kind, NextPacketKind::Resend(_));
+         if next.kind == NextPacketKind::Regular {
+             self.last_sent_seq_no = seq_no;
++            self.debug_primary
++                .observe(*seq_no, header.timestamp, header.marker);
+         }
+ 
+         self.last_used = now;
+@@ -1153,6 +1159,9 @@
+ 
+     pub(crate) fn create_sr_and_update(&mut self, now: Instant, feedback: &mut VecDeque<Rtcp>) {
+         let sr = self.create_sender_report(now);
++        if self.debug_primary_packets().0.is_some() {
++            self.debug_primary.report = Some(sr.sender_info);
++        }
+ 
+         trace!("Created feedback SR: {:?}", sr);
+         feedback.push_back(Rtcp::SenderReport(sr));
+@@ -1427,6 +1436,7 @@
+         // Reset sequence numbers
+         self.seq_no = SeqNo::default();
+         self.seq_no_rtx = SeqNo::default();
++        self.debug_primary = Default::default();
+ 
+         // Reset timing related fields
+         self.last_used = already_happened();
+@@ -1611,12 +1621,27 @@
+         assert_eq!(resend.header.ssrc, 44.into());
+         assert_eq!(*resend.seq_no, 65_535);
+         assert!(!resend.is_padding);
++        // An RTX emission must not masquerade as fresh primary media.
++        assert_eq!(stream.debug_primary_packets(), (None, None));
+         let media = stream
+             .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
+             .unwrap();
+         assert_eq!(media.header.ssrc, 42.into());
+         assert_eq!(*media.seq_no, 8);
+         assert!(!media.is_padding);
++        assert_eq!(
++            stream.debug_primary_packets(),
++            (Some((8, 90_000, false)), None)
++        );
++        assert!(stream.debug_sender_report(now).is_none());
++        let mut feedback = VecDeque::new();
++        stream.create_sr_and_update(now, &mut feedback);
++        let report = stream.debug_sender_report(now).unwrap();
++        assert_eq!(report.ssrc, 42.into());
++        assert_eq!(
++            stream.debug_sender_report(now + Duration::from_secs(1)),
++            Some(report)
++        );
+         assert!(
+             stream
+                 .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
+@@ -1630,6 +1655,10 @@
+             .unwrap();
+         assert!(replacement.is_padding);
+         assert_eq!(*replacement.seq_no, 65_536);
++        assert_eq!(
++            stream.debug_primary_packets(),
++            (Some((8, 90_000, false)), None)
++        );
+     }
+ 
+     #[test]
+--- /dev/null
++++ b/src/streams/send_debug.rs
+@@ -0,0 +1,41 @@
++//! Read-only diagnostics of actual primary RTP emissions. This is deliberately
++//! independent of the source transport statistics and remote-BWE counters.
++use super::*;
++#[derive(Clone, Copy, Debug, Default)]
++pub(super) struct PrimaryPacketHistory {
++    last: Option<(u64, u64, bool)>,
++    previous: Option<(u64, u64, bool)>,
++    pub(super) report: Option<SenderInfo>,
++}
++impl PrimaryPacketHistory {
++    pub(super) fn observe(&mut self, seq: u64, timestamp: u32, marker: bool) {
++        let timestamp = crate::rtp_::extend_u32(self.last.map(|(_, time, _)| time), timestamp);
++        self.previous = self.last;
++        self.last = Some((seq, timestamp, marker));
++    }
++}
++impl StreamTx {
++    /// Last and preceding packets that the packetizer actually emitted as
++    /// regular primary media. RTX and padding do not mutate this history.
++    pub fn debug_primary_packets(&self) -> (Option<(u64, u64, bool)>, Option<(u64, u64, bool)>) {
++        (self.debug_primary.last, self.debug_primary.previous)
++    }
++    /// Exactly the last native SR queued by the real RTCP producer. An
++    /// unstarted stream has no diagnostic sender report instead of a fake one.
++    pub fn debug_sender_report(&self, _now: Instant) -> Option<SenderInfo> {
++        self.debug_primary.report
++    }
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn observed_primary_packet_history_preserves_wrap_and_real_markers() {
++        let mut history = PrimaryPacketHistory::default();
++        assert!(history.last.is_none());
++        history.observe(65_535, u32::MAX - 1, false);
++        history.observe(65_536, 2, true);
++        assert_eq!(history.previous, Some((65_535, u32::MAX as u64 - 1, false)));
++        assert_eq!(history.last, Some((65_536, 0x1_0000_0002, true)));
++    }
++}

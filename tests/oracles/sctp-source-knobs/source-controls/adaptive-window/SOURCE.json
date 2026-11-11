@@ -1,0 +1,11 @@
+{
+  "status": "FROZEN_SOURCE_PRIVATE_ADAPTIVE20_NOT_RUN",
+  "clock_scope": "Only source clock reads in onRackAfterSACK/startRackTimer/startPTOTimer; original arithmetic/branching untouched; virtual clock is one hour ahead so original timer goroutine cannot race the component under actual caller lock. Actual wall timer/UDP is a separate required gate.",
+  "assets_sha256": {
+    "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "cases.jsonl": "ab6f4226a26e38f5811b31fe0fda353bce161fd7068b4b41e28646ef4eb4fccb",
+    "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "prepare.py": "daa6d6a379c6fefd15df4f7fcd0e6ddacabde519c66fd484b816c0cca4164147",
+    "adaptive_rack_test.go": "1f88f94633339f7dfa0da57f468fcfe73018882677f43a3d847851f6d3e55926"
+  }
+}

@@ -1,0 +1,254 @@
+[
+  {
+    "name": "strict-boundary",
+    "connected": true,
+    "actions": [
+      {
+        "op": "pending",
+        "at_ns": 0
+      },
+      {
+        "op": "unmute",
+        "at_ns": 0
+      },
+      {
+        "op": "check",
+        "at_ns": 30000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 30000000001
+      },
+      {
+        "op": "check",
+        "at_ns": 40000000000
+      }
+    ]
+  },
+  {
+    "name": "not-connected",
+    "connected": false,
+    "actions": [
+      {
+        "op": "pending",
+        "at_ns": 0
+      },
+      {
+        "op": "unmute",
+        "at_ns": 0
+      },
+      {
+        "op": "check",
+        "at_ns": 90000000000
+      },
+      {
+        "op": "connect",
+        "at_ns": 91000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 121000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 121000000001
+      }
+    ]
+  },
+  {
+    "name": "mute-resets-on-unmute",
+    "connected": true,
+    "actions": [
+      {
+        "op": "pending",
+        "at_ns": 0
+      },
+      {
+        "op": "mute",
+        "at_ns": 0
+      },
+      {
+        "op": "check",
+        "at_ns": 60000000000
+      },
+      {
+        "op": "unmute",
+        "at_ns": 61000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 91000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 91000000001
+      }
+    ]
+  },
+  {
+    "name": "actual-track-clears-pending",
+    "connected": true,
+    "actions": [
+      {
+        "op": "pending",
+        "at_ns": 0
+      },
+      {
+        "op": "unmute",
+        "at_ns": 0
+      },
+      {
+        "op": "publish",
+        "at_ns": 1000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 100000000000
+      },
+      {
+        "op": "clear",
+        "at_ns": 101000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 200000000000
+      }
+    ]
+  },
+  {
+    "name": "queued-republish-rearms",
+    "connected": true,
+    "actions": [
+      {
+        "op": "pending",
+        "at_ns": 0
+      },
+      {
+        "op": "unmute",
+        "at_ns": 0
+      },
+      {
+        "op": "publish",
+        "at_ns": 1000000000
+      },
+      {
+        "op": "pending",
+        "at_ns": 2000000000
+      },
+      {
+        "op": "clear",
+        "at_ns": 3000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 33000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 33000000001
+      },
+      {
+        "op": "publish",
+        "at_ns": 34000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 100000000000
+      },
+      {
+        "op": "clear",
+        "at_ns": 101000000000
+      }
+    ]
+  },
+  {
+    "name": "repeated-mute-event",
+    "connected": true,
+    "actions": [
+      {
+        "op": "pending",
+        "at_ns": 0
+      },
+      {
+        "op": "unmute",
+        "at_ns": 0
+      },
+      {
+        "op": "unmute",
+        "at_ns": 20000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 50000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 50000000001
+      }
+    ]
+  },
+  {
+    "name": "disconnected-preserves-unmuted-timestamp-source",
+    "connected": true,
+    "actions": [
+      {
+        "op": "pending",
+        "at_ns": 0
+      },
+      {
+        "op": "unmute",
+        "at_ns": 0
+      },
+      {
+        "op": "disconnect",
+        "at_ns": 1000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 30000000001
+      },
+      {
+        "op": "connect",
+        "at_ns": 32000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 62000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 62000000001
+      }
+    ]
+  },
+  {
+    "name": "publish-before-pending",
+    "connected": true,
+    "actions": [
+      {
+        "op": "publish",
+        "at_ns": 0
+      },
+      {
+        "op": "pending",
+        "at_ns": 1000000000
+      },
+      {
+        "op": "unmute",
+        "at_ns": 1000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 40000000000
+      },
+      {
+        "op": "clear",
+        "at_ns": 41000000000
+      },
+      {
+        "op": "check",
+        "at_ns": 100000000000
+      }
+    ]
+  }
+]

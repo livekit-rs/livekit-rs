@@ -1,0 +1,25 @@
+{"id":"unknown-room-field","config":{"unknownField":1}}
+{"id":"unknown-egress-field","config":{"egress":{"unknownField":1}}}
+{"id":"unknown-advanced-field","config":{"egress":{"participant":{"advanced":{"unknownField":1}}}}}
+{"id":"duplicate-known-scalar","config":{"emptyTimeout":1,"emptyTimeout":2}}
+{"id":"alias-known-scalar","config":{"emptyTimeout":1,"empty_timeout":2}}
+{"id":"duplicate-repeated-field","config":{"agents":[],"agents":[]}}
+{"id":"duplicate-nested-double","config":{"egress":{"participant":{"advanced":{"keyFrameInterval":1,"keyFrameInterval":2}}}}}
+{"id":"alias-nested-double","config":{"egress":{"participant":{"advanced":{"keyFrameInterval":1,"key_frame_interval":2}}}}}
+{"id":"duplicate-unknown-fields","config":{"unknownField":1,"unknownField":2}}
+{"id":"duplicate-nested-unknown-fields","config":{"egress":{"unknownField":1,"unknownField":2}}}
+{"id":"unknown-enum-string","config":{"egress":{"participant":{"preset":"F102_FUTURE_ENUM"}}}}
+{"id":"unknown-enum-number","config":{"egress":{"participant":{"preset":-7}}}}
+{"id":"map-scalar-null","config":{"tags":{"x":null}}}
+{"id": "multiline-known-duplicate", "config_raw": "{\n  \"emptyTimeout\": 1,\n  \"emptyTimeout\": 2\n}"}
+{"id": "unicode-before-known-duplicate", "config_raw": "{\"未知\":1,\"emptyTimeout\":1,\"emptyTimeout\":2}"}
+{"id": "escaped-key-duplicate", "config_raw": "{\"emptyTimeout\":1,\"empty\\u0054imeout\":2}"}
+{"id": "null-known-duplicate", "config_raw": "{\"emptyTimeout\":null,\"emptyTimeout\":2}"}
+{"id": "wrong-scalar-before-duplicate", "config_raw": "{\"emptyTimeout\":\"invalid\",\"emptyTimeout\":2}"}
+{"id": "wrong-message-kind", "config_raw": "{\"egress\":4}"}
+{"id": "wrong-repeated-kind", "config_raw": "{\"agents\":{}}"}
+{"id": "wrong-numeric-range", "config_raw": "{\"emptyTimeout\":4294967296}"}
+{"id": "wrong-float-kind", "config_raw": "{\"egress\":{\"participant\":{\"advanced\":{\"keyFrameInterval\":true}}}}"}
+{"id": "wrong-bool-kind", "config_raw": "{\"egress\":{\"participant\":{\"advanced\":{\"audioBitrate\":true}}}}"}
+{"id": "known-map-duplicate", "config_raw": "{\"tags\":{\"x\":\"one\",\"x\":\"two\"}}"}
+{"id": "null-config", "config_raw": "null"}

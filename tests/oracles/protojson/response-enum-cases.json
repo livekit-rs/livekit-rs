@@ -1,0 +1,42 @@
+{
+  "status": "NOT_RUN",
+  "emit_unpopulated": true,
+  "scope": "Real registered LiveKit scalar/repeated/nested unknown enum response JSON, with string-map/default/presence companions. Current pinned schema has no enum-valued map; this is not invented as public API coverage.",
+  "cases": [
+    {
+      "case": "unknown-scalar",
+      "type": "livekit.SIPInboundTrunkInfo",
+      "body": "{\"includeHeaders\":999}"
+    },
+    {
+      "case": "unknown-scalar-with-string-map",
+      "type": "livekit.SIPInboundTrunkInfo",
+      "body": "{\"includeHeaders\":999,\"headers\":{\"X-Fixture\":\"v\"}}"
+    },
+    {
+      "case": "unknown-nested-list",
+      "type": "livekit.ListSIPInboundTrunkResponse",
+      "body": "{\"items\":[{\"includeHeaders\":999},{\"includeHeaders\":2}]}"
+    },
+    {
+      "case": "unknown-repeated-enum",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"enabledFeatures\":[1,999,-1],\"createdAtNs\":\"9007199254740993\"}"
+    },
+    {
+      "case": "unknown-i32-max",
+      "type": "livekit.SIPInboundTrunkInfo",
+      "body": "{\"includeHeaders\":2147483647}"
+    },
+    {
+      "case": "unknown-i32-min",
+      "type": "livekit.SIPInboundTrunkInfo",
+      "body": "{\"includeHeaders\":-2147483648}"
+    },
+    {
+      "case": "unknown-optional-presence",
+      "type": "livekit.CreateIngressRequest",
+      "body": "{\"inputType\":999,\"enabled\":false}"
+    }
+  ]
+}

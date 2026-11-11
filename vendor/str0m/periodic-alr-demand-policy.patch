@@ -1,0 +1,267 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -141,6 +141,18 @@
+         self.0.session.bwe_snapshot()
+     }
+ 
++    /// Enable periodic ALR exploration (enabled by default).
++    ///
++    /// Applications may disable this when their current allocation covers all
++    /// demand. This cancels only periodic ALR probes and their pending padding;
++    /// it never increases capacity or suppresses congestion feedback. Other
++    /// probing and sustained validation remain enabled. Re-enabling respects a
++    /// fresh normal periodic interval; repeated identical settings do not renew it.
++    pub fn set_periodic_alr_probing(&mut self, enabled: bool) {
++        let now = self.0.last_now;
++        self.0.session.set_periodic_alr_probing(enabled, now);
++    }
++
+     /// Configure the desired bitrate.
+     ///
+     /// Configure the bandwidth estimation system with the desired bitrate.
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -88,6 +88,12 @@
+ 
+     pub fn end_probe(&mut self, now: Instant, cluster_id: TwccClusterId) {
+         self.bwe.end_probe(now, cluster_id);
++    }
++
++    pub fn set_periodic_alr_probing(&mut self, enabled: bool, now: Instant) {
++        self.bwe
++            .probe_control
++            .set_periodic_alr_probing(enabled, now);
+     }
+ 
+     pub fn snapshot(&self) -> BweSnapshot {
+@@ -574,8 +580,11 @@
+         // TWCC send records outlive a BWE reset. Never reuse a cluster identity
+         // within this transport, including packets sent at the same Instant.
+         let next_id = self.probe_control.next_cluster_id();
++        let periodic = self.probe_control.periodic_alr_enabled();
+         *self = Self::new(init_bitrate);
+         self.probe_control.continue_cluster_ids(next_id);
++        self.probe_control
++            .set_periodic_alr_probing(periodic, crate::util::already_happened());
+     }
+ }
+ 
+--- a/src/bwe/probe/control.rs
++++ b/src/bwe/probe/control.rs
+@@ -80,6 +80,8 @@
+ 
+     scheduled_exponential: Option<Instant>,
+     scheduled_periodic_alr: Option<Instant>,
++    periodic_alr_enabled: bool,
++    periodic_alr_not_before: Option<Instant>,
+     scheduled_stagnant: Option<Instant>,
+ }
+ 
+@@ -117,6 +119,8 @@
+             pending: VecDeque::new(),
+             scheduled_exponential: None,
+             scheduled_periodic_alr: None,
++            periodic_alr_enabled: true,
++            periodic_alr_not_before: None,
+             scheduled_stagnant: None,
+         }
+     }
+@@ -148,6 +152,22 @@
+                 .with_duration(Duration::from_secs(2))
+                 .with_requested_at(now),
+         )
++    }
++
++    pub(crate) fn periodic_alr_enabled(&self) -> bool {
++        self.periodic_alr_enabled
++    }
++
++    pub(crate) fn set_periodic_alr_probing(&mut self, enabled: bool, now: Instant) {
++        if enabled == self.periodic_alr_enabled {
++            return;
++        }
++        self.periodic_alr_enabled = enabled;
++        self.periodic_alr_not_before = enabled.then_some(now + MIN_TIME_BETWEEN_ALR_PROBES);
++        if !enabled {
++            self.pending.retain(|p| p.kind() != ProbeKind::PeriodicAlr);
++        }
++        self.request_immediate();
+     }
+ 
+     pub fn enable(&mut self, v: bool) {
+@@ -258,7 +278,8 @@
+         }
+         let current_max = desired * MAX_PROBE_BITRATE_FACTOR;
+         self.pending.retain(|config| {
+-            config.target_bitrate() <= current_max
++            (self.periodic_alr_enabled || config.kind() != ProbeKind::PeriodicAlr)
++                && config.target_bitrate() <= current_max
+                 && config
+                     .requested_at()
+                     .is_none_or(|at| now.saturating_duration_since(at) <= Duration::from_secs(5))
+@@ -402,6 +423,9 @@
+     }
+ 
+     fn maybe_periodic_alr(&mut self, now: Instant, desired: Bitrate) -> bool {
++        if !self.periodic_alr_enabled || self.periodic_alr_not_before.is_some_and(|at| now < at) {
++            return false;
++        }
+         // Don't interfere with initial probing phase.
+         if self.is_during_initial(now) {
+             return false;
+@@ -598,10 +622,13 @@
+             }
+         }
+ 
+-        // ALR periodic probing
+-        if self.in_alr() {
++        // ALR periodic probing is an independent application policy.
++        if self.in_alr() && self.periodic_alr_enabled {
+             if self.scheduled_periodic_alr.is_none() {
+-                self.scheduled_periodic_alr = Some(now + MIN_TIME_BETWEEN_ALR_PROBES);
++                self.scheduled_periodic_alr = Some(
++                    (now + MIN_TIME_BETWEEN_ALR_PROBES)
++                        .max(self.periodic_alr_not_before.unwrap_or(now)),
++                );
+             }
+             return self.scheduled_periodic_alr.unwrap();
+         }
+@@ -1024,6 +1051,65 @@
+     }
+ 
+     #[test]
++    fn periodic_policy_removes_only_periodic_pending_and_preserves_validation_initial() {
++        let now = Instant::now();
++        let mut pc = ProbeControl::new();
++        for (id, kind) in [
++            (1, ProbeKind::Initial),
++            (2, ProbeKind::PeriodicAlr),
++            (3, ProbeKind::Validation),
++        ] {
++            pc.pending
++                .push_back(ProbeClusterConfig::new(id.into(), Bitrate::mbps(1), kind));
++        }
++        pc.set_periodic_alr_probing(false, now);
++        assert_eq!(pc.pending.len(), 2);
++        assert_eq!(pc.pending[0].kind(), ProbeKind::Initial);
++        assert_eq!(pc.pending[1].kind(), ProbeKind::Validation);
++        assert!(!pc.periodic_alr_enabled());
++        // A deferred entry introduced before dispatch is rechecked too.
++        pc.pending.push_front(ProbeClusterConfig::new(
++            4.into(),
++            Bitrate::mbps(1),
++            ProbeKind::PeriodicAlr,
++        ));
++        pc.enable(true);
++        pc.set_desired_bitrate(Bitrate::mbps(2));
++        pc.set_estimated_bitrate(Bitrate::mbps(1), BandwidthLimitedCause::DelayBasedLimited);
++        assert_eq!(pc.handle_timeout(now).unwrap().kind(), ProbeKind::Initial);
++    }
++
++    #[test]
++    fn periodic_policy_disabled_timeout_does_not_spin_and_reenable_has_fresh_interval() {
++        let now = Instant::now();
++        let mut pc = ProbeControl::new();
++        pc.enable(true);
++        pc.set_desired_bitrate(Bitrate::mbps(2));
++        pc.set_estimated_bitrate(Bitrate::mbps(1), BandwidthLimitedCause::DelayBasedLimited);
++        pc.last_probe = Some(LastProbe {
++            when: now,
++            kind: ProbeKind::PeriodicAlr,
++            further: Bitrate::mbps(2),
++            was_estimate: Some(Bitrate::mbps(1)),
++        });
++        pc.set_alr_start_time(now);
++        pc.set_periodic_alr_probing(false, now);
++        let later = now + Duration::from_secs(30);
++        assert!(pc.handle_timeout(later).is_none());
++        assert!(pc.poll_timeout() > later);
++        pc.set_periodic_alr_probing(true, later);
++        assert!(pc.handle_timeout(later).is_none());
++        pc.set_periodic_alr_probing(true, later + Duration::from_secs(4));
++        assert!(pc.handle_timeout(later + Duration::from_secs(4)).is_none());
++        assert_eq!(
++            pc.handle_timeout(later + MIN_TIME_BETWEEN_ALR_PROBES)
++                .unwrap()
++                .kind(),
++            ProbeKind::PeriodicAlr
++        );
++    }
++
++    #[test]
+     fn periodic_alr_probing() {
+         let mut pc = ProbeControl::new();
+         pc.enable(true);
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -211,6 +211,28 @@
+         self.probe_queue = keep;
+     }
+ 
++    pub(crate) fn cancel_periodic_alr_probes(&mut self) -> (bool, Vec<TwccClusterId>) {
++        let active_cancelled = self
++            .probe_queue
++            .front()
++            .is_some_and(|p| p.config().kind() == crate::bwe::ProbeKind::PeriodicAlr);
++        let mut keep = VecDeque::new();
++        let mut cancelled = Vec::new();
++        while let Some(probe) = self.probe_queue.pop_front() {
++            if probe.config().kind() == crate::bwe::ProbeKind::PeriodicAlr {
++                cancelled.push(probe.config().cluster());
++            } else {
++                keep.push_back(probe);
++            }
++        }
++        self.probe_queue = keep;
++        if active_cancelled {
++            self.next_poll_queue = None;
++            self.request_immediate_timeout();
++        }
++        (active_cancelled, cancelled)
++    }
++
+     /// Start executing a probe cluster.
+     ///
+     /// The pacer will pace at the probe's target bitrate and track packets sent.
+--- a/src/pacer/mod.rs
++++ b/src/pacer/mod.rs
+@@ -34,6 +34,13 @@
+     pub fn cancel_probes(&mut self, validation_only: bool) {
+         if let PacerImpl::LeakyBucket(pacer) = self {
+             pacer.cancel_probes(validation_only);
++        }
++    }
++
++    pub fn cancel_periodic_alr_probes(&mut self) -> (bool, Vec<TwccClusterId>) {
++        match self {
++            PacerImpl::Null(_) => (false, Vec::new()),
++            PacerImpl::LeakyBucket(pacer) => pacer.cancel_periodic_alr_probes(),
+         }
+     }
+ 
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1356,6 +1356,23 @@
+         }
+     }
+ 
++    pub fn set_periodic_alr_probing(&mut self, enabled: bool, now: Instant) {
++        let Some(bwe) = self.bwe.as_mut() else {
++            return;
++        };
++        bwe.set_periodic_alr_probing(enabled, now);
++        if !enabled {
++            let (active_cancelled, cancelled) = self.pacer.cancel_periodic_alr_probes();
++            for id in cancelled {
++                bwe.end_probe(now, id);
++            }
++            if active_cancelled {
++                self.streams.clear_pending_padding();
++                self.streams.set_probe_media(None);
++            }
++        }
++    }
++
+     pub fn start_bwe_validation(&mut self, target: Bitrate, now: Instant) -> Option<u64> {
+         if self.srtp_tx.is_none() || self.probe_media().is_none() {
+             return None;

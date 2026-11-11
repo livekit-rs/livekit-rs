@@ -1,0 +1,57 @@
+[
+  {
+    "id": "absent",
+    "claims": {}
+  },
+  {
+    "id": "whole-null",
+    "claims": {
+      "kindDetails": null
+    }
+  },
+  {
+    "id": "empty-list",
+    "claims": {
+      "kindDetails": []
+    }
+  },
+  {
+    "id": "null-item",
+    "claims": {
+      "kindDetails": [
+        null
+      ]
+    }
+  },
+  {
+    "id": "mixed-string-null",
+    "claims": {
+      "kindDetails": [
+        "x",
+        null
+      ]
+    }
+  },
+  {
+    "id": "number-item",
+    "claims": {
+      "kindDetails": [
+        9
+      ]
+    }
+  },
+  {
+    "id": "object-item",
+    "claims": {
+      "kindDetails": [
+        {}
+      ]
+    }
+  },
+  {
+    "id": "wrong-scalar",
+    "claims": {
+      "kindDetails": "x"
+    }
+  }
+]

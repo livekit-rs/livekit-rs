@@ -1,0 +1,21 @@
+Coordinator only; no author compiler/services/Go/Node run.
+python3 /tmp/raw-track-source-open-enum-v2/isolated-second/apply.py --root ROOT
+# Before production, install baseline-test-only.patch against captured base,
+# execute identical3 normal old APIs (not ignored reader) and preserve assertionRED:
+cargo test --release --locked -p lk-compat --lib signal::session::open_source_tests::
+# Restore exact base then root guarded apply; production cannot cover current raw5 active checks.
+python3 /tmp/raw-track-source-open-enum-v2/isolated-second/apply.py --root ROOT --apply
+cargo test --release --locked -p lk-compat --lib signal::session::open_source_tests::
+cargo test --release --locked -p rtc-core --lib room::tests::open_numeric_source::
+python3 /tmp/raw-track-source-open-enum-v2/isolated-second/oracle/prepare.py --root SOURCE_ROOT --out OWNED_FRESH
+# in OWNED_FRESH, record original source/mod/cases beforeafter:
+GOTOOLCHAIN=go1.26.3 GOMAXPROCS=2 go run -mod=readonly . cases.json > actual.jsonl
+OPEN_SOURCE_GO_CASES=ABS/cases.json OPEN_SOURCE_GO_RESULTS=ABS/actual.jsonl cargo test --release --locked -p lk-compat --lib signal::session::open_source_tests::actual_go_open_numeric_source12_all_columns -- --ignored --exact
+# Actual prestarted fixedGo and Rust use same source12 file and fixture, separatefresh report:
+INTEROP_PACKAGE=ROOT/livekit-rs-server/tests/interop/package.json LIVEKIT_URL=http://127.0.0.1:OWNED LIVEKIT_API_KEY=OWNED_KEY LIVEKIT_API_SECRET=OWNED_SECRET OPEN_SOURCE_GO_CASES=ABS/cases.json OPEN_SOURCE_GO_RESULTS=ABS/actual.jsonl OPEN_SOURCE_REPORT=OWNED_REPORT node /tmp/raw-track-source-open-enum-v2/isolated-second/fixture/run.mjs
+python3 /tmp/raw-track-source-open-enum-v2/isolated-second/fixture/compare.py --official GO_REPORT --rust RUST_REPORT --output OWNED_COMPARISON
+# Require12 IDs/sourceints+reason/echo and empty denial message exact.
+# Root full knownraw16/prior sidecar/publication/permission/source/library/workspace quality gates;
+# actual encrypted laterbind still not replaced by the core-event test; no full enum umbrella VERIFIED.
+
+For dual-base v2: ROOT is the target application tree; SOURCE_ROOT is /Users/zoujiaqing/projects/livekit-rs (fixed reference input tree). apply.py --source-root SOURCE_ROOT is explicit/available. Do not point Go stager at the isolated target tree without references.

@@ -1,0 +1,12 @@
+--- a/crates/rtc-runtime/src/room_task.rs
++++ b/crates/rtc-runtime/src/room_task.rs
+@@ -302,8 +302,7 @@
+             if now >= self.next_idle_check {
+                 self.next_idle_check = now + IDLE_CHECK;
+                 if self.room.should_close() {
+-                    let held = self.idle_hold.clone();
+-                    held.close_if_unheld(|| self.room.close(RoomEndReason::IdleTimeout, now));
++                    self.room.close(RoomEndReason::IdleTimeout, now);
+                 }
+             }
+             self.settle(now);

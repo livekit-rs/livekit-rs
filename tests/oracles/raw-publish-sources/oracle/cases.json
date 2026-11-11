@@ -1,0 +1,124 @@
+[
+  {
+    "id": "unknown",
+    "sources": [
+      "future_source"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "upper",
+    "sources": [
+      "CAMERA"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "mixedcase",
+    "sources": [
+      "MiCrOpHoNe"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "duplicateknown",
+    "sources": [
+      "camera",
+      "camera"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "duplicateunknown",
+    "sources": [
+      "future",
+      "future"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "emptystring",
+    "sources": [
+      ""
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "mixed",
+    "sources": [
+      "camera",
+      "future_source",
+      "CAMERA",
+      "microphone",
+      "future_source"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "reverse",
+    "sources": [
+      "microphone",
+      "camera"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "canonicalunknown",
+    "sources": [
+      "unknown"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "long-s",
+    "sources": [
+      "ſcreen_ſhare"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "dotless-i",
+    "sources": [
+      "mıcrophone"
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "null-element",
+    "sources": [
+      "camera",
+      null
+    ],
+    "can_publish": null
+  },
+  {
+    "id": "empty-list",
+    "sources": [],
+    "can_publish": null
+  },
+  {
+    "id": "null-list",
+    "sources": null,
+    "can_publish": null
+  },
+  {
+    "id": "publish-false",
+    "sources": [
+      "CAMERA",
+      "camera"
+    ],
+    "can_publish": false
+  },
+  {
+    "id": "mixed-all",
+    "sources": [
+      "screen_share_audio",
+      "SCREEN_SHARE_AUDIO",
+      "microphone",
+      "future",
+      "unknown",
+      ""
+    ],
+    "can_publish": null
+  }
+]

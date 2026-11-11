@@ -1,0 +1,157 @@
+[
+  {
+    "id": "canonical",
+    "authorization": "Basic b3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "lowercase-scheme",
+    "authorization": "basic b3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "mixed-scheme",
+    "authorization": "bAsIc b3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "nonzero-unused-pad-bits",
+    "authorization": "Basic b3duZWQtdXNlcjpvd25lZC1wYXNzIR==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "wrong-password",
+    "authorization": "Basic b3duZWQtdXNlcjp3cm9uZw==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "missing-header",
+    "authorization": null,
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "wrong-scheme",
+    "authorization": "Bearer b3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "tab-after-scheme",
+    "authorization": "Basic\tb3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "two-spaces",
+    "authorization": "Basic  b3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "leading-space",
+    "authorization": " Basic b3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": false,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "padding-removed",
+    "authorization": "Basic b3duZWQtdXNlcjpvd25lZC1wYXNzIQ",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "padding-extra",
+    "authorization": "Basic b3duZWQtdXNlcjpvd25lZC1wYXNzIQ===",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "space-in-base64",
+    "authorization": "Basic b3du ZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "no-colon",
+    "authorization": "Basic b3duZWQtdXNlcg==",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "invalid-b64",
+    "authorization": "Basic !!!!",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "base64-CRLF-component-only",
+    "authorization": "Basic b3du\r\nZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+    "wire_http": false,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "duplicate-first-invalid",
+    "authorization": null,
+    "header_values": [
+      "Basic b3duZWQtdXNlcjp3cm9uZw==",
+      "Basic b3duZWQtdXNlcjpvd25lZC1wYXNzIQ=="
+    ],
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "duplicate-first-valid",
+    "authorization": null,
+    "header_values": [
+      "Basic b3duZWQtdXNlcjpvd25lZC1wYXNzIQ==",
+      "Basic b3duZWQtdXNlcjp3cm9uZw=="
+    ],
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  },
+  {
+    "id": "password-colon-component",
+    "authorization": "Basic dTpwOnE=",
+    "wire_http": false,
+    "username": "u",
+    "password": "p:q"
+  },
+  {
+    "id": "username-colon-component",
+    "authorization": "Basic dTpwOnE=",
+    "wire_http": false,
+    "username": "u:p",
+    "password": "q"
+  },
+  {
+    "id": "decoded-invalid-utf8-password",
+    "authorization": "Basic b3duZWQtdXNlcjr/",
+    "wire_http": true,
+    "username": "owned-user",
+    "password": "owned-pass!"
+  }
+]

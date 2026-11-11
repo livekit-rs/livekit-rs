@@ -1,0 +1,207 @@
+--- a/src/rtp/ext.rs
++++ b/src/rtp/ext.rs
+@@ -956,6 +956,21 @@
+     }
+ }
+ 
++/// Ordered custom RTP extensions retained from each depacketized packet.
++/// Empty extension sets are omitted. This preserves frame dependency metadata
++/// from intermediate spatial components without changing the frame API shape.
++#[derive(Clone)]
++pub struct FrameUserExtensions(pub Vec<UserExtensionValues>);
++
++/// Position assigned by the frame packetizer after codec-specific fragmentation.
++#[derive(Clone, Copy, Debug)]
++pub struct FramePacketization {
++    /// First RTP packet of the repacketized sample.
++    pub first: bool,
++    /// Last RTP packet of the repacketized sample.
++    pub last: bool,
++}
++
+ /// Space for storing user extension values via [`ExtensionSerializer`].
+ #[derive(Clone, Default)]
+ pub struct UserExtensionValues {
+@@ -1011,6 +1026,11 @@
+ impl Eq for UserExtensionValues {}
+ 
+ impl UserExtensionValues {
++    /// Whether any custom extension values are present.
++    pub fn is_empty(&self) -> bool {
++        self.map.as_ref().is_none_or(HashMap::is_empty)
++    }
++
+     /// Set a user extension value.
+     ///
+     /// This uses the type of the value as "key", i.e. it can only hold a single
+--- a/src/rtp/mod.rs
++++ b/src/rtp/mod.rs
+@@ -3,7 +3,9 @@
+ pub use id::{Mid, Pt, Rid, SeqNo, SessionId, Ssrc, TwccClusterId, TwccSeq};
+ 
+ mod ext;
+-pub use ext::{AbsCaptureTime, UserExtensionValues, VideoOrientation};
++pub use ext::{
++    AbsCaptureTime, FramePacketization, FrameUserExtensions, UserExtensionValues, VideoOrientation,
++};
+ pub use ext::{Extension, ExtensionMap, ExtensionSerializer, ExtensionValues};
+ 
+ mod dir;
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -779,7 +779,7 @@
+ 
+     /// Video Layers Allocation RTP Header Extension
+     pub mod vla;
+-    pub use crate::rtp_::{AbsCaptureTime, ExtensionValues, UserExtensionValues};
++    pub use crate::rtp_::{AbsCaptureTime, ExtensionValues, UserExtensionValues, FrameUserExtensions, FramePacketization};
+     pub use crate::rtp_::{Extension, ExtensionMap, ExtensionSerializer};
+ 
+     pub use crate::packet::{
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -109,6 +109,20 @@
+             merged.user_values.set_arc(first_val);
+         }
+ 
++        let packets: Vec<_> = self
++            .meta
++            .iter()
++            .filter_map(|packet| {
++                let values = &packet.header.ext_vals.user_values;
++                (!values.is_empty()).then(|| values.clone())
++            })
++            .collect();
++        if !packets.is_empty() {
++            merged
++                .user_values
++                .set(crate::rtp_::FrameUserExtensions(packets));
++        }
++
+         merged
+     }
+ }
+@@ -860,6 +874,45 @@
+                 (3, 3, &[1, 3, 9], &[(3, &[1, 3, 9]), (4, &[1, 4, 9])]),
+             ],
+         )
++    }
++
++    #[test]
++    fn frame_custom_extensions_retain_intermediate_packets_in_sequence_order() {
++        let now = Instant::now();
++        let time = MediaTime::new(100, Frequency::NINETY_KHZ);
++        let meta = (0..3)
++            .map(|index| {
++                let mut header = RtpHeader::default();
++                header.ext_vals.user_values.set(index as u32);
++                RtpMeta {
++                    received: now,
++                    time,
++                    seq_no: SeqNo::from(index as u64 + 1),
++                    header,
++                    last_sender_info: None,
++                }
++            })
++            .collect();
++        let frame = Depacketized {
++            time,
++            contiguous: true,
++            meta,
++            data: vec![],
++            codec_extra: CodecExtra::None,
++        };
++        let merged = frame.ext_vals();
++        let packets = merged
++            .user_values
++            .get::<crate::rtp_::FrameUserExtensions>()
++            .unwrap();
++        assert_eq!(
++            packets
++                .0
++                .iter()
++                .map(|value| *value.get::<u32>().unwrap())
++                .collect::<Vec<_>>(),
++            vec![0, 1, 2]
++        );
+     }
+ 
+     #[test]
+--- a/src/packet/payload.rs
++++ b/src/packet/payload.rs
+@@ -94,6 +94,11 @@
+             let nackable = self.pack.nackable();
+ 
+             let mut pkt_ext_vals = ext_vals.clone();
++            if !pkt_ext_vals.user_values.is_empty() {
++                pkt_ext_vals
++                    .user_values
++                    .set(crate::rtp_::FramePacketization { first, last });
++            }
+ 
+             if !first {
+                 pkt_ext_vals.abs_capture_time = None;
+@@ -197,3 +202,63 @@
+         );
+     }
+ }
++
++#[cfg(test)]
++mod frame_custom_tests {
++    use super::*;
++    use crate::format::{Codec, FormatParams};
++    use crate::rtp_::{FramePacketization, MediaTime};
++    #[derive(Default)]
++    struct Sink(Vec<OutgoingPacket>);
++    impl PacketSink for Sink {
++        fn next_seq_no(&mut self) -> SeqNo {
++            SeqNo::from(self.0.len() as u64 + 1)
++        }
++        fn last_packet(&self) -> Option<&[u8]> {
++            self.0.last().map(|packet| packet.payload.as_slice())
++        }
++        fn send(&mut self, packet: OutgoingPacket) {
++            self.0.push(packet);
++        }
++    }
++    #[test]
++    fn frame_custom_packetization_context_matches_real_fragment_boundaries() {
++        let spec = CodecSpec {
++            codec: Codec::Vp8,
++            clock_rate: Frequency::NINETY_KHZ,
++            channels: None,
++            format: FormatParams::default(),
++        };
++        let mut payloader = Payloader::new(spec, Vp9PacketizerMode::default());
++        let mut values = ExtensionValues::default();
++        values.user_values.set(42u32);
++        let mut sink = Sink::default();
++        payloader
++            .push_sample(
++                ToPayload {
++                    pt: Pt::new_with_value(96),
++                    rid: None,
++                    wallclock: Instant::now(),
++                    rtp_time: MediaTime::from_millis(1),
++                    not_before: None,
++                    start_of_talk_spurt: false,
++                    data: vec![0; 3500].into(),
++                    ext_vals: values,
++                },
++                1200,
++                &mut sink,
++            )
++            .unwrap();
++        assert!(sink.0.len() >= 3);
++        for (index, packet) in sink.0.iter().enumerate() {
++            let context = packet
++                .ext_vals
++                .user_values
++                .get::<FramePacketization>()
++                .unwrap();
++            assert_eq!(context.first, index == 0);
++            assert_eq!(context.last, index + 1 == sink.0.len());
++            assert_eq!(packet.ext_vals.user_values.get::<u32>(), Some(&42));
++        }
++    }
++}

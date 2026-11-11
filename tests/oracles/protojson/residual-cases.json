@@ -1,0 +1,251 @@
+{
+  "status": "NOT_RUN",
+  "scope": "Independent residual map/Any/WKT/token vectors; actual pinned request/message fields only. No guessed expected results. Broader messages/WKT are distinguished from 47 RPC input coverage.",
+  "cases": [
+    {
+      "case": "duplicate-string-map-key",
+      "type": "livekit.CreateAgentDispatchRequest",
+      "body": "{\"attributes\":{\"k\":\"a\",\"k\":\"b\"}}"
+    },
+    {
+      "case": "numeric-map-leading-zero",
+      "type": "livekit.RTPStats",
+      "body": "{\"gapHistogram\":{\"1\":1,\"01\":2}}"
+    },
+    {
+      "case": "numeric-map-leading-plus",
+      "type": "livekit.RTPStats",
+      "body": "{\"gapHistogram\":{\"+1\":1,\"1\":2}}"
+    },
+    {
+      "case": "numeric-map-negative-zero",
+      "type": "livekit.RTPStats",
+      "body": "{\"gapHistogram\":{\"-0\":1,\"0\":2}}"
+    },
+    {
+      "case": "numeric-map-exponent-rejected",
+      "type": "livekit.RTPStats",
+      "body": "{\"gapHistogram\":{\"1e0\":1}}"
+    },
+    {
+      "case": "numeric-map-out-of-range",
+      "type": "livekit.RTPStats",
+      "body": "{\"gapHistogram\":{\"2147483648\":1}}"
+    },
+    {
+      "case": "numeric-map-valid-negative",
+      "type": "livekit.RTPStats",
+      "body": "{\"gapHistogram\":{\"-1\":1,\"2\":2}}"
+    },
+    {
+      "case": "any-known-type-first",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"@type\":\"type.googleapis.com/livekit.RoomParticipantIdentity\",\"room\":\"r\",\"identity\":\"p\"}]}"
+    },
+    {
+      "case": "any-known-type-last",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"room\":\"r\",\"identity\":\"p\",\"@type\":\"type.googleapis.com/livekit.RoomParticipantIdentity\"}]}"
+    },
+    {
+      "case": "any-duplicate-payload-type-first",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"@type\":\"type.googleapis.com/livekit.RoomParticipantIdentity\",\"room\":\"a\",\"room\":\"b\"}]}"
+    },
+    {
+      "case": "any-duplicate-payload-type-last",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"room\":\"a\",\"room\":\"b\",\"@type\":\"type.googleapis.com/livekit.RoomParticipantIdentity\"}]}"
+    },
+    {
+      "case": "any-duplicate-type",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"@type\":\"type.googleapis.com/livekit.RoomParticipantIdentity\",\"@type\":\"type.googleapis.com/livekit.RoomParticipantIdentity\",\"room\":\"r\"}]}"
+    },
+    {
+      "case": "any-empty",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{}]}"
+    },
+    {
+      "case": "any-unknown-type",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"@type\":\"type.googleapis.com/livekit.UnknownMessage\",\"room\":\"r\"}]}"
+    },
+    {
+      "case": "any-duration",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"@type\":\"type.googleapis.com/google.protobuf.Duration\",\"value\":\"1.500s\"}]}"
+    },
+    {
+      "case": "any-duration-duplicate-value",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[{\"@type\":\"type.googleapis.com/google.protobuf.Duration\",\"value\":\"1s\",\"value\":\"2s\"}]}"
+    },
+    {
+      "case": "any-null",
+      "type": "livekit.SIPCallInfo",
+      "body": "{\"callContext\":[null]}"
+    },
+    {
+      "case": "fieldmask-trim",
+      "type": "google.protobuf.FieldMask",
+      "body": "\" userName \""
+    },
+    {
+      "case": "fieldmask-underscore",
+      "type": "google.protobuf.FieldMask",
+      "body": "\"user_name\""
+    },
+    {
+      "case": "fieldmask-empty-component",
+      "type": "google.protobuf.FieldMask",
+      "body": "\"a,,b\""
+    },
+    {
+      "case": "fieldmask-trailing-dot",
+      "type": "google.protobuf.FieldMask",
+      "body": "\"a.\""
+    },
+    {
+      "case": "fieldmask-empty",
+      "type": "google.protobuf.FieldMask",
+      "body": "\"\""
+    },
+    {
+      "case": "fieldmask-whitespace",
+      "type": "google.protobuf.FieldMask",
+      "body": "\"  \""
+    },
+    {
+      "case": "fieldmask-valid-nested",
+      "type": "google.protobuf.FieldMask",
+      "body": "\"userName.displayName,roomName\""
+    },
+    {
+      "case": "timestamp-lowercase",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"2020-01-01t00:00:00z\""
+    },
+    {
+      "case": "timestamp-space",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"2020-01-01 00:00:00Z\""
+    },
+    {
+      "case": "timestamp-missing-zone",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"2020-01-01T00:00:00\""
+    },
+    {
+      "case": "timestamp-overprecision-zero",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"2020-01-01T00:00:00.1234567890Z\""
+    },
+    {
+      "case": "timestamp-leap-second",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"2020-01-01T00:00:60Z\""
+    },
+    {
+      "case": "timestamp-year-zero",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"0000-01-01T00:00:00Z\""
+    },
+    {
+      "case": "timestamp-offset-hour-24",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"2020-01-01T00:00:00+24:00\""
+    },
+    {
+      "case": "timestamp-boundary-offset",
+      "type": "google.protobuf.Timestamp",
+      "body": "\"0001-01-01T00:00:00+01:00\""
+    },
+    {
+      "case": "value-null",
+      "type": "google.protobuf.Value",
+      "body": "null"
+    },
+    {
+      "case": "value-string-null-value",
+      "type": "google.protobuf.Value",
+      "body": "\"NULL_VALUE\""
+    },
+    {
+      "case": "value-object-null",
+      "type": "google.protobuf.Value",
+      "body": "{\"k\":null}"
+    },
+    {
+      "case": "value-list-null",
+      "type": "google.protobuf.Value",
+      "body": "[null,1,\"x\"]"
+    },
+    {
+      "case": "struct-null",
+      "type": "google.protobuf.Struct",
+      "body": "{\"k\":null}"
+    },
+    {
+      "case": "struct-duplicate",
+      "type": "google.protobuf.Struct",
+      "body": "{\"k\":1,\"k\":2}"
+    },
+    {
+      "case": "list-value-null",
+      "type": "google.protobuf.ListValue",
+      "body": "[null,{\"k\":null}]"
+    },
+    {
+      "case": "unknown-huge-number",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"future\":1e1000000}"
+    },
+    {
+      "case": "unknown-invalid-number",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"future\":01}"
+    },
+    {
+      "case": "unknown-negative-zero",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"future\":-0}"
+    },
+    {
+      "case": "unknown-isolated-surrogate",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"future\":\"\\ud800\"}"
+    },
+    {
+      "case": "unknown-broken-surrogate-pair",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"future\":\"\\ud800\\u0041\"}"
+    },
+    {
+      "case": "known-isolated-surrogate",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"name\":\"\\ud800\"}"
+    },
+    {
+      "case": "known-valid-surrogate-pair",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"name\":\"\\ud83d\\ude00\"}"
+    },
+    {
+      "case": "unknown-invalid-utf8",
+      "type": "livekit.CreateRoomRequest",
+      "body_base64": "eyJmdXR1cmUiOiL/In0="
+    },
+    {
+      "case": "known-invalid-utf8",
+      "type": "livekit.CreateRoomRequest",
+      "body_base64": "eyJuYW1lIjoi/yJ9"
+    },
+    {
+      "case": "unknown-overlong-utf8",
+      "type": "livekit.CreateRoomRequest",
+      "body_base64": "eyJmdXR1cmUiOiLAryJ9"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "pkg/sfu/rtpmunger.go": "ce73dfcc832717c414e15534b5551279be893f639c5f12b25394e6ab91d0b969",
+    "pkg/sfu/forwarder.go": "f16138d5ced5491f57132174dc5bae35f0a6262339706f5cd2d502600474c6e7",
+    "pkg/sfu/downtrack.go": "8fe93a5a773de34408be61d3b8917e1da60f766f2c13c61bd774aab14321fc8d",
+    "pkg/sfu/downtrack_downstream_integration_test.go": "a2ad12aac012f747b3ae2d7a37fbe9a313b14ebc38dfc3d98574e5d446c695f2",
+    "pkg/sfu/videolayerselector/dependencydescriptor.go": "28937564e23d61c31b1bc9f706ead33b0f6b0c54584730f0eb7b6191ef7ce45c",
+    "pkg/sfu/videolayerselector/framenumberwrapper.go": "911169a52276f5961a11c470cfded9abb9a8c2c7b4e8f6812cfc2b2d6d82ac0a",
+    "pkg/sfu/videolayerselector/selectordecisioncache.go": "6a8cfac90e45fc6051558f74b96ccb60f67ba874fea56b47c9e3799cac95a9a2",
+    "pkg/sfu/buffer/dependencydescriptorparser.go": "c1e1f0c4112b8ba9815fa5e14796ef3b6ffe081a80fd8cb5f448bd792a56b5c4",
+    "pkg/sfu/buffer/frameintegrity.go": "e7de00cf39d89e7d7851fdf539e43ef163de9df636c659953fa1bfc7c29ea259",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorextension.go": "2982192d8cc60cd0727c60f82bee12a1827665c1d1c9f8a1b6a9bf6853bf266f",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorwriter.go": "b59d824afc8dd5846240079a07691fcc82054acbe753057fc814b2706e53017f"
+  },
+  "helpers": {
+    "chain_observer_test.go": "a9de00f2449e6fc7e7f06cbe9c7825f48e79867f033b984a013bae6010cab6de",
+    "munger_observer_test.go": "91d511f7d4d8dc31d93ebf28a957372f20cbd8e112ce3fe96705d128841451d3",
+    "physical_helpers_test.go": "d1d6b3b6ad41b0617bd1169dce5d403f87f943f0e3d8d34db8e6c01759385001",
+    "physical_observer_test.go": "3c6422114898c0dbd0a29363952ca80c8132f55970dd09cf91461006882a3d7f",
+    "wire_shapes_observer_test.go": "cbb2b4811e04ea3e30bbd1afd5062fa359cd5eea60a93cdfd54b88bac6ce32a6",
+    "wrapper_observer_test.go": "3994946bfe040201448453839b102e095ba63fdcef83fa0aabdfb90b23451571"
+  },
+  "scope": "Original production algorithms unchanged. Controlled packet inputs call original RTPMunger/FrameNumberWrapper/DD selector and original DownTrack over real Pion SRTP; original own test helpers provide transport setup."
+}

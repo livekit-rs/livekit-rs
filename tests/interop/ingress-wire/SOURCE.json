@@ -1,0 +1,10 @@
+{
+  "status": "PREPARED_NOT_RUN",
+  "no_shared_repo_edits": true,
+  "oracle": "tests/oracles/io-info actual pinned generated Go and RedisStore",
+  "sdk": "livekit-server-sdk2.19.2 unchanged",
+  "files": {
+    "run-wire.mjs": "5d30f8d83b857c0736e5c7d6d4da2ba7e61b46b9c06ef09f3b6979c62604442e",
+    "README.md": "4d1b61b286de9fbe70274e21a0678afcf4cba9b1f19d6534a5f9dab6f0b5d16f"
+  }
+}

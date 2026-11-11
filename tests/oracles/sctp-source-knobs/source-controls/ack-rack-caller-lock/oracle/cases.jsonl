@@ -1,0 +1,9 @@
+{"ID":"equal-send-cohort","Kind":"rexmit","ThirdNs":0}
+{"ID":"later-send-cohort","Kind":"rexmit","ThirdNs":1000000}
+{"ID":"earlier-send-cohort","Kind":"rexmit","ThirdNs":-1000000}
+{"ID":"later-reliable","Kind":"reliable","ThirdNs":1000000}
+{"ID":"later-retransmitted-head","Kind":"rexmit","ThirdNs":1000000,"HeadRetransmitted":true}
+{"ID":"later-fully-inflight-abandoned","Kind":"rexmit","ThirdNs":1000000,"AllInflight":true}
+{"ID":"later-dcep-reliable","Kind":"dcep","ThirdNs":1000000}
+{"ID":"later-duplicate-tsn","Kind":"rexmit","ThirdNs":1000000,"Duplicate":true}
+{"ID":"later-reordering-observed","Kind":"rexmit","ThirdNs":1000000,"Reordered":true}

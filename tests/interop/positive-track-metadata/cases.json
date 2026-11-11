@@ -1,0 +1,303 @@
+{
+  "original10_preserved": true,
+  "additive12": [
+    {
+      "id": "positive-encryption-0",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 0,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 0,
+        "audio_features": [],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-encryption-1",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 1,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 1,
+        "audio_features": [],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-encryption-2",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 2,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 2,
+        "audio_features": [],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-encryption-99",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 99,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 99,
+        "audio_features": [],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-encryption--1",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": -1,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": -1,
+        "audio_features": [],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-encryption--2147483648",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": -2147483648,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": -2147483648,
+        "audio_features": [],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-encryption-2147483647",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 2147483647,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 2147483647,
+        "audio_features": [],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-audio-known",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 0,
+        "audioFeatures": [
+          4,
+          1,
+          4,
+          0,
+          1
+        ],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 0,
+        "audio_features": [
+          0,
+          1,
+          4
+        ],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-audio-unknown",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 0,
+        "audioFeatures": [
+          99,
+          -1,
+          6,
+          99,
+          -2147483648,
+          2147483647
+        ],
+        "packetTrailerFeatures": [],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 0,
+        "audio_features": [
+          -2147483648,
+          -1,
+          6,
+          99,
+          2147483647
+        ],
+        "packet_trailer_features": [],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-audio-legacy",
+      "canPublish": true,
+      "type": "AUDIO",
+      "reason": null,
+      "metadata": {
+        "encryption": 0,
+        "audioFeatures": [
+          99,
+          4,
+          99
+        ],
+        "packetTrailerFeatures": [],
+        "stereo": true,
+        "disableDtx": true
+      },
+      "expected": {
+        "encryption": 0,
+        "audio_features": [
+          4,
+          99,
+          0,
+          1
+        ],
+        "packet_trailer_features": [],
+        "stereo": true,
+        "disable_dtx": true
+      }
+    },
+    {
+      "id": "positive-trailer-known",
+      "canPublish": true,
+      "type": "AUDIO",
+      "source": "MICROPHONE",
+      "reason": null,
+      "metadata": {
+        "encryption": 0,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [
+          2,
+          0,
+          2,
+          1
+        ],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 0,
+        "audio_features": [],
+        "packet_trailer_features": [
+          0,
+          1,
+          2
+        ],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    },
+    {
+      "id": "positive-trailer-unknown",
+      "canPublish": true,
+      "type": "AUDIO",
+      "source": 99,
+      "reason": null,
+      "metadata": {
+        "encryption": 0,
+        "audioFeatures": [],
+        "packetTrailerFeatures": [
+          99,
+          -1,
+          -2147483648,
+          2,
+          99,
+          2147483647
+        ],
+        "stereo": false,
+        "disableDtx": false
+      },
+      "expected": {
+        "encryption": 0,
+        "audio_features": [],
+        "packet_trailer_features": [
+          -2147483648,
+          -1,
+          2,
+          99,
+          2147483647
+        ],
+        "stereo": false,
+        "disable_dtx": false
+      }
+    }
+  ],
+  "timeouts_unchanged_ms": 10000,
+  "scope": "pending ACK TrackInfo and full original refusal controls, not RTP/media"
+}

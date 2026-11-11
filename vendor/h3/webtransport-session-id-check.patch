@@ -1,0 +1,15 @@
+--- a/src/webtransport/session_id.rs
++++ b/src/webtransport/session_id.rs
+@@ -12,6 +12,12 @@
+ #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+ pub struct SessionId(u64);
+ impl SessionId {
++    /// WebTransport sessions use client-initiated bidirectional CONNECT IDs.
++    #[must_use]
++    pub fn is_client_initiated_bidi(self) -> bool {
++        self.0 & 3 == 0
++    }
++
+     pub(crate) fn from_varint(id: VarInt) -> SessionId {
+         Self(id.0)
+     }

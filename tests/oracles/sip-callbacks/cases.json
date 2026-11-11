@@ -1,0 +1,2370 @@
+[
+  {
+    "id": "auth-prompt",
+    "operation": "authenticate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "from": "+12345678",
+      "fromHost": "caller.example",
+      "to": "+1800",
+      "toHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "auth-no-match",
+    "operation": "authenticate",
+    "trunks": [],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "from": "+12345678",
+      "fromHost": "caller.example",
+      "to": "+1800",
+      "toHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "auth-disconnected",
+    "operation": "authenticate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "from": "+12345678",
+      "fromHost": "caller.example",
+      "to": "+1800",
+      "toHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    },
+    "disconnected": true
+  },
+  {
+    "id": "direct",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "no-rule-reject",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "no-trunk-wildcard-rule",
+    "operation": "evaluate",
+    "trunks": [],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "dispatch-disconnected",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    },
+    "disconnected": true
+  },
+  {
+    "id": "source-7",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "host",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-8",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "192.00.2.1",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-9",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "256.1.2.3",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-10",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "1..2.3",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-11",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "1.2.3",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-12",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "::1%",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-13",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "::1::2",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-14",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "1:2:3:4:5:6:7:8::",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-15",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "[::1]",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-16",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "192.0.2.1",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-17",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "::1",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-18",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "fe80::1%eth0",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-19",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "::ffff:192.0.2.1",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "source-20",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "",
+        "from": {
+          "user": "+12345678",
+          "host": "caller.example"
+        },
+        "to": {
+          "user": "+1800"
+        }
+      }
+    }
+  },
+  {
+    "id": "allowed-cidr",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "allowedAddresses": [
+          "192.0.2.0/24"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "denied-cidr",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "allowedAddresses": [
+          "198.51.100.0/24"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "allowed-host",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "allowedAddresses": [
+          "caller.example"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "invalid-mask-ignored",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "allowedAddresses": [
+          "*"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "normalized-caller-allowed",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "allowedNumbers": [
+          "1 234-5678"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "caller-denied",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "allowedNumbers": [
+          "999"
+        ]
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "normalized-called",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "1 (800)"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "default-trunk",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "default-conflict",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      },
+      {
+        "sipTrunkId": "ST_second",
+        "name": "test",
+        "numbers": [],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "specific-conflict",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      },
+      {
+        "sipTrunkId": "ST_second",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "specific-before-default",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      },
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "pin-prompt",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_pin",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room",
+            "pin": "1234"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "pin-accept",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_pin",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room",
+            "pin": "1234"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060",
+      "pin": "1234"
+    }
+  },
+  {
+    "id": "wrong-pin-no-open-fallback",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      },
+      {
+        "sipDispatchRuleId": "SDR_pin",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room",
+            "pin": "1234"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060",
+      "pin": "wrong"
+    }
+  },
+  {
+    "id": "no-pin-skips-protected",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      },
+      {
+        "sipDispatchRuleId": "SDR_pin",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room",
+            "pin": "1234"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060",
+      "pin": "wrong",
+      "noPin": true
+    }
+  },
+  {
+    "id": "specific-dispatch-priority",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      },
+      {
+        "sipDispatchRuleId": "SDR_specific",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        },
+        "trunkIds": [
+          "ST_test"
+        ]
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "unmatched-trunk-rule-reject",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_specific",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        },
+        "trunkIds": [
+          "ST_other"
+        ]
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "missing-rule-invalid",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_invalid"
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "rule-conflict",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      },
+      {
+        "sipDispatchRuleId": "SDR_duplicate",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "hide-number-attrs",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        },
+        "hidePhoneNumber": true
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060",
+      "extraAttributes": {
+        "custom": "request",
+        "sip.callID": "attempt-overwrite"
+      }
+    }
+  },
+  {
+    "id": "dispatchRuleIndividual",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleIndividual": {
+            "roomPrefix": "caller",
+            "noRandomness": true
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "dispatchRuleCallee",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleCallee": {
+            "roomPrefix": "callee",
+            "randomize": false
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "media-header-feature-inheritance",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "mediaEncryption": "SIP_MEDIA_ENCRYPT_REQUIRE",
+        "media": {
+          "codecs": [
+            {
+              "name": "opus",
+              "rate": 48000
+            }
+          ],
+          "mediaTimeout": "3s"
+        },
+        "krispEnabled": true,
+        "headers": {
+          "X-Fixture": "yes"
+        },
+        "headersToAttributes": {
+          "X-Caller": "user.attr"
+        },
+        "attributesToHeaders": {
+          "user.attr": "X-Result"
+        },
+        "includeHeaders": "SIP_ALL_HEADERS",
+        "ringingTimeout": "4s",
+        "maxCallDuration": "60s",
+        "ringingTimeoutStatus": "SIP_STATUS_REQUEST_TIMEOUT"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "rule-media-replaces-trunk-codecs",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm",
+        "mediaEncryption": "SIP_MEDIA_ENCRYPT_REQUIRE",
+        "media": {
+          "codecs": [
+            {
+              "name": "opus",
+              "rate": 48000
+            }
+          ],
+          "mediaTimeout": "3s"
+        },
+        "krispEnabled": true,
+        "headers": {
+          "X-Fixture": "yes"
+        },
+        "headersToAttributes": {
+          "X-Caller": "user.attr"
+        },
+        "attributesToHeaders": {
+          "user.attr": "X-Result"
+        },
+        "includeHeaders": "SIP_ALL_HEADERS",
+        "ringingTimeout": "4s",
+        "maxCallDuration": "60s",
+        "ringingTimeoutStatus": "SIP_STATUS_REQUEST_TIMEOUT"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        },
+        "media": {
+          "encryption": "SIP_MEDIA_ENCRYPT_ALLOW",
+          "codecs": [
+            {
+              "name": "PCMU",
+              "rate": 8000
+            }
+          ],
+          "mediaTimeout": "2s"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060"
+    }
+  },
+  {
+    "id": "modern-call-does-not-rewrite-legacy-rule-filter",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        },
+        "numbers": [
+          "new-to"
+        ]
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "192.0.2.1",
+        "from": {
+          "user": "new-from",
+          "host": "new.example"
+        },
+        "to": {
+          "user": "new-to"
+        }
+      }
+    }
+  },
+  {
+    "id": "modern-call-legacy-filter-selected",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+1800"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        },
+        "numbers": [
+          "+1800"
+        ]
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060",
+      "call": {
+        "lkCallId": "modern",
+        "sourceIp": "192.0.2.1",
+        "from": {
+          "user": "new-from",
+          "host": "new.example"
+        },
+        "to": {
+          "user": "new-to"
+        }
+      }
+    }
+  },
+  {
+    "id": "explicit-trunk-no-match-does-not-list-fallback",
+    "operation": "evaluate",
+    "trunks": [
+      {
+        "sipTrunkId": "ST_test",
+        "name": "test",
+        "numbers": [
+          "+999"
+        ],
+        "authUsername": "fixture-user",
+        "authPassword": "fixture-password",
+        "authRealm": "fixture-realm"
+      }
+    ],
+    "rules": [
+      {
+        "sipDispatchRuleId": "SDR_test",
+        "rule": {
+          "dispatchRuleDirect": {
+            "roomName": "room"
+          }
+        },
+        "attributes": {
+          "custom": "rule"
+        },
+        "metadata": "metadata",
+        "roomPreset": "preset",
+        "roomConfig": {
+          "name": "configured",
+          "metadata": "room-data"
+        }
+      }
+    ],
+    "request": {
+      "sipCallId": "SCL_fixture",
+      "callingNumber": "+12345678",
+      "callingHost": "caller.example",
+      "calledNumber": "+1800",
+      "calledHost": "called.example",
+      "srcAddress": "192.0.2.1:5060",
+      "sipTrunkId": "ST_test"
+    }
+  }
+]

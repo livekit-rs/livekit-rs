@@ -1,0 +1,28 @@
+[package]
+name = "rtc-crypto"
+description = "Pure-Rust (RustCrypto) crypto provider for str0m without rcgen/aws-lc (TASK-CRYPTO-01)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT OR Apache-2.0"
+publish.workspace = true
+
+[dependencies]
+str0m-proto.workspace = true
+dimpl.workspace = true
+aes.workspace = true
+aes-gcm.workspace = true
+ctr.workspace = true
+hmac.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+# p256 certificate AlgorithmIdentifier requires the SHA-256 OID implementation.
+sha2-oid.workspace = true
+p256.workspace = true
+x509-cert.workspace = true
+getrandom.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Independent P-384 DTLS-provider migration tests; same stable series as rtc-tls.
+p384 = { version = "=0.14.0", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "std"] }

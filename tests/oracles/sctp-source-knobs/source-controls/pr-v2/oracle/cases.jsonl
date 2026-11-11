@@ -1,0 +1,12 @@
+{"id":"reliable-0-fast-0","kind":"reliable","value":0,"fast":0}
+{"id":"rexmit-0-fast-0","kind":"rexmit","value":0,"fast":0}
+{"id":"rexmit-1-fast-0","kind":"rexmit","value":1,"fast":0}
+{"id":"rexmit-2-fast-0","kind":"rexmit","value":2,"fast":0}
+{"id":"timed-0-fast-0","kind":"timed","value":0,"fast":0}
+{"id":"timed-1000000-fast-0","kind":"timed","value":1000000,"fast":0}
+{"id":"reliable-0-fast-3000","kind":"reliable","value":0,"fast":3000}
+{"id":"rexmit-0-fast-3000","kind":"rexmit","value":0,"fast":3000}
+{"id":"rexmit-1-fast-3000","kind":"rexmit","value":1,"fast":3000}
+{"id":"rexmit-2-fast-3000","kind":"rexmit","value":2,"fast":3000}
+{"id":"timed-0-fast-3000","kind":"timed","value":0,"fast":3000}
+{"id":"timed-1000000-fast-3000","kind":"timed","value":1000000,"fast":3000}

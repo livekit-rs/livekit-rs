@@ -1,0 +1,204 @@
+--- a/src/extract/ws.rs
++++ b/src/extract/ws.rs
+@@ -92,16 +92,16 @@
+ 
+ use self::rejection::*;
+ use super::FromRequestParts;
+-use crate::{body::Bytes, response::Response, Error};
++use crate::{Error, body::Bytes, response::Response};
+ use axum_core::body::Body;
+ use futures_util::{
+     sink::{Sink, SinkExt},
+     stream::{FusedStream, Stream, StreamExt},
+ };
+ use http::{
++    Method, StatusCode, Version,
+     header::{self, HeaderMap, HeaderName, HeaderValue},
+     request::Parts,
+-    Method, StatusCode, Version,
+ };
+ use hyper_util::rt::TokioIo;
+ use sha1::{Digest, Sha1};
+@@ -111,14 +111,14 @@
+     future::Future,
+     pin::Pin,
+     str,
+-    task::{ready, Context, Poll},
++    task::{Context, Poll, ready},
+ };
+ use tokio_tungstenite::{
++    WebSocketStream,
+     tungstenite::{
+         self as ts,
+         protocol::{self, WebSocketConfig},
+     },
+-    WebSocketStream,
+ };
+ 
+ /// Extractor for establishing WebSocket connections.
+@@ -141,6 +141,7 @@
+     on_upgrade: hyper::upgrade::OnUpgrade,
+     on_failed_upgrade: F,
+     sec_websocket_protocol: BTreeSet<HeaderValue>,
++    permessage_deflate_offered: bool,
+ }
+ 
+ impl<F> std::fmt::Debug for WebSocketUpgrade<F> {
+@@ -188,6 +189,27 @@
+     /// and probably a little more depending on error handling strategy.
+     pub fn max_write_buffer_size(mut self, max: usize) -> Self {
+         self.config.max_write_buffer_size = max;
++        self
++    }
++
++    /// Negotiate RFC 7692 when offered by the client. Both directions use
++    /// no-context-takeover; compression applies to the actual socket codec.
++    /// Disabled by default. Call only on routes whose protocol enables it.
++    pub fn permessage_deflate(mut self, enabled: bool) -> Self {
++        self.config.permessage_deflate = enabled && self.permessage_deflate_offered;
++        self
++    }
++
++    /// Set an independent decoded-message limit for compressed input. None
++    /// preserves the wire-only read budget of Gorilla's SetReadLimit contract.
++    pub fn max_decompressed_message_size(mut self, maximum: Option<usize>) -> Self {
++        self.config.max_decompressed_message_size = maximum;
++        self
++    }
++
++    /// Opt this upgrade into LiveKit RTC's Gorilla reserved-bit semantics.
++    pub fn livekit_rtc_reserved_bits(mut self) -> Self {
++        self.config.livekit_rtc_reserved_bits = true;
+         self
+     }
+ 
+@@ -338,6 +360,7 @@
+             on_upgrade: self.on_upgrade,
+             on_failed_upgrade: callback,
+             sec_websocket_protocol: self.sec_websocket_protocol,
++            permessage_deflate_offered: self.permessage_deflate_offered,
+         }
+     }
+ 
+@@ -352,6 +375,7 @@
+     {
+         let on_upgrade = self.on_upgrade;
+         let config = self.config;
++        let permessage_deflate = config.permessage_deflate;
+         let on_failed_upgrade = self.on_failed_upgrade;
+ 
+         let protocol = self.protocol.clone();
+@@ -401,6 +425,15 @@
+             Response::new(Body::empty())
+         };
+ 
++        if permessage_deflate {
++            response.headers_mut().insert(
++                header::SEC_WEBSOCKET_EXTENSIONS,
++                HeaderValue::from_static(
++                    "permessage-deflate; server_no_context_takeover; client_no_context_takeover",
++                ),
++            );
++        }
++
+         if let Some(protocol) = self.protocol {
+             response
+                 .headers_mut()
+@@ -506,8 +539,16 @@
+             })
+             .collect();
+ 
++        let permessage_deflate_offered = protocol::offers_permessage_deflate(
++            parts
++                .headers
++                .get_all(header::SEC_WEBSOCKET_EXTENSIONS)
++                .iter()
++                .filter_map(|value| value.to_str().ok()),
++        );
+         Ok(Self {
+             config: Default::default(),
++            permessage_deflate_offered,
+             protocol: None,
+             sec_websocket_key,
+             on_upgrade,
+@@ -1102,7 +1143,7 @@
+     use std::future::ready;
+ 
+     use super::*;
+-    use crate::{routing::any, test_helpers::spawn_service, Router};
++    use crate::{Router, routing::any, test_helpers::spawn_service};
+     use http::{Request, Version};
+     use http_body_util::BodyExt as _;
+     use hyper_util::rt::TokioExecutor;
+@@ -1257,3 +1298,71 @@
+         );
+     }
+ }
++
++#[cfg(test)]
++mod livekit_deflate_upgrade_tests {
++    use super::*;
++
++    async fn upgrade(offer: Option<&str>) -> WebSocketUpgrade {
++        let mut builder = http::Request::builder()
++            .method(Method::GET)
++            .header(header::CONNECTION, "upgrade")
++            .header(header::UPGRADE, "websocket")
++            .header(header::SEC_WEBSOCKET_VERSION, "13")
++            .header(header::SEC_WEBSOCKET_KEY, "dGhlIHNhbXBsZSBub25jZQ==");
++        if let Some(offer) = offer {
++            builder = builder.header(header::SEC_WEBSOCKET_EXTENSIONS, offer);
++        }
++        let mut request = builder.body(Body::empty()).unwrap();
++        let on_upgrade = hyper::upgrade::on(&mut request);
++        request.extensions_mut().insert(on_upgrade);
++        let (mut parts, _) = request.into_parts();
++        <WebSocketUpgrade as FromRequestParts<()>>::from_request_parts(&mut parts, &())
++            .await
++            .unwrap()
++    }
++    #[tokio::test]
++    async fn compression_only_negotiates_when_route_enables_and_peer_offers_it() {
++        for (offer, enabled, negotiated) in [
++            (None, true, false),
++            (
++                Some("permessage-deflate; client_max_window_bits"),
++                false,
++                false,
++            ),
++            (
++                Some("permessage-deflate; client_max_window_bits"),
++                true,
++                true,
++            ),
++            (
++                Some("unknown, permessage-deflate; client_no_context_takeover"),
++                true,
++                true,
++            ),
++            (Some("permessage-deflate; =invalid"), true, false),
++        ] {
++            let ws = upgrade(offer).await.permessage_deflate(enabled);
++            assert_eq!(
++                ws.config.permessage_deflate, negotiated,
++                "actual raw-socket codec flag"
++            );
++            assert_eq!(
++                ws.config.max_decompressed_message_size, None,
++                "Gorilla has only a wire read limit"
++            );
++            let response = ws.on_upgrade(|_| async {});
++            assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
++            let extension = response
++                .headers()
++                .get(header::SEC_WEBSOCKET_EXTENSIONS)
++                .map(|value| value.to_str().unwrap());
++            assert_eq!(
++                extension,
++                negotiated.then_some(
++                    "permessage-deflate; server_no_context_takeover; client_no_context_takeover"
++                )
++            );
++        }
++    }
++}

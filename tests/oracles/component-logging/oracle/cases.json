@@ -1,0 +1,506 @@
+[
+  {
+    "id": "0-0",
+    "level": "debug",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.ice"
+  },
+  {
+    "id": "0-1",
+    "level": "debug",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.dtls"
+  },
+  {
+    "id": "0-2",
+    "level": "debug",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion"
+  },
+  {
+    "id": "0-3",
+    "level": "debug",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pionish"
+  },
+  {
+    "id": "0-4",
+    "level": "debug",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "pion.tcp_mux"
+  },
+  {
+    "id": "0-5",
+    "level": "debug",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "bad target,[x]=debug"
+  },
+  {
+    "id": "1-0",
+    "level": "INFO",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.ice"
+  },
+  {
+    "id": "1-1",
+    "level": "INFO",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.dtls"
+  },
+  {
+    "id": "1-2",
+    "level": "INFO",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion"
+  },
+  {
+    "id": "1-3",
+    "level": "INFO",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pionish"
+  },
+  {
+    "id": "1-4",
+    "level": "INFO",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "pion.tcp_mux"
+  },
+  {
+    "id": "1-5",
+    "level": "INFO",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "bad target,[x]=debug"
+  },
+  {
+    "id": "2-0",
+    "level": "warning",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.ice"
+  },
+  {
+    "id": "2-1",
+    "level": "warning",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.dtls"
+  },
+  {
+    "id": "2-2",
+    "level": "warning",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion"
+  },
+  {
+    "id": "2-3",
+    "level": "warning",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pionish"
+  },
+  {
+    "id": "2-4",
+    "level": "warning",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "pion.tcp_mux"
+  },
+  {
+    "id": "2-5",
+    "level": "warning",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "bad target,[x]=debug"
+  },
+  {
+    "id": "3-0",
+    "level": " error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.ice"
+  },
+  {
+    "id": "3-1",
+    "level": " error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.dtls"
+  },
+  {
+    "id": "3-2",
+    "level": " error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion"
+  },
+  {
+    "id": "3-3",
+    "level": " error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pionish"
+  },
+  {
+    "id": "3-4",
+    "level": " error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "pion.tcp_mux"
+  },
+  {
+    "id": "3-5",
+    "level": " error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "bad target,[x]=debug"
+  },
+  {
+    "id": "4-0",
+    "level": "error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.ice"
+  },
+  {
+    "id": "4-1",
+    "level": "error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.dtls"
+  },
+  {
+    "id": "4-2",
+    "level": "error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion"
+  },
+  {
+    "id": "4-3",
+    "level": "error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pionish"
+  },
+  {
+    "id": "4-4",
+    "level": "error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "pion.tcp_mux"
+  },
+  {
+    "id": "4-5",
+    "level": "error",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "bad target,[x]=debug"
+  },
+  {
+    "id": "5-0",
+    "level": "dpanic",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.ice"
+  },
+  {
+    "id": "5-1",
+    "level": "dpanic",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.dtls"
+  },
+  {
+    "id": "5-2",
+    "level": "dpanic",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion"
+  },
+  {
+    "id": "5-3",
+    "level": "dpanic",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pionish"
+  },
+  {
+    "id": "5-4",
+    "level": "dpanic",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "pion.tcp_mux"
+  },
+  {
+    "id": "5-5",
+    "level": "dpanic",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "bad target,[x]=debug"
+  },
+  {
+    "id": "6-0",
+    "level": "fatal",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.ice"
+  },
+  {
+    "id": "6-1",
+    "level": "fatal",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion.dtls"
+  },
+  {
+    "id": "6-2",
+    "level": "fatal",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pion"
+  },
+  {
+    "id": "6-3",
+    "level": "fatal",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "transport.pionish"
+  },
+  {
+    "id": "6-4",
+    "level": "fatal",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "pion.tcp_mux"
+  },
+  {
+    "id": "6-5",
+    "level": "fatal",
+    "components": {
+      "transport": "warn",
+      "transport.pion": "DeBuG",
+      "transport.pion.dtls": "fatal",
+      "pion": "error",
+      "bad target,[x]=debug": "debug"
+    },
+    "component": "bad target,[x]=debug"
+  }
+]

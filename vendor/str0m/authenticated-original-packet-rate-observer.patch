@@ -1,0 +1,237 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1054,6 +1054,9 @@
+     /// Incoming RTP data.
+     RtpPacket(RtpPacket),
+ 
++    /// Original authenticated video packet before codec frame assembly, opt-in.
++    MediaPacket(media::MediaPacket),
++
+     /// Incoming application-specific Payload-Specific Feedback (PSFB FMT=15, PT=206).
+     ///
+     /// Emitted when a non-REMB FMT=15 RTCP PSFB message is received. The payload
+@@ -1460,6 +1463,12 @@
+         self.session.forwarding_timing_enabled = enabled;
+     }
+ 
++    /// Emit original authenticated video packets alongside normal frame events.
++    /// Disabled by default. Drain output after each input to retain every packet.
++    pub fn set_video_packet_events(&mut self, enabled: bool) {
++        self.session.video_packet_events = enabled;
++    }
++
+     /// Enable the fixed Go five-rejected-packet source restart detector.
+     /// Default false; transport crypto, ICE and SCTP are retained on restart.
+     pub fn set_rtp_stream_restart_detection(&mut self, enabled: bool) {
+@@ -1644,6 +1653,7 @@
+                 Event::ChannelData(_)
+                 | Event::MediaData(_)
+                 | Event::RtpPacket(_)
++                | Event::MediaPacket(_)
+                 | Event::SenderFeedback(_)
+                 | Event::MediaEgressStats(_)
+                 | Event::MediaIngressStats(_)
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -463,3 +463,18 @@
+     /// Original keyframe classification rather than a repacketizer guess.
+     pub keyframe: bool,
+ }
++
++/// Authenticated original AV1 RTP packet observed before frame assembly.
++/// Applications must drain output after every input as for RTP mode. The
++/// packet is boxed so enabling this path does not enlarge the Event union.
++#[derive(Debug)]
++pub struct MediaPacket {
++    /// Negotiated media identifier bound to the actual authenticated SSRC.
++    pub mid: Mid,
++    /// Negotiated stream RID, if present.
++    pub rid: Option<Rid>,
++    /// Original negotiated codec and payload parameters.
++    pub params: PayloadParams,
++    /// Authenticated logical packet with original payload and extensions.
++    pub packet: Box<crate::streams::RtpPacket>,
++}
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -123,6 +123,8 @@
+ 
+     // Next packet for RtpPacket event.
+     pending_packet: Option<RtpPacket>,
++    pub(crate) video_packet_events: bool,
++    pending_media_packet: Option<crate::media::MediaPacket>,
+ 
+     // Total RTP payload bytes for media, including retransmissions.
+     media_bytes_rx: u64,
+@@ -235,6 +237,8 @@
+             pacer_control: PacerControl::new(),
+             poll_packet_buf: vec![0; 2000],
+             pending_packet: None,
++            video_packet_events: false,
++            pending_media_packet: None,
+             media_bytes_rx: 0,
+             node_traffic: Default::default(),
+             media_bytes_tx: 0,
+@@ -771,6 +775,7 @@
+                 return;
+             }
+         };
++        let packet_params = *params;
+         let clock_rate = params.spec().rtp_clock_rate();
+         let pt = params.pt();
+         let is_red = params.red() == Some(header.payload_type);
+@@ -1045,6 +1050,20 @@
+                 )));
+         }
+ 
++        if self.video_packet_events
++            && matches!(
++                packet_params.spec().codec,
++                crate::format::Codec::Av1 | crate::format::Codec::Vp9
++            )
++            && receipt.is_new_packet
++        {
++            self.pending_media_packet = Some(crate::media::MediaPacket {
++                mid,
++                rid: stream.rid(),
++                params: packet_params,
++                packet: Box::new(packet.clone()),
++            });
++        }
+         if self.rtp_mode {
+             // In RTP mode, we store the packet temporarily here for the next poll_output().
+             // However only if this is a packet not seen before. This filters out spurious
+@@ -1288,6 +1307,9 @@
+             return Some(Event::StreamPaused(paused));
+         }
+ 
++        if let Some(packet) = self.pending_media_packet.take() {
++            return Some(Event::MediaPacket(packet));
++        }
+         if self.rtp_mode {
+             if let Some(packet) = self.pending_packet.take() {
+                 return Some(Event::RtpPacket(packet));
+@@ -1913,6 +1935,14 @@
+     }
+ 
+     pub fn remove_media(&mut self, mid: Mid) {
++        if self
++            .pending_media_packet
++            .as_ref()
++            .is_some_and(|packet| packet.mid == mid)
++        {
++            self.pending_media_packet = None;
++        }
++
+         self.medias.retain(|media| media.mid() != mid);
+         self.streams.remove_streams_by_mid(mid);
+     }
+@@ -2119,6 +2149,81 @@
+     use crate::RtcConfig;
+     use crate::io::DATAGRAM_MTU_TARGET;
+     use crate::packet::RedEncoder;
++
++    #[test]
++    fn original_packet_observer_receives_authenticated_incomplete_vp9_before_assembly_and_retires()
++    {
++        let now = Instant::now();
++        let crypto = crate::crypto::test_default_provider();
++        let profile = SrtpProfile::AES128_CM_SHA1_80;
++        let material = vec![0x61; profile.keying_material_len()];
++        let key = KeyingMaterial::new(&material);
++        let mut tx = SrtpContext::new(crypto, profile, &key, true);
++        let mut session = Session::new(&RtcConfig::default().enable_vp9(true));
++        session.video_packet_events = true;
++        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++        let params = session
++            .codec_config
++            .params()
++            .iter()
++            .find(|p| p.spec().codec == crate::format::Codec::Vp9)
++            .copied()
++            .unwrap();
++        let mid = Mid::from("v");
++        let mut media = Media::from_direct_api(
++            mid,
++            0,
++            crate::media::MediaKind::Video,
++            ExtensionMap::empty(),
++        );
++        media.set_remote_pts(vec![params.pt()]);
++        session.add_media(media);
++        session
++            .streams
++            .expect_stream_rx(101.into(), None, MidRid(mid, None), false);
++        for sequence in 100u16..103 {
++            let mut bytes = vec![0x80, *params.pt(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 101];
++            bytes[2..4].copy_from_slice(&sequence.to_be_bytes());
++            bytes[4..8].copy_from_slice(&3000u32.to_be_bytes());
++            // Genuine encrypted RTP, intentionally no E/marker or complete codec frame.
++            let payload = [0xa8, 0x81, 0x23, 0x20, 0x82, sequence as u8];
++            bytes.extend_from_slice(&payload);
++            let header = RtpHeader::parse(&bytes, &ExtensionMap::empty()).unwrap();
++            let encrypted = tx.protect_rtp(&bytes, &header, u64::from(sequence));
++            let mut corrupt = encrypted.clone();
++            *corrupt.last_mut().unwrap() ^= 1;
++            session.handle_rtp_receive(now, &corrupt);
++            assert!(
++                session.pending_media_packet.is_none(),
++                "unauthenticated source cannot measure rates"
++            );
++            session.handle_rtp_receive(now, &encrypted);
++            let mut observed = None;
++            while let Some(event) = session.poll_event_fallible(now).unwrap() {
++                match event {
++                    Event::MediaPacket(packet) => {
++                        assert!(observed.is_none());
++                        observed = Some(packet)
++                    }
++                    Event::MediaData(_) => panic!("incomplete codec frame must not be fabricated"),
++                    _ => {}
++                }
++            }
++            let packet =
++                observed.expect("every accepted original packet emits before a final fragment");
++            assert_eq!(*packet.packet.seq_no, u64::from(sequence));
++            assert_eq!(packet.packet.payload.as_ref(), &payload);
++            assert!(!packet.packet.header.marker);
++            session.handle_rtp_receive(now, &encrypted);
++            assert!(
++                session.pending_media_packet.is_none(),
++                "duplicate source cannot inflate rates"
++            );
++        }
++        session.remove_media(mid);
++        assert!(session.pending_media_packet.is_none());
++        assert!(session.streams.stream_rx(&101.into()).is_none());
++    }
+ 
+     #[test]
+     fn session_mtu_matches_config() {
+--- a/src/streams/mod.rs
++++ b/src/streams/mod.rs
+@@ -40,7 +40,7 @@
+ /// Packet of RTP data.
+ ///
+ /// As emitted by [`Event::RtpPacket`][crate::Event::RtpPacket] when using rtp mode.
+-#[derive(PartialEq, Eq)]
++#[derive(Clone, PartialEq, Eq)]
+ pub struct RtpPacket {
+     /// Extended sequence number to avoid having to deal with ROC.
+     pub seq_no: SeqNo,
+@@ -100,6 +100,15 @@
+ const BLANK_PACKET_DEFAULT_PT: Pt = Pt::new_with_value(255);
+ 
+ impl RtpPacket {
++    /// Actual authenticated original-packet timing, when explicitly enabled.
++    /// No frame assembly time or synthetic replay timestamp is substituted.
++    pub fn forwarding_observation(&self) -> Option<crate::media::ForwardingPacket> {
++        self.header
++            .ext_vals
++            .user_values
++            .get::<crate::media::ForwardingPacketMeta>()
++            .and_then(|value| value.0)
++    }
+     fn blank() -> RtpPacket {
+         RtpPacket {
+             seq_no: 0.into(),

@@ -1,0 +1,20 @@
+[
+ {"id":"missing-port","address":"127.0.0.1"},
+ {"id":"missing-close-bracket","address":"[::1:6379"},
+ {"id":"unbracketed-ipv6","address":"::1:6379"},
+ {"id":"unexpected-open-bracket","address":"x[:6379"},
+ {"id":"empty-port-zero","address":"127.0.0.1:"},
+ {"id":"bare-plus-zero","address":"127.0.0.1:+"},
+ {"id":"bare-minus-zero","address":"127.0.0.1:-"},
+ {"id":"signed-leading-zero","address":"127.0.0.1:+00080"},
+ {"id":"invalid-negative","address":"127.0.0.1:-1"},
+ {"id":"invalid-range","address":"127.0.0.1:65536"},
+ {"id":"source-uint32-multiplication","address":"127.0.0.1:4294967300"},
+ {"id":"source-addition-overflow","address":"127.0.0.1:4294967296"},
+ {"id":"empty-host","address":":80"},
+ {"id":"ipv6-literal","address":"[0:0:0:0:0:0:0:1]:6379"},
+ {"id":"ipv4-mapped","address":"[::ffff:127.0.0.1]:6379"},
+ {"id":"ipv6-zone","address":"[0:0:0:0:0:0:0:1%lo0]:6379"},
+ {"id":"named-service-case","address":"127.0.0.1:HTTP"},
+ {"id":"named-service-unknown","address":"127.0.0.1:owned_unknown_service"}
+]

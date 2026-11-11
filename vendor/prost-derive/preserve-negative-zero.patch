@@ -1,0 +1,124 @@
+--- a/src/field/map.rs
++++ b/src/field/map.rs
+@@ -1,4 +1,4 @@
+-use anyhow::{bail, Error};
++use anyhow::{Error, bail};
+ use proc_macro2::{Span, TokenStream};
+ use quote::quote;
+ use syn::punctuated::Punctuated;
+@@ -146,6 +146,28 @@
+                     );
+                 }
+             }
++            ValueTy::Scalar(value_ty @ (scalar::Ty::Float | scalar::Ty::Double)) => {
++                let val_mod = value_ty.module();
++                let ve = quote!(#prost_path::encoding::#val_mod::encode);
++                let vl = quote!(#prost_path::encoding::#val_mod::encoded_len);
++                let default = match value_ty {
++                    scalar::Ty::Float => quote!(::core::f32::NAN),
++                    scalar::Ty::Double => quote!(::core::f64::NAN),
++                    _ => unreachable!(),
++                };
++                quote! {
++                    #prost_path::encoding::#module::encode_with_default(
++                        #ke,
++                        #kl,
++                        #ve,
++                        #vl,
++                        &(#default),
++                        #tag,
++                        &#ident,
++                        buf,
++                    );
++                }
++            }
+             ValueTy::Scalar(value_ty) => {
+                 let val_mod = value_ty.module();
+                 let ve = quote!(#prost_path::encoding::#val_mod::encode);
+@@ -226,6 +248,24 @@
+                     #prost_path::encoding::#module::encoded_len_with_default(
+                         #kl,
+                         #prost_path::encoding::int32::encoded_len,
++                        &(#default),
++                        #tag,
++                        &#ident,
++                    )
++                }
++            }
++            ValueTy::Scalar(value_ty @ (scalar::Ty::Float | scalar::Ty::Double)) => {
++                let val_mod = value_ty.module();
++                let vl = quote!(#prost_path::encoding::#val_mod::encoded_len);
++                let default = match value_ty {
++                    scalar::Ty::Float => quote!(::core::f32::NAN),
++                    scalar::Ty::Double => quote!(::core::f64::NAN),
++                    _ => unreachable!(),
++                };
++                quote! {
++                    #prost_path::encoding::#module::encoded_len_with_default(
++                        #kl,
++                        #vl,
+                         &(#default),
+                         #tag,
+                         &#ident,
+--- a/src/field/scalar.rs
++++ b/src/field/scalar.rs
+@@ -1,11 +1,11 @@
+ use std::fmt;
+ 
+-use anyhow::{anyhow, bail, Error};
++use anyhow::{Error, anyhow, bail};
+ use proc_macro2::{Span, TokenStream};
+-use quote::{quote, ToTokens, TokenStreamExt};
+-use syn::{parse_str, Expr, ExprLit, Ident, Index, Lit, LitByteStr, Meta, MetaNameValue, Path};
+-
+-use crate::field::{bool_attr, set_option, tag_attr, Label};
++use quote::{ToTokens, TokenStreamExt, quote};
++use syn::{Expr, ExprLit, Ident, Index, Lit, LitByteStr, Meta, MetaNameValue, Path, parse_str};
++
++use crate::field::{Label, bool_attr, set_option, tag_attr};
+ 
+ /// A scalar protobuf field.
+ #[derive(Clone)]
+@@ -118,8 +118,15 @@
+         match self.kind {
+             Kind::Plain(ref default) => {
+                 let default = default.typed();
++                // Numeric equality merges +/-0; protobuf wire presence must not.
++                let non_default = match self.ty {
++                    Ty::Float | Ty::Double => {
++                        quote!(#ident != #default || #ident.to_bits() != (#default).to_bits())
++                    }
++                    _ => quote!(#ident != #default),
++                };
+                 quote! {
+-                    if #ident != #default {
++                    if #non_default {
+                         #encode_fn(#tag, &#ident, buf);
+                     }
+                 }
+@@ -172,8 +179,15 @@
+         match self.kind {
+             Kind::Plain(ref default) => {
+                 let default = default.typed();
++                // Numeric equality merges +/-0; protobuf wire presence must not.
++                let non_default = match self.ty {
++                    Ty::Float | Ty::Double => {
++                        quote!(#ident != #default || #ident.to_bits() != (#default).to_bits())
++                    }
++                    _ => quote!(#ident != #default),
++                };
+                 quote! {
+-                    if #ident != #default {
++                    if #non_default {
+                         #encoded_len_fn(#tag, &#ident)
+                     } else {
+                         0
+@@ -826,7 +840,7 @@
+ #[cfg(test)]
+ mod tests {
+     use super::{DefaultValue, Ty};
+-    use syn::{parse_str, Lit, Path};
++    use syn::{Lit, Path, parse_str};
+ 
+     #[test]
+     fn from_lit_rejects_invalid_enumeration_default_without_panic() {

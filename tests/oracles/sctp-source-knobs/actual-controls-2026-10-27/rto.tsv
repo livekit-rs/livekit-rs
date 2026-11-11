@@ -1,0 +1,60 @@
+reliable-0-fast-0	original-first	reliable	0	0	1,0,0	000	000	000	3000	1200	2		
+reliable-0-fast-0	original-middle	reliable	0	0	1,1,0	000	000	000	3000	2400	1		
+reliable-0-fast-0	original-last	reliable	0	0	1,1,1	000	000	111	3000	3000	0		
+reliable-0-fast-0	rto	reliable	0	0	2,2,2	000	000	111	3000	3000	0	1228,1228,628	1,2,3
+reliable-0-fast-0	sack	reliable	0	0	2,2,2	000	000	111	0	0	0		
+rexmit-0-fast-0	original-first	rexmit	0	0	1,0,0	000	111	000	3000	1200	2		
+rexmit-0-fast-0	original-middle	rexmit	0	0	1,1,0	000	111	000	3000	2400	1		
+rexmit-0-fast-0	original-last	rexmit	0	0	1,1,1	111	111	111	3000	3000	0		
+rexmit-0-fast-0	rto	rexmit	0	0	1,1,1	111	111	111	3000	3000	0		
+rexmit-0-fast-0	sack	rexmit	0	0	1,1,1	111	111	111	0	0	0		
+rexmit-1-fast-0	original-first	rexmit	1	0	1,0,0	000	000	000	3000	1200	2		
+rexmit-1-fast-0	original-middle	rexmit	1	0	1,1,0	000	000	000	3000	2400	1		
+rexmit-1-fast-0	original-last	rexmit	1	0	1,1,1	000	000	111	3000	3000	0		
+rexmit-1-fast-0	rto	rexmit	1	0	2,2,2	111	111	111	3000	3000	0	1228,1228,628	1,2,3
+rexmit-1-fast-0	sack	rexmit	1	0	2,2,2	111	111	111	0	0	0		
+rexmit-2-fast-0	original-first	rexmit	2	0	1,0,0	000	000	000	3000	1200	2		
+rexmit-2-fast-0	original-middle	rexmit	2	0	1,1,0	000	000	000	3000	2400	1		
+rexmit-2-fast-0	original-last	rexmit	2	0	1,1,1	000	000	111	3000	3000	0		
+rexmit-2-fast-0	rto	rexmit	2	0	2,2,2	000	000	111	3000	3000	0	1228,1228,628	1,2,3
+rexmit-2-fast-0	sack	rexmit	2	0	2,2,2	000	000	111	0	0	0		
+timed-0-fast-0	original-first	timed	0	0	1,0,0	000	111	000	3000	1200	2		
+timed-0-fast-0	original-middle	timed	0	0	1,1,0	000	111	000	3000	2400	1		
+timed-0-fast-0	original-last	timed	0	0	1,1,1	111	111	111	3000	3000	0		
+timed-0-fast-0	rto	timed	0	0	1,1,1	111	111	111	3000	3000	0		
+timed-0-fast-0	sack	timed	0	0	1,1,1	111	111	111	0	0	0		
+timed-1000000-fast-0	original-first	timed	1000000	0	1,0,0	000	000	000	3000	1200	2		
+timed-1000000-fast-0	original-middle	timed	1000000	0	1,1,0	000	000	000	3000	2400	1		
+timed-1000000-fast-0	original-last	timed	1000000	0	1,1,1	000	000	111	3000	3000	0		
+timed-1000000-fast-0	rto	timed	1000000	0	2,2,2	000	000	111	3000	3000	0	1228,1228,628	1,2,3
+timed-1000000-fast-0	sack	timed	1000000	0	2,2,2	000	000	111	0	0	0		
+reliable-0-fast-3000	original-first	reliable	0	3000	1,0,0	000	000	000	3000	1200	2		
+reliable-0-fast-3000	original-middle	reliable	0	3000	1,1,0	000	000	000	3000	2400	1		
+reliable-0-fast-3000	original-last	reliable	0	3000	1,1,1	000	000	111	3000	3000	0		
+reliable-0-fast-3000	rto	reliable	0	3000	2,2,2	000	000	111	3000	3000	0	1228,1228,628	1,2,3
+reliable-0-fast-3000	sack	reliable	0	3000	2,2,2	000	000	111	0	0	0		
+rexmit-0-fast-3000	original-first	rexmit	0	3000	1,0,0	000	111	000	3000	1200	2		
+rexmit-0-fast-3000	original-middle	rexmit	0	3000	1,1,0	000	111	000	3000	2400	1		
+rexmit-0-fast-3000	original-last	rexmit	0	3000	1,1,1	111	111	111	3000	3000	0		
+rexmit-0-fast-3000	rto	rexmit	0	3000	1,1,1	111	111	111	3000	3000	0		
+rexmit-0-fast-3000	sack	rexmit	0	3000	1,1,1	111	111	111	0	0	0		
+rexmit-1-fast-3000	original-first	rexmit	1	3000	1,0,0	000	000	000	3000	1200	2		
+rexmit-1-fast-3000	original-middle	rexmit	1	3000	1,1,0	000	000	000	3000	2400	1		
+rexmit-1-fast-3000	original-last	rexmit	1	3000	1,1,1	000	000	111	3000	3000	0		
+rexmit-1-fast-3000	rto	rexmit	1	3000	2,2,2	111	111	111	3000	3000	0	1228,1228,628	1,2,3
+rexmit-1-fast-3000	sack	rexmit	1	3000	2,2,2	111	111	111	0	0	0		
+rexmit-2-fast-3000	original-first	rexmit	2	3000	1,0,0	000	000	000	3000	1200	2		
+rexmit-2-fast-3000	original-middle	rexmit	2	3000	1,1,0	000	000	000	3000	2400	1		
+rexmit-2-fast-3000	original-last	rexmit	2	3000	1,1,1	000	000	111	3000	3000	0		
+rexmit-2-fast-3000	rto	rexmit	2	3000	2,2,2	000	000	111	3000	3000	0	1228,1228,628	1,2,3
+rexmit-2-fast-3000	sack	rexmit	2	3000	2,2,2	000	000	111	0	0	0		
+timed-0-fast-3000	original-first	timed	0	3000	1,0,0	000	111	000	3000	1200	2		
+timed-0-fast-3000	original-middle	timed	0	3000	1,1,0	000	111	000	3000	2400	1		
+timed-0-fast-3000	original-last	timed	0	3000	1,1,1	111	111	111	3000	3000	0		
+timed-0-fast-3000	rto	timed	0	3000	1,1,1	111	111	111	3000	3000	0		
+timed-0-fast-3000	sack	timed	0	3000	1,1,1	111	111	111	0	0	0		
+timed-1000000-fast-3000	original-first	timed	1000000	3000	1,0,0	000	000	000	3000	1200	2		
+timed-1000000-fast-3000	original-middle	timed	1000000	3000	1,1,0	000	000	000	3000	2400	1		
+timed-1000000-fast-3000	original-last	timed	1000000	3000	1,1,1	000	000	111	3000	3000	0		
+timed-1000000-fast-3000	rto	timed	1000000	3000	2,2,2	000	000	111	3000	3000	0	1228,1228,628	1,2,3
+timed-1000000-fast-3000	sack	timed	1000000	3000	2,2,2	000	000	111	0	0	0		

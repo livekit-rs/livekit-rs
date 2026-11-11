@@ -1,0 +1,686 @@
+--- a/src/agent.rs
++++ b/src/agent.rs
+@@ -33,6 +33,11 @@
+     ///
+     /// This drives the state forward.
+     last_now: Option<Instant>,
++    // Independent of STUN pacing: selection starts on the first authenticated
++    // connectivity turn after credentials/role/restart, never at construction.
++    nomination_started_at: Option<Instant>,
++    // host, server-reflexive, peer-reflexive, relay (all zero unless opted in).
++    acceptance_min_waits: [Duration; 4],
+ 
+     /// Timing advance (Ta) value.
+     ///
+@@ -377,6 +382,8 @@
+             sped_received: VecDeque::new(),
+             last_sped_check: None,
+             last_now: None,
++            nomination_started_at: None,
++            acceptance_min_waits: [Duration::ZERO; 4],
+             ice_lite: false,
+             max_candidate_pairs: None,
+             has_exceeded_max_candidate_pairs: false,
+@@ -580,6 +587,7 @@
+         if self.remote_credentials.as_ref() != Some(&r) {
+             debug!("Set remote credentials: {:?}", Pii(&r));
+             self.remote_credentials = Some(r);
++            self.nomination_started_at = None;
+         }
+     }
+ 
+@@ -646,7 +654,49 @@
+     /// You should not call this function after ICE candidate pair formation
+     /// has started, as the controlling state influences candidate prio!
+     pub fn set_controlling(&mut self, v: bool) {
++        if self.controlling != v {
++            self.nomination_started_at = None;
++        }
+         self.controlling = v;
++    }
++
++    /// Minimum controlling-side nomination ages for host, server-reflexive,
++    /// peer-reflexive and relay candidates. Both sides of the best valid pair
++    /// must be eligible. Controlled-side USE-CANDIDATE handling is unchanged.
++    ///
++    /// The generic agent defaults to zero. Applications may supply their own
++    /// ICE policy defaults; values are durations, not retransmission timers.
++    pub fn set_candidate_acceptance_min_waits(&mut self, waits: [Duration; 4]) {
++        self.acceptance_min_waits = waits;
++    }
++
++    fn start_nomination_clock(&mut self, now: Instant) {
++        if self.remote_credentials.is_some() {
++            self.nomination_started_at.get_or_insert(now);
++        }
++    }
++
++    fn acceptance_wait(&self, kind: CandidateKind) -> Duration {
++        self.acceptance_min_waits[match kind {
++            CandidateKind::Host => 0,
++            CandidateKind::ServerReflexive => 1,
++            CandidateKind::PeerReflexive => 2,
++            CandidateKind::Relayed => 3,
++        }]
++    }
++
++    fn pair_acceptance_wait(&self, pair: &CandidatePair) -> Duration {
++        let local = self.acceptance_wait(pair.valid_local_candidate(&self.local_candidates).kind());
++        let remote = self.acceptance_wait(pair.remote_candidate(&self.remote_candidates).kind());
++        local.max(remote)
++    }
++
++    fn pair_nomination_deadline(&self, pair: &CandidatePair) -> Option<Instant> {
++        let start = self.nomination_started_at?;
++        // Go time.Duration is signed i64 nanoseconds; normalized application
++        // values fit in Instant on supported targets. An unrepresentable public
++        // library duration must not accidentally become immediate nomination.
++        start.checked_add(self.pair_acceptance_wait(pair))
+     }
+ 
+     /// Current ice agent state.
+@@ -1046,11 +1096,14 @@
+         // data session always requires the roles to be determined.
+ 
+         self.remote_credentials = None;
++        self.nomination_started_at = None;
+         self.sped.enable(false);
+         self.sped_received.clear();
+         self.last_sped_check = None;
+         self.remote_candidates.clear();
+         self.candidate_pairs.clear();
++        // Fixed Go Agent.Restart clears its selected pair with the checklist.
++        self.nominated_send = None;
+         self.has_exceeded_max_candidate_pairs = false;
+         self.transmit.clear();
+         self.events.clear();
+@@ -1225,6 +1278,8 @@
+             return false;
+         }
+ 
++        self.start_nomination_clock(now);
++
+         // Authentication above precedes any DTLS injection. Attributes after
+         // MESSAGE-INTEGRITY were already ignored by the STUN parser.
+         if self.sped_enabled
+@@ -1243,7 +1298,7 @@
+         } else if packet.message.is_successful_binding_response() {
+             self.stun_client_handle_response(now, packet.message);
+         } else if packet.message.is_failed_binding_response() {
+-            self.stun_client_handle_error(packet.message);
++            self.stun_client_handle_error(now, packet.message);
+         }
+ 
+         self.emit_event(IceAgentEvent::DiscoveredRecv {
+@@ -1261,6 +1316,7 @@
+     /// Typically, you will want to call [`IceAgent::poll_timeout`] and "wake-up"
+     /// the agent once that time is reached.
+     pub fn handle_timeout(&mut self, now: Instant) {
++        self.start_nomination_clock(now);
+         // This happens exactly once because evaluate_state() below will
+         // switch away from New -> Checking.
+         if self.state == IceConnectionState::New {
+@@ -1285,14 +1341,14 @@
+ 
+             if let Some(req) = self.stun_server_queue.pop_front() {
+                 debug!("Handle enqueued STUN request: {:?}", Pii(&req));
+-                self.stun_server_handle_request(req);
++                self.stun_server_handle_request(now, req);
+                 return;
+             }
+         }
+ 
+         self.last_now = Some(now);
+ 
+-        self.evaluate_nomination();
++        self.evaluate_nomination(now);
+ 
+         // prune failed candidates.
+         let mut any_pruned = false;
+@@ -1309,7 +1365,7 @@
+             keep
+         });
+         if any_pruned {
+-            self.evaluate_nomination();
++            self.evaluate_nomination(now);
+             self.evaluate_state(now);
+         }
+ 
+@@ -1420,7 +1476,19 @@
+             last_now + Duration::from_secs(3)
+         };
+ 
+-        Some(next)
++        let pending = if self.controlling {
++            self.candidate_pairs
++                .iter()
++                .filter(|p| p.state() == CheckState::Succeeded && !p.is_nominated())
++                .max_by_key(|p| p.prio())
++                .and_then(|p| self.pair_nomination_deadline(p))
++                .filter(|deadline| *deadline > last_now)
++        } else {
++            None
++        };
++        Some(pending.map_or(next, |deadline| {
++            next.min(deadline.max(last_now + self.timing_advance))
++        }))
+     }
+ 
+     fn emit_event(&mut self, event: IceAgentEvent) {
+@@ -1480,7 +1548,7 @@
+         };
+ 
+         if self.remote_credentials.is_some() {
+-            self.stun_server_handle_request(req);
++            self.stun_server_handle_request(now, req);
+         } else {
+             debug!(
+                 "Enqueue STUN request due to missing remote credentials: {:?}",
+@@ -1511,7 +1579,7 @@
+         }
+     }
+ 
+-    fn stun_server_handle_request(&mut self, req: StunRequest) {
++    fn stun_server_handle_request(&mut self, now: Instant, req: StunRequest) {
+         let remote_creds = self.remote_credentials.as_ref().expect("Remote ICE creds");
+         if req.remote_ufrag != remote_creds.ufrag {
+             // this check can be delayed due to receiving STUN bind requests before we
+@@ -1566,7 +1634,7 @@
+                 return;
+             }
+ 
+-            self.switch_role(!self.controlling);
++            self.switch_role(!self.controlling, now);
+         }
+ 
+         if req.use_candidate && self.controlling {
+@@ -1721,7 +1789,7 @@
+ 
+         if self.controlling && pair.state() == CheckState::Succeeded {
+             // See if we can nominate something now.
+-            self.evaluate_nomination();
++            self.evaluate_nomination(now);
+         }
+ 
+         let (_, password) = self.stun_credentials(true);
+@@ -1793,7 +1861,7 @@
+ 
+     /// Switches the controlling/controlled role and recomputes pair priorities
+     /// per RFC 8445 §7.3.1.1.
+-    fn switch_role(&mut self, controlling: bool) {
++    fn switch_role(&mut self, controlling: bool, now: Instant) {
+         if self.controlling == controlling {
+             return;
+         }
+@@ -1805,6 +1873,7 @@
+         );
+ 
+         self.controlling = controlling;
++        self.nomination_started_at = Some(now);
+ 
+         for i in 0..self.candidate_pairs.len() {
+             let local_idx = self.candidate_pairs[i].local_idx();
+@@ -1880,7 +1949,7 @@
+     /// the opposite role, but only if the request that triggered the 487 was
+     /// sent under our current role. Otherwise the response is stale —
+     /// in-flight from before an earlier swap — and acting on it would flap.
+-    fn stun_client_handle_error(&mut self, message: StunMessage<'_>) {
++    fn stun_client_handle_error(&mut self, now: Instant, message: StunMessage<'_>) {
+         let Some((code, _)) = message.error_code() else {
+             return;
+         };
+@@ -1913,7 +1982,7 @@
+             "Got 487 Role Conflict, switching from {}",
+             role_name(self.controlling),
+         );
+-        self.switch_role(!self.controlling);
++        self.switch_role(!self.controlling, now);
+     }
+ 
+     fn stun_client_handle_response(&mut self, now: Instant, message: StunMessage<'_>) {
+@@ -2016,31 +2085,44 @@
+         pair.record_binding_response(now, trans_id, valid_idx);
+ 
+         if self.controlling {
+-            self.evaluate_nomination();
++            self.evaluate_nomination(now);
+         }
+ 
+         // State might change when we get a response.
+         self.evaluate_state(now);
+     }
+ 
+-    fn evaluate_nomination(&mut self) {
++    fn evaluate_nomination(&mut self, now: Instant) {
+         let nominated_pair_priority = self.nominated_pair_priority();
+-
+-        let best_prio = if self.controlling {
+-            // For controlling agents, we pick the best candidate pair using
+-            // this strategy.
+-            self.candidate_pairs
+-                .iter_mut()
+-                .filter(|p| p.state() == CheckState::Succeeded)
+-                .max_by_key(|p| p.prio())
+-        } else {
+-            // For controlled agents, we pick the best pair from what the controlling
+-            // agent has indicated with USE-CANDIDATE stun attribute.
+-            self.candidate_pairs
+-                .iter_mut()
+-                .filter(|p| p.is_nominated())
+-                .max_by_key(|p| p.prio())
++        // Choose the best valid pair first. Do not bypass an ineligible best
++        // pair by nominating a weaker pair with a shorter wait.
++        let best_index = self
++            .candidate_pairs
++            .iter()
++            .enumerate()
++            .filter(|(_, p)| {
++                if self.controlling {
++                    p.state() == CheckState::Succeeded
++                } else {
++                    p.is_nominated()
++                }
++            })
++            .max_by_key(|(_, p)| p.prio())
++            .map(|(index, _)| index);
++        let Some(index) = best_index else {
++            return;
+         };
++        if self.controlling
++            && !self.candidate_pairs[index].is_nominated()
++            && !self
++                .pair_nomination_deadline(&self.candidate_pairs[index])
++                .is_some_and(|deadline| now >= deadline)
++        {
++            return;
++        }
++        let reset_deferred_deadline = self.controlling
++            && self.pair_acceptance_wait(&self.candidate_pairs[index]) > Duration::ZERO;
++        let best_prio = self.candidate_pairs.get_mut(index);
+ 
+         if let Some(best_prio) = best_prio {
+             if let Some(nominated) = nominated_pair_priority {
+@@ -2056,6 +2138,9 @@
+             if !best_prio.is_nominated() && (self.controlling || self.ice_lite) {
+                 // ice lite progresses pair to success straight away.
+                 best_prio.nominate(self.ice_lite);
++                if reset_deferred_deadline {
++                    best_prio.reset_deferred_nomination_deadline();
++                }
+             }
+ 
+             let local = best_prio.local_candidate(&self.local_candidates);
+@@ -3042,6 +3127,8 @@
+         );
+     }
+ 
++    include!("agent_acceptance_tests.rs");
++
+     fn make_serialized_binding_request(
+         local_creds: &IceCreds,
+         remote_creds: &IceCreds,
+--- /dev/null
++++ b/src/agent_acceptance_tests.rs
+@@ -0,0 +1,333 @@
++// Source oracle: fixed LiveKit ICE selection.go controllingSelector (both
++// candidate kinds), and agent_config.go's four defaults. These tests drive
++// authenticated STUN, not manually promoted pair state or hidden events.
++fn acceptance_candidate(kind: CandidateKind, address: SocketAddr) -> Candidate {
++    match kind {
++        CandidateKind::Host => Candidate::host(address, "udp").unwrap(),
++        CandidateKind::ServerReflexive => {
++            Candidate::server_reflexive(address, address, "udp").unwrap()
++        }
++        CandidateKind::PeerReflexive => Candidate::peer_reflexive(
++            Protocol::Udp,
++            address,
++            address,
++            1_800_000_000,
++            None,
++            "peer".into(),
++        ),
++        CandidateKind::Relayed => Candidate::relayed(address, address, "udp").unwrap(),
++    }
++}
++
++fn acceptance_checked_pair(
++    local: CandidateKind,
++    remote: CandidateKind,
++    waits: [Duration; 4],
++    start: Instant,
++    mapped: SocketAddr,
++) -> IceAgent {
++    let mut agent = new_test_agent();
++    agent.set_controlling(true);
++    agent.set_candidate_acceptance_min_waits(waits);
++    let remote_creds = IceCreds::new();
++    agent.set_remote_credentials(remote_creds.clone());
++    agent
++        .add_local_candidate(acceptance_candidate(local, ipv4_1()))
++        .unwrap();
++    let mut candidate = acceptance_candidate(remote, ipv4_3());
++    candidate.set_ufrag(&remote_creds.ufrag);
++    agent.add_remote_candidate(candidate);
++    agent.handle_timeout(start);
++    let request = agent.poll_transmit().expect("actual connectivity check");
++    let request = StunMessage::parse(&request.contents).unwrap();
++    assert!(request.is_binding_request());
++    assert!(
++        !request.use_candidate(),
++        "unvalidated pairs cannot be nominated"
++    );
++    let reply = make_authenticated_stun_reply(request.trans_id(), mapped, &remote_creds.pass);
++    assert!(agent.handle_packet(
++        start + Duration::from_millis(1),
++        StunPacket {
++            message: StunMessage::parse(&reply).unwrap(),
++            source: ipv4_3(),
++            destination: ipv4_1(),
++            proto: Protocol::Udp,
++        }
++    ));
++    assert_eq!(agent.candidate_pairs[0].state(), CheckState::Succeeded);
++    agent
++}
++
++fn assert_no_nomination(agent: &mut IceAgent) {
++    assert!(agent.nominated_send.is_none());
++    assert!(!agent.candidate_pairs.iter().any(|p| p.is_nominated()));
++    while let Some(datagram) = agent.poll_transmit() {
++        assert!(
++            !StunMessage::parse(&datagram.contents)
++                .unwrap()
++                .use_candidate()
++        );
++    }
++    assert!(
++        !agent
++            .events
++            .iter()
++            .any(|event| matches!(event, IceAgentEvent::NominatedSend { .. }))
++    );
++}
++
++#[test]
++fn acceptance_all_sixteen_kind_pairs_gate_real_use_candidate_at_maximum_age() {
++    use CandidateKind::*;
++    let kinds = [Host, ServerReflexive, PeerReflexive, Relayed];
++    let waits = [80, 120, 160, 200].map(Duration::from_millis);
++    for (li, local) in kinds.into_iter().enumerate() {
++        for (ri, remote) in kinds.into_iter().enumerate() {
++            let start = Instant::now();
++            let mut agent = acceptance_checked_pair(local, remote, waits, start, ipv4_1());
++            assert_no_nomination(&mut agent);
++            let deadline = start + waits[li].max(waits[ri]);
++            let wake = agent
++                .poll_timeout()
++                .expect("pending nomination must be scheduled");
++            assert!(wake <= deadline, "do not wait for the next STUN RTO");
++            agent.handle_timeout(deadline - Duration::from_nanos(1));
++            assert_no_nomination(&mut agent);
++            agent.handle_timeout(deadline);
++            assert!(agent.candidate_pairs[0].is_nominated());
++            let nomination = agent
++                .poll_transmit()
++                .expect("actual nomination datagram at boundary");
++            assert!(
++                StunMessage::parse(&nomination.contents)
++                    .unwrap()
++                    .use_candidate()
++            );
++            assert_eq!(agent.stats.nomination_send_count, 1);
++        }
++    }
++}
++
++#[test]
++fn acceptance_mapped_local_peer_reflexive_kind_is_not_original_host_kind() {
++    let start = Instant::now();
++    let waits = [
++        Duration::ZERO,
++        Duration::from_millis(500),
++        Duration::from_secs(1),
++        Duration::from_secs(2),
++    ];
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Host,
++        CandidateKind::Host,
++        waits,
++        start,
++        ipv4_2(),
++    );
++    assert_eq!(
++        agent.candidate_pairs[0]
++            .valid_local_candidate(&agent.local_candidates)
++            .kind(),
++        CandidateKind::PeerReflexive
++    );
++    assert_no_nomination(&mut agent);
++    agent.handle_timeout(start + Duration::from_millis(999));
++    assert_no_nomination(&mut agent);
++    agent.handle_timeout(start + Duration::from_secs(1));
++    assert!(
++        agent
++            .poll_transmit()
++            .is_some_and(|tx| StunMessage::parse(&tx.contents).unwrap().use_candidate())
++    );
++}
++
++#[test]
++fn acceptance_controlled_use_candidate_is_not_delayed_by_any_wait() {
++    let start = Instant::now();
++    let mut agent = new_test_agent();
++    agent.set_ice_lite(true);
++    agent.set_candidate_acceptance_min_waits([Duration::from_secs(60); 4]);
++    agent
++        .add_local_candidate(Candidate::host(ipv4_1(), "udp").unwrap())
++        .unwrap();
++    let remote = IceCreds::new();
++    agent.set_remote_credentials(remote.clone());
++    let candidate = Candidate::host(ipv4_3(), "udp").unwrap();
++    let username = format!("{}:{}", agent.local_credentials.ufrag, remote.ufrag);
++    let request = StunMessage::binding_request(
++        &username,
++        TransId::new(),
++        true,
++        u64::MAX,
++        candidate.prio(),
++        true,
++    );
++    let bytes = serialize_stun_msg(request, &agent.local_credentials.pass);
++    assert!(agent.handle_packet(
++        start,
++        StunPacket {
++            message: StunMessage::parse(&bytes).unwrap(),
++            source: ipv4_3(),
++            destination: ipv4_1(),
++            proto: Protocol::Udp
++        }
++    ));
++    agent.handle_timeout(start);
++    assert!(agent.nominated_send.is_some());
++    assert!(agent.poll_transmit().is_some_and(|tx| {
++        StunMessage::parse(&tx.contents)
++            .unwrap()
++            .is_successful_binding_response()
++    }));
++}
++
++#[test]
++fn acceptance_zero_generic_defaults_preserve_immediate_nomination() {
++    let start = Instant::now();
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Host,
++        CandidateKind::Host,
++        [Duration::ZERO; 4],
++        start,
++        ipv4_1(),
++    );
++    assert!(agent.nominated_send.is_some());
++    agent.handle_timeout(start + Duration::from_millis(50));
++    assert!(
++        agent
++            .poll_transmit()
++            .is_some_and(|tx| StunMessage::parse(&tx.contents).unwrap().use_candidate())
++    );
++}
++
++#[test]
++fn acceptance_restart_and_role_change_reset_selection_age_not_stun_pacing() {
++    let start = Instant::now();
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Host,
++        CandidateKind::Host,
++        [Duration::from_millis(200); 4],
++        start,
++        ipv4_1(),
++    );
++    let timeout_before = agent.last_now;
++    let role_time = start + Duration::from_millis(150);
++    agent.switch_role(false, role_time);
++    agent.switch_role(true, role_time);
++    assert_eq!(
++        agent.last_now, timeout_before,
++        "packet-driven role change cannot reset Ta"
++    );
++    agent.handle_timeout(start + Duration::from_millis(200));
++    assert_no_nomination(&mut agent);
++    agent.handle_timeout(role_time + Duration::from_millis(200));
++    assert!(agent.nominated_send.is_some());
++    agent.ice_restart(IceCreds::new(), true);
++    assert!(agent.nomination_started_at.is_none());
++    assert!(agent.nominated_send.is_none());
++    assert!(agent.candidate_pairs.is_empty());
++    agent.set_remote_credentials(IceCreds::new());
++    let restarted = start + Duration::from_secs(10);
++    agent.handle_timeout(restarted);
++    assert_eq!(agent.nomination_started_at, Some(restarted));
++}
++
++#[test]
++fn acceptance_does_not_bypass_ineligible_best_valid_pair_with_weaker_ready_pair() {
++    let start = Instant::now();
++    let mut agent = acceptance_checked_pair(
++        CandidateKind::Relayed,
++        CandidateKind::Host,
++        [
++            Duration::from_millis(200),
++            Duration::ZERO,
++            Duration::ZERO,
++            Duration::ZERO,
++        ],
++        start,
++        ipv4_1(),
++    );
++    let remote_credentials = agent.remote_credentials().unwrap().clone();
++    let mut lower = acceptance_candidate(CandidateKind::Relayed, ipv4_4());
++    lower.set_ufrag(&remote_credentials.ufrag);
++    agent.add_remote_candidate(lower);
++    agent.handle_timeout(start + Duration::from_millis(50));
++    let tx = agent
++        .poll_transmit()
++        .expect("check the additional weaker pair");
++    assert_eq!(tx.destination, ipv4_4());
++    let parsed = StunMessage::parse(&tx.contents).unwrap();
++    assert!(!parsed.use_candidate());
++    let response =
++        make_authenticated_stun_reply(parsed.trans_id(), ipv4_1(), &remote_credentials.pass);
++    assert!(agent.handle_packet(
++        start + Duration::from_millis(51),
++        StunPacket {
++            message: StunMessage::parse(&response).unwrap(),
++            source: ipv4_4(),
++            destination: ipv4_1(),
++            proto: Protocol::Udp,
++        }
++    ));
++    assert!(
++        agent
++            .candidate_pairs
++            .iter()
++            .all(|pair| pair.state() == CheckState::Succeeded)
++    );
++    assert_no_nomination(&mut agent);
++    agent.handle_timeout(start + Duration::from_millis(200));
++    let nomination = agent.poll_transmit().expect("nominate the best pair");
++    assert_eq!(nomination.destination, ipv4_3());
++    assert!(
++        StunMessage::parse(&nomination.contents)
++            .unwrap()
++            .use_candidate()
++    );
++}
++
++#[test]
++fn acceptance_queued_authenticated_request_role_switch_starts_at_processing_not_old_arrival() {
++    let start = Instant::now();
++    let mut agent = new_test_agent();
++    agent.control_tie_breaker = 1;
++    agent.set_candidate_acceptance_min_waits([Duration::from_millis(200); 4]);
++    agent
++        .add_local_candidate(Candidate::host(ipv4_1(), "udp").unwrap())
++        .unwrap();
++    let remote = IceCreds::new();
++    let username = format!("{}:{}", agent.local_credentials.ufrag, remote.ufrag);
++    let request = StunMessage::binding_request(
++        &username,
++        TransId::new(),
++        false,
++        u64::MAX,
++        Candidate::host(ipv4_3(), "udp").unwrap().prio(),
++        false,
++    );
++    let bytes = serialize_stun_msg(request, &agent.local_credentials.pass);
++    assert!(agent.handle_packet(
++        start,
++        StunPacket {
++            message: StunMessage::parse(&bytes).unwrap(),
++            source: ipv4_3(),
++            destination: ipv4_1(),
++            proto: Protocol::Udp,
++        }
++    ));
++    assert_eq!(agent.stun_server_queue.len(), 1);
++    assert!(
++        agent.nomination_started_at.is_none(),
++        "pre-start traffic cannot spend the wait"
++    );
++    agent.set_remote_credentials(remote);
++    let processed = start + Duration::from_secs(1);
++    agent.handle_timeout(processed);
++    assert!(
++        agent.controlling(),
++        "actual authenticated role conflict selects controlling"
++    );
++    assert_eq!(agent.nomination_started_at, Some(processed));
++    assert!(agent.stun_server_queue.is_empty());
++}
+--- a/src/pair.rs
++++ b/src/pair.rs
+@@ -199,6 +199,12 @@
+         &cs[self.local_idx]
+     }
+ 
++    /// The mapped local candidate of the last successful check, which may be
++    /// peer-reflexive even when the original checklist candidate was host.
++    pub fn valid_local_candidate<'a>(&self, cs: &'a [Candidate]) -> &'a Candidate {
++        &cs[self.valid_idx.unwrap_or(self.local_idx)]
++    }
++
+     pub fn remote_candidate<'a>(&self, cs: &'a [Candidate]) -> &'a Candidate {
+         &cs[self.remote_idx]
+     }
+@@ -245,6 +251,13 @@
+             self.nomination_state = NominationState::Nominated;
+             debug!("Nominated pair: {:?}", Pii(&self));
+         }
++    }
++
++    /// A configured positive acceptance wait deferred this nomination after a
++    /// normal next-check deadline was cached. Wake its new USE-CANDIDATE check
++    /// now without changing the original zero-wait/controlled nomination path.
++    pub fn reset_deferred_nomination_deadline(&mut self) {
++        self.cached_next_attempt_time = None;
+     }
+ 
+     pub fn copy_nominated_and_success_state(&mut self, other: &CandidatePair) {

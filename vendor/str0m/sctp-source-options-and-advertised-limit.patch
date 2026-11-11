@@ -1,0 +1,263 @@
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -52,6 +52,8 @@
+     pub(crate) send_buffer_audio: usize,
+     pub(crate) send_buffer_video: usize,
+     pub(crate) sctp_max_buffered_amount: usize,
++    pub(crate) sctp_transport_options: crate::SctpTransportOptions,
++    pub(crate) sctp_advertised_max_message_size: u32,
+     pub(crate) rtp_mode: bool,
+     pub(crate) enable_raw_packets: bool,
+     pub(crate) dtls_version: DtlsVersion,
+@@ -699,6 +701,18 @@
+     /// Defaults to 128 KiB.
+     pub fn set_sctp_max_buffered_amount(mut self, bytes: usize) -> Self {
+         self.sctp_max_buffered_amount = bytes;
++        self
++    }
++
++    /// Select association congestion/receive-storage parameters before SCTP initialization.
++    pub fn set_sctp_transport_options(mut self, options: crate::SctpTransportOptions) -> Self {
++        self.sctp_transport_options = options;
++        self
++    }
++    /// Set the local SDP advertised maximum message size, independently of the
++    /// remote negotiated outbound limit. This does not itself enforce an application read buffer.
++    pub fn set_sctp_advertised_max_message_size(mut self, bytes: u32) -> Self {
++        self.sctp_advertised_max_message_size = bytes;
+         self
+     }
+ 
+@@ -894,6 +908,8 @@
+             send_buffer_audio: 50,
+             send_buffer_video: 1000,
+             sctp_max_buffered_amount: crate::sctp::DEFAULT_MAX_BUFFERED_AMOUNT,
++            sctp_transport_options: Default::default(),
++            sctp_advertised_max_message_size: crate::sctp::LOCAL_MAX_MESSAGE_SIZE,
+             rtp_mode: false,
+             enable_raw_packets: false,
+             dtls_version: DtlsVersion::Dtls12,
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -823,7 +823,9 @@
+ }
+ 
+ mod sctp;
++mod sctp_options;
+ use sctp::{RtcSctp, SctpEvent, SctpInitData};
++pub use sctp_options::SctpTransportOptions;
+ 
+ mod sdp;
+ 
+@@ -1268,7 +1270,11 @@
+              crypto provider that supports certificate generation.",
+             );
+ 
+-        let mut sctp = RtcSctp::new(*mtu.start());
++        let mut sctp = RtcSctp::new_with_options(
++            *mtu.start(),
++            config.sctp_transport_options,
++            config.sctp_advertised_max_message_size,
++        );
+         if config.snap_enabled {
+             sctp.enable_snap();
+         }
+--- a/src/sctp/mod.rs
++++ b/src/sctp/mod.rs
+@@ -11,7 +11,7 @@
+ use sctp_proto::{Endpoint, EndpointConfig, Stream, StreamEvent, Transmit};
+ use sctp_proto::{Event, Payload, PayloadProtocolIdentifier, ServerConfig, TransportConfig};
+ 
+-use snap::{b64_encode, webrtc_transport_config};
++use snap::b64_encode;
+ 
+ pub use sctp_proto::Error as ProtoError;
+ use sctp_proto::ReliabilityType;
+@@ -60,6 +60,8 @@
+     snap_init: Option<SctpInitData>,
+     /// Bytes that can be buffered across all streams before `available()` is 0.
+     max_buffered_amount: usize,
++    options: crate::SctpTransportOptions,
++    advertised_max_message_size: u32,
+     #[cfg(test)]
+     max_payload_size: usize,
+ }
+@@ -289,7 +291,15 @@
+ );
+ 
+ impl RtcSctp {
++    #[cfg(test)]
+     pub fn new(mtu: usize) -> Self {
++        Self::new_with_options(mtu, Default::default(), LOCAL_MAX_MESSAGE_SIZE)
++    }
++    pub fn new_with_options(
++        mtu: usize,
++        options: crate::SctpTransportOptions,
++        advertised_max_message_size: u32,
++    ) -> Self {
+         let mut config = EndpointConfig::default();
+         let max_payload = mtu
+             .saturating_sub(crate::io::MAX_DTLS_OVERHEAD)
+@@ -298,7 +308,13 @@
+         #[cfg(test)]
+         let max_payload_size = max_payload;
+         let mut server_config = ServerConfig::default();
+-        server_config.transport = webrtc_transport_config();
++        server_config.transport = Arc::new(
++            options
++                .transport()
++                .with_max_init_retransmits(None)
++                .with_max_data_retransmits(None)
++                .with_max_receive_message_size(LOCAL_MAX_MESSAGE_SIZE),
++        );
+         let endpoint = Endpoint::new(Arc::new(config), Some(Arc::new(server_config)));
+         let fake_addr = "1.1.1.1:5000".parse().unwrap();
+ 
+@@ -318,6 +334,8 @@
+             snap_enabled: false,
+             snap_init: None,
+             max_buffered_amount: DEFAULT_MAX_BUFFERED_AMOUNT,
++            options,
++            advertised_max_message_size,
+             #[cfg(test)]
+             max_payload_size,
+         }
+@@ -328,6 +346,24 @@
+         self.max_payload_size
+     }
+ 
++    pub(crate) fn advertised_max_message_size(&self) -> u32 {
++        self.advertised_max_message_size
++    }
++    fn association_transport(&self) -> Arc<TransportConfig> {
++        Arc::new(
++            self.options
++                .transport()
++                .with_max_init_retransmits(None)
++                .with_max_data_retransmits(None)
++                .with_max_receive_message_size(LOCAL_MAX_MESSAGE_SIZE)
++                .with_max_send_message_size(self.remote_max_message_size),
++        )
++    }
++    fn make_snap_init(&self) -> SctpInitData {
++        let mut init = SctpInitData::new();
++        init.transport = self.association_transport();
++        init
++    }
+     pub fn is_inited(&self) -> bool {
+         self.state != RtcSctpState::Uninited
+     }
+@@ -368,7 +404,8 @@
+                 )));
+             }
+ 
+-            let config = snap_data.into_client_config();
++            let mut config = snap_data.into_client_config();
++            config.transport = self.association_transport();
+             debug!(
+                 "New {} association (out-of-band: true)",
+                 if client { "local" } else { "server" },
+@@ -394,7 +431,8 @@
+             let mut config = SctpInitData::default().into_client_config();
+ 
+             config.transport = Arc::new(
+-                TransportConfig::default()
++                self.options
++                    .transport()
+                     .with_max_init_retransmits(None)
+                     .with_max_data_retransmits(None)
+                     .with_max_receive_message_size(LOCAL_MAX_MESSAGE_SIZE)
+@@ -424,7 +462,9 @@
+     /// Enable SNAP by pre-populating the init data.
+     pub fn enable_snap(&mut self) {
+         self.snap_enabled = true;
+-        self.snap_init.get_or_insert_with(SctpInitData::new);
++        if self.snap_init.is_none() {
++            self.snap_init = Some(self.make_snap_init());
++        }
+     }
+ 
+     pub fn set_max_buffered_amount(&mut self, max_buffered_amount: usize) {
+@@ -439,7 +479,10 @@
+     /// Ensure the local SNAP INIT chunk is generated. Returns `false` if
+     /// generation failed (degrades to non-SNAP).
+     pub fn ensure_local_snap_init(&mut self) -> bool {
+-        let init_data = self.snap_init.get_or_insert_with(SctpInitData::new);
++        if self.snap_init.is_none() {
++            self.snap_init = Some(self.make_snap_init());
++        }
++        let init_data = self.snap_init.as_mut().unwrap();
+         if init_data.local_init_chunk().is_err() {
+             self.snap_init = None;
+             false
+@@ -489,7 +532,10 @@
+     /// Set the remote SNAP INIT from a base64 string. Returns `Ok(true)` if
+     /// accepted, `Ok(false)` on decode error (degrades to non-SNAP).
+     pub fn set_remote_snap_init_string(&mut self, value: &str) -> bool {
+-        let init_data = self.snap_init.get_or_insert_with(SctpInitData::new);
++        if self.snap_init.is_none() {
++            self.snap_init = Some(self.make_snap_init());
++        }
++        let init_data = self.snap_init.as_mut().unwrap();
+         match init_data.set_remote_init_string(value) {
+             Ok(()) => true,
+             Err(_) => {
+--- a/src/change/sdp.rs
++++ b/src/change/sdp.rs
+@@ -880,6 +880,17 @@
+             })
+             .collect::<Vec<_>>();
+ 
++        // Advertised local receive capability is independent of remote outbound limit.
++        for line in &mut lines {
++            if line.typ.is_channel() {
++                for attr in &mut line.attrs {
++                    if let MediaAttribute::MaxMessageSize(value) = attr {
++                        *value = params.sctp_advertised_max_message_size as usize;
++                    }
++                }
++            }
++        }
++
+         // Add a=sctp-init to the application m-line if SNAP is configured.
+         if let Some(sctp_init) = &params.local_sctp_init {
+             for line in &mut lines {
+@@ -1614,6 +1625,7 @@
+     pub setup: Setup,
+     pub pending: Option<&'b Changes>,
+     pub local_sctp_init: Option<String>,
++    pub sctp_advertised_max_message_size: u32,
+ }
+ 
+ impl<'a, 'b> AsSdpParams<'a, 'b> {
+@@ -1663,6 +1675,7 @@
+             setup,
+             pending,
+             local_sctp_init: rtc.sctp.local_sctp_init_for_sdp(),
++            sctp_advertised_max_message_size: rtc.sctp.advertised_max_message_size(),
+         }
+     }
+ 
+--- /dev/null
++++ b/src/sctp_options.rs
+@@ -0,0 +1,20 @@
++//! Explicit SCTP transport parameters; defaults preserve existing native behavior.
++use sctp_proto::TransportConfig;
++/// Application-selected association parameters. Zero keeps each native default.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct SctpTransportOptions {
++    /// Minimum congestion window in bytes.
++    pub min_cwnd: u32,
++    /// Fast-retransmission burst budget in bytes; individual packets remain MTU bound.
++    pub fast_rtx_wnd: u32,
++    /// Congestion avoidance increment in bytes, with a floor of one MTU.
++    pub cwnd_ca_step: u32,
++}
++impl SctpTransportOptions {
++    pub(crate) fn transport(self) -> TransportConfig {
++        TransportConfig::default()
++            .with_min_cwnd(self.min_cwnd)
++            .with_fast_rtx_wnd(self.fast_rtx_wnd)
++            .with_cwnd_ca_step(self.cwnd_ca_step)
++    }
++}

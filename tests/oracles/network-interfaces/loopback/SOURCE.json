@@ -1,0 +1,31 @@
+{
+  "id": "F126_FIXED_RTC_VALIDATE_AND_AGENT_LOOPBACK_SOURCE",
+  "status": "FROZEN_NOT_RUN",
+  "expected_results": "NONE; actual coordinator execution required",
+  "oracle_inputs": {
+    "oracle/go.mod": "8897f277a34a6f8e4a1917c030adf5f8a6b8f9931d2f58a15a8f725c98a7bade",
+    "oracle/go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "oracle/loopback/main.go": "6a830bccc5b0b087360c8a498ac5b738f45b39126e61d02a77ce4fb88f4c5753"
+  },
+  "reference_inputs": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/livekit-stable/pkg/config/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "references/go-modules/mediatransportutil-f234b534b095/pkg/rtcconfig/config.go": "9ee3e62387fd102bc993c7cd85f9f2218dc3b9541b1a015c0b595cba6a7594ac",
+    "references/go-modules/mediatransportutil-f234b534b095/pkg/rtcconfig/webrtc_config.go": "9314905fef010cb6d647d153d66365e56d2e894d4b845ee3b24d058a77248e16",
+    "references/go-modules/mediatransportutil-f234b534b095/pkg/transport/udpmultimux.go": "94ffc3c30cd70f60cdd7fcd3b7d97ddad29a83d353ae18c2bc37c84ea3a02b77"
+  },
+  "source_assets_sha256": {
+    "source/LiveKit-MTU-LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "source/Pion-MIT.txt": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "source/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "source/mtu-config.go": "9ee3e62387fd102bc993c7cd85f9f2218dc3b9541b1a015c0b595cba6a7594ac",
+    "source/udpmultimux.go": "94ffc3c30cd70f60cdd7fcd3b7d97ddad29a83d353ae18c2bc37c84ea3a02b77",
+    "source/webrtc_config.go": "9314905fef010cb6d647d153d66365e56d2e894d4b845ee3b24d058a77248e16"
+  },
+  "tool_inputs_sha256": {
+    "prepare.py": "0e89b29d905ad6b4257965a95097d5780a9cd959dc4868e7bed1f92b76604aaf",
+    "README.md": "b9c21b730f9ecd182979c4fa362e207f6d56e15968a19783d22ee051eb490da0"
+  },
+  "preserved_original_owner_source_stage_sha256": "f61d9b1470ddea0e0f300a30fd2a8d36762dc4b59b0c5fec652c6536b4853589"
+}

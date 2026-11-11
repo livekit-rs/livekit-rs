@@ -1,0 +1,43 @@
+diff --git a/src/media/event.rs b/src/media/event.rs
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -476,6 +476,10 @@
+     /// timing observation. Includes initialized primary padding packets.
+     pub received_out_of_order: bool,
+ 
++    /// Size of the complete authenticated logical RTP packet, including its
++    /// header, extensions and padding, and excluding SRTP and repair OSN bytes.
++    pub logical_rtp_bytes: usize,
++
+     /// Negotiated media identifier bound to the actual authenticated SSRC.
+     pub mid: Mid,
+     /// Negotiated stream RID, if present.
+diff --git a/src/session.rs b/src/session.rs
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -833,13 +833,13 @@
+         // Media admission must not suppress transport-wide feedback: Pion's
+         // TWCC interceptor sees authenticated blank RTX padding before its
+         // repair parser discards a payload without a complete OSN.
++        let logical_rtp_bytes =
++            authenticated_rtp_bytes.saturating_sub(if is_repair { 2 } else { 0 });
+         let mut media_admission = crate::receive_traffic::Admission::Bypass;
+         if !header.ssrc.is_probe() && (!is_repair || data.len() >= 2) {
+-            let logical_bytes =
+-                authenticated_rtp_bytes.saturating_sub(if is_repair { 2 } else { 0 });
+-            self.node_traffic.receive_rtp(logical_bytes);
++            self.node_traffic.receive_rtp(logical_rtp_bytes);
+             media_admission = stream.receive_traffic.receive(
+-                logical_bytes,
++                logical_rtp_bytes,
+                 params.spec().codec,
+                 params.pt(),
+                 is_repair,
+@@ -1062,6 +1062,7 @@
+             self.pending_media_packet = Some(crate::media::MediaPacket {
+                 source_id: stream.receive_traffic.source_id(),
+                 received_out_of_order: admitted_flow.is_some_and(|flow| !flow.in_order),
++                logical_rtp_bytes,
+                 mid,
+                 rid: stream.rid(),
+                 params: packet_params,

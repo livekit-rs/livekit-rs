@@ -1,0 +1,84 @@
+{"name": "absent", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      {}\n"}
+{"name": "null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: null\n"}
+{"name": "empty", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: {}\n"}
+{"name": "room-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioonly: true\n          audiomixing: 2\n          fileoutputs:\n            - filepath: room.ogg\n              filetype: 1\n              disablemanifest: true\n"}
+{"name": "participant-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          fileoutputs:\n            - filepath: participant.ogg\n              filetype: 1\n"}
+{"name": "track-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          filepath: dir.with.dot/track.ogg\n          disablemanifest: true\n"}
+{"name": "nil-outputs", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          fileoutputs: [null, {}]\n"}
+{"name": "composite-filter", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          webhooks:\n            - url: http://127.0.0.1:1\n              signingkey: synthetic-api\n              filterparams:\n                includeevents: [egress_ended]\n"}
+{"name": "wrong-protojson-key", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: true\n"}
+{"name": "composite-oneof-preset-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          options:\n            preset: 0\n"}
+{"name": "track-oneof-storage-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          output:\n            s3:\n              bucket: synthetic\n"}
+{"name": "participant-top-preset", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: 0\n"}
+{"name": "source-key-absent", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      {}\n"}
+{"name": "source-key-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: null\n"}
+{"name": "source-key-empty", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress: {}\n"}
+{"name": "source-key-room-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: true\n          audio_mixing: 2\n          file_outputs:\n            - filepath: room.ogg\n              file_type: 1\n              disable_manifest: true\n"}
+{"name": "source-key-participant-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs:\n            - filepath: participant.ogg\n              file_type: 1\n"}
+{"name": "source-key-track-local", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          filepath: dir.with.dot/track.ogg\n          disable_manifest: true\n"}
+{"name": "source-key-nil-outputs", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs: [null, {}]\n"}
+{"name": "source-key-composite-filter", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          webhooks:\n            - url: http://127.0.0.1:1\n              signing_key: synthetic-api\n              filter_params:\n                include_events: [egress_ended]\n"}
+{"name": "source-key-wrong-protojson-key", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: true\n"}
+{"name": "source-key-composite-oneof-preset-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          options:\n            preset: 0\n"}
+{"name": "source-key-track-oneof-storage-shape", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          output:\n            s3:\n              bucket: synthetic\n"}
+{"name": "source-key-participant-top-preset", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: 0\n"}
+{"name": "f111-enum-audio_mixing-DUAL_CHANNEL_ALTERNATE", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: DUAL_CHANNEL_ALTERNATE\n"}
+{"name": "f111-enum-audio_mixing-2", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: 2\n"}
+{"name": "f111-enum-audio_mixing-q2q", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: \"2\"\n"}
+{"name": "f111-enum-audio_mixing-dual_channel_alternate", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: dual_channel_alternate\n"}
+{"name": "f111-enum-audio_mixing-999", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: 999\n"}
+{"name": "f111-enum-audio_mixing--1", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: -1\n"}
+{"name": "f111-enum-audio_mixing-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: null\n"}
+{"name": "f111-enum-audio_mixing-true", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_mixing: true\n"}
+{"name": "f111-enum-audioMixing-DUAL_CHANNEL_ALTERNATE", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: DUAL_CHANNEL_ALTERNATE\n"}
+{"name": "f111-enum-audioMixing-2", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: 2\n"}
+{"name": "f111-enum-audioMixing-q2q", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: \"2\"\n"}
+{"name": "f111-enum-audioMixing-dual_channel_alternate", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: dual_channel_alternate\n"}
+{"name": "f111-enum-audioMixing-999", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: 999\n"}
+{"name": "f111-enum-audioMixing--1", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: -1\n"}
+{"name": "f111-enum-audioMixing-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: null\n"}
+{"name": "f111-enum-audioMixing-true", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioMixing: true\n"}
+{"name": "f111-enum-15-DUAL_CHANNEL_ALTERNATE", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: DUAL_CHANNEL_ALTERNATE\n"}
+{"name": "f111-enum-15-2", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: 2\n"}
+{"name": "f111-enum-15-q2q", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: \"2\"\n"}
+{"name": "f111-enum-15-dual_channel_alternate", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: dual_channel_alternate\n"}
+{"name": "f111-enum-15-999", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: 999\n"}
+{"name": "f111-enum-15--1", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: -1\n"}
+{"name": "f111-enum-15-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: null\n"}
+{"name": "f111-enum-15-true", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          15: true\n"}
+{"name": "f111-field-alias-audio_only", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: true\n"}
+{"name": "f111-field-alias-audioOnly", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audioOnly: true\n"}
+{"name": "f111-field-alias-3", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          3: true\n"}
+{"name": "f111-duplicate-scalar", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: false\n          audio_only: true\n"}
+{"name": "f111-alias-duplicate-scalar", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: false\n          audioOnly: true\n"}
+{"name": "f111-oneof-two-fields", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: H264_720P_30\n          advanced: {}\n"}
+{"name": "f111-oneof-same-field", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: H264_720P_30\n          preset: H264_1080P_30\n"}
+{"name": "f111-oneof-null-first", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          advanced: null\n          preset: H264_720P_30\n"}
+{"name": "f111-oneof-preset-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: null\n"}
+{"name": "f111-repeated-message-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs: [null, {}]\n"}
+{"name": "f111-repeated-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs: null\n"}
+{"name": "f111-storage-null-conflict", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          s3: null\n          gcp: {}\n"}
+{"name": "f111-storage-aliOSS", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          aliOSS:\n            access_key: x\n"}
+{"name": "f111-storage-alioss", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          alioss: {}\n"}
+{"name": "f111-storage-number-key", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          3: {}\n"}
+{"name": "f111-unknown-two", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          first_unknown: true\n          second_unknown: {}\n"}
+{"name": "f111-unknown-before-type", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          first_unknown: true\n          audio_only: nope\n"}
+{"name": "f111-type-before-unknown", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: nope\n          second_unknown: {}\n"}
+{"name": "f111-unknown-nested-list", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          file_outputs:\n            - first_unknown: x\n              second_unknown: y\n"}
+{"name": "f111-message-scalar", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room: 1\n"}
+{"name": "f111-bool-quoted", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: \"true\"\n"}
+{"name": "f111-bool-capital", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          audio_only: True\n"}
+{"name": "f111-string-numeric", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          layout: 12\n"}
+{"name": "f111-string-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          layout: null\n"}
+{"name": "f111-list-scalar", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          file_outputs: 1\n"}
+{"name": "f111-map-repeated-key", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        tracks:\n          s3:\n            metadata: {x: one, x: two}\n"}
+{"name": "f111-yaml-anchor-alias", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs:\n            - &file {filepath: one}\n            - *file\n"}
+{"name": "f111-yaml-merge", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          <<: {audio_only: true}\n"}
+{"name": "f111-enum-name-preset", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          preset: H264_720P_30\n"}
+{"name": "f111-enum-name-file", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          file_outputs: [{file_type: OGG}]\n"}
+{"name": "f111-enum-name-codec", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        participant:\n          advanced: {audio_codec: OPUS, video_codec: H264_BASELINE}\n"}
+{"name": "f111-root-number-egress", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      5: {room: {audio_only: true}}\n"}
+{"name": "f111-roomconfig-json-alias", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      emptyTimeout: 3\n      egress: {}\n"}
+{"name": "f111-roomconfig-unknown", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      unknown_at_root: true\n      egress: {}\n"}
+{"name": "f111-tags-map", "strict": true, "yaml": "room:\n  room_configurations:\n    record:\n      tags: {a: b}\n      egress: {}\n"}
+{"name": "f111-strictfalse-still-protoyaml-strict", "strict": false, "yaml": "room:\n  room_configurations:\n    record:\n      egress:\n        room:\n          unknown_field: true\n"}

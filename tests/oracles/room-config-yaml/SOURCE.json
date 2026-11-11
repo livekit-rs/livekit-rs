@@ -1,0 +1,21 @@
+{
+  "status": "PUBLIC_FIXED_SOURCE_REFERENCE_ACTUALLY_EXECUTED_BASELINE_FAILS",
+  "inputs": {
+    "extended-cases.jsonl": "f28926767fadb5be5ccf56ec9a1900961e167b9c51dd6a1b5cf949056199f2cf",
+    "supplemental-tag-float-alias-cases.jsonl": "54d52b4a0fde51e56ce7bd903e3b59d6d1ae847a492b74cc81f32f64c7ff82f4",
+    "original-cases.jsonl": "8b08445d248063c97ad6c1132775619fd56188b99722963bbf02a45097820149",
+    "cases.jsonl": "344a790512866aa4a0341dd076e4ebdc48ce415483f36dbb5fa9e7386040be64",
+    "README.md": "6865d4a4391fd93eaed9ca2c56fab31d73683368928afbd7d9bf96bd4a32060d",
+    "source-key-cases.jsonl": "827007fce8f558e9e49d249e988ff08b79aa444f810ee196524c8e0401355e5f",
+    "main.go": "881db7839b1c52f98007d3d47c626b607ba868a181d85e520414a0cbcb6d458d",
+    "ancestor-alias-tag-cases.jsonl": "a7324abac7ed383028aba9f9e02c920bda1229af064d927777787dfc6a43fb9d"
+  },
+  "reference_modules": {
+    "buf.build/go/protoyaml": "v0.7.0",
+    "go.yaml.in/yaml/v3": "v3.0.5"
+  },
+  "corpora": {
+    "cases.jsonl": 84,
+    "supplemental-tag-float-alias-cases.jsonl": 14
+  }
+}

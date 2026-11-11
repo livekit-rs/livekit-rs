@@ -1,0 +1,20 @@
+{
+  "status": "FROZEN_INPUTS_NOT_RUN",
+  "oracle_inputs": {
+    "oracle/cases.json": "0e2e0e13b8305c1590428e36eefcdacda24122d1c5c42bd8ff868adf3bd53b94",
+    "oracle/edges/main.go": "42873e0f7cad00d042b8a002dc998de6046a2545af6a580bbf281121a44d27e4",
+    "oracle/full-agent/main.go": "fe41c5aa57592e821b2aa8f9eb1ac3a914ef1cf1be573d135c90833839c8b1a2",
+    "oracle/full-agent-existing/main.go": "2da7c7c845fc479aec094b0df04ff33b0814daf7827adaef8c230195de7d685a",
+    "oracle/go.mod": "8897f277a34a6f8e4a1917c030adf5f8a6b8f9931d2f58a15a8f725c98a7bade",
+    "oracle/go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "oracle/main.go": "eaca7bed18796f91f390f7652149da1a60c00466fb98779bdd1a58052d1e57eb",
+    "oracle/multiport/main.go": "a09c8ee52d131e41beb716f006b41fa6d9f68efdfadd3b694f5dead3158cadf5",
+    "oracle/owner-lifetime/main.go": "1323a5d2ffd189960dec5963a48e170c28b07ba73b359036c547bbd46cb1dfed"
+  },
+  "reference_inputs": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85"
+  },
+  "source": "fixed server MVS, original full Pion/MTU observer code unchanged; only new owner-lifetime real-socket observer added",
+  "expected_results": "NONE; root actual source output required"
+}

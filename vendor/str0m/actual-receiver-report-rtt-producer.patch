@@ -1,0 +1,549 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -718,12 +718,14 @@
+ mod dtls;
+ mod media_telemetry;
+ mod receive_traffic;
++mod receiver_report_rtt;
+ use crate::crypto::dtls::DtlsOutput;
+ use crate::crypto::{CryptoProvider, DtlsError, from_feature_flags};
+ use crate::dtls::is_would_block;
+ use dtls::Dtls;
+ pub use media_telemetry::MediaTraffic;
+ pub use receive_traffic::ReceiveTraffic;
++pub use receiver_report_rtt::ReceiverReportRtt;
+ 
+ use is::IceAgent;
+ use is::IceAgentEvent;
+@@ -1434,6 +1436,20 @@
+     /// source snapshots. Counters remain cumulative; callers own delta windows.
+     pub fn take_receive_traffic(&mut self) -> Vec<ReceiveTraffic> {
+         self.session.streams.take_receive_traffic()
++    }
++
++    /// Enable a receiver-report RTT event consumer. Disabled by default; an
++    /// enabled owner must promptly drain observations after handling input.
++    pub fn set_receiver_report_rtt_enabled(&mut self, enabled: bool) {
++        self.session.receiver_report_rtt_enabled = enabled;
++        if !enabled {
++            self.session.receiver_report_rtt.clear();
++        }
++    }
++    /// Drain actual authenticated receiver-report RTT observations in arrival
++    /// order, without periodic sampling, TWCC or ICE fallback.
++    pub fn take_receiver_report_rtt(&mut self) -> Vec<ReceiverReportRtt> {
++        self.session.receiver_report_rtt.drain(..).collect()
+     }
+ 
+     /// Checks ICE connection, DTLS and installed SRTP key material.
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -88,6 +88,8 @@
+     // Lazy init when we see the PT.
+     probe_payload_params: Option<PayloadParams>,
+ 
++    pub(crate) receiver_report_rtt_enabled: bool,
++    pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
+     srtp_rx: Option<SrtpContext>,
+     srtp_tx: Option<SrtpContext>,
+     last_nack: Instant,
+@@ -204,6 +206,8 @@
+             codec_config: config.codec_config.clone(),
+             probe_payload_params: None,
+ 
++            receiver_report_rtt_enabled: false,
++            receiver_report_rtt: VecDeque::new(),
+             srtp_rx: None,
+             srtp_tx: None,
+             last_nack: already_happened(),
+@@ -1042,6 +1046,22 @@
+             }
+         }
+ 
++        // Original DownTrack.handleRTCP consumes ReceiverReport packets only,
++        // not report blocks piggybacked on SenderReport. Native RtcpFb erases
++        // that origin for transport statistics, so preserve it for this owner.
++        let rtt_reports = if self.receiver_report_rtt_enabled {
++            self.feedback_rx
++                .iter()
++                .filter_map(|packet| match packet {
++                    Rtcp::ReceiverReport(report) => Some(report.reports.iter().copied()),
++                    _ => None,
++                })
++                .flatten()
++                .collect::<Vec<_>>()
++        } else {
++            Vec::new()
++        };
++
+         for fb in RtcpFb::from_rtcp(self.feedback_rx.drain(..)) {
+             if self.remote_feedback_enabled
+                 && let RtcpFb::Remb(report) = fb
+@@ -1122,6 +1142,22 @@
+                         self.node_traffic.nacks_received.saturating_add(count);
+                 }
+                 stream.handle_rtcp(now, fb);
++            }
++        }
++
++        for report in rtt_reports {
++            if let Some(stream) = self.streams.stream_tx(&report.ssrc) {
++                stream.observe_receiver_report_rtt(now, report);
++            }
++        }
++
++        // DownTrack.handleRTCP reports at most one final changed RTT per
++        // sender for this compound datagram, after processing all RR blocks.
++        for stream in self.streams.streams_tx() {
++            if let Some(sample) = stream.take_receiver_report_rtt() {
++                if self.receiver_report_rtt_enabled {
++                    self.receiver_report_rtt.push_back(sample);
++                }
+             }
+         }
+ 
+@@ -2214,6 +2250,160 @@
+     }
+ 
+     #[test]
++    fn actual_srtcp_receiver_reports_emit_changed_matched_sender_rtt_and_fence_retired_sources() {
++        use crate::streams::RtpWrite;
++        let start = Instant::now();
++        let crypto = crate::crypto::test_default_provider();
++        let profile = SrtpProfile::AES128_CM_SHA1_80;
++        let material = vec![0x41; profile.keying_material_len()];
++        let key = KeyingMaterial::new(&material);
++        let mut peer = SrtpContext::new(crypto, profile, &key, true);
++        let mut session = Session::new(&RtcConfig::default());
++        session.receiver_report_rtt_enabled = true;
++        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++        let params = session.codec_config.params().to_vec();
++        let pt = params
++            .iter()
++            .find(|p| p.spec().codec == crate::format::Codec::Vp8)
++            .unwrap()
++            .pt();
++        let source;
++        let lsr;
++        let codec_config = session.codec_config.clone();
++        let media = Media::from_direct_api(
++            "v".into(),
++            0,
++            crate::media::MediaKind::Video,
++            ExtensionMap::empty(),
++        );
++        {
++            let stream = session.streams.declare_stream_tx(
++                101.into(),
++                Some(201.into()),
++                MidRid("v".into(), None),
++            );
++            stream.write_rtp(RtpWrite::new(pt, 100.into(), 3000, start, vec![0x10, 0, 1]));
++            // Real send lifecycle: write queues with a future sentinel;
++            // production handle_timeout stamps admitted packets before polling.
++            stream.handle_timeout(start, || (&media, &codec_config));
++            let mut wire = Vec::new();
++            let packet = stream
++                .poll_packet(start, &ExtensionMap::empty(), None, &params, &mut wire)
++                .unwrap();
++            assert_eq!(*packet.seq_no, 100);
++            // Serialize the actual primary emission through the real crypto
++            // provider too; initialization comes from poll_packet, not a fake
++            // Tracker::primary test hook.
++            let mut primary_crypto = SrtpContext::new(crypto, profile, &key, false);
++            let protected = primary_crypto.protect_rtp(&wire, &packet.header, 100);
++            assert!(protected.len() > wire.len());
++            let mut outgoing = VecDeque::new();
++            stream.create_sr_and_update(start, &mut outgoing);
++            let Rtcp::SenderReport(sr) = outgoing.pop_front().unwrap() else {
++                panic!("actual SR producer")
++            };
++            lsr = (sr.sender_info.ntp_time.as_ntp_64() >> 16) as u32;
++            assert_ne!(lsr, 0);
++            source = stream.receiver_report_source_id();
++        }
++        let report = |session: &mut Session,
++                      peer: &mut SrtpContext,
++                      at: Instant,
++                      ssrc: u32,
++                      lsr: u32,
++                      dlsr: u32,
++                      bad_auth: bool| {
++            let mut bytes = vec![0u8; 32];
++            bytes[..4].copy_from_slice(&[0x81, 201, 0, 7]);
++            bytes[4..8].copy_from_slice(&999u32.to_be_bytes());
++            bytes[8..12].copy_from_slice(&ssrc.to_be_bytes());
++            bytes[16..20].copy_from_slice(&100u32.to_be_bytes());
++            bytes[24..28].copy_from_slice(&lsr.to_be_bytes());
++            bytes[28..32].copy_from_slice(&dlsr.to_be_bytes());
++            let mut encrypted = peer.protect_rtcp(&bytes);
++            if bad_auth {
++                let last = encrypted.last_mut().unwrap();
++                *last ^= 1;
++            }
++            session.handle_rtcp_receive(at, &encrypted);
++        };
++        let at = start + Duration::from_millis(250);
++        // SenderReport report blocks feed native transport stats, but fixed
++        // Go DownTrack does not treat them as participant-RPC RTT updates.
++        let mut sender_report = vec![0u8; 52];
++        sender_report[..4].copy_from_slice(&[0x81, 200, 0, 12]);
++        sender_report[4..8].copy_from_slice(&999u32.to_be_bytes());
++        sender_report[28..32].copy_from_slice(&101u32.to_be_bytes());
++        sender_report[36..40].copy_from_slice(&100u32.to_be_bytes());
++        sender_report[44..48].copy_from_slice(&lsr.to_be_bytes());
++        sender_report[48..52].copy_from_slice(&8192u32.to_be_bytes());
++        let encrypted = peer.protect_rtcp(&sender_report);
++        session.handle_rtcp_receive(at, &encrypted);
++        assert!(
++            session.receiver_report_rtt.is_empty(),
++            "piggybacked SR blocks are not the original downtrack RR callback"
++        );
++        report(&mut session, &mut peer, at, 101, lsr, 8192, true);
++        report(&mut session, &mut peer, at, 201, lsr, 8192, false);
++        report(
++            &mut session,
++            &mut peer,
++            at,
++            101,
++            lsr.wrapping_add(1),
++            8192,
++            false,
++        );
++        report(&mut session, &mut peer, at, 101, 0, 8192, false);
++        assert!(
++            session.receiver_report_rtt.is_empty(),
++            "bad auth, RTX, unknown and zero LSR must not publish RTT"
++        );
++        report(&mut session, &mut peer, at, 101, lsr, 8192, false);
++        let first = session.receiver_report_rtt.pop_front().unwrap();
++        assert_eq!(
++            (first.source_id, first.sequence, first.ssrc, first.rtt_ms),
++            (source, 1, 101, 125)
++        );
++        assert_eq!(first.received_at, at);
++        // DLSR0 is legal in original GetRttMs; neither the old native helper's
++        // rejection nor its 70ms NACK fallback may leak into this producer.
++        let at = start + Duration::from_millis(500);
++        report(&mut session, &mut peer, at, 101, lsr, 0, false);
++        let second = session.receiver_report_rtt.pop_front().unwrap();
++        assert_eq!((second.sequence, second.rtt_ms), (2, 500));
++        report(&mut session, &mut peer, at, 101, lsr, 0, false);
++        assert!(
++            session.receiver_report_rtt.is_empty(),
++            "unchanged RTT emits no new participant observation"
++        );
++        report(&mut session, &mut peer, at, 101, lsr, u32::MAX / 2, false);
++        assert!(
++            session.receiver_report_rtt.is_empty(),
++            "anachronous subtraction rejected"
++        );
++        let replacement = session
++            .streams
++            .stream_tx(&101.into())
++            .unwrap()
++            .reset_receiver_report_source();
++        assert_ne!(replacement, source);
++        report(
++            &mut session,
++            &mut peer,
++            start + Duration::from_secs(1),
++            101,
++            lsr,
++            0,
++            false,
++        );
++        assert!(
++            session.receiver_report_rtt.is_empty(),
++            "retired SR must not populate replacement logical sender"
++        );
++    }
++
++    #[test]
+     fn un_red_rejects_a_primary_payload_type_mismatch() {
+         let expected_primary_pt = Pt::new_with_value(111);
+         let data = RedEncoder::encode(0, &[1, 2, 3], &[]);
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -114,6 +114,7 @@
+     /// direct RTP mode writing.
+     last_sent_seq_no: SeqNo,
+     debug_primary: debug::PrimaryPacketHistory,
++    rr_rtt: crate::receiver_report_rtt::Tracker,
+ 
+     /// When we last sent something for this encoded stream, packet or RTCP.
+     last_used: Instant,
+@@ -323,6 +324,7 @@
+             seq_no_rtx: SeqNo::default(),
+             last_sent_seq_no: SeqNo::default(),
+             debug_primary: Default::default(),
++            rr_rtt: Default::default(),
+             last_used: already_happened(),
+             rtp_and_wallclock: None,
+             send_queue: SendQueue::new(),
+@@ -391,6 +393,28 @@
+     /// The (primary) SSRC of this encoded stream.
+     pub fn ssrc(&self) -> Ssrc {
+         self.ssrc
++    }
++
++    /// Actual primary sender generation for receiver-report RTT observations.
++    pub fn receiver_report_source_id(&self) -> u64 {
++        self.rr_rtt.source_id
++    }
++    /// Retire RTT history when a logical subscription reuses this sender.
++    /// Does not reset SRTP, sequence numbers, retransmission caches or BWE.
++    pub fn reset_receiver_report_source(&mut self) -> u64 {
++        self.rr_rtt = Default::default();
++        self.rr_rtt.source_id
++    }
++    pub(crate) fn observe_receiver_report_rtt(
++        &mut self,
++        now: Instant,
++        report: crate::rtp_::ReceptionReport,
++    ) {
++        let mid = self.mid();
++        self.rr_rtt.report(mid, self.ssrc, report, now);
++    }
++    pub(crate) fn take_receiver_report_rtt(&mut self) -> Option<crate::ReceiverReportRtt> {
++        self.rr_rtt.pending.take()
+     }
+ 
+     /// The resend (RTX) SSRC of this encoded stream.
+@@ -824,6 +848,7 @@
+         let is_retransmission = matches!(next.kind, NextPacketKind::Resend(_));
+         if next.kind == NextPacketKind::Regular {
+             self.last_sent_seq_no = seq_no;
++            self.rr_rtt.primary(*seq_no);
+             self.debug_primary
+                 .observe(*seq_no, header.timestamp, header.marker);
+         }
+@@ -1163,6 +1188,7 @@
+ 
+     pub(crate) fn create_sr_and_update(&mut self, now: Instant, feedback: &mut VecDeque<Rtcp>) {
+         let sr = self.create_sender_report(now);
++        self.rr_rtt.sender_report(sr.sender_info.ntp_time, now);
+         if self.debug_primary_packets().0.is_some() {
+             self.debug_primary.report = Some(sr.sender_info);
+         }
+@@ -1441,6 +1467,7 @@
+         self.seq_no = SeqNo::default();
+         self.seq_no_rtx = SeqNo::default();
+         self.debug_primary = Default::default();
++        self.rr_rtt = Default::default();
+ 
+         // Reset timing related fields
+         self.last_used = already_happened();
+--- /dev/null
++++ b/src/receiver_report_rtt.rs
+@@ -0,0 +1,210 @@
++//! Actual downlink receiver-report RTT, separate from TWCC and ICE estimates.
++use crate::{
++    media::Mid,
++    rtp_::{ReceptionReport, Ssrc},
++    util::SystemTimeExt,
++};
++use std::{
++    sync::atomic::{AtomicU64, Ordering},
++    time::{Instant, SystemTime},
++};
++
++/// One changed, nonzero RTT from an authenticated report for a real sender.
++#[derive(Clone, Copy, Debug)]
++pub struct ReceiverReportRtt {
++    /// Native sender lifetime; changes on SSRC reset or logical rebinding.
++    pub source_id: u64,
++    /// Strictly increasing report observation sequence within this lifetime.
++    pub sequence: u64,
++    /// Actual RTCP datagram receipt time, never a periodic stats sampling time.
++    pub received_at: Instant,
++    /// Negotiated media section of the sender.
++    pub mid: Mid,
++    /// Primary sender SSRC; repair reports cannot update participant RTT.
++    pub ssrc: u32,
++    /// Fixed Go GetRttMs result, rounded upwards, without the NACK 70ms fallback.
++    pub rtt_ms: u32,
++}
++static NEXT_SOURCE: AtomicU64 = AtomicU64::new(1);
++#[derive(Debug)]
++pub(crate) struct Tracker {
++    pub source_id: u64,
++    first: Option<u64>,
++    highest: u64,
++    marker: Option<(u64, Instant)>,
++    last_rtt_ms: u32,
++    sequence: u64,
++    pub pending: Option<ReceiverReportRtt>,
++}
++impl Default for Tracker {
++    fn default() -> Self {
++        Self {
++            source_id: NEXT_SOURCE.fetch_add(1, Ordering::Relaxed),
++            first: None,
++            highest: 0,
++            marker: None,
++            last_rtt_ms: 0,
++            sequence: 0,
++            pending: None,
++        }
++    }
++}
++impl Tracker {
++    pub fn primary(&mut self, seq: u64) {
++        self.first.get_or_insert(seq);
++        self.highest = self.highest.max(seq);
++    }
++    pub fn sender_report(&mut self, ntp: SystemTime, now: Instant) {
++        if self.first.is_some() {
++            self.marker = Some((ntp.as_ntp_64(), now));
++        }
++    }
++    pub fn report(&mut self, mid: Mid, ssrc: Ssrc, rr: ReceptionReport, now: Instant) {
++        if rr.ssrc != ssrc {
++            return;
++        }
++        let Some(first) = self.first else {
++            return;
++        };
++        // The report sequence number must refer to emitted primary RTP, not
++        // dummy pre-start, future, or repair packets. Extend the 32-bit RR SN
++        // around the actual emitted sender sequence.
++        let report_seq = crate::rtp_::extend_u32(Some(self.highest), rr.max_seq);
++        if report_seq < first || report_seq > self.highest {
++            return;
++        }
++        let Some((ntp, sent_at)) = self.marker else {
++            return;
++        };
++        let Some(rtt_ms) = matched_rtt_ms(ntp, sent_at, rr.last_sr_time, rr.last_sr_delay, now)
++        else {
++            return;
++        };
++        if rtt_ms == self.last_rtt_ms {
++            return;
++        }
++        self.last_rtt_ms = rtt_ms;
++        self.pending = None;
++        if rtt_ms == 0 {
++            return;
++        }
++        self.sequence = self.sequence.checked_add(1).expect("RR sequence exhausted");
++        self.pending = Some(ReceiverReportRtt {
++            source_id: self.source_id,
++            sequence: self.sequence,
++            received_at: now,
++            mid,
++            ssrc: *ssrc,
++            rtt_ms,
++        });
++    }
++}
++// Original mediatransportutil.GetRttMs uses the most recent actual SR NTP and
++// its monotonic emission marker. DLSR=0 is valid; LSR=0/mismatched/stale and
++// anachronous (>2^31 tick subtraction) reports are rejected.
++fn matched_rtt_ms(ntp: u64, sent_at: Instant, lsr: u32, dlsr: u32, now: Instant) -> Option<u32> {
++    if lsr == 0 || lsr != (ntp >> 16) as u32 {
++        return None;
++    }
++    let elapsed = now.checked_duration_since(sent_at)?;
++    // NtpTime.Time() truncates fractional nanoseconds before adding elapsed.
++    let nanos = (u128::from(ntp >> 32) * 1_000_000_000)
++        + ((u128::from(ntp as u32) * 1_000_000_000) >> 32)
++        + elapsed.as_nanos();
++    let seconds = nanos / 1_000_000_000;
++    let fraction = ((nanos % 1_000_000_000) << 32) / 1_000_000_000;
++    let current = ((seconds as u32) << 16) | ((fraction as u32) >> 16);
++    let diff = current.wrapping_sub(lsr).wrapping_sub(dlsr);
++    (diff <= 1 << 31).then(|| ((u64::from(diff) * 1000).div_ceil(65536)) as u32)
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn original_marker_wrap_zero_dlsr_and_round_up_use_no_native_rtt_fallback() {
++        let start = Instant::now();
++        // Deliberately cross the middle-NTP32 wrap at65536 seconds.
++        let marker = (65535u64 << 32) | (3u64 << 30);
++        let lsr = (marker >> 16) as u32;
++        assert_eq!(
++            matched_rtt_ms(
++                marker,
++                start,
++                lsr,
++                0,
++                start + std::time::Duration::from_millis(500)
++            ),
++            Some(500)
++        );
++        assert_eq!(
++            matched_rtt_ms(
++                marker,
++                start,
++                lsr,
++                8192,
++                start + std::time::Duration::from_millis(250)
++            ),
++            Some(125)
++        );
++        assert_eq!(matched_rtt_ms(marker, start, lsr, 0, start), Some(0));
++        assert_eq!(matched_rtt_ms(marker, start, 0, 0, start), None);
++        assert_eq!(
++            matched_rtt_ms(marker, start, lsr.wrapping_add(1), 0, start),
++            None
++        );
++        assert_eq!(
++            matched_rtt_ms(
++                marker,
++                start,
++                lsr,
++                u32::MAX / 2,
++                start + std::time::Duration::from_millis(500)
++            ),
++            None
++        );
++    }
++    #[test]
++    #[ignore = "requires actual original RTPStatsSender/SR/RR observer rows"]
++    fn original_go_sender_rr_consumer_rows_match_native_marker_clock_brackets() {
++        let text = std::fs::read_to_string(
++            std::env::var("GO_RPC_MEDIA_RTT_RESULTS").expect("original Go receipt"),
++        )
++        .unwrap();
++        let rows = text
++            .lines()
++            .filter_map(|l| l.strip_prefix("SOURCE_RPC_RR "))
++            .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
++            .collect::<Vec<_>>();
++        assert_eq!(
++            rows.len(),
++            7,
++            "all actual sender/SR/valid/invalid producer branches must execute"
++        );
++        let start = Instant::now();
++        let mut names = std::collections::BTreeSet::new();
++        for row in rows {
++            let name = row["case"].as_str().unwrap();
++            assert!(names.insert(name.to_owned()));
++            let valid = name.starts_with("valid_");
++            assert_eq!(row["changed"].as_bool().unwrap(), valid);
++            let got = row["rtt_ms"].as_u64().unwrap() as u32;
++            if !valid {
++                assert_eq!(got, 0);
++                continue;
++            }
++            let ntp = row["marker_ntp"].as_u64().unwrap();
++            let lsr = row["lsr"].as_u64().unwrap() as u32;
++            let dlsr = row["dlsr"].as_u64().unwrap() as u32;
++            let before = std::time::Duration::from_nanos(row["before_ns"].as_u64().unwrap());
++            let after = std::time::Duration::from_nanos(row["after_ns"].as_u64().unwrap());
++            let minimum = matched_rtt_ms(ntp, start, lsr, dlsr, start + before).unwrap();
++            let maximum = matched_rtt_ms(ntp, start, lsr, dlsr, start + after).unwrap();
++            assert!(
++                (minimum..=maximum).contains(&got),
++                "actual Go method executes between its measured monotonic clock brackets: {name}: {got} not {minimum}..{maximum}"
++            );
++            assert!(got > 0);
++        }
++    }
++}

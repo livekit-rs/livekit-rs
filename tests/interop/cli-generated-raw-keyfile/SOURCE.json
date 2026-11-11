@@ -1,0 +1,38 @@
+{
+  "status": "FROZEN_TEST_ONLY_ADDON_V2_NOT_SERVICES_RUN",
+  "parent_addon_source_sha256": "059e947aedd46e4e0b3fea267adf1d03d515d9b7176bd45ea5d70de1cfa8d550",
+  "review_sha256": "823923e423d36c05f113b587a24e8008f48b3e43d32dc2821c9ab4d33d3d014f",
+  "reviewed_production_candidate_source_sha256": "a346c495f2721beae3d71b2ef277273a77c0a9ef9b28a2d6150381d5270e7199",
+  "cases": 13,
+  "full_binary_rows": 26,
+  "original_fixtures_unchanged_sha256": {
+    "livekit-rs-server/tests/interop/cli-posix-process/run.py": "aeb6fbb7c55cee6d71f83bebf27ec2f3ba371d6123c21de9cc38d9c973c8ccab",
+    "livekit-rs-server/tests/interop/cli-posix-process/run-expanded.py": "2695d5951c85735b3c61321c78f99d9408bf30629b0443ef9327960397c893de",
+    "livekit-rs-server/tests/interop/cli-posix-process/run-initialized.py": "c635a8f71627194b3c93404f8a8020f072f2628dff6bfeca52a7a831e97a7aa7"
+  },
+  "identity_context_sha256": {
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b"
+  },
+  "assets_sha256": {
+    "README.md": "57ae513374a9d9ff12ef68d0efd70adaa9d1ab995b47c4f173de23f2763cbdd1",
+    "run.py": "90c65b646856e8b545219a918a158a57cee3d0ccd66228e1633e712e66901f9f",
+    "sdk-auth.mjs": "09f91e6235de0da02af84b1bb0ccadcc53ce340e3d32125f3603ff263df2035a"
+  },
+  "preservation": {
+    "thirteen_scenarios_ast_equal": true,
+    "sdk_business_and_cleanup_suffix_byte_equal": true,
+    "unchanged_original_13case_assertions_and_argv": true,
+    "original_server_launch_and_shutdown_flow_preserved": true
+  },
+  "executed": {
+    "python_ast": true,
+    "node_syntax_check": true,
+    "actual_SDK_import": false,
+    "identity_preflight": false,
+    "services": false,
+    "compilers": false,
+    "shared_edits": false
+  },
+  "scope": "Actual installed package/entry/lock/Node provenance; tree excludes dependencies as documented. Existing JWT/auth/CRUD/negative semantics untouched. Actual fixedGo/Rust26 remain NOT_RUN."
+}

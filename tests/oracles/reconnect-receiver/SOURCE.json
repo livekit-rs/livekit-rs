@@ -1,0 +1,17 @@
+{
+  "module": "github.com/livekit/webrtc-pion/v4",
+  "version": "v4.2.18-warp.6",
+  "module_checksum": "h1:UaGYlQ/Ma73LN12xPDlH3OBYNfOEDTVOtHdRZbHg2dY=",
+  "release_time": "2026-10-06T05:02:04Z",
+  "files": {
+    "peerconnection.go": "ed16faf84a4bc813d68a8f119c38f56c50dc5e826d9970ff1d727ad2634fb708",
+    "track_remote.go": "a96cec031ddd83689b337f252850f4137fb738e38ac90286cd5495231ebb63d5",
+    "sdp.go": "dde8232c5b80afa231b4008b41a720970087ebe3386099d1c2a86f746a243f2f",
+    "LICENSE": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "go.mod": "0510d3c6ae499d7b0d5c1a2514ae48f82588faccaa6fc1c32ff53d46c4d54352"
+  },
+  "upstream_tag_url": "https://github.com/livekit/webrtc-pion/tree/v4.2.18-warp.6",
+  "release_commit": "NOT_RESOLVED_BY_THIS_AGENT",
+  "reference_retention": "COORDINATOR_MUST_STAGE_EXACT_MODULE_UNDER_REFERENCES_BEFORE_ADOPTION",
+  "runtime": "NOT_RUN"
+}

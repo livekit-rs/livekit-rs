@@ -1,0 +1,8 @@
+# interval_ms duration_ms level smooth query_ms expected_level expected_active observed
+0 1 0 0 1 0 false false
+0 400 20 2 400 0 false false
+0 400 20 2 2000 0 false false
+1 1 20 0 1 0.1 true true
+10 10 20 0 10 0.1 true true
+400 400 20 2 400 0.06666666666666667 true true
+1 1 20 0 3 0 false true

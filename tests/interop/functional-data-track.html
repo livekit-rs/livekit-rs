@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><title>Official SDK data track functional fixture</title>
+<script>
+// Observe standard browser channels; all SDK-created arguments and bytes pass
+// unchanged to the native implementation. No SDK code or signaling is replaced.
+window.functionalChannels=[];window.functionalPackets=[];window.functionalOverflow=false;
+const NativePC=window.RTCPeerConnection;
+function observeChannel(channel) {
+  if(window.functionalChannels.length>=32){window.functionalOverflow=true;return;}
+  const record={label:channel.label,ordered:channel.ordered,maxRetransmits:channel.maxRetransmits,protocol:channel.protocol,state:channel.readyState,sent:0,received:0};
+  window.functionalChannels.push(record);
+  channel.addEventListener('open',()=>record.state=channel.readyState);
+  channel.addEventListener('close',()=>record.state=channel.readyState);
+  function packet(direction, bytes) {
+    if(channel.label!=='_data_track')return;
+    if(window.functionalPackets.length>=256){window.functionalOverflow=true;return;}
+    try {
+      const raw=bytes instanceof ArrayBuffer?new Uint8Array(bytes):ArrayBuffer.isView(bytes)?new Uint8Array(bytes.buffer,bytes.byteOffset,bytes.byteLength):null;
+      if(!raw)throw new Error('unexpected data-track binary type');
+      const [parsed]=LivekitClient.DataTrackPacket.fromBinary(raw);
+      const extensions=parsed.header.extensions;
+      window.functionalPackets.push({direction,bytes:raw.length,handle:parsed.header.trackHandle,e2ee:!!extensions.e2ee,userTimestamp:extensions.userTimestamp?String(extensions.userTimestamp.timestamp):null});
+    } catch(error) {window.functionalPackets.push({direction,error:String(error)});}
+  }
+  channel.addEventListener('message',event=>{record.received++;packet('received',event.data);});
+  const send=channel.send.bind(channel);
+  channel.send=(...args)=>{record.sent++;packet('sent',args[0]);return send(...args);};
+}
+window.RTCPeerConnection=new Proxy(NativePC,{construct(target,args,newTarget){
+  const pc=Reflect.construct(target,args,newTarget);
+  pc.addEventListener('datachannel',event=>observeChannel(event.channel));
+  const create=pc.createDataChannel.bind(pc);
+  pc.createDataChannel=(...args)=>{const ch=create(...args);observeChannel(ch);return ch;};
+  return pc;
+}});
+</script>
+<script src="/sdk.js"></script>
+<script>
+const {Room,RoomEvent,ExternalE2EEKeyProvider}=LivekitClient;
+let room,worker;const tracks=new Map(),readers=new Map(),frames=new Map(),events=[],errors=[];
+window.functional={
+ async connect({url,token,single,e2ee}) {
+  const options={singlePeerConnection:single};
+  if(e2ee){const keyProvider=new ExternalE2EEKeyProvider();await keyProvider.setKey('public-functional-fixture-not-a-production-secret');worker=new Worker('/e2ee-worker.mjs',{type:'module'});options.encryption={keyProvider,worker};}
+  room=new Room(options);
+  room.on(RoomEvent.DataTrackPublished,t=>events.push(['published',t.info.name]));
+  room.on(RoomEvent.DataTrackUnpublished,sid=>events.push(['unpublished',sid]));
+  room.on(RoomEvent.EncryptionError,error=>errors.push(String(error)));
+  await room.connect(url,token);
+  if(e2ee)await room.setE2EEEnabled(true);
+ },
+ async publish(name){const track=await room.localParticipant.publishDataTrack({name});tracks.set(name,track);return {name:track.info.name,sid:track.info.sid,usesE2ee:track.info.usesE2ee};},
+ hasRemote(identity,name){return !!room.remoteParticipants.get(identity)?.dataTracks.get(name);},
+ remoteInfo(identity,name){const t=room.remoteParticipants.get(identity)?.dataTracks.get(name);return t?{name:t.info.name,sid:t.info.sid,usesE2ee:t.info.usesE2ee}:null;},
+ subscribe(identity,name){const track=room.remoteParticipants.get(identity)?.dataTracks.get(name);if(!track)throw new Error('remote data track missing');const reader=track.subscribe({bufferSize:32}).getReader();readers.set(name,reader);frames.set(name,[]);(async()=>{try{for(;;){const {done,value}=await reader.read();if(done)break;const digest=await crypto.subtle.digest('SHA-256',value.payload);const list=frames.get(name);if(list.length>=64){window.functionalOverflow=true;break;}list.push({bytes:value.payload.length,sha256:Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join(''),userTimestamp:value.userTimestamp===undefined?null:String(value.userTimestamp)});}}catch(error){errors.push(String(error));}})();},
+ async push(name,length,seed){const payload=Uint8Array.from({length},(_,i)=>(i*31+seed)%256);const timestamp=9007199254741001n+BigInt(seed);await tracks.get(name).tryPush({payload,userTimestamp:timestamp});await tracks.get(name).flush();return String(timestamp);},
+ received(name){return frames.get(name)||[];},
+ permission(allowed){room.localParticipant.setTrackSubscriptionPermissions(allowed,[]);},
+ async unpublish(name){await tracks.get(name).unpublish();},
+ async pushUnpublished(name){try{await tracks.get(name).tryPush({payload:new Uint8Array([1])});return {rejected:false};}catch(error){return {rejected:true,errorName:error.name};}},
+ report(){return {connection:room?.state,channels:window.functionalChannels,packets:window.functionalPackets,overflow:window.functionalOverflow,events,errors};},
+ async close(){for(const reader of readers.values())await reader.cancel().catch(()=>{});await room?.disconnect();worker?.terminate();}
+};
+</script>

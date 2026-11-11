@@ -1,0 +1,9 @@
+{"case":"egress-load-crosswritten","op":"GetEgress","id":"EG_F06_probe"}
+{"case":"egress-sweep-actual-ended-past","op":"CleanEndedEgress"}
+{"case":"egress-past-now-missing","op":"GetEgress","id":"EG_F06_probe"}
+{"case":"ingress-crosswritten-state","op":"GetIngress","id":"IN_F06_probe"}
+{"case":"ingress-move-room","op":"UpdateIngress","message":{"ingressId":"IN_F06_probe","streamKey":"public-synthetic-F06-stream","roomName":"F06_room_B","inputType":"RTMP_INPUT","reusable":true}}
+{"case":"ingress-old-room-membership-removed","op":"ListIngress","room":"F06_room_A"}
+{"case":"ingress-new-room-membership-present","op":"ListIngress","room":"F06_room_B"}
+{"case":"ingress-delete-current","op":"DeleteIngress","id":"IN_F06_probe"}
+{"case":"ingress-late-callback-after-delete","op":"GetIngress","id":"IN_F06_probe"}

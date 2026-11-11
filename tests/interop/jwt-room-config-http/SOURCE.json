@@ -1,0 +1,13 @@
+{
+  "status": "PUBLIC_HTTP_FIXTURE_NOT_RUN",
+  "source_review_sha256": "c31862480abc9eefb24d7e847fdf512e4d7be719235b43f51d972b0cbde3ceb8",
+  "files": {
+    "go13-prefix-only-proof.json": "75c8ce56fc70a91d8b051693f25ccbefe05e917d753d33a8944e32bd840de19b",
+    "README.md": "9188a3a193fb01edf584f3f957c1e30a11457e955b8f2593023ba35f56be9f62",
+    "http.mjs": "2751b44f4b3bf2e5b615dd61408a9c55cb36585ed1c511d48150f5820b47c4a3",
+    "fixtures/go25-cases.jsonl": "289e58690db19a19f83538ef5cf69a96af4a79cf49494eed9aa7da3522fefd4c",
+    "fixtures/go25-observations.jsonl": "02491a6c292f6da564ccfe54bc8e644bf7bc07037bc71509168b2e101e321b3d"
+  },
+  "rows": 100,
+  "scope": "Actual HTTP route/Bearer/query/body/CORS only, not SDK lifecycle; all exact differences remain failures"
+}

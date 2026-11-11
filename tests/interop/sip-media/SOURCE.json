@@ -1,0 +1,43 @@
+{
+  "status": "ACTUAL_SCOPED_PROFILE_PASS_FIXED_GO_AND_RUST",
+  "worker": {
+    "name": "livekit/sip",
+    "tag": "v1.21.0",
+    "commit": "ee19da1a7ef178593e232a27365de7b4ba8f8829",
+    "binary_built_by_coordinator": "/tmp/livekit-rs-f07-official-sip",
+    "worker_runtime": "ACTUAL_FIXED_REFERENCE_AND_RUST_PASS"
+  },
+  "source_sha256": {
+    "references/sip/pkg/config/config.go": "40a7a9dc601a9345e01944bbfca378dacd76e7a86cf16bd66a8b94b4b404f765",
+    "references/sip/pkg/sip/outbound.go": "20321a13a33cde83290f553b9fe163b367a4e2c9bd9711564ef168920556fef5",
+    "references/sip/pkg/sip/protocol.go": "833267fe4593268631a9691d126b78f84c409bd4a6c4cf9c47430c74b7a4b656",
+    "references/sip/pkg/sip/service.go": "9c6a462430be76ab6723fd9d27d432416044e0a90d5977930e406858e08fae45",
+    "references/sip/docker-compose.yaml": "13a7b9448761d4f4bf0f9ef6004a385df47166727cbeb0ea1b9307cf96276834",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b",
+    "livekit-rs-server/tests/interop/node_modules/livekit-server-sdk/dist/SipClient.d.ts": "40fefd3b09424929355a6930c57a091336856ad681d4a7224161f2b821354152"
+  },
+  "real_proof_required": [
+    "Digest challenge verified",
+    "INVITE/SDP PCMU/ACK",
+    "genuine RTC room SIP participant",
+    "PCMU440=>RTC decoded440",
+    "RTC880=>PCMU decoded880",
+    "REFER=>actual target INVITE200/ACK=>finalNOTIFY200 ack",
+    "worker BYE=>RTC participant leave"
+  ],
+  "explicit_scope_limits": [
+    "New transfer target signaling only; onward target media not proved",
+    "No inbound/PIN/TLS/SRTP/DTMF/PSTN/provider matrix"
+  ],
+  "repo_inputs_changed": true,
+  "fixture_sha256": {
+    "README.md": "a56f6df626d443002af9e03c3151e165e02463ddaee88c442f6fefa6c4ac1cb2",
+    "client.html": "686837b183790c59fc95f41975496fc4e174255e1bdc8a86cd601f39edfe0267",
+    "peer.mjs": "904e1cf522c2e7d1267de00e406b51b1aa33a66a602b48f1ee1deb2904ab7591",
+    "peer.test.mjs": "b9897e13eb444464ae75778f0735559719c34a116872b36639b6f210caceba9a",
+    "run.mjs": "5d46e42b9a9e0fb0ada9d7f2fba1b492af5bcdec36708e1f9af88a72cb62c738",
+    "worker-config.yaml.in": "fdf6ce81c844725dd3af3abea789c79c4151a36c48bff3f4b9621dc04f35c29a"
+  },
+  "evidence_scope": "See SPEC0019/0020 and f07-functional-delivery.json; no whole-service or performance claim."
+}

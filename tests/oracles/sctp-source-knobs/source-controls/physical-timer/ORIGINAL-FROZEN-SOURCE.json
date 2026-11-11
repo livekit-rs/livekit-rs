@@ -1,0 +1,51 @@
+{
+  "status": "FROZEN_SOURCE_NOT_COMPILED_NOT_RUN",
+  "shared_edits": false,
+  "base_sha256": {
+    "livekit-rs-server/vendor/sctp-proto/src/config.rs": "9b5c353093f6d9cda156ef67cc390899dfdb6ba52daebfa1c49859f6b30fe864",
+    "livekit-rs-server/vendor/sctp-proto/src/association/mod.rs": "b6c08daa60c577eef3aa6fce1f46a4818e343bdd5d1ea795fc8b6268723ae884",
+    "livekit-rs-server/vendor/str0m/src/sctp_options.rs": "c7597be780a2b1f86c32fe1aebf13f02f39bd1060894fb2f763e0a8da03fbd56",
+    "livekit-rs-server/crates/rtc-media/src/engine.rs": "9cc5e10ba289a50178e6443ac57edb508ae7555116f2c13572c300781595115e",
+    "livekit-rs-server/crates/rtc-media/src/regression/data_track_latency.rs": "a72c83e995e9b4326c754d70e8d015dd277eee93c98952e9742133dcf1e00bd9"
+  },
+  "new_files": [
+    "livekit-rs-server/vendor/sctp-proto/src/association/configured_physical_timer_tests.rs"
+  ],
+  "payload_sha256": {
+    "livekit-rs-server/crates/rtc-media/src/engine.rs": "9834a8fdcfdff1375c8977c12b6185ad30836942b630f5b45607b2cf014e4d87",
+    "livekit-rs-server/crates/rtc-media/src/regression/data_track_latency.rs": "637a8a17086409f4fb8a448bf89ba1b6931a1889e3a5eda876afb5a6c628c87b",
+    "livekit-rs-server/vendor/sctp-proto/src/association/configured_physical_timer_tests.rs": "946bbcca125c45cd329d26f15b0db5445a074fd1121ac8b8fd906cf55c3faebe",
+    "livekit-rs-server/vendor/sctp-proto/src/association/mod.rs": "fe6dcc72bae027593f6d0bcd262be2051c86971d3794793afd2362a47a3de04d",
+    "livekit-rs-server/vendor/sctp-proto/src/config.rs": "dff6e7b9b6bc2b6bd3a44ce8effc9031ba8257e8400ca48eb697d1ce5209b1b0",
+    "livekit-rs-server/vendor/str0m/src/sctp_options.rs": "36a7694c9472d37813eb9a8c803933e149c7ed48aa85e4d954f6c49cc8d71028"
+  },
+  "source_sha256": {
+    "/Users/zoujiaqing/projects/livekit-rs/references/go-modules/pion-sctp-v1.12.0/association.go": "d0b3200cb086dff512b34b2e2595a4575d78fd835bc8ed6749d7c4d912f00e1b",
+    "/Users/zoujiaqing/projects/livekit-rs/references/go-modules/pion-sctp-v1.12.0/stream.go": "d539f04f3170f7fd8aec2d0127be899190d13950f2bbd870acb7237bb3a52dd0",
+    "/Users/zoujiaqing/projects/livekit-rs/references/go-modules/pion-sctp-v1.12.0/chunk_payload_data.go": "3074a9742fd3249d51107d447e8d12166dbf826f93f0d0c7529c4eb1d9ae232a",
+    "/Users/zoujiaqing/projects/livekit-rs/references/go-modules/pion-sctp-v1.12.0/rtx_timer.go": "e2628c9c68b0a18de68b653350f77d4b192044237a3350b1958da4421f42dbf0",
+    "/Users/zoujiaqing/projects/livekit-rs/references/go-modules/pion-sctp-v1.12.0/association_stats.go": "0880b789d9efe52f177de11ee3e42f229c7787d9ed5bebd7f0ee80b50834a495",
+    "/Users/zoujiaqing/projects/livekit-rs/references/go-modules/pion-sctp-v1.12.0/association_options.go": "d1059759b1f970931d86304e8ceead0552dc8517834bf9d4394a00ae4c5a7c96"
+  },
+  "assets_sha256": {
+    "README.md": "dd3d8a8715dab557435355fa3d81b50950df0b12a26256f014ff11d7cc7ee7b7",
+    "add_engine_gate.py": "aa76198fb981b7f9bffbf63b38eac5b32ca1cdd8ad612b74fc32fd27a435f12e",
+    "base-hashes.json": "809373863986ec4dc1d3662865bdd71580772ea93325ee515cec97a1613d1089",
+    "changes.patch": "2f9377916c8fc65ac7b85ac614282ffedbe0ba5d00215749f1c3baa764d06a34",
+    "make.py": "586461e70ea69cfb3cacad138f5c9876d17298ce8deb2df09d7d4332c5c8fba2",
+    "native_physical_timer_tests.rs": "946bbcca125c45cd329d26f15b0db5445a074fd1121ac8b8fd906cf55c3faebe",
+    "oracle/LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "oracle/physical_timer_test.go": "d4bc2ff64203171d68ecbae47e2ecefe780df7d1f3512e6c0dfb212a962f7a61",
+    "oracle/pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "oracle/prepare.py": "4098359f52bb5ab38d53f9adaef7eb8e52e34d274de036eefcd76bc20d1e30f5",
+    "oracle/to_tsv.py": "82ea5d5d51fa956dc064e6d3664c505c8e359c60dd722a04411dffcf51da885c",
+    "production.patch": "ad168531506c35a8367361c0794a47ac51a87be3b9ce9e49e4fb9861cf825bec",
+    "seal.py": "bfbde5c1f6b52e2454b43eeb62ca9151e9ddda04bd5f045e9e62a81217594eea"
+  },
+  "actual_go_physical_timer": "PREPARED_4_NOT_RUN",
+  "actual_native_timer": "PREPARED_IGNORED_NOT_RUN",
+  "actual_engine_encrypted_consumer": "PREPARED_NOT_RUN",
+  "mutation_red_green": "NOT_RUN",
+  "prior_vectors": "12/60/60/8 unchanged; prior actual observations remain historical",
+  "scope": "source policy independent of default zero burst; original positive burst compatibility retained; root owns native patch reconstruction"
+}

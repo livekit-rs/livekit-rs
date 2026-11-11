@@ -1,0 +1,14 @@
+[
+ {"id":"unix-literal-punctuation-db1","address":"$UNIX","db":1,"username":"","secret_kind":"admin","expected_region":"db1"},
+ {"id":"unix-missing-real-dial","address":"$MISSING_UNIX","db":1,"username":"","secret_kind":"admin","expected_region":""},
+ {"id":"tcp-ipv6-explicit-db1","address":"$IPV6","db":1,"username":"","secret_kind":"admin","expected_region":"db1"},
+ {"id":"tcp-host-missing-port","address":"127.0.0.1","db":1,"username":"","secret_kind":"admin","expected_region":""},
+ {"id":"tcp-missing-bracket","address":"[::1:6379","db":1,"username":"","secret_kind":"admin","expected_region":""},
+ {"id":"tcp-refused-real-dial","address":"$CLOSED_TCP","db":1,"username":"","secret_kind":"admin","expected_region":""},
+ {"id":"tcp-password-wrong","address":"$IPV4","db":1,"username":"","secret_kind":"wrong","expected_region":""},
+ {"id":"tcp-acl-user-password","address":"$IPV4","db":1,"username":"$ACL_USER","secret_kind":"admin","expected_region":"db1"},
+ {"id":"tcp-db0-distinct-nodes","address":"$IPV4","db":0,"username":"","secret_kind":"admin","expected_region":"db0"},
+ {"id":"cli-masks-bad-env","address":"$IPV4","db":1,"username":"","secret_kind":"admin","expected_region":"db1","cli_redis_host":"$IPV4","env_redis_host":"127.0.0.1"},
+ {"id":"additive-negative-db-source-keeps-zero","address":"$IPV4","db":-1,"username":"","secret_kind":"admin","expected_region":"db0"},
+ {"id":"additive-username-only-no-auth-control","address":"$IPV4","db":1,"username":"$ACL_USER","secret_kind":"empty","expected_region":""}
+]

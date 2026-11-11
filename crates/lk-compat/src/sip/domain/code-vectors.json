@@ -1,0 +1,111 @@
+[
+  {
+    "name": "inbound-clear-numbers",
+    "op": "inbound",
+    "request": {
+      "sip_trunk_id": "ST_test",
+      "update": {
+        "numbers": {
+          "clear": true
+        }
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "ST_test",
+      "numbers": [
+        "123"
+      ]
+    }
+  },
+  {
+    "name": "inbound-missing-id",
+    "op": "inbound",
+    "request": {
+      "update": {
+        "numbers": {
+          "clear": true
+        }
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "ST_test",
+      "numbers": [
+        "123"
+      ]
+    }
+  },
+  {
+    "name": "inbound-invalid-media",
+    "op": "inbound",
+    "request": {
+      "sip_trunk_id": "ST_test",
+      "update": {
+        "media": {
+          "media_timeout": "-1s"
+        }
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "ST_test",
+      "numbers": [
+        "123"
+      ]
+    }
+  },
+  {
+    "name": "outbound-clear-numbers",
+    "op": "outbound",
+    "request": {
+      "sip_trunk_id": "ST_test",
+      "update": {
+        "numbers": {
+          "clear": true
+        }
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "ST_test",
+      "numbers": [
+        "123"
+      ],
+      "address": "example.org"
+    }
+  },
+  {
+    "name": "outbound-missing-id",
+    "op": "outbound",
+    "request": {
+      "update": {
+        "numbers": {
+          "clear": true
+        }
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "ST_test",
+      "numbers": [
+        "123"
+      ],
+      "address": "example.org"
+    }
+  },
+  {
+    "name": "outbound-invalid-media",
+    "op": "outbound",
+    "request": {
+      "sip_trunk_id": "ST_test",
+      "update": {
+        "media": {
+          "media_timeout": "-1s"
+        }
+      }
+    },
+    "existing": {
+      "sip_trunk_id": "ST_test",
+      "numbers": [
+        "123"
+      ],
+      "address": "example.org"
+    }
+  }
+]

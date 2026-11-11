@@ -1,0 +1,17 @@
+{
+  "scope": "case identity only; no expected business/source observation values",
+  "ordered_ids": [
+    "plain-cap-one-and-independent-channel-defaults",
+    "raw-and-decoded-size-one-lock-boundary",
+    "transport-global-blocked-membership",
+    "typed-response-Any-legal-unknown",
+    "consumer-internal.Request",
+    "consumer-internal.ClaimRequest",
+    "consumer-internal.ClaimResponse",
+    "consumer-internal.Response",
+    "blocked-caller-cancel",
+    "blocked-caller-deadline",
+    "blocked-method-timeout",
+    "persistent-client-completion-global-gate"
+  ]
+}

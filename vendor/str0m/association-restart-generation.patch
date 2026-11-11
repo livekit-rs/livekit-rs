@@ -1,0 +1,126 @@
+--- a/src/channel.rs
++++ b/src/channel.rs
+@@ -89,6 +89,12 @@
+         );
+ 
+         Ok(true)
++    }
++
++    /// Authenticated SCTP association generation for a pending raw write.
++    /// Changes on peer restart while this application's channel stays open.
++    pub fn sctp_association_generation(&self) -> Option<u64> {
++        self.rtc.sctp.association_generation()
+     }
+ 
+     /// Read-only association DATA still waiting its first transmission. This is
+--- a/src/sctp/mod.rs
++++ b/src/sctp/mod.rs
+@@ -706,6 +706,12 @@
+         Ok(stream.write_with_ppi(buf, ppi)?)
+     }
+ 
++    pub fn association_generation(&self) -> Option<u64> {
++        self.assoc
++            .as_ref()
++            .map(|association| association.restart_generation())
++    }
++
+     pub fn has_pending_data(&mut self, id: u16) -> bool {
+         self.assoc.as_mut().is_some_and(|a| a.has_pending_data(id))
+     }
+@@ -1467,9 +1473,10 @@
+         init_data.local_init_chunk().unwrap();
+ 
+         let err = sctp.init(true, now, Some(init_data), None).unwrap_err();
+-        assert!(err
+-            .to_string()
+-            .contains("SNAP requires both local and remote SCTP INIT chunks"));
++        assert!(
++            err.to_string()
++                .contains("SNAP requires both local and remote SCTP INIT chunks")
++        );
+     }
+ 
+     #[test]
+@@ -1755,6 +1762,81 @@
+         panic!("stream close was not reported");
+     }
+ 
++    #[test]
++    fn authenticated_peer_restart_changes_generation_and_keeps_application_channel_open() {
++        let now = Instant::now();
++        let (mut original, mut server) = connect_client_server();
++        let pump = |from: &mut RtcSctp, to: &mut RtcSctp| {
++            let mut wire = vec![];
++            while let Some(event) = from.do_poll() {
++                if let SctpEvent::Transmit { packets } = event {
++                    for packet in packets {
++                        to.handle_input(now, &packet);
++                        wire.extend(packet);
++                    }
++                }
++            }
++            wire
++        };
++        original.open_stream(
++            0,
++            ChannelConfig {
++                ordered: true,
++                ..Default::default()
++            },
++        );
++        pump(&mut original, &mut server);
++        pump(&mut server, &mut original);
++        assert_eq!(server.association_generation(), Some(0));
++        server.write(0, true, b"accepted-before-restart").unwrap();
++        let mut replacement = RtcSctp::new(DATAGRAM_MTU_TARGET);
++        replacement.init(true, now, None, None).unwrap();
++        for _ in 0..20 {
++            pump(&mut replacement, &mut server);
++            pump(&mut server, &mut replacement);
++            if server.association_generation() == Some(1)
++                && replacement.state == RtcSctpState::Established
++            {
++                break;
++            }
++        }
++        assert_eq!(server.association_generation(), Some(1));
++        assert_eq!(replacement.state, RtcSctpState::Established);
++        assert_eq!(
++            original.association_generation(),
++            Some(0),
++            "a different peer connection is independent"
++        );
++        assert_eq!(
++            server.buffered_amount(0),
++            0,
++            "accepted old-generation DATA is discarded, not retried"
++        );
++        assert_eq!(
++            entry_by_id(&server.entries, 0).unwrap().state,
++            StreamEntryState::Open
++        );
++        replacement.open_stream(
++            0,
++            ChannelConfig {
++                negotiated: Some(0),
++                ..Default::default()
++            },
++        );
++        while replacement.do_poll().is_some() {}
++        server.write(0, true, b"fresh-after-restart").unwrap();
++        let wire = pump(&mut server, &mut replacement);
++        assert!(
++            wire.windows(b"fresh-after-restart".len())
++                .any(|window| window == b"fresh-after-restart")
++        );
++        assert!(
++            !wire
++                .windows(b"accepted-before-restart".len())
++                .any(|window| window == b"accepted-before-restart")
++        );
++    }
++
+     /// Regression test: the DCEP-receiving side of an in-band channel must apply
+     /// the DcepOpen reliability parameters (here: unordered) to its sctp-proto
+     /// stream, instead of sending with stream defaults (ordered, fully reliable).

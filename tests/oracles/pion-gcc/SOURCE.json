@@ -1,0 +1,51 @@
+{
+  "id": "PION_GCC_PUBLIC_LOCKED_SOURCE_PROFILES",
+  "status": "INPUTS_FROZEN_RESULTS_NOT_EMBEDDED",
+  "module_source": "github.com/pion/interceptor v0.1.49",
+  "source_reference": "references/go-modules/pion-interceptor-v0.1.49",
+  "fixed_server_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85"
+  },
+  "profile_expected_rows": {
+    "stages": 404,
+    "adapter": 12,
+    "numeric": 34,
+    "extra": 12,
+    "rfc8888": 7,
+    "sent-size": 8
+  },
+  "files_sha256": {
+    "LICENSE": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "README.md": "26ae442cb5a8df80328c106173b5f6916b52d36754b37aab35bf2913cd7b8979",
+    "adapter/cases.jsonl": "11db15f2cd121f6dea1a365bcf14b55482211486b0d5a4a61b0bf0dd76884ae1",
+    "adapter/oracle_test.go": "f2d79c580c2d2129960d687c42a2e08d985613a93c7e6da294f72daf5a27525e",
+    "extra/cases.jsonl": "2582c3ad5ff373c8dd377f66e05feb30935557f4e5410cf0d761e9878ac3be43",
+    "extra/oracle_test.go": "d3c6dd6549e03c376539826038d98d977d4e97166ab462d74a6ad7257f300787",
+    "interceptor-source-lock.json": "188ca5f9f0c01e3767b01d11d1c9bcc1fd51f9f7ef926ea57f457d61f0e582ab",
+    "numeric/cases.jsonl": "c0f13bb2680c206a9b8eb9d45308d4aa70b3bb817af522c471a0349f3864b919",
+    "numeric/oracle_test.go": "46b273b9fb2fd6506acdcaa3f1478f572c22e95ddcc4e29eef57271a951fbc03",
+    "prepare.py": "069e6b6fe87d7d5c2cfd1194b4fe36328bfff27ae4c693ac88c4ca08588acd30",
+    "rfc8888/cases.jsonl": "c1cb3585d96ca401ab091e223d25faa95fb87f4b3e868439ca91545dc9a37ff9",
+    "rfc8888/oracle_test.go": "d6a7a55486202ee0bb92574fe516690a98f407cf101498b65c94a83449478165",
+    "sent-size/cases.jsonl": "92b85965c3501e0c649a29c9978f4127b57551a3d6e8a5620731f2749dbc78ce",
+    "sent-size/oracle_test.go": "d89e59f6f1cc5f20d8c73df5458dcbbe6d412708cacb5f18b7554d1e631d9545",
+    "stages/cases.jsonl": "a5fb147e015490aeed17cb881f6dd364b7e6e8c840e751ae2d8ff09543369705",
+    "stages/oracle_test.go": "a1919373804479328cfffa1e90892ec2ee1c1ed49505b0625350b362230652a4",
+    "compound/README.md": "02b6d76c9a2223f664adb0d059b19461d291e8dc7d600f91652b587a91cf8515",
+    "compound/cases.jsonl": "4147c58c8d267bcc7802e8913435863401329f626668baa67ebca52b3ba4554a",
+    "compound/main.go": "69d003e3c264832f4ea0aa0e4d727d752a3e0f3fe886a00dd325a28062197cb0",
+    "compound/typed-edge-cases.jsonl": "f1b8993777c385eb6f2f7330513127d5b0e516e637dcbdd9850d4a367dee3bfc"
+  },
+  "additional_profile": {
+    "compound": "original14 fixed-MVS Attributes.GetRTCPPackets plus separate234 typed edges; driver main.go is run directly in fixed server module, no production transforms",
+    "fourteen_actual_scope": "root actual source-only output exists; runtime and Rust parser comparisons NOT_RUN",
+    "typed_edges": "NOT_RUN until root actual Go and Rust comparison"
+  },
+  "integrated_execution_checkpoint_2026_10_27": {
+    "status": "PASS_SCOPED_COMPONENTS_NOT_FULL_SDK_RUNTIME",
+    "reference": "livekit-rs-docs/evidence/2026-10-27/pion-all-source-gates.json",
+    "stateful_prefix_reference": "livekit-rs-docs/evidence/2026-10-27/pion-prefix-component-green.json",
+    "notes": "Original preparation NOT_RUN snapshots above remain historical; actual root executions are separately recorded. Final SDK assembly gates remain pending."
+  }
+}

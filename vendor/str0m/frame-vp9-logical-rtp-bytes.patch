@@ -1,0 +1,242 @@
+diff --git a/src/media/event.rs b/src/media/event.rs
+index 6d7f3451..09129022 100644
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -315,7 +315,18 @@ pub struct MediaData {
+     pub audio_start_of_talk_spurt: bool,
+ }
+ 
++#[derive(Debug, Clone, Copy)]
++pub(crate) struct FrameLogicalRtpBytes(pub usize);
++
+ impl MediaData {
++    /// Authenticated logical RTP size of the packets retained for this VP9 frame.
++    pub fn logical_rtp_bytes(&self) -> Option<usize> {
++        self.ext_vals
++            .user_values
++            .get::<FrameLogicalRtpBytes>()
++            .map(|value| value.0)
++    }
++
+     /// Actual original packet timing retained through this frame's assembly.
+     /// Empty when observation was disabled; storage shares the frame's bounded
+     /// extension metadata lifetime and is never serialized as a wire extension.
+diff --git a/src/media/mod.rs b/src/media/mod.rs
+index 79c85041..00eaf7e4 100644
+--- a/src/media/mod.rs
++++ b/src/media/mod.rs
+@@ -401,6 +401,11 @@ impl Media {
+                         .user_values
+                         .set(ForwardingPacketCohort(forwarding_packets));
+                 }
++                if dep.logical_rtp_bytes != 0 {
++                    ext_vals
++                        .user_values
++                        .set(FrameLogicalRtpBytes(dep.logical_rtp_bytes));
++                }
+                 return Ok(Some(MediaData {
+                     mid: self.mid,
+                     pt: *pt,
+@@ -431,6 +436,7 @@ impl Media {
+         &mut self,
+         rid: Option<Rid>,
+         packet: RtpPacket,
++        logical_rtp_bytes: usize,
+         reordering_size_audio: usize,
+         reordering_size_video: usize,
+         opus_outage_primary: bool,
+@@ -506,7 +512,7 @@ impl Media {
+         // The entry will be there by now.
+         let buffer = self.depayloaders.get_mut(&key).unwrap();
+ 
+-        buffer.push_media(meta, packet.payload, opus_outage_primary);
++        buffer.push_media(meta, packet.payload, opus_outage_primary, logical_rtp_bytes);
+     }
+ 
+     pub(crate) fn set_cname(&mut self, cname: String) {
+diff --git a/src/packet/buffer_rx.rs b/src/packet/buffer_rx.rs
+index 34ccb64a..2ede9d75 100644
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -37,6 +37,7 @@ pub struct RtpMeta {
+ 
+ #[derive(Clone)]
+ pub struct Depacketized {
++    pub logical_rtp_bytes: usize,
+     pub time: MediaTime,
+     pub contiguous: bool,
+     pub meta: Vec<RtpMeta>,
+@@ -137,6 +138,7 @@ struct Entry {
+     head: bool,
+     tail: bool,
+     opus_outage_primary: bool,
++    logical_rtp_bytes: usize,
+ }
+ 
+ impl Entry {
+@@ -234,7 +236,7 @@ impl DepacketizingBuffer {
+     }
+ 
+     pub fn push(&mut self, meta: RtpMeta, data: impl Into<Arc<[u8]>>) {
+-        self.push_media(meta, data, false);
++        self.push_media(meta, data, false, 0);
+     }
+ 
+     pub(crate) fn push_media(
+@@ -242,13 +244,20 @@ impl DepacketizingBuffer {
+         meta: RtpMeta,
+         data: impl Into<Arc<[u8]>>,
+         opus_outage_primary: bool,
++        logical_rtp_bytes: usize,
+     ) {
+         let opus_outage_primary =
+             opus_outage_primary && matches!(self.depack, CodecDepacketizer::Opus(_));
+         if opus_outage_primary {
+             self.opus_outage_resume.get_or_insert_with(Default::default);
+         }
+-        self.push_entry(meta, data.into(), None, opus_outage_primary);
++        self.push_entry(
++            meta,
++            data.into(),
++            None,
++            opus_outage_primary,
++            logical_rtp_bytes,
++        );
+     }
+ 
+     pub(crate) fn push_padding(&mut self, mut meta: RtpMeta) {
+@@ -258,7 +267,7 @@ impl DepacketizingBuffer {
+             .ext_vals
+             .user_values
+             .set(crate::media::ForwardingPacketMeta(None));
+-        self.push_entry(meta, Arc::from([]), Some((false, false)), false);
++        self.push_entry(meta, Arc::from([]), Some((false, false)), false, 0);
+     }
+ 
+     fn push_entry(
+@@ -267,6 +276,7 @@ impl DepacketizingBuffer {
+         data: Arc<[u8]>,
+         partition: Option<(bool, bool)>,
+         opus_outage_primary: bool,
++        logical_rtp_bytes: usize,
+     ) {
+         // We're not emitting frames in the wrong order. If we receive
+         // packets that are before the last emitted, we drop.
+@@ -322,6 +332,7 @@ impl DepacketizingBuffer {
+                     head,
+                     tail,
+                     opus_outage_primary,
++                    logical_rtp_bytes,
+                 };
+                 self.queue.insert(i, entry);
+                 self.segments_dirty = true;
+@@ -510,7 +521,9 @@ impl DepacketizingBuffer {
+         let horizon = timeout.saturating_mul(u32::try_from(self.hold_back).unwrap_or(u32::MAX));
+         let receive_gap = packet.received.saturating_duration_since(last.received);
+         let source_gap = Duration::from_micros(packet.time.saturating_sub(last.time).as_micros());
+-        receive_gap >= horizon && source_gap >= horizon && receive_gap.abs_diff(source_gap) <= timeout
++        receive_gap >= horizon
++            && source_gap >= horizon
++            && receive_gap.abs_diff(source_gap) <= timeout
+     }
+ 
+     /// Fixed LiveKit (Go) forwards packets as they arrive, so after an upstream gap a
+@@ -703,10 +716,12 @@ impl DepacketizingBuffer {
+ 
+         let time = self.queue.get(start).expect("first index exist").meta.time;
+         let mut meta = Vec::with_capacity(stop - start + 1);
++        let mut logical_rtp_bytes = 0usize;
+ 
+         for entry in self.queue.range_mut(start..=stop) {
+             self.depack
+                 .depacketize(entry.remaining(), &mut data, &mut codec_extra)?;
++            logical_rtp_bytes = logical_rtp_bytes.saturating_add(entry.logical_rtp_bytes);
+             let mut packet_meta = entry.meta.clone();
+             // Read the descriptor state just parsed for this packet, before
+             // the next packet can replace it or the frame merges layers.
+@@ -757,6 +772,7 @@ impl DepacketizingBuffer {
+         }
+ 
+         Ok(Depacketized {
++            logical_rtp_bytes,
+             time,
+             contiguous: true, // the caller taking ownership will modify this accordingly
+             meta,
+@@ -1101,6 +1117,7 @@ mod test {
+             })
+             .collect();
+         let frame = Depacketized {
++            logical_rtp_bytes: 0,
+             time,
+             contiguous: true,
+             meta,
+@@ -1164,6 +1181,7 @@ mod test {
+ 
+         let time_value = 100_u64;
+         let dep = Depacketized {
++            logical_rtp_bytes: 0,
+             time: MediaTime::new(time_value, Frequency::new(90000).unwrap()),
+             contiguous: true,
+             meta: vec![
+@@ -2728,12 +2746,12 @@ mod keyframe_skip_boundaries {
+             packet.header.ssrc = Ssrc::from(55);
+             packet
+         };
+-        buf.push_media(packet(0, 1, 20), [0xf8, 1], true);
++        buf.push_media(packet(0, 1, 20), [0xf8, 1], true, 0);
+         assert!(buf.pop(now, wait).is_some());
+ 
+-        buf.push_media(packet(30, 3, 60), [0xf8, 3], true);
++        buf.push_media(packet(30, 3, 60), [0xf8, 3], true, 0);
+         assert!(buf.pop(now + Duration::from_millis(30), wait).is_none());
+-        buf.push_media(packet(38, 2, 40), [0xf8, 2], false);
++        buf.push_media(packet(38, 2, 40), [0xf8, 2], false, 0);
+         for sequence in 2u64..=3 {
+             let out = buf
+                 .pop(now + Duration::from_millis(38), wait)
+@@ -2743,7 +2761,7 @@ mod keyframe_skip_boundaries {
+         }
+ 
+         let resumed = now + Duration::from_millis(970);
+-        buf.push_media(packet(970, 50, 1000), [0xf8, 50], true);
++        buf.push_media(packet(970, 50, 1000), [0xf8, 50], true, 0);
+         let out = buf.pop(resumed, wait).unwrap().unwrap();
+         assert_eq!(out.seq_range(), SeqNo::from(50)..=SeqNo::from(50));
+         assert!(!out.contiguous, "preserve the missing RTP sequence range");
+@@ -2767,10 +2785,10 @@ mod keyframe_skip_boundaries {
+             (packet(960, 49, 980, 55), false),
+         ] {
+             let mut buf = DepacketizingBuffer::new(CodecDepacketizer::Opus(OpusDepacketizer), 15);
+-            buf.push_media(packet(0, 1, 20, 55), [0xf8, 1], true);
++            buf.push_media(packet(0, 1, 20, 55), [0xf8, 1], true, 0);
+             assert!(buf.pop(now, wait).is_some());
+             let received = next.received;
+-            buf.push_media(next, [0xf8, 49], primary);
++            buf.push_media(next, [0xf8, 49], primary, 0);
+             assert!(buf.pop(received, wait).is_none());
+         }
+     }
+diff --git a/src/session.rs b/src/session.rs
+index 82775dd2..680c71a8 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1172,6 +1172,11 @@ impl Session {
+             media.depayload(
+                 stream.rid(),
+                 packet,
++                if packet_params.spec().codec == crate::format::Codec::Vp9 {
++                    logical_rtp_bytes
++                } else {
++                    0
++                },
+                 self.reordering_size_audio,
+                 self.reordering_size_video,
+                 outage_primary,
+@@ -1189,6 +1194,7 @@ impl Session {
+             media.depayload(
+                 stream.rid(),
+                 rec_packet,
++                0,
+                 self.reordering_size_audio,
+                 self.reordering_size_video,
+                 false,

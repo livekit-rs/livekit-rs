@@ -1,0 +1,284 @@
+diff --git a/src/change/direct.rs b/src/change/direct.rs
+index 94489fa..dd371b4 100644
+--- a/src/change/direct.rs
++++ b/src/change/direct.rs
+@@ -317,6 +317,12 @@ impl<'a> DirectApi<'a> {
+         self.rtc.session.remove_media(mid);
+     }
+ 
++    /// Permanently remove Opus NACK from this peer connection's codec
++    /// feedback and clear audio retransmissions, preserving video/other PCs.
++    pub fn disable_opus_nack(&mut self) {
++        self.rtc.session.disable_opus_nack();
++    }
++
+     /// Turn RFC 2198 RED wrapping on or off on the send side at runtime.
+     ///
+     /// This only decides whether outgoing packets are wrapped in RED right now; it needs no
+@@ -375,8 +381,8 @@ impl<'a> DirectApi<'a> {
+ 
+     /// Declare the intention to send data using the given SSRC.
+     ///
+-    /// * The resend RTX is optional but necessary to do resends. str0m does not do
+-    ///   resends without RTX.
++    /// * Video resends require RTX. Opus with NACK feedback can resend the
++    ///   original packet on the primary SSRC without an RTX PT/SSRC.
+     ///
+     /// Can be called multiple times without changing any internal state. However
+     /// the RTX value is only picked up the first ever time we see a new SSRC.
+diff --git a/src/packet/opus.rs b/src/packet/opus.rs
+index 1c3129c..bb59f0a 100644
+--- a/src/packet/opus.rs
++++ b/src/packet/opus.rs
+@@ -37,7 +37,9 @@ impl Packetizer for OpusPacketizer {
+     }
+ 
+     fn nackable(&self) -> bool {
+-        false
++        // The send stream also requires negotiated/configured Opus NACK;
++        // RED packets and sessions without that feedback remain uncached.
++        true
+     }
+ }
+ 
+diff --git a/src/session.rs b/src/session.rs
+index 3d6838a..2420144 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1356,6 +1356,7 @@ impl Session {
+             header,
+             seq_no,
+             is_padding,
++            is_retransmission,
+             payload_size,
+         } = receipt;
+ 
+@@ -1372,7 +1373,7 @@ impl Session {
+             raw_packets.push_back(Box::new(RawPacket::RtpTx(header.clone(), buf.clone())));
+         }
+ 
+-        let primary = header.ssrc == stream.ssrc();
++        let primary = header.ssrc == stream.ssrc() && !is_retransmission;
+         let plain_size = buf.len();
+         let pion_payload_size =
+             plain_size
+@@ -1807,6 +1808,27 @@ impl Session {
+         Ok(())
+     }
+ 
++    /// Match Pion configureSenderAudio's sticky session-wide Opus NACK
++    /// removal. Never re-enable it during m-line reuse or later negotiation.
++    pub fn disable_opus_nack(&mut self) {
++        for payload in self.codec_config.iter_mut() {
++            if payload.spec().codec == crate::format::Codec::Opus {
++                payload.set_fb_nack(false);
++            }
++        }
++        let audio_mids: Vec<_> = self
++            .medias
++            .iter()
++            .filter(|media| media.kind().is_audio())
++            .map(|media| media.mid())
++            .collect();
++        for mid in audio_mids {
++            for stream in self.streams.streams_tx_by_mid(mid) {
++                stream.clear_retransmissions();
++            }
++        }
++    }
++
+     /// Toggle RFC 2198 RED wrapping on the send side at runtime. No renegotiation: RED availability
+     /// is fixed at negotiation (or via DirectAPI); this only decides whether we wrap right now.
+     /// Returns whether the setting changed.
+@@ -1875,6 +1897,7 @@ pub struct PacketReceipt {
+     pub header: RtpHeader,
+     pub seq_no: SeqNo,
+     pub is_padding: bool,
++    pub is_retransmission: bool,
+     pub payload_size: usize,
+ }
+ 
+diff --git a/src/streams/send.rs b/src/streams/send.rs
+index ea73fdd..0a73024 100644
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -585,7 +585,7 @@ impl StreamTx {
+         let remote_acked_ssrc = self.remote_acked_ssrc;
+         let remote_acked_rtx_ssrc = self.remote_acked_rtx_ssrc;
+ 
+-        let (next, is_padding) = if independent_padding {
++        let (mut next, is_padding) = if independent_padding {
+             (self.poll_packet_padding_inner(now, false)?, true)
+         } else if let Some(next) = self.poll_packet_resend(now) {
+             (next, false)
+@@ -646,15 +646,19 @@ impl StreamTx {
+                 // parse the RED bytes as raw primary codec. RED carries its own redundancy, so
+                 // it does not need RTX anyway. Plain packets on this PT stay nackable.
+                 let is_red_packet = param.red() == Some(pt_main);
+-                let rtx_possible = param.resend().is_some() && !is_red_packet;
++                // RFC 4585 audio NACK retransmits the original packet on the
++                // primary SSRC/PT; audio does not require an RFC 4588 RTX PT.
++                let opus_nack = param.spec().codec == crate::format::Codec::Opus && param.fb_nack();
++                let rtx_possible = (param.resend().is_some() || opus_nack) && !is_red_packet;
+ 
+-                if rtx_possible {
++                if param.resend().is_some() && rtx_possible {
+                     // Remember PT We want to set these directly on `self` here, but can't
+                     // because we already have a mutable borrow. We are using pt_main
+                     // since the above loop figuring out param needs to be correct also
+                     // for the NextPacketKind::Blank case.
+                     set_pt_for_padding = Some(pt_main);
+-                } else {
++                }
++                if !rtx_possible {
+                     // If the PT we're sending on doesn't have a corresponding RTX PT,
+                     // the packet is de-facto not nackable.
+                     //
+@@ -685,6 +689,12 @@ impl StreamTx {
+                 header.sequence_number = *next.seq_no as u16;
+                 header
+             }
++            NextPacketKind::Resend(original) if param.resend().is_none() => {
++                next.seq_no = original;
++                // Opus without RTX: same SSRC, PT, sequence and payload, with
++                // no two-byte original-sequence prefix. Keep video RTX intact.
++                header_ref.clone()
++            }
+             NextPacketKind::Resend(_) | NextPacketKind::Blank(_) => {
+                 // * For the Resend case, we will not have accepted/cached the packet unless
+                 //   we have a RTX PT (see logic setting next.pkt.nackable above).
+@@ -748,7 +758,9 @@ impl StreamTx {
+ 
+         // For resends, the original seq_no is inserted before the payload.
+         let mut original_seq_len = 0;
+-        if let NextPacketKind::Resend(orig_seq_no) = next.kind {
++        if let NextPacketKind::Resend(orig_seq_no) = next.kind
++            && param.resend().is_some()
++        {
+             original_seq_len = RtpHeader::write_original_sequence_number(body_out, orig_seq_no);
+             body_out = &mut body_out[original_seq_len..];
+         }
+@@ -805,6 +817,7 @@ impl StreamTx {
+         }
+ 
+         let seq_no = next.seq_no;
++        let is_retransmission = matches!(next.kind, NextPacketKind::Resend(_));
+         if next.kind == NextPacketKind::Regular {
+             self.last_sent_seq_no = seq_no;
+         }
+@@ -841,6 +854,7 @@ impl StreamTx {
+             header,
+             seq_no,
+             is_padding,
++            is_retransmission,
+             payload_size: body_len,
+         })
+     }
+@@ -919,9 +933,12 @@ impl StreamTx {
+             h.push(now, len);
+         }
+ 
+-        let seq_no = self.seq_no_rtx.inc();
+-
+         let orig_seq_no = pkt.seq_no;
++        let seq_no = if self.rtx.is_none() {
++            orig_seq_no
++        } else {
++            self.seq_no_rtx.inc()
++        };
+ 
+         Some(NextPacket {
+             kind: NextPacketKind::Resend(orig_seq_no),
+@@ -1378,6 +1395,13 @@ impl StreamTx {
+         }
+     }
+ 
++    /// Discard retransmission state when a sender codec loses NACK feedback.
++    /// Pending primary packets remain queued and sequence numbering is retained.
++    pub(crate) fn clear_retransmissions(&mut self) {
++        self.rtx_cache.clear();
++        self.resends.clear();
++    }
++
+     pub(crate) fn reset_buffers(&mut self) {
+         self.send_queue.clear();
+         self.queue_info = None;
+@@ -1455,6 +1479,78 @@ struct Resend {
+ mod test {
+     use super::*;
+ 
++    #[test]
++    fn opus_nack_retransmits_original_packet_without_rtx_header_or_sequence() {
++        for (nack, red) in [(true, false), (false, false), (true, true)] {
++            let now = Instant::now();
++            let mut codecs = CodecConfig::empty();
++            codecs.enable_opus(true, red);
++            for p in codecs.iter_mut() {
++                p.set_fb_nack(nack);
++            }
++            let pt: Pt = if red { 63.into() } else { 111.into() };
++            let mut stream =
++                StreamTx::new(42.into(), None, MidRid("aud".into(), None), false, 1200);
++            stream.rtx_ratio_cap = None;
++            stream.set_rtx_cache(200, DEFAULT_RTX_CACHE_DURATION, None);
++            let payload = vec![0xf8, 0xff, 0xfe];
++            stream.write_rtp(
++                RtpWrite::new(pt, 65_535.into(), 48_000, now, payload.clone()).nackable(true),
++            );
++            stream.send_queue.handle_timeout(now);
++            let exts = ExtensionMap::standard();
++            let mut buf = vec![];
++            let first = stream
++                .poll_packet(now, &exts, None, codecs.params(), &mut buf)
++                .unwrap();
++            assert_eq!(first.header.ssrc, 42.into());
++            assert_eq!(first.header.sequence_number, 65_535);
++            assert_eq!(&buf[first.header.header_len..], payload);
++            stream.handle_nack(
++                [NackEntry {
++                    pid: 65_535,
++                    blp: 0,
++                }]
++                .into_iter(),
++                now,
++            );
++            let resend = stream.poll_packet(now, &exts, None, codecs.params(), &mut buf);
++            if nack && !red {
++                let resend = resend.expect("plain Opus NACK must produce an actual RTP packet");
++                assert_eq!(resend.header.ssrc, 42.into());
++                assert_eq!(resend.header.payload_type, 111.into());
++                assert_eq!(resend.header.sequence_number, 65_535);
++                assert_eq!(*resend.seq_no, 65_535);
++                assert_eq!(
++                    &buf[resend.header.header_len..],
++                    payload,
++                    "plain audio must not carry an RTX OSN prefix"
++                );
++                // Revoking NACK clears old cached packets as well as queued resends.
++                stream.handle_nack(
++                    [NackEntry {
++                        pid: 65_535,
++                        blp: 0,
++                    }]
++                    .into_iter(),
++                    now,
++                );
++                stream.clear_retransmissions();
++                assert!(
++                    stream
++                        .poll_packet(now, &exts, None, codecs.params(), &mut buf)
++                        .is_none()
++                );
++            } else {
++                assert!(
++                    resend.is_none(),
++                    "RED/no-NACK audio must not enter the resend cache"
++                );
++                assert!(stream.rtx_cache.last_cached_seq_no().is_none());
++            }
++        }
++    }
++
+     #[test]
+     fn cancelling_pending_rtx_padding_preserves_media_resends_cache_and_sequence() {
+         let now = Instant::now();

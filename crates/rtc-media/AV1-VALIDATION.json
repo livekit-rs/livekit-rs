@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "scope": "Initial AV1 DD / spatial / temporal original SDK interoperability; not the final unified-release gate",
+  "raw_artifact_policy": "Raw output is ignored and may be cleaned after task delivery. This committed summary preserves raw SHA-256 and measured results; reproduce with the checked-in harness. No certificates or private keys are included.",
+  "profiles": [
+    {
+      "raw_path": "tests/interop/output/rust-native-av1-initial-single-video-av1.json",
+      "raw_sha256": "314b67468f98e029011bbe2962c443bb2da93430f8641780cacffe81ec2757ec",
+      "status": "PASS",
+      "started_at": "2026-10-23T07:36:53.830Z",
+      "finished_at": "2026-10-23T07:37:25.174Z",
+      "sdk": "2.23.0",
+      "browser": "156.0.8078.47",
+      "secure_signaling": true,
+      "codec": "av1",
+      "scalability_mode": "L3T3_KEY",
+      "single_pc": true,
+      "dependency_descriptor_negotiated": true,
+      "negotiation_errors": [
+        [],
+        []
+      ],
+      "temporal": [
+        {
+          "fps": 5,
+          "intervalMs": 6000,
+          "decodedFrames": [
+            22,
+            22
+          ]
+        },
+        {
+          "fps": 15,
+          "intervalMs": 6000,
+          "decodedFrames": [
+            90,
+            85
+          ]
+        }
+      ],
+      "spatial": [
+        {
+          "quality": 0,
+          "final_dimensions": [
+            {
+              "width": 240,
+              "height": 136
+            },
+            {
+              "width": 240,
+              "height": 136
+            }
+          ],
+          "status": "PASS"
+        },
+        {
+          "quality": 2,
+          "final_dimensions": [
+            {
+              "width": 960,
+              "height": 544
+            },
+            {
+              "width": 960,
+              "height": 544
+            }
+          ],
+          "status": "PASS"
+        }
+      ]
+    },
+    {
+      "raw_path": "tests/interop/output/official-av1-dd-retry-single-video-av1.json",
+      "raw_sha256": "e23bf4bf1090d4c81e2355c7666da42f9117f6f24dda0faea5bbb42f17814a77",
+      "status": "PASS",
+      "started_at": "2026-10-23T07:22:24.264Z",
+      "finished_at": "2026-10-23T07:22:57.263Z",
+      "sdk": "2.23.0",
+      "browser": "156.0.8078.47",
+      "secure_signaling": false,
+      "codec": "av1",
+      "scalability_mode": "L3T3_KEY",
+      "single_pc": true,
+      "dependency_descriptor_negotiated": true,
+      "negotiation_errors": [
+        [],
+        []
+      ],
+      "temporal": [
+        {
+          "fps": 5,
+          "intervalMs": 6000,
+          "decodedFrames": [
+            21,
+            21
+          ]
+        },
+        {
+          "fps": 15,
+          "intervalMs": 6000,
+          "decodedFrames": [
+            90,
+            90
+          ]
+        }
+      ],
+      "spatial": [
+        {
+          "quality": 0,
+          "final_dimensions": [
+            {
+              "width": 240,
+              "height": 136
+            },
+            {
+              "width": 240,
+              "height": 136
+            }
+          ],
+          "status": "PASS"
+        },
+        {
+          "quality": 2,
+          "final_dimensions": [
+            {
+              "width": 960,
+              "height": 544
+            },
+            {
+              "width": 960,
+              "height": 544
+            }
+          ],
+          "status": "PASS"
+        }
+      ]
+    }
+  ],
+  "application_regressions": {
+    "command": "CARGO_INCREMENTAL=0 cargo test -p rtc-media av1 --locked",
+    "status": "PASS",
+    "tests": 7,
+    "notes": "Includes real public ICE/DTLS/SRTP metadata path, missing-DD rejection, sustained first-fragment/RTX loss and independent-frame recovery; synthetic OBUs do not claim pixel decoding."
+  },
+  "vendor_private_unit_tests": "NOT_RUN; production-graph public integration exercised instead of building upstream dev-only native crypto graph"
+}

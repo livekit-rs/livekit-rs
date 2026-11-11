@@ -1,0 +1,5 @@
+# Actual RTC WebSocket frame/message size consumers
+
+Run run-paired.py --go PINNED_GO --rust CANDIDATE --output NEW_OWNED_DIR. Four fresh configured pairs execute all24 original F65/F94 raw RFC6455 vectors without browser, broker or mock server. Limits20MiB/1024/0/-1 test one-frame, fragmented exact/+1, and17/65MiB hidden-default cases. Accepted cases require actual controlPong then correlated SignalPong; rejected cases require observed1009/emptyreason. Keep all source close/error/clean-close assertions. Original run.mjs/config bytes are preserved. This finite no-compression loopback profile is not infinite-allocation, compressed-WS, worker-message or full SDK compatibility proof.
+
+Parent checks exact binary identities/config hashes, clean occupied-port absence, readiness, actual runner verdicts and owned process exits. Every profile must finish; partial reports never count24 PASS. Preserve safe observations/identities and actual failures, then remove task raw outputs. It stops only servers it started. Base YAML uses declared loopback listeners and known fixture credentials, with no external media/deployment claim.

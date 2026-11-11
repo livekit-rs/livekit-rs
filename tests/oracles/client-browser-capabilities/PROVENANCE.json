@@ -1,0 +1,24 @@
+{
+  "origin_source_package_sha256": "f492d7b438da66db4c3c2a15134217d5448fd88e84ff3a59ff3594845d15f9ca",
+  "source_sha256": {
+    "references/livekit-stable/pkg/rtc/clientinfo.go": "d42ca04f2e41475d38960c637c55a3aff4dd2897a149126333647acca025b7a4",
+    "references/livekit-stable/pkg/rtc/types/protocol_version.go": "828e21990793f3fb48d72a64517a9609797f7327c431e27a21fb613b3471e5fb",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/transport.go": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d",
+    "references/livekit-stable/pkg/rtc/subscribedtrack.go": "ab2a4c69b754c81fc01bc1e7e87d3c6982247f5a31220ccd633dbd851b511627",
+    "references/livekit-stable/pkg/rtc/utils.go": "187ced6935ef2791c66dc78f0d804cc658b366d075a44d5465257a8b6b22d3b3",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/psrpc/go.mod": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0",
+    "references/go-stdlib-go1.26.3/src/strings/strings.go": "ba9478be775d11b6956c828ebf870a8f8e7b7318ee382834f1e741f02d1336ef",
+    "references/go-stdlib-go1.26.3/src/unicode/letter.go": "b35a6d259313cef88d07e9e4027b8bd72c60ae140418f5be2c41a2ecea6074fe",
+    "references/go-stdlib-go1.26.3/src/unicode/tables.go": "6a88d48746c4b2c471cc04ae40559694b734770212e6f5ea5f1962adb0c0bdb1",
+    "references/go-modules/mediatransportutil-f234b534b095/go.mod": "4d43ee74fb8e20460b1dc6fad7ad45d2882d8aa6b2da13592b42f6832a9effa4"
+  },
+  "assets_sha256": {
+    "cases.json": "4e00a636a0326e5c2d89b2ba0da7d7bafc4f347fb4a0d54ceb1df14c4882e272",
+    "oracle/main.go": "5702ce3777dc740d2c8724776047c10cf7b728c686ba2cc83da6e92149e73a3b",
+    "oracle/LICENSE-livekit": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  }
+}

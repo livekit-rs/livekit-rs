@@ -1,0 +1,10 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/rtc/mediatrackreceiver.go": "cc6cc4f6b9686d0c3bfb48f080aea29afe6be626535745ce836b8aa94ac8e031",
+    "pkg/sfu/buffer/fps.go": "071d7bd0be947dbf52ea183119f2cfdc246afb7307c861f32f631931d4aaf276",
+    "pkg/sfu/buffer/buffer_base.go": "29d6e77102c60e6defd12550c3e9b2877325c339da2e008713ef1ff80303e403",
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5"
+  },
+  "observer_sha256": "6f8f48eee1d2c5367a5dabb8839ef10f75eb3c88b5b43b284f5f9e0612e2254e"
+}

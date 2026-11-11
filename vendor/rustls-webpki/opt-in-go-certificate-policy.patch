@@ -1,0 +1,98 @@
+--- a/src/end_entity.rs
++++ b/src/end_entity.rs
+@@ -117,6 +117,33 @@
+             intermediate_certs,
+             revocation,
+             distrusted_spkis: verify_cert::DISTRUSTED_SPKIS,
++            allow_ca_end_entity: false,
++        }
++        .build_chain(self, time, verify_path)
++    }
++
++    /// Go-compatible end-entity role policy. A CA:TRUE leaf is permitted only
++    /// if every ordinary chain/signature/time/EKU/name-constraint check passes.
++    /// This does not change issuer CA requirements or any default verifier.
++    #[allow(clippy::too_many_arguments)]
++    pub fn verify_for_usage_allowing_ca_end_entity<'p>(
++        &'p self,
++        supported_sig_algs: &[&dyn SignatureVerificationAlgorithm],
++        trust_anchors: &'p [TrustAnchor<'_>],
++        intermediate_certs: &'p [CertificateDer<'p>],
++        time: UnixTime,
++        usage: impl ExtendedKeyUsageValidator,
++        revocation: Option<RevocationOptions<'_>>,
++        verify_path: Option<&dyn Fn(&VerifiedPath<'_>) -> Result<(), Error>>,
++    ) -> Result<VerifiedPath<'p>, Error> {
++        verify_cert::ChainOptions {
++            eku: usage,
++            supported_sig_algs,
++            trust_anchors,
++            intermediate_certs,
++            revocation,
++            distrusted_spkis: verify_cert::DISTRUSTED_SPKIS,
++            allow_ca_end_entity: true,
+         }
+         .build_chain(self, time, verify_path)
+     }
+--- a/src/verify_cert.rs
++++ b/src/verify_cert.rs
+@@ -35,6 +35,7 @@
+     pub(crate) intermediate_certs: &'p [CertificateDer<'p>],
+     pub(crate) revocation: Option<RevocationOptions<'a>>,
+     pub(crate) distrusted_spkis: &'a [&'a [u8]],
++    pub(crate) allow_ca_end_entity: bool,
+ }
+ 
+ impl<'a, 'p: 'a, V: ExtendedKeyUsageValidator> ChainOptions<'a, 'p, V> {
+@@ -68,7 +69,14 @@
+ 
+         let role = path.node().role();
+ 
+-        check_issuer_independent_properties(path.head(), time, role, sub_ca_count, &self.eku)?;
++        check_issuer_independent_properties(
++            path.head(),
++            time,
++            role,
++            sub_ca_count,
++            &self.eku,
++            self.allow_ca_end_entity,
++        )?;
+ 
+         // TODO: HPKP checks.
+ 
+@@ -363,6 +371,7 @@
+     role: Role,
+     sub_ca_count: usize,
+     eku: &impl ExtendedKeyUsageValidator,
++    allow_ca_end_entity: bool,
+ ) -> Result<(), Error> {
+     // TODO: check_distrust(trust_anchor_subject, trust_anchor_spki)?;
+     // TODO: Check signature algorithm like mozilla::pkix.
+@@ -378,7 +387,10 @@
+     cert.validity
+         .read_all(Error::BadDer, |value| check_validity(value, time))?;
+     untrusted::read_all_optional(cert.basic_constraints, Error::BadDer, |value| {
+-        check_basic_constraints(value, role, sub_ca_count)
++        match check_basic_constraints(value, role, sub_ca_count) {
++            Err(Error::CaUsedAsEndEntity) if allow_ca_end_entity => Ok(()),
++            result => result,
++        }
+     })?;
+     untrusted::read_all_optional(cert.eku, Error::BadDer, |input| check_eku(input, eku))?;
+ 
+@@ -1247,6 +1259,7 @@
+                 intermediate_certs: intermediates,
+                 revocation: None,
+                 distrusted_spkis,
++                allow_ca_end_entity: false,
+             }
+             .build_chain(
+                 ee_cert,
+@@ -1507,6 +1520,7 @@
+             intermediate_certs,
+             revocation: None,
+             distrusted_spkis: DISTRUSTED_SPKIS,
++            allow_ca_end_entity: false,
+         };
+ 
+         match opts.build_chain_inner(

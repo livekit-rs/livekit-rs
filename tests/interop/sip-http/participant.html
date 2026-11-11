@@ -1,0 +1,4 @@
+<!doctype html><meta charset="utf-8"><script src="/sdk.js"></script><script>
+const {Room}=LivekitClient;let room;
+window.peer={async join({url,token}){room=new Room();await room.connect(url,token,{autoSubscribe:false});return room.localParticipant.identity;},async close(){await room?.disconnect();}};
+</script>

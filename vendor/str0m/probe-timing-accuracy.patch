@@ -1,0 +1,787 @@
+--- a/src/bwe/probe/cluster.rs
++++ b/src/bwe/probe/cluster.rs
+@@ -8,6 +8,11 @@
+ 
+ use crate::rtp_::{Bitrate, DataSize, TwccClusterId};
+ use crate::util::{already_happened, not_happening};
++
++// Google BitrateProberConfig::max_probe_delay, fixed reference commit
++// 202acee882062f7ca632472e4810f25938828f6a. A delayed train is cancelled,
++// never replayed as catch-up traffic after the pacing loop resumes.
++const MAX_PROBE_DELAY: Duration = Duration::from_millis(10);
+ 
+ const MAX_PADDING_PACKET_SIZE: DataSize = DataSize::bytes(240);
+ 
+@@ -39,6 +44,9 @@
+     /// The kind of probe this is.
+     kind: ProbeKind,
+ 
++    // Native request time drives stale queued-cluster expiry, independently of
++    // the later first actual packet send time used for measurement.
++    requested_at: Option<Instant>,
+     // Read-only observation metadata, excluded from scheduling arithmetic.
+     started_at: Option<Instant>,
+ }
+@@ -81,6 +89,7 @@
+             // WebRTC default for general probing (not initial/network-state): 2ms.
+             min_probe_delta: Duration::from_millis(2),
+             kind,
++            requested_at: None,
+             started_at: None,
+         }
+     }
+@@ -102,6 +111,15 @@
+     pub fn with_min_probe_delta(mut self, min_probe_delta: Duration) -> Self {
+         self.min_probe_delta = min_probe_delta;
+         self
++    }
++
++    pub(crate) fn with_requested_at(mut self, now: Instant) -> Self {
++        self.requested_at = Some(now);
++        self
++    }
++
++    pub(crate) fn requested_at(&self) -> Option<Instant> {
++        self.requested_at
+     }
+ 
+     pub(crate) fn with_started_at(mut self, now: Instant) -> Self {
+@@ -218,6 +236,14 @@
+         probe_time.max(min_burst_time)
+     }
+ 
++    /// Whether an already transmitting train missed its next deadline by more
++    /// than Google's default maximum probe delay. Queued, unsent clusters do
++    /// not have a finite send deadline and must not expire through this guard.
++    pub(crate) fn is_late(&self, now: Instant) -> bool {
++        self.last_packet_at.is_some()
++            && now.saturating_duration_since(self.next_probe_time()) > MAX_PROBE_DELAY
++    }
++
+     /// Check if the probe cluster is complete.
+     ///
+     /// A probe is complete when BOTH conditions are met (matching WebRTC):
+@@ -348,6 +374,52 @@
+     use super::*;
+ 
+     #[test]
++    fn late_probe_boundary_is_strict_and_uses_actual_send_progress() {
++        let now = Instant::now();
++        for bitrate in [Bitrate::kbps(200), Bitrate::mbps(2), Bitrate::mbps(20)] {
++            let config = ProbeClusterConfig::new(0.into(), bitrate, ProbeKind::Initial);
++            let mut state = ProbeClusterState::new(config);
++            state.record_packet(now, DataSize::bytes(240));
++            let deadline = state.next_probe_time();
++            assert!(!state.is_late(deadline));
++            assert!(!state.is_late(deadline + Duration::from_millis(10)));
++            assert!(state.is_late(deadline + Duration::from_millis(10) + Duration::from_nanos(1)));
++            assert!(!state.is_complete(deadline));
++        }
++    }
++
++    #[test]
++    fn queued_or_generated_but_unsent_probe_has_no_finite_late_deadline() {
++        let now = Instant::now();
++        let config = ProbeClusterConfig::new(0.into(), Bitrate::mbps(2), ProbeKind::Initial);
++        let mut state = ProbeClusterState::new(config);
++        assert!(!state.is_late(now + Duration::from_secs(60)));
++        assert!(state.next_packet(now).is_some());
++        // Generating padding is not actual transmission and cannot start expiry.
++        assert!(!state.is_late(now + Duration::from_secs(60)));
++        assert!(!state.is_complete(now + Duration::from_secs(60)));
++    }
++
++    #[test]
++    fn pacing_stall_cannot_make_old_train_valid_for_catch_up() {
++        let now = Instant::now();
++        let config = ProbeClusterConfig::new(0.into(), Bitrate::mbps(4), ProbeKind::Initial);
++        let mut state = ProbeClusterState::new(config);
++        let bytes = state.next_packet(now).unwrap();
++        state.record_packet(now, bytes);
++        assert!(!state.is_late(now));
++        assert!(state.is_late(state.next_probe_time() + Duration::from_millis(11)));
++        // A fresh replacement has its own schedule instead of inheriting old debt.
++        let mut replacement = ProbeClusterState::new(config);
++        let resumed = now + Duration::from_secs(1);
++        assert!(!replacement.is_late(resumed));
++        assert!(replacement.next_packet(resumed).is_some());
++        replacement.record_packet(resumed, bytes);
++        assert!(!replacement.is_late(resumed));
++        assert!(replacement.next_probe_time() > resumed);
++    }
++
++    #[test]
+     fn low_rate_padding_reaches_minimum_packet_count() {
+         let now = Instant::now();
+         let config = ProbeClusterConfig::new(0.into(), Bitrate::kbps(10), ProbeKind::Initial);
+--- a/src/bwe/probe/control.rs
++++ b/src/bwe/probe/control.rs
+@@ -226,16 +226,23 @@
+         let desired = self.desired_bitrate?;
+         let estimate = self.last_estimate?;
+ 
+-        // Return pending probes first.
++        // Unlike Google's vector return, this adapter dispatches a vector one
++        // cluster per timeout. Revalidate deferred work against CURRENT limits,
++        // not the congestion/demand state when the vector was originally built.
++        if !self.can_probe(estimate) {
++            self.pending.clear();
++            return None;
++        }
++        let current_max = desired * MAX_PROBE_BITRATE_FACTOR;
++        self.pending.retain(|config| {
++            config.target_bitrate() <= current_max
++                && config
++                    .requested_at()
++                    .is_none_or(|at| now.saturating_duration_since(at) <= Duration::from_secs(5))
++        });
+         if let Some(config) = self.pending.pop_front() {
+-            // Schedule another.
+             self.request_immediate();
+             return Some(config);
+-        }
+-
+-        // Can't probe in certain bandwidth-limited states.
+-        if !self.can_probe(estimate) {
+-            return None;
+         }
+ 
+         // Try each probe type in order - only one fires per timeout.
+@@ -541,7 +548,8 @@
+         let config = ProbeClusterConfig::new(cluster_id, bitrate, kind)
+             .with_min_packet_count(self.config.min_probe_packets_sent)
+             .with_duration(self.config.min_probe_duration)
+-            .with_min_probe_delta(self.config.min_probe_delta);
++            .with_min_probe_delta(self.config.min_probe_delta)
++            .with_requested_at(now);
+ 
+         // Threshold for further exponential probing (probe_bitrate * 0.7).
+         let probe_further = bitrate * self.config.further_probe_threshold;
+@@ -694,6 +702,65 @@
+     use super::*;
+ 
+     #[test]
++    fn deferred_probe_is_rejected_when_congestion_started_after_vector_creation() {
++        let now = Instant::now();
++        for cause in [
++            BandwidthLimitedCause::LossLimitedBwe,
++            BandwidthLimitedCause::DelayBasedLimitedDelayIncreased,
++        ] {
++            let mut pc = ProbeControl::new();
++            pc.enable(true);
++            pc.set_desired_bitrate(Bitrate::mbps(10));
++            pc.set_estimated_bitrate(Bitrate::kbps(300), BandwidthLimitedCause::DelayBasedLimited);
++            assert!(pc.handle_timeout(now).is_some());
++            assert_eq!(pc.pending.len(), 1);
++            pc.set_estimated_bitrate(Bitrate::kbps(300), cause);
++            assert!(pc.handle_timeout(now).is_none());
++            assert!(pc.pending.is_empty());
++        }
++    }
++
++    #[test]
++    fn deferred_probe_rechecks_shrinking_demand_instead_of_sending_stale_target() {
++        let now = Instant::now();
++        let mut pc = ProbeControl::new();
++        pc.enable(true);
++        pc.set_desired_bitrate(Bitrate::mbps(10));
++        pc.set_estimated_bitrate(Bitrate::kbps(300), BandwidthLimitedCause::DelayBasedLimited);
++        assert!(pc.handle_timeout(now).is_some());
++        assert_eq!(
++            pc.pending.front().unwrap().target_bitrate(),
++            Bitrate::kbps(1800)
++        );
++        pc.set_desired_bitrate(Bitrate::kbps(200));
++        if let Some(next) = pc.handle_timeout(now) {
++            assert!(next.target_bitrate() <= Bitrate::kbps(400));
++        }
++        assert!(
++            pc.pending
++                .iter()
++                .all(|p| p.target_bitrate() <= Bitrate::kbps(400))
++        );
++    }
++
++    #[test]
++    fn deferred_probe_older_than_five_seconds_cannot_retain_original_request() {
++        let now = Instant::now();
++        let mut pc = ProbeControl::new();
++        pc.enable(true);
++        pc.set_desired_bitrate(Bitrate::mbps(10));
++        pc.set_estimated_bitrate(Bitrate::kbps(300), BandwidthLimitedCause::DelayBasedLimited);
++        assert!(pc.handle_timeout(now).is_some());
++        let stale_id = pc.pending.front().unwrap().cluster();
++        let resumed = now + Duration::from_secs(5) + Duration::from_nanos(1);
++        if let Some(next) = pc.handle_timeout(resumed) {
++            assert_ne!(next.cluster(), stale_id);
++            assert_eq!(next.requested_at(), Some(resumed));
++        }
++        assert!(pc.pending.iter().all(|p| p.cluster() != stale_id));
++    }
++
++    #[test]
+     fn initial_exponential_probes_are_queued_and_emitted_one_per_tick() {
+         let mut pc = ProbeControl::new();
+         pc.enable(true);
+--- a/src/bwe/probe/estimator.rs
++++ b/src/bwe/probe/estimator.rs
+@@ -285,6 +285,37 @@
+ 
+     fn calculate_bitrate(&self) -> Option<(ProbeClusterConfig, Bitrate)> {
+         let result = self.do_calculate_bitrate();
++
++        // Read-only measurement inputs distinguish actual packet-train rates
++        // from the requested target and later application capacity decisions.
++        let send_interval = self
++            .last_send_time
++            .zip(self.first_send_time)
++            .map(|(last, first)| last.saturating_duration_since(first));
++        let recv_interval = self
++            .last_recv_time
++            .zip(self.first_recv_time)
++            .map(|(last, first)| last.saturating_duration_since(first));
++        let send_bytes = self.total_bytes.saturating_sub(self.size_last_send);
++        let recv_bytes = self.total_bytes.saturating_sub(self.size_first_receive);
++        debug!(
++            cluster_id = *self.config.cluster(), kind = ?self.config.kind(),
++            target_bps = self.config.target_bitrate().as_u64(),
++            target_bytes = self.config.target_bytes().as_bytes_usize(),
++            min_packet_count = self.config.min_packet_count(),
++            received_packets = self.packet_count,
++            total_bytes = self.total_bytes.as_bytes_usize(),
++            excluded_last_send_bytes = self.size_last_send.as_bytes_usize(),
++            excluded_first_recv_bytes = self.size_first_receive.as_bytes_usize(),
++            send_bytes = send_bytes.as_bytes_usize(), recv_bytes = recv_bytes.as_bytes_usize(),
++            send_interval_us = ?send_interval.map(|d| d.as_micros()),
++            recv_interval_us = ?recv_interval.map(|d| d.as_micros()),
++            send_rate_bps = ?send_interval.filter(|d| !d.is_zero()).map(|d| (send_bytes / d).as_f64()),
++            recv_rate_bps = ?recv_interval.filter(|d| !d.is_zero()).map(|d| (recv_bytes / d).as_f64()),
++            first_send_at = ?self.first_send_time, last_send_at = ?self.last_send_time,
++            first_recv_at = ?self.first_recv_time, last_recv_at = ?self.last_recv_time,
++            result = ?result, "native probe measurement inputs"
++        );
+ 
+         let ProbeResult::Estimate(bitrate) = result else {
+             return None;
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -47,7 +47,7 @@
+     /// Queue of probe clusters waiting to be executed
+     probe_queue: VecDeque<ProbeClusterState>,
+     /// Last completed probe cluster (to be consumed by check_probe_complete)
+-    completed_probe: Option<TwccClusterId>,
++    completed_probes: VecDeque<TwccClusterId>,
+     /// Gates poll_queue() until handle_timeout() is called after packet emission.
+     needs_timeout_before_next_poll: bool,
+ }
+@@ -158,7 +158,7 @@
+ 
+         // Check if probe is complete and store it for later retrieval
+         if let Some(cluster_id) = self.check_probe_complete_internal(now) {
+-            self.completed_probe = Some(cluster_id);
++            self.completed_probes.push_back(cluster_id);
+         }
+     }
+ }
+@@ -180,7 +180,7 @@
+             queue_states: vec![],
+             next_poll_queue: None,
+             probe_queue: VecDeque::new(),
+-            completed_probe: None,
++            completed_probes: VecDeque::new(),
+             needs_timeout_before_next_poll: true,
+         }
+     }
+@@ -191,6 +191,22 @@
+     /// Probes are queued and executed sequentially.
+     pub(crate) fn start_probe(&mut self, config: ProbeClusterConfig) {
+         trace!(?config, "Probe start");
++        // Match Google BitrateProber::CreateProbeCluster: retain at most five
++        // already pending entries before adding a new request (six including
++        // the active/front cluster). Expired requests cannot execute much later.
++        while self.probe_queue.front().is_some_and(|probe| {
++            self.probe_queue.len() > 5
++                || config
++                    .requested_at()
++                    .zip(probe.config().requested_at())
++                    .is_some_and(|(now, at)| {
++                        now.saturating_duration_since(at) > Duration::from_secs(5)
++                    })
++        }) {
++            let old = self.probe_queue.pop_front().unwrap();
++            self.next_poll_queue = None;
++            self.completed_probes.push_back(old.config().cluster());
++        }
+         self.probe_queue.push_back(ProbeClusterState::new(config));
+     }
+ 
+@@ -202,7 +218,7 @@
+     /// Check if the active probe is complete and should be finished.
+     pub(crate) fn check_probe_complete(&mut self, now: Instant) -> Option<TwccClusterId> {
+         // Check if we have a completed probe from a previous call
+-        if let Some(cluster_id) = self.completed_probe.take() {
++        if let Some(cluster_id) = self.completed_probes.pop_front() {
+             return Some(cluster_id);
+         }
+ 
+@@ -214,8 +230,20 @@
+     fn check_probe_complete_internal(&mut self, now: Instant) -> Option<TwccClusterId> {
+         let probe = self.probe_queue.front()?;
+ 
+-        if probe.is_complete(now) {
++        let complete = probe.is_complete(now);
++        let late = probe.is_late(now);
++        if complete || late {
+             let cluster_id = probe.config().cluster();
++            if late && !complete {
++                debug!(
++                    cluster_id = *cluster_id,
++                    "Cancel native probe: pacing deadline missed"
++                );
++                // A previously selected padding queue cannot replay the expired
++                // train. Session consumes this end event before rebuilding the
++                // probe stream binding, dropping its remaining generated padding.
++                self.next_poll_queue = None;
++            }
+             self.probe_queue.pop_front();
+             return Some(cluster_id);
+         }
+@@ -488,6 +516,82 @@
+     use std::time::{Duration, Instant};
+ 
+     #[test]
++    fn queued_cluster_history_is_bounded_and_every_expiry_has_an_end_event() {
++        use crate::bwe_::ProbeKind;
++        let now = Instant::now();
++        let mut pacer = LeakyBucketPacer::new(Bitrate::kbps(300));
++        for id in 0..8u64 {
++            pacer.start_probe(
++                ProbeClusterConfig::new(id.into(), Bitrate::mbps(3), ProbeKind::Initial)
++                    .with_requested_at(now),
++            );
++        }
++        // Google's pre-insertion >5 check retains one active plus five pending.
++        assert_eq!(pacer.probe_queue.len(), 6);
++        assert_eq!(pacer.check_probe_complete(now), Some(0.into()));
++        assert_eq!(pacer.check_probe_complete(now), Some(1.into()));
++        let resumed = now + Duration::from_secs(5) + Duration::from_nanos(1);
++        pacer.start_probe(
++            ProbeClusterConfig::new(8.into(), Bitrate::mbps(3), ProbeKind::Initial)
++                .with_requested_at(resumed),
++        );
++        assert_eq!(pacer.probe_queue.len(), 1);
++        for id in 2..8u64 {
++            assert_eq!(pacer.check_probe_complete(resumed), Some(id.into()));
++        }
++        assert_eq!(pacer.check_probe_complete(resumed), None);
++        assert_eq!(pacer.active_cluster(), Some(8.into()));
++    }
++
++    #[test]
++    fn late_probe_ends_once_and_clears_selected_padding_before_replacement() {
++        use crate::bwe_::ProbeKind;
++        let now = Instant::now();
++        let mut pacer = LeakyBucketPacer::new(Bitrate::kbps(300));
++        let queue = QueueState {
++            midrid: MidRid("probe".into(), None),
++            unpaced: false,
++            use_for_padding: true,
++            snapshot: QueueSnapshot {
++                created_at: now,
++                ..Default::default()
++            },
++        };
++        pacer.handle_timeout(now, std::iter::once(queue));
++        let config = ProbeClusterConfig::new(0.into(), Bitrate::mbps(3), ProbeKind::Initial);
++        pacer.start_probe(config);
++        let request = pacer.handle_timeout(now, std::iter::once(queue)).unwrap();
++        let (midrid, cluster) = pacer.poll_queue().unwrap();
++        assert_eq!(cluster, Some(0.into()));
++        pacer.register_send(now, request.padding.into(), midrid);
++        assert_eq!(pacer.active_cluster(), Some(0.into()));
++        // A padding burst has been selected but not transmitted when the loop stalls.
++        assert!(
++            pacer
++                .handle_timeout(now + Duration::from_millis(2), std::iter::once(queue))
++                .is_some()
++        );
++        let resumed = now + Duration::from_secs(1);
++        assert_eq!(pacer.check_probe_complete(resumed), Some(0.into()));
++        assert_eq!(pacer.active_cluster(), None);
++        assert!(pacer.poll_queue().is_none());
++        assert_eq!(pacer.check_probe_complete(resumed), None);
++        // The end signal is consumed by Session to drop generated old padding;
++        // a later independent cluster can still start on a fresh schedule.
++        pacer.start_probe(ProbeClusterConfig::new(
++            1.into(),
++            Bitrate::mbps(3),
++            ProbeKind::Initial,
++        ));
++        assert!(
++            pacer
++                .handle_timeout(resumed, std::iter::once(queue))
++                .is_some()
++        );
++        assert_eq!(pacer.poll_queue().unwrap().1, Some(1.into()));
++    }
++
++    #[test]
+     fn probe_deadline_without_media_or_regular_padding() {
+         use crate::bwe_::ProbeKind;
+ 
+--- a/src/rtp/rtcp/mod.rs
++++ b/src/rtp/rtcp/mod.rs
+@@ -37,6 +37,7 @@
+ pub use fir::{Fir, FirEntry};
+ 
+ mod twcc;
++mod twcc_time;
+ pub use twcc::{Twcc, TwccPacketId, TwccRecvRegister, TwccSendRecord, TwccSendRegister};
+ 
+ mod rtcpfb;
+--- a/src/rtp/rtcp/twcc.rs
++++ b/src/rtp/rtcp/twcc.rs
+@@ -530,31 +530,18 @@
+             }
+         }
+ 
+-        let diff_time = if r.time < prev.1 {
+-            // negative
+-            let dur = prev.1 - r.time;
+-            -(dur.as_micros() as i64)
++        let Some((time, encoded_time)) = super::twcc_time::quantize_delta(prev.1, r.time) else {
++            // Start another report when the rounded delta does not fit i16.
++            break;
++        };
++        let status = if !(0..=255).contains(&time) {
++            PacketStatus::ReceivedLargeOrNegativeDelta
+         } else {
+-            let dur = r.time - prev.1;
+-            dur.as_micros() as i64
++            PacketStatus::ReceivedSmallDelta
+         };
+ 
+-        let (status, time) = if diff_time < -8_192_000 || diff_time > 8_191_750 {
+-            // This is too large to be representable in deltas.
+-            // Abort, make a report of what we got, and start anew.
+-            break;
+-        } else if diff_time < 0 || diff_time > 63_750 {
+-            let t = diff_time / 250;
+-            assert!(t >= -32_768 && t <= 32_767);
+-            (PacketStatus::ReceivedLargeOrNegativeDelta, t as i16)
+-        } else {
+-            let t = diff_time / 250;
+-            assert!(t >= 0 && t <= 255);
+-            (PacketStatus::ReceivedSmallDelta, t as i16)
+-        };
+-
+         interims.push_back(ChunkInterim::Received(status, time));
+-        prev = (r.seq, r.time);
++        prev = (r.seq, encoded_time);
+     }
+ }
+ 
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -371,9 +371,16 @@
+             }
+         }
+ 
+-        // Check if active probe just completed
+-        if let Some(cluster_id) = self.pacer.check_probe_complete(now) {
++        // Drain completion/cancellation events before rebuilding the probe
++        // binding. Clear generated padding from regular RTX sources as well as
++        // the fallback stream, preserving queued media and retransmissions.
++        let mut ended_probe = false;
++        while let Some(cluster_id) = self.pacer.check_probe_complete(now) {
+             bwe.end_probe(now, cluster_id);
++            ended_probe = true;
++        }
++        if ended_probe {
++            self.streams.clear_pending_padding();
+             self.streams.set_probe_media(None);
+         }
+         probe_media
+--- a/src/streams/mod.rs
++++ b/src/streams/mod.rs
+@@ -622,6 +622,16 @@
+             self.probe_tx.set_probe_media(mid, pt);
+         }
+         self.probe_media = media;
++    }
++
++    /// Cancel generated padding on every possible probe source, including
++    /// ordinary RTX streams preferred over the fallback probe SSRC. Do not reset
++    /// live media/RTX queues or their extended sequence numbers.
++    pub(crate) fn clear_pending_padding(&mut self) {
++        self.probe_tx.clear_pending_padding();
++        for stream in self.streams_tx.values_mut() {
++            stream.clear_pending_padding();
++        }
+     }
+ 
+     pub(crate) fn send_queue_states(
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -1220,6 +1220,14 @@
+         self.padding += padding;
+     }
+ 
++    /// Drop unsent generated padding when its probe authorization ends.
++    /// Queued media, requested RTX, retransmission history and sequence numbers
++    /// belong to the live stream and must survive cancelling a padding train.
++    pub(crate) fn clear_pending_padding(&mut self) {
++        self.padding = 0;
++        self.queue_info = None;
++    }
++
+     pub(crate) fn need_timeout(&self) -> bool {
+         self.send_queue.need_timeout()
+     }
+@@ -1336,6 +1344,141 @@
+ #[cfg(test)]
+ mod test {
+     use super::*;
++
++    #[test]
++    fn cancelling_pending_rtx_padding_preserves_media_resends_cache_and_sequence() {
++        let now = Instant::now();
++        let mut stream = StreamTx::new(
++            42.into(),
++            Some(44.into()),
++            MidRid("vid".into(), None),
++            false,
++            1200,
++        );
++        stream.pt_for_padding = Some(96.into());
++        stream.seq_no = 321.into();
++        stream.seq_no_rtx = 65_535.into();
++        stream.rtx_ratio_cap = None;
++        for seq in [7u64, 8] {
++            stream.write_rtp(
++                RtpWrite::new(96.into(), seq.into(), 90_000, now, vec![0x10u8; 100]).nackable(true),
++            );
++        }
++        stream.send_queue.handle_timeout(now);
++        let cached = stream.send_queue.pop(now).unwrap();
++        stream.rtx_cache.cache_sent_packet(cached, now);
++        stream.resends.push_back(Resend {
++            seq_no: 7.into(),
++            queued_at: now,
++            payload_size: 100,
++        });
++        stream.generate_padding(3000);
++        stream.queue_state(now);
++        assert!(stream.queue_info().is_some());
++        assert!(stream.padding_enabled());
++
++        stream.clear_pending_padding();
++        assert_eq!(stream.padding, 0);
++        assert!(stream.queue_info().is_none());
++        assert_eq!(*stream.seq_no, 321);
++        assert_eq!(*stream.seq_no_rtx, 65_535);
++        assert_eq!(stream.resends.len(), 1);
++        assert_eq!(stream.rtx_cache.last_cached_seq_no(), Some(7.into()));
++        assert!(
++            stream
++                .rtx_cache
++                .get_cached_packet_by_seq_no(7.into())
++                .is_some()
++        );
++        assert!(!stream.send_queue.is_empty());
++        assert_eq!(stream.queue_state(now).snapshot.packet_count, 2);
++
++        // These are real packet polls after cancellation: the outstanding RTX
++        // and queued media remain sendable, but no expired padding follows.
++        let exts = ExtensionMap::standard();
++        let codecs = CodecConfig::new_with_defaults();
++        let mut buf = vec![];
++        let mut twcc = 0;
++        let resend = stream
++            .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
++            .unwrap();
++        assert_eq!(resend.header.ssrc, 44.into());
++        assert_eq!(*resend.seq_no, 65_535);
++        assert!(!resend.is_padding);
++        let media = stream
++            .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
++            .unwrap();
++        assert_eq!(media.header.ssrc, 42.into());
++        assert_eq!(*media.seq_no, 8);
++        assert!(!media.is_padding);
++        assert!(
++            stream
++                .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
++                .is_none()
++        );
++        // A new authorization can generate padding again without reusing the
++        // previous RTX extended sequence number at the 16-bit rollover.
++        stream.generate_padding(32);
++        let replacement = stream
++            .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
++            .unwrap();
++        assert!(replacement.is_padding);
++        assert_eq!(*replacement.seq_no, 65_536);
++    }
++
++    #[test]
++    fn streams_cancel_pending_padding_on_regular_and_fallback_sources() {
++        use crate::media::MID_PROBE;
++        use crate::streams::Streams;
++
++        let now = Instant::now();
++        let mut streams = Streams::new(false, 1200, Duration::from_millis(1500));
++        let regular = MidRid("vid".into(), None);
++        let stream = streams.declare_stream_tx(42.into(), Some(44.into()), regular);
++        stream.pt_for_padding = Some(96.into());
++        stream.generate_padding(3000);
++        stream.seq_no_rtx = 123.into();
++        streams.set_probe_media(Some(("aud".into(), 111.into())));
++        let fallback = MidRid(MID_PROBE, None);
++        let stream = streams.stream_tx_by_midrid(fallback).unwrap();
++        stream.seq_no = 65_536.into();
++        stream.generate_padding(480);
++        assert!(
++            streams
++                .send_queue_states(now, |_, _| true)
++                .any(|q| q.snapshot.packet_count > 0)
++        );
++
++        streams.clear_pending_padding();
++        assert!(
++            streams
++                .send_queue_states(now, |_, _| true)
++                .all(|q| q.snapshot.packet_count == 0)
++        );
++        let stream = streams.stream_tx_by_midrid(regular).unwrap();
++        assert_eq!(stream.padding, 0);
++        assert_eq!(*stream.seq_no_rtx, 123);
++        let stream = streams.stream_tx_by_midrid(fallback).unwrap();
++        assert_eq!(stream.padding, 0);
++        assert_eq!(*stream.seq_no, 65_536);
++
++        // The same live fallback can serve the next independent probe.
++        let exts = ExtensionMap::standard();
++        let codecs = CodecConfig::new_with_defaults();
++        let mut buf = vec![];
++        let mut twcc = 0;
++        assert!(
++            stream
++                .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
++                .is_none()
++        );
++        stream.generate_padding(240);
++        let packet = stream
++            .poll_packet(now, &exts, Some(&mut twcc), codecs.params(), &mut buf)
++            .unwrap();
++        assert!(packet.is_padding);
++        assert_eq!(*packet.seq_no, 65_536);
++    }
+ 
+     #[test]
+     fn regular_padding_does_not_search_probe_negotiation() {
+--- /dev/null
++++ b/src/rtp/rtcp/twcc_time.rs
+@@ -0,0 +1,102 @@
++//! TWCC delta quantization relative to the previously encoded timestamp.
++//!
++//! Preserve the remainder instead of truncating each actual interarrival gap.
++//! Reference: Google WebRTC transport_feedback.cc::AddReceivedPacket, commit
++//! 202acee882062f7ca632472e4810f25938828f6a (BSD-3-Clause).
++use std::time::{Duration, Instant};
++
++pub(super) fn quantize_delta(previous: Instant, received: Instant) -> Option<(i16, Instant)> {
++    let difference = if received >= previous {
++        received.duration_since(previous).as_micros() as i128
++    } else {
++        -(previous.duration_since(received).as_micros() as i128)
++    };
++    // Rust integer division truncates toward zero; offset both signs to round
++    // half ticks away from zero, as in the reference encoder.
++    let ticks = if difference >= 0 {
++        (difference + 125) / 250
++    } else {
++        (difference - 125) / 250
++    };
++    let ticks = i16::try_from(ticks).ok()?;
++    let offset = Duration::from_micros(u64::from(ticks.unsigned_abs()) * 250);
++    let encoded = if ticks >= 0 {
++        previous.checked_add(offset)?
++    } else {
++        previous.checked_sub(offset)?
++    };
++    Some((ticks, encoded))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn distance(a: Instant, b: Instant) -> Duration {
++        a.max(b).duration_since(a.min(b))
++    }
++
++    #[test]
++    fn sub_tick_gaps_preserve_elapsed_time_instead_of_accumulating_truncation() {
++        let start = Instant::now();
++        let mut encoded = start;
++        let mut total_ticks = 0i64;
++        for n in 0..=10_000 {
++            let actual = start + Duration::from_micros(n * 100);
++            let (ticks, next) = quantize_delta(encoded, actual).unwrap();
++            total_ticks += i64::from(ticks);
++            encoded = next;
++            assert!(distance(actual, encoded) <= Duration::from_micros(125));
++        }
++        assert_eq!(total_ticks, 4_000);
++        assert_eq!(encoded, start + Duration::from_secs(1));
++    }
++
++    #[test]
++    fn rounding_boundaries_and_negative_reordered_arrivals() {
++        let base = Instant::now() + Duration::from_secs(10);
++        for (micros, expected) in [
++            (0i64, 0),
++            (124, 0),
++            (125, 1),
++            (249, 1),
++            (-124, 0),
++            (-125, -1),
++            (-249, -1),
++        ] {
++            let actual = if micros < 0 {
++                base - Duration::from_micros(micros.unsigned_abs())
++            } else {
++                base + Duration::from_micros(micros as u64)
++            };
++            let (ticks, encoded) = quantize_delta(base, actual).unwrap();
++            assert_eq!(ticks, expected);
++            assert!(distance(actual, encoded) <= Duration::from_micros(125));
++        }
++        let mut encoded = base;
++        for micros in [2_001u64, 1_873, 2_999, 17, 64_001, 63_876, 128_004] {
++            let actual = base + Duration::from_micros(micros);
++            encoded = quantize_delta(encoded, actual).unwrap().1;
++            assert!(distance(actual, encoded) <= Duration::from_micros(125));
++        }
++    }
++
++    #[test]
++    fn encoded_tick_limits_trigger_new_report_without_overflow() {
++        let base = Instant::now() + Duration::from_secs(10);
++        assert_eq!(
++            quantize_delta(base, base + Duration::from_micros(8_191_874))
++                .unwrap()
++                .0,
++            i16::MAX
++        );
++        assert!(quantize_delta(base, base + Duration::from_micros(8_191_875)).is_none());
++        assert_eq!(
++            quantize_delta(base, base - Duration::from_micros(8_192_124))
++                .unwrap()
++                .0,
++            i16::MIN
++        );
++        assert!(quantize_delta(base, base - Duration::from_micros(8_192_125)).is_none());
++    }
++}

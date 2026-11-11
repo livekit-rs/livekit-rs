@@ -1,0 +1,205 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -716,10 +716,12 @@
+ use crypto::Fingerprint;
+ 
+ mod dtls;
++mod media_telemetry;
+ use crate::crypto::dtls::DtlsOutput;
+ use crate::crypto::{CryptoProvider, DtlsError, from_feature_flags};
+ use crate::dtls::is_would_block;
+ use dtls::Dtls;
++pub use media_telemetry::MediaTraffic;
+ 
+ use is::IceAgent;
+ use is::IceAgentEvent;
+@@ -1418,9 +1420,13 @@
+         self.ice.add_remote_candidate(c);
+     }
+ 
+-    /// Checks if we are connected.
+-    ///
+-    /// This tests if we have ICE connection, DTLS and the SRTP crypto derived contexts are up.
++    /// Logical RTP lifetime counters after real SRTP authentication/production.
++    /// Excludes transport/control datagrams and synthetic RED recovery frames.
++    pub fn media_traffic_stats(&self) -> MediaTraffic {
++        self.session.node_traffic
++    }
++
++    /// Checks ICE connection, DTLS and installed SRTP key material.
+     pub fn is_connected(&self) -> bool {
+         self.ice.state().is_connected() && self.dtls_connected && self.session.is_connected()
+     }
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -122,6 +122,7 @@
+ 
+     // Total RTP payload bytes for media, including retransmissions.
+     media_bytes_rx: u64,
++    pub(crate) node_traffic: crate::MediaTraffic,
+     media_bytes_tx: u64,
+ 
+     pub ice_lite: bool,
+@@ -227,6 +228,7 @@
+             poll_packet_buf: vec![0; 2000],
+             pending_packet: None,
+             media_bytes_rx: 0,
++            node_traffic: Default::default(),
+             media_bytes_tx: 0,
+             ice_lite: config.ice_lite,
+             rtp_mode: config.rtp_mode,
+@@ -772,15 +774,7 @@
+         // Either way we get a seq_no_outer which is used to decrypt the SRTP.
+         let mut seq_no = stream.extend_seq(&header, is_repair, max_seq_lookup);
+ 
+-        if !stream.is_new_packet(is_repair, seq_no) {
+-            // Dupe packet. This could be a potential SRTP replay attack, which means
+-            // we should not spend any CPU cycles towards decrypting it.
+-            trace!(
+-                "Ignoring dupe packet mid: {} seq_no: {} is_repair: {}",
+-                mid, seq_no, is_repair
+-            );
+-            return;
+-        }
++        let is_new_wire_packet = stream.is_new_packet(is_repair, seq_no);
+ 
+         // The decrypted plaintext borrows from the SRTP scratch buffer. We
+         // narrow it down to the actual payload via slicing only, then build
+@@ -802,6 +796,7 @@
+             }
+         };
+ 
++        let authenticated_rtp_bytes = header.header_len + data.len();
+         let data = if header.has_padding {
+             match RtpHeader::unpad_payload(data) {
+                 Some(d) => d,
+@@ -814,6 +809,18 @@
+             data
+         };
+ 
++        // Fixed Pion strips the RTX OSN before exposing an RTP packet to the
++        // application. Empty RTX padding never reaches its track's stats.
++        if !header.ssrc.is_probe() && (!is_repair || data.len() >= 2) {
++            self.node_traffic
++                .receive_rtp(authenticated_rtp_bytes.saturating_sub(if is_repair { 2 } else { 0 }));
++        }
++        // Preserve delivery replay rejection, but authenticated duplicates still
++        // contribute the source's duplicate/RTX traffic total. Never count an
++        // unverified sequence number or a failed SRTP tag.
++        if !is_new_wire_packet {
++            return;
++        }
+         if let Some(raw_packets) = &mut self.raw_packets {
+             raw_packets.push_back(Box::new(RawPacket::RtpRx(header.clone(), data.to_vec())));
+         }
+@@ -1398,6 +1405,18 @@
+             raw_packets.push_back(Box::new(RawPacket::RtpTx(header.clone(), buf.clone())));
+         }
+ 
++        if !header.ssrc.is_probe() {
++            let rtx_prefix = if is_retransmission && header.ssrc != stream.ssrc() {
++                2
++            } else {
++                0
++            };
++            self.node_traffic.send_rtp(
++                plain_size.saturating_sub(rtx_prefix),
++                is_retransmission,
++                is_padding,
++            );
++        }
+         self.rtp_output_started = true;
+         if let Some(observer) = &mut self.send_side_observer {
+             observer.push(crate::SendSideFeedback::Sent(crate::SendSidePacket {
+--- /dev/null
++++ b/src/media_telemetry.rs
+@@ -0,0 +1,89 @@
++//! Process-node media accounting, independent of transient stream stats objects.
++//! Fixed LiveKit telemetry counts logical RTP header + payload + padding, after
++//! authentication, excluding SRTP/SRTCP/DTLS/ICE. Pion strips RTX OSN before its
++//! receiver and accounts retransmission payload without that transport prefix.
++use std::ops::AddAssign;
++
++/// Cumulative authenticated/produced media traffic for one RTC lifetime.
++/// Replacing or removing an SSRC/media section cannot erase these counters.
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct MediaTraffic {
++    /// Incoming logical RTP bytes, including authenticated duplicate packets.
++    pub bytes_in: u64,
++    /// Incoming authenticated RTP packets; excludes synthetic RED recovery.
++    pub packets_in: u64,
++    /// All outgoing logical RTP bytes, including padding and retransmissions.
++    pub bytes_out: u64,
++    /// All outgoing RTP packets, including padding and retransmissions.
++    pub packets_out: u64,
++    /// Outgoing retransmission logical RTP bytes, a subset of bytes_out.
++    pub retransmit_bytes_out: u64,
++    /// Outgoing retransmissions, a subset of packets_out.
++    pub retransmit_packets_out: u64,
++    /// Outgoing primary RTP bytes, excluding retransmissions/padding.
++    pub primary_bytes_out: u64,
++    /// Outgoing primary RTP packets, excluding retransmissions/padding.
++    pub primary_packets_out: u64,
++    /// Outgoing blank padding logical RTP bytes, excluding cached RTX probes.
++    pub padding_bytes_out: u64,
++    /// Outgoing blank padding RTP packets, excluding cached RTX probes.
++    pub padding_packets_out: u64,
++}
++impl MediaTraffic {
++    pub(crate) fn receive_rtp(&mut self, bytes: usize) {
++        self.bytes_in = self.bytes_in.saturating_add(bytes as u64);
++        self.packets_in = self.packets_in.saturating_add(1);
++    }
++    pub(crate) fn send_rtp(&mut self, bytes: usize, retransmission: bool, padding: bool) {
++        self.bytes_out = self.bytes_out.saturating_add(bytes as u64);
++        self.packets_out = self.packets_out.saturating_add(1);
++        if retransmission {
++            self.retransmit_bytes_out = self.retransmit_bytes_out.saturating_add(bytes as u64);
++            self.retransmit_packets_out = self.retransmit_packets_out.saturating_add(1);
++        } else if padding {
++            self.padding_bytes_out = self.padding_bytes_out.saturating_add(bytes as u64);
++            self.padding_packets_out = self.padding_packets_out.saturating_add(1);
++        } else {
++            self.primary_bytes_out = self.primary_bytes_out.saturating_add(bytes as u64);
++            self.primary_packets_out = self.primary_packets_out.saturating_add(1);
++        }
++    }
++}
++impl AddAssign for MediaTraffic {
++    fn add_assign(&mut self, other: Self) {
++        macro_rules! add {($($field:ident),+)=>{$(self.$field=self.$field.saturating_add(other.$field);)+};}
++        add!(
++            bytes_in,
++            packets_in,
++            bytes_out,
++            packets_out,
++            retransmit_bytes_out,
++            retransmit_packets_out,
++            primary_bytes_out,
++            primary_packets_out,
++            padding_bytes_out,
++            padding_packets_out
++        );
++    }
++}
++#[cfg(test)]
++mod tests {
++    use super::*;
++    #[test]
++    fn primary_padding_and_retry_are_disjoint_subsets_of_process_totals() {
++        let mut stats = MediaTraffic::default();
++        stats.receive_rtp(112);
++        stats.send_rtp(112, false, false);
++        stats.send_rtp(48, false, true);
++        stats.send_rtp(112, true, true);
++        assert_eq!(stats.bytes_out, 272);
++        assert_eq!(stats.packets_out, 3);
++        assert_eq!(stats.primary_packets_out, 1);
++        assert_eq!(stats.padding_packets_out, 1);
++        assert_eq!(stats.retransmit_packets_out, 1);
++        assert_eq!(
++            stats.bytes_out,
++            stats.primary_bytes_out + stats.padding_bytes_out + stats.retransmit_bytes_out
++        );
++    }
++}

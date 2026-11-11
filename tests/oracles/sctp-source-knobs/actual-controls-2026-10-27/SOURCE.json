@@ -1,0 +1,36 @@
+{
+  "status": "ACTUAL_FINITE_SOURCE_CONTROLS_ONLY",
+  "observations": [
+    {
+      "path": "policy.tsv",
+      "rows": 8,
+      "sha256": "fbf2ffb51c5050a5e1685fa33c6aedf9a0bcd199a219001b6f8dd7807735f071",
+      "scope": "actual original fixed-source observer output; no prefilled expected values"
+    },
+    {
+      "path": "knobs.tsv",
+      "rows": 10,
+      "sha256": "02efe6af581c8fd8197f8cd934bdc108aa2ba721470b65c1a097fe04ce2821a2",
+      "scope": "actual original fixed-source observer output; no prefilled expected values"
+    },
+    {
+      "path": "pr.tsv",
+      "rows": 12,
+      "sha256": "2729648e667f794989754a2fa97dd4131ebf64656da1c1028bca7c60a82e37e4",
+      "scope": "actual original fixed-source observer output; no prefilled expected values"
+    },
+    {
+      "path": "fragment.tsv",
+      "rows": 60,
+      "sha256": "48b8398d3290b20630d785b13a4eabcbad9ea50dc8dd77aab9cf770672a0e510",
+      "scope": "actual original fixed-source observer output; no prefilled expected values"
+    },
+    {
+      "path": "rto.tsv",
+      "rows": 60,
+      "sha256": "fb238d22bee0e6895f8e4872486c340c700e467cb7016065402844731d6bf8c5",
+      "scope": "actual original fixed-source observer output; no prefilled expected values"
+    }
+  ],
+  "evidence": "../../../../../livekit-rs-docs/evidence/2026-10-27/sctp-cli-current-functional-regression.json"
+}

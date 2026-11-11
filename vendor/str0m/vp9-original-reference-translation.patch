@@ -1,0 +1,242 @@
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -417,6 +417,16 @@
+ pub struct Vp9PacketInfo {
+     /// Actual source spatial component.
+     pub spatial: u8,
++    /// Original flexible-reference mode.
++    pub flexible: bool,
++    /// Original inter-picture prediction flag.
++    pub predicted: bool,
++    /// Original source picture identifier.
++    pub picture_id: u16,
++    /// Original picture identifier width (zero when absent).
++    pub picture_bits: u8,
++    /// Original reference picture differences, terminated by zero entries.
++    pub reference_diffs: [u8; 3],
+     /// Source U flag allowing a temporal switch up.
+     pub switching_up: bool,
+     /// Source beginning of spatial frame flag.
+@@ -428,6 +438,16 @@
+ /// The coded superframe index is not emitted as part of any elementary component.
+ #[derive(Clone, Copy, Debug)]
+ pub struct Vp9Forwarding {
++    /// Actual source picture identifier for reference translation.
++    pub source_picture_id: u16,
++    /// Actual source picture identifier width, or zero if absent.
++    pub picture_bits: u8,
++    /// Actual source flexible mode, per retained spatial component.
++    pub flexible: [bool; 3],
++    /// Actual source inter-picture prediction flags.
++    pub predicted: [bool; 3],
++    /// Actual source reference picture differences, per component.
++    pub reference_diffs: [[u8; 3]; 3],
+     /// Original cumulative component ends in the retained coded body.
+     pub ends: [Option<usize>; 3],
+     /// Actual temporal ID of these original components.
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -576,6 +576,19 @@
+                         .user_values
+                         .set(crate::media::Vp9PacketInfo {
+                             spatial: vp9.sid,
++                            flexible: vp9.f,
++                            predicted: vp9.p,
++                            picture_id: vp9.picture_id,
++                            picture_bits: if vp9.i {
++                                if entry.remaining().get(1).is_some_and(|b| b & 0x80 != 0) {
++                                    15
++                                } else {
++                                    7
++                                }
++                            } else {
++                                0
++                            },
++                            reference_diffs: vp9.pdiff,
+                             switching_up: vp9.u,
+                             beginning: vp9.b,
+                             ending: vp9.e,
+--- a/src/packet/vp9.rs
++++ b/src/packet/vp9.rs
+@@ -1,5 +1,6 @@
+ use super::{BitRead, CodecExtra, Depacketizer, PacketError, Packetizer};
+ 
++use std::collections::VecDeque;
+ use std::fmt;
+ 
+ /// Max non-flexible VP9 descriptor size reserved for MTU headroom:
+@@ -174,6 +175,7 @@
+     initialized: bool,
+     mode: Vp9PacketizerMode,
+     forwarding_complete: Option<bool>,
++    forwarding_history: VecDeque<(u16, u16)>,
+     #[cfg(test)]
+     initial_picture_id: u16,
+ }
+@@ -274,8 +276,42 @@
+             for (index, part) in parts.enumerate() {
+                 let first = index == 0;
+                 let last = index + 1 == count;
+-                let mut flags = 0xa0; // I,L, non-flexible F=0.
+-                if !hint.keyframe {
++                let flexible = hint.picture_bits > 0 && hint.flexible[spatial];
++                let predicted = if hint.picture_bits > 0 {
++                    hint.predicted[spatial]
++                } else {
++                    !hint.keyframe
++                };
++                let mut references = Vec::new();
++                if flexible && predicted {
++                    let mask = if hint.picture_bits == 7 { 0x7f } else { 0x7fff };
++                    for diff in hint.reference_diffs[spatial]
++                        .into_iter()
++                        .filter(|d| *d != 0)
++                    {
++                        let source = hint.source_picture_id.wrapping_sub(u16::from(diff)) & mask;
++                        let mapped = self
++                            .forwarding_history
++                            .iter()
++                            .rev()
++                            .find(|(input, _)| *input == source)
++                            .map(|(_, output)| *output)
++                            .ok_or(PacketError::ErrVP9CorruptedPacket)?;
++                        let distance = self.picture_id.wrapping_sub(mapped) & 0x7fff;
++                        if distance == 0 || distance > 127 {
++                            return Err(PacketError::ErrVP9CorruptedPacket);
++                        }
++                        references.push(distance as u8);
++                    }
++                    if references.is_empty() {
++                        return Err(PacketError::ErrVP9CorruptedPacket);
++                    }
++                }
++                let mut flags = 0xa0;
++                if flexible {
++                    flags |= 0x10;
++                }
++                if predicted {
+                     flags |= 0x40;
+                 }
+                 if first {
+@@ -300,12 +336,28 @@
+                         | ((spatial as u8) << 1)
+                         | u8::from(hint.dependent[spatial]),
+                 );
+-                packet.push(self.tl0picidx);
++                if !flexible {
++                    packet.push(self.tl0picidx);
++                } else if predicted {
++                    for (index, diff) in references.iter().enumerate() {
++                        packet.push((diff << 1) | u8::from(index + 1 < references.len()));
++                    }
++                }
+                 if structure {
+                     packet.push(hint.target_spatial << 5);
+                 }
+                 packet.extend_from_slice(part);
+                 result.push(packet);
++            }
++        }
++        if hint.picture_bits > 0 {
++            if hint.keyframe {
++                self.forwarding_history.clear();
++            }
++            self.forwarding_history
++                .push_back((hint.source_picture_id, self.picture_id));
++            while self.forwarding_history.len() > 512 {
++                self.forwarding_history.pop_front();
+             }
+         }
+         self.picture_id = self.picture_id.wrapping_add(1) & 0x7fff;
+@@ -564,6 +616,7 @@
+         let mut reader = (packet, 0);
+         let b = reader.get_u8().ok_or(PacketError::ErrShortPacket)?;
+ 
++        self.pdiff = [0; MAX_VP9REF_PICS];
+         self.i = (b & 0x80) != 0;
+         self.p = (b & 0x40) != 0;
+         self.l = (b & 0x20) != 0;
+@@ -1724,6 +1777,11 @@
+     fn real_component_packetizer_retains_sid_tid_dependency_and_nonfinal_marker() {
+         let mut packetizer = Vp9Packetizer::default();
+         let base = crate::media::Vp9Forwarding {
++            source_picture_id: 0,
++            picture_bits: 0,
++            flexible: [false; 3],
++            predicted: [false; 3],
++            reference_diffs: [[0; 3]; 3],
+             ends: [Some(2), Some(4), Some(6)],
+             temporal: 0,
+             switching_up: [false; 3],
+@@ -1790,3 +1848,71 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod original_reference_translation_tests {
++    use super::*;
++    fn hint(source: u16, keyframe: bool, refs: [u8; 3]) -> crate::media::Vp9Forwarding {
++        crate::media::Vp9Forwarding {
++            source_picture_id: source,
++            picture_bits: 15,
++            flexible: [true; 3],
++            predicted: [!keyframe; 3],
++            reference_diffs: [refs; 3],
++            ends: [Some(2), None, None],
++            temporal: 0,
++            switching_up: [false; 3],
++            dependent: [false; 3],
++            target_spatial: 0,
++            complete: true,
++            keyframe,
++        }
++    }
++    #[test]
++    fn original_flexible_references_translate_across_compacted_temporal_pictures() {
++        let mut p = Vp9Packetizer::default();
++        let first = p
++            .packetize_forwarding(1200, &[0x80, 0], hint(1000, true, [0; 3]))
++            .unwrap();
++        let second = p
++            .packetize_forwarding(1200, &[0x84, 1], hint(1004, false, [4, 0, 0]))
++            .unwrap();
++        assert_eq!(first.len(), 1);
++        assert_eq!(second.len(), 1);
++        let mut dep = Vp9Depacketizer::default();
++        let mut body = Vec::new();
++        let mut extra = CodecExtra::None;
++        dep.depacketize(&second[0], &mut body, &mut extra).unwrap();
++        assert!(dep.f && dep.p && dep.i);
++        assert_eq!(
++            dep.pdiff,
++            [1, 0, 0],
++            "source difference4 must become outgoing difference1 after whole higher-temporal pictures were omitted"
++        );
++        assert_eq!(dep.tid, 0);
++        assert_eq!(body, [0x84, 1]);
++        let before = p.picture_id;
++        assert!(
++            p.packetize_forwarding(1200, &[0x84, 2], hint(1008, false, [1, 0, 0]))
++                .is_err(),
++            "an actually absent retained reference cannot be relabeled as successful decode input"
++        );
++        assert_eq!(p.picture_id, before);
++    }
++    #[test]
++    fn each_new_reference_descriptor_clears_old_reference_tail() {
++        let mut dep = Vp9Depacketizer::default();
++        let mut body = Vec::new();
++        let mut extra = CodecExtra::None;
++        dep.depacketize(&[0xfc, 0x80, 1, 0, 3, 4, 0x84], &mut body, &mut extra)
++            .unwrap();
++        assert_eq!(dep.pdiff, [1, 2, 0]);
++        dep.depacketize(&[0xfc, 0x80, 2, 0, 2, 0x84], &mut body, &mut extra)
++            .unwrap();
++        assert_eq!(
++            dep.pdiff,
++            [1, 0, 0],
++            "stale multi-reference tail cannot leak into next actual one-reference packet"
++        );
++    }
++}

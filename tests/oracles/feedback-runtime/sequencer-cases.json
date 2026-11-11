@@ -1,0 +1,202 @@
+[
+  {
+    "Name": "strict100ms",
+    "Capacity": 2,
+    "RTT": 70,
+    "Events": [
+      {
+        "Kind": "send",
+        "MS": 0,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 100,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 101,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 201,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 202,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 303,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 404,
+        "Seq": 65535
+      }
+    ]
+  },
+  {
+    "Name": "two_rtt20ms",
+    "Capacity": 2,
+    "RTT": 10,
+    "Events": [
+      {
+        "Kind": "send",
+        "MS": 0,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 20,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 21,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 41,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 42,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 63,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 84,
+        "Seq": 65535
+      }
+    ]
+  },
+  {
+    "Name": "zero_rtt",
+    "Capacity": 2,
+    "RTT": 0,
+    "Events": [
+      {
+        "Kind": "send",
+        "MS": 0,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 0,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 1,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 1,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 2,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 3,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 4,
+        "Seq": 65535
+      }
+    ]
+  },
+  {
+    "Name": "evicted_and_wrap",
+    "Capacity": 2,
+    "RTT": 70,
+    "Events": [
+      {
+        "Kind": "send",
+        "MS": 0,
+        "Seq": 65535
+      },
+      {
+        "Kind": "send",
+        "MS": 1,
+        "Seq": 65536
+      },
+      {
+        "Kind": "send",
+        "MS": 2,
+        "Seq": 65537
+      },
+      {
+        "Kind": "nack",
+        "MS": 200,
+        "Seq": 65535
+      },
+      {
+        "Kind": "nack",
+        "MS": 200,
+        "Seq": 65536
+      },
+      {
+        "Kind": "nack",
+        "MS": 200,
+        "Seq": 65537
+      },
+      {
+        "Kind": "nack",
+        "MS": 200,
+        "Seq": 65538
+      }
+    ]
+  },
+  {
+    "Name": "primary_sequence_gap_not_fifo_age",
+    "Capacity": 2,
+    "RTT": 70,
+    "Events": [
+      {
+        "Kind": "send",
+        "MS": 0,
+        "Seq": 100
+      },
+      {
+        "Kind": "send",
+        "MS": 1,
+        "Seq": 102
+      },
+      {
+        "Kind": "nack",
+        "MS": 200,
+        "Seq": 100
+      },
+      {
+        "Kind": "nack",
+        "MS": 200,
+        "Seq": 101
+      },
+      {
+        "Kind": "nack",
+        "MS": 200,
+        "Seq": 102
+      }
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+SIP callback matching, evaluation and call normalization are derived from LiveKit
+Server e5655ac20267fa5005dccaf3f0e3bfc3ea688c07 and LiveKit protocol
+9bb708cdb81918a6c63dd25e915b4644310b45b6, Copyright 2023 LiveKit, Inc.,
+Apache License 2.0 (LICENSE-APACHE).
+
+The netip validation/error implementation follows Go 1.26.0 net/netip ParseAddr,
+parseIPv4Fields and parseIPv6, Copyright 2009 The Go Authors, BSD-3-Clause
+(LICENSE-GO). Source is retained under references/go-stdlib-1.26.0. Unicode
+printability uses the existing fixed Go strconv table in sip/domain/go_print.rs.
+
+Only child messages actually cloned by the source evaluator carry their own
+unknown-field provenance into the different response type. Catalog/root unknowns
+are not copied across types. Media Merge starts from the rule media clone and
+explicitly inherits trunk codec/time-limit child provenance when source rules do.

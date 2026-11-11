@@ -1,0 +1,4 @@
+Derived portions: Copyright 2023 LiveKit, Inc.
+Apache License, Version 2.0; see LICENSE-APACHE.
+Rust adaptations and tests are modifications for livekit-rs.
+Go quote tables and semantics: Copyright 2013 The Go Authors. BSD-3-Clause; see LICENSE-GO.

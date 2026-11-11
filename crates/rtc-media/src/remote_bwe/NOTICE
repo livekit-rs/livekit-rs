@@ -1,0 +1,8 @@
+LiveKit RemoteBWE policy port
+Copyright 2023 LiveKit, Inc.
+
+Derived from livekit/livekit commit e5655ac20267fa5005dccaf3f0e3bfc3ea688c07.
+The seven policy source files and two boundary definitions are identified with
+SHA-256 in SOURCE.json. Licensed under Apache License 2.0, reproduced in
+LICENSE-UPSTREAM. Rust adaptations and deterministic harness are recorded in
+SOURCE.json. No source author endorsement or network acceptance is implied.

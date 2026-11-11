@@ -1,0 +1,15 @@
+{
+  "status": "ACTUAL_ARCHIVE_SHA256_AND_TAR_CONTENT_VERIFIED_PLUGIN_BUILD_NOT_RUN",
+  "source_url": "https://gstreamer.freedesktop.org/src/gst-plugins-bad/gst-plugins-bad-1.24.2.tar.xz",
+  "version": "1.24.2",
+  "sha256": "448e32787bc82b586c6cb2f81c9a8ef404fea4f77f25566fe06e597a3f59136b",
+  "reason": "Root actually downloaded archive; author independently read/hash-checked actual bytes and3913-member tar. Guest MUST recheck transferred bytes before extracting/building. ABI-matched source plugin overlay remains distinct from upstream Docker1.24.13.",
+  "original_worker_gstreamer_version": "1.24.13",
+  "actual_prior_guest_gstreamer_version": "1.24.2",
+  "archive_bytes": 7046860,
+  "actual_archive_verification_receipt": "livekit-rs-docs/evidence/2026-10-27/egress-gst-bad-actual-archive-verification.json",
+  "receipt_sha256": "0e15adc7597315116406d422579a54c5f3312f7fbd35bdcdf7354ca72d3ff2e7",
+  "signature_verification": "NOT_RUN",
+  "plugin_build": "NOT_RUN",
+  "recording": "NOT_RUN"
+}

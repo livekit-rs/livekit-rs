@@ -1,0 +1,19 @@
+{
+  "upstream_version": "go1.26.0",
+  "upstream": "https://go.googlesource.com/go/+/refs/tags/go1.26.0/src/slices/",
+  "reference_archive": "references/go-slices-go1.26.0",
+  "files_sha256": {
+    "sort.go": "e6cd273b637e7dd2f547596c22e6236b92ae9b376f31ceb7b3c3269dd60a38df",
+    "zsortanyfunc.go": "50398783e085ac9cc1d7c6249ebe75a5cc4425dcdc6a4cc448ea6e7179126492",
+    "LICENSE": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+  },
+  "license": "BSD-3-Clause",
+  "redis_input_order": "unchanged; port comparator sort only",
+  "oracle": "tests/oracles/sip-catalog/order/main.go",
+  "status": "VERIFIED_DECLARED_F04_SCOPE",
+  "primary_git_clone": "references/go",
+  "checkout_commit": "d90b98e65320778f3b1f99a6951ab20f04d218b3",
+  "actual_go_order_fixtures": 57,
+  "actual_cross_catalog_cases": 74,
+  "delivery_evidence": "livekit-rs-docs/evidence/2026-10-25/f04-functional-delivery.json"
+}

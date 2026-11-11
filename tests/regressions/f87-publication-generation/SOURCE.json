@@ -1,0 +1,8 @@
+{
+  "scope": "Mechanism-only production regression replay, not an alternative release",
+  "source_sha256": "42da474c570aae3ab7836edee02d1f8d31f0948f7e005ab58ac0cae070a9bfd3",
+  "mutant_sha256": "f00648a3b03b43a8015e8e84e4cd284ea2815992c5a14d2092f43c68dc3f82f8",
+  "removed_guard": "        if info\n            .primary_ssrcs\n            .as_ref()\n            .is_some_and(|sources| !sources.contains(&*header.ssrc))\n        {\n            // A native stream's MID can survive a publication replacement.\n            // Only the current declared source can complete that publication.\n            return;\n        }\n",
+  "status": "ACTUAL_MECHANISM_RED_1_PASS_1_FAIL_AND_RESTORED_GREEN_2_PASS",
+  "evidence": "livekit-rs-docs/evidence/2026-10-26/f87-authenticated-guard-regression-replay.json"
+}

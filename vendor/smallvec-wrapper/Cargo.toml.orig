@@ -1,0 +1,38 @@
+[package]
+name = "smallvec-wrapper"
+version = "0.4.1"
+edition = "2021"
+repository = "https://github.com/al8n/smallvec-wrapper"
+homepage = "https://github.com/al8n/smallvec-wrapper"
+documentation = "https://docs.rs/smallvec-wrapper"
+description = "Macro and common structs to play with `smallvec`"
+license = "MIT OR Apache-2.0"
+rust-version = "1.56"
+keywords = ["smallvec", "smallvec-macro", "wrapper"]
+categories = ["data-structures"]
+
+[features]
+default = ["std"]
+std = ["either/use_std", "rkyv?/std", "serde?/std", "smallvec/write"]
+
+drain_filter = ["smallvec/drain_filter"]
+drain_keep_rest = ["smallvec/drain_keep_rest"]
+may_dangle = ["smallvec/may_dangle"]
+union = ["smallvec/union"]
+specialization = ["smallvec/specialization"]
+debugger_visualizer = ["smallvec/debugger_visualizer"]
+
+serde = ["dep:serde", "smallvec/serde", "either/serde"]
+
+[dependencies]
+smallvec = { version = "1", default-features = false, features = ["const_new", "const_generics"] }
+either = { version = "1", default-features = false }
+
+paste = "1"
+
+serde = { version = "1", optional = true, default-features = false, features = ["derive"] }
+rkyv = { version = "0.8", optional = true, default-features = false, features = ["smallvec-1", "bytecheck"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

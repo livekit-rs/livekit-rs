@@ -1,0 +1,28 @@
+--- a/src/channel.rs
++++ b/src/channel.rs
+@@ -56,8 +56,24 @@
+     /// Returns true or false whether the buffer was accepted or not.
+     #[must_use = "Whether the buffer was accepted by the write()"]
+     pub fn write(&mut self, binary: bool, buf: &[u8]) -> Result<bool, RtcError> {
++        let available = self.rtc.sctp.available();
++        self.write_with_buffer_budget(binary, buf, available)
++    }
++
++    /// Write with an explicit available-byte budget supplied by the application.
++    ///
++    /// This bypasses only the configured aggregate str0m buffer admission. SCTP
++    /// stream state and negotiated message-size checks remain unchanged. A caller
++    /// using `usize::MAX` must implement its own queue admission; normal [`Self::write`]
++    /// continues to use the configured aggregate budget.
++    #[must_use = "Whether the buffer was accepted by the write"]
++    pub fn write_with_buffer_budget(
++        &mut self,
++        binary: bool,
++        buf: &[u8],
++        available: usize,
++    ) -> Result<bool, RtcError> {
+         // If it's not available, don't accept.
+-        let available = self.rtc.sctp.available();
+         if buf.len() > available {
+             return Ok(false);
+         }

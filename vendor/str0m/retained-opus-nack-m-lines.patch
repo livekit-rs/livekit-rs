@@ -1,0 +1,151 @@
+diff --git a/src/change/direct.rs b/src/change/direct.rs
+index 81a4ee3e..556e9dc2 100644
+--- a/src/change/direct.rs
++++ b/src/change/direct.rs
+@@ -330,8 +330,8 @@ impl<'a> DirectApi<'a> {
+         self.rtc.session.remove_media(mid);
+     }
+ 
+-    /// Permanently remove Opus NACK from this peer connection's codec
+-    /// feedback and clear audio retransmissions, preserving video/other PCs.
++    /// Remove the default Opus NACK for future m-lines on this connection.
++    /// Already negotiated sending m-lines retain their feedback.
+     pub fn disable_opus_nack(&mut self) {
+         self.rtc.session.disable_opus_nack();
+     }
+diff --git a/src/change/sdp.rs b/src/change/sdp.rs
+index 0fc5923a..f60eb35b 100644
+--- a/src/change/sdp.rs
++++ b/src/change/sdp.rs
+@@ -1558,7 +1558,10 @@ impl AsSdpMediaLine for Media {
+         let mut pts = vec![];
+ 
+         for p in effective_params {
+-            let p = *p;
++            let mut p = *p;
++            if self.retained_opus_nack && p.spec().codec == crate::format::Codec::Opus {
++                p.set_fb_nack(true);
++            }
+             p.as_media_attrs(&mut attrs);
+ 
+             // The pts that will be advertised in the SDP
+diff --git a/src/media/mod.rs b/src/media/mod.rs
+index 73146fa4..79c85041 100644
+--- a/src/media/mod.rs
++++ b/src/media/mod.rs
+@@ -143,6 +143,10 @@ pub struct Media {
+     /// renegotiation. Defaults to `true`, so a negotiated RED PT wraps unless it is turned off.
+     red_send_enabled: bool,
+ 
++    // Existing negotiated senders keep Opus NACK when later senders disable
++    // the default for their peer connection.
++    pub(crate) retained_opus_nack: bool,
++
+     /// Outgoing payloads ordered by their send deadlines or media wallclock times.
+     to_payload: VecDeque<ToPayload>,
+ 
+@@ -766,6 +770,7 @@ impl Default for Media {
+             need_open_event: true,
+             need_changed_event: false,
+             red_send_enabled: true,
++            retained_opus_nack: false,
+         }
+     }
+ }
+diff --git a/src/session.rs b/src/session.rs
+index 121f2774..82775dd2 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1633,6 +1633,7 @@ impl Session {
+ 
+         let params = &self.codec_config;
+         let exts = media.remote_extmap();
++        stream.retained_opus_nack = media.retained_opus_nack;
+ 
+         // TWCC might not be enabled for this m-line. Firefox do use TWCC, but not
+         // for audio. This is indiciated via the SDP.
+@@ -2136,23 +2137,36 @@ impl Session {
+         Ok(())
+     }
+ 
+-    /// Match Pion configureSenderAudio's sticky session-wide Opus NACK
+-    /// removal. Never re-enable it during m-line reuse or later negotiation.
++    /// Remove the sticky default for future senders while preserving Opus
++    /// NACK on already negotiated sending m-lines.
+     pub fn disable_opus_nack(&mut self) {
++        let Some(opus_pt) = self
++            .codec_config
++            .iter()
++            .find(|payload| payload.spec().codec == crate::format::Codec::Opus && payload.fb_nack())
++            .map(|payload| payload.pt())
++        else {
++            return;
++        };
+         for payload in self.codec_config.iter_mut() {
+             if payload.spec().codec == crate::format::Codec::Opus {
+                 payload.set_fb_nack(false);
+             }
+         }
+-        let audio_mids: Vec<_> = self
++        for media in self
+             .medias
+-            .iter()
++            .iter_mut()
+             .filter(|media| media.kind().is_audio())
+-            .map(|media| media.mid())
+-            .collect();
+-        for mid in audio_mids {
+-            for stream in self.streams.streams_tx_by_mid(mid) {
+-                stream.clear_retransmissions();
++        {
++            if media.direction().is_sending()
++                && !media.disabled()
++                && media.remote_pts().contains(&opus_pt)
++            {
++                media.retained_opus_nack = true;
++            } else {
++                for stream in self.streams.streams_tx_by_mid(media.mid()) {
++                    stream.clear_retransmissions();
++                }
+             }
+         }
+     }
+diff --git a/src/streams/send.rs b/src/streams/send.rs
+index 99bb5fd6..b6c51311 100644
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -157,6 +157,8 @@ pub struct StreamTx {
+     /// sending spurious resends as padding.
+     rtx_cache: RtxCache,
+ 
++    pub(crate) retained_opus_nack: bool,
++
+     /// Determines retransmitted bytes ratio value to clear queued resends.
+     rtx_ratio_cap: Option<f32>,
+ 
+@@ -357,6 +359,7 @@ impl StreamTx {
+             padding: 0,
+             blank_packet: RtpPacket::blank(),
+             rtx_cache: RtxCache::new(2000, DEFAULT_RTX_CACHE_DURATION),
++            retained_opus_nack: false,
+             rtx_ratio_cap: DEFAULT_RTX_RATIO_CAP,
+             nack_throttled: false,
+             last_sender_report: already_happened(),
+@@ -656,6 +659,7 @@ impl StreamTx {
+         let ssrc_rtx = self.rtx;
+         let remote_acked_ssrc = self.remote_acked_ssrc;
+         let remote_acked_rtx_ssrc = self.remote_acked_rtx_ssrc;
++        let retained_opus_nack = self.retained_opus_nack;
+ 
+         let (mut next, is_padding) = if independent_padding {
+             (self.poll_packet_padding_inner(now, false)?, true)
+@@ -720,7 +724,8 @@ impl StreamTx {
+                 let is_red_packet = param.red() == Some(pt_main);
+                 // RFC 4585 audio NACK retransmits the original packet on the
+                 // primary SSRC/PT; audio does not require an RFC 4588 RTX PT.
+-                let opus_nack = param.spec().codec == crate::format::Codec::Opus && param.fb_nack();
++                let opus_nack = param.spec().codec == crate::format::Codec::Opus
++                    && (param.fb_nack() || retained_opus_nack);
+                 let rtx_possible = (param.resend().is_some() || opus_nack) && !is_red_packet;
+ 
+                 if param.resend().is_some() && rtx_possible {

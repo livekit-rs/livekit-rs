@@ -1,0 +1,141 @@
+{
+  "upstream_version": "0.11.1",
+  "registry_checksum": "b6edbbdc611843e8c65878ee735f68c495cede11ae5a9582b17fe0369c456ef5",
+  "vcs": {
+    "git": {
+      "sha1": "95e5038c6f45de6646d8e3f4c2bca6207a5bedde"
+    },
+    "path_in_vcs": "crates/is"
+  },
+  "license_source": {
+    "url": "https://raw.githubusercontent.com/algesten/str0m/95e5038c6f45de6646d8e3f4c2bca6207a5bedde/LICENSE-MIT.txt",
+    "sha256": "5b460f37be48ac4cf2181596181cc6cae432fc2caae05944873f380730829a4b"
+  },
+  "original_files_sha256": {
+    "Cargo.toml": "e31f528a024bd9e085076146c9f772cd71e4ac8ecf759ca031746738dac30091",
+    "Cargo.lock": "8deee47f947ea0854034abff89ae5d561ba560a9bbc6a71ccd08d33325c153c2",
+    "README.md": "de029a15b3f8d101601349e48f0a1ca170ebbb6c144f340291cd5f550d2e9ef3",
+    ".cargo_vcs_info.json": "5784d0e50a71c1da5548f7900e6abb5ddadbc5641a9d7d0e1f503cd5788484be",
+    "Cargo.toml.orig": "b932a3e3d476a2248016bce4a7390d6ec11944799bf83b89406c9aec3a7bd81a",
+    "src/stun.rs": "3707556dab93b73af3d5f3f1a7cd9d6b06babc2c22bd2594895d6e2a81275128",
+    "src/error.rs": "5d87bba7f1602066494f084ae1f74bb11a97ed671262f68292876f69ae713e3f",
+    "src/lib.rs": "6e872e1d9a1e9b0e746c4d68fc5cec0f60a6ae2c89c9be1fba84b449c6a5475c",
+    "src/preference.rs": "f1576467af30c50f7a803b402d5e4ad36134ade02e4c4617b4de3d5c90ae6487",
+    "src/pair.rs": "81fff80e8270234e09ae5bc9c1cc138885ff10760f569c116d4176735452c7a0",
+    "src/hmac_provider.rs": "d9b7628dd65467193cdcdda8f22375adc872933bb700d7d20ba3b048a78b396d",
+    "src/parse.rs": "8c736e5402f5b6f04a50034435272e17ca3781fd462825281fd3dccfadd89141",
+    "src/candidate.rs": "9114ebb08dae7f8e9ca8cc3fe6221e78c4fe877345fd05ce9b0ea66373d56336",
+    "src/agent.rs": "f2d1d50cc16ffb72d1d5073fdcd9c17320580103896cc83b7c77046741ebc8dd"
+  },
+  "expected_files_sha256": {
+    "Cargo.toml": "e31f528a024bd9e085076146c9f772cd71e4ac8ecf759ca031746738dac30091",
+    "Cargo.lock": "8deee47f947ea0854034abff89ae5d561ba560a9bbc6a71ccd08d33325c153c2",
+    "README.md": "de029a15b3f8d101601349e48f0a1ca170ebbb6c144f340291cd5f550d2e9ef3",
+    ".cargo_vcs_info.json": "5784d0e50a71c1da5548f7900e6abb5ddadbc5641a9d7d0e1f503cd5788484be",
+    "Cargo.toml.orig": "b932a3e3d476a2248016bce4a7390d6ec11944799bf83b89406c9aec3a7bd81a",
+    "src/stun.rs": "7db40578e98e9de962de993561e2c1e840c22a241f4b8be1b6fa49ce41e54d03",
+    "src/error.rs": "5d87bba7f1602066494f084ae1f74bb11a97ed671262f68292876f69ae713e3f",
+    "src/lib.rs": "464e3f471266fd182d150ab15635bd416b561e29c44620a249eb7171fe17ff72",
+    "src/preference.rs": "f1576467af30c50f7a803b402d5e4ad36134ade02e4c4617b4de3d5c90ae6487",
+    "src/pair.rs": "b44fc5a20993a054d598715b9f777b4b5f648830f803337759214b3e012c1091",
+    "src/hmac_provider.rs": "d9b7628dd65467193cdcdda8f22375adc872933bb700d7d20ba3b048a78b396d",
+    "src/parse.rs": "8c736e5402f5b6f04a50034435272e17ca3781fd462825281fd3dccfadd89141",
+    "src/candidate.rs": "217088d847c953211d590b857d0165377897161cca69de28bcdcf3ca6cdfb7f8",
+    "src/agent.rs": "3703b86fc95e8fe276e8b3917bfaab3469452b8743d96155d70ce6206c1835e2",
+    "src/sped.rs": "62ae82b860421e5db788cd8e085817fb8296730ef81cce5de84bda156b1239a1",
+    "src/agent_acceptance_tests.rs": "d9e3428e52e8fa3627fdc51f4c77983ce5aba15bb367be7e0de06a7ee5da7b85",
+    "src/agent_transport_fallback_tests.rs": "331ed1820d3cc05eee794e427d3dc67b9fe4f8f083779e39fff08c6a5dc1dcfb",
+    "src/agent_selected_liveness_tests.rs": "fd47a16a651e1a19d701c39a4b4c9ec55f4ea79401cecb9ae14280ddd79ba03b"
+  },
+  "metadata_files": [
+    "SOURCE.json",
+    "PATCHES.md",
+    "mapped-host.patch",
+    "LICENSE-MIT.txt",
+    "warp-sped-dtls-in-stun.patch",
+    "LICENSE-SPED-Pion-MIT",
+    "nomination-acceptance-min-waits.patch",
+    "actual-transport-fallback-observations.patch",
+    "selected-ice-last-received-observation.patch",
+    "selected-ice-receive-lifetime-and-restart-epochs.patch",
+    "server-reflexive-socket-base.patch"
+  ],
+  "metadata_sha256": {
+    "PATCHES.md": "a1671bc0546b8256bfced33f70321523421a4a6ab1111a6cddc76261bc002664",
+    "mapped-host.patch": "48a72d47fe4fdbc4444874a6cb6206f98dfe4109afbd47559d1de6820a44ca80",
+    "LICENSE-MIT.txt": "5b460f37be48ac4cf2181596181cc6cae432fc2caae05944873f380730829a4b",
+    "warp-sped-dtls-in-stun.patch": "c589419453f83097dda4d27571febf12ad802abc61ac9b55cfde4c177b56c18f",
+    "LICENSE-SPED-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "nomination-acceptance-min-waits.patch": "880cb08cc45bdca7d04a0cf10386b9c80d2994f09512cf222f8707692e1b21e9",
+    "actual-transport-fallback-observations.patch": "85aeea6cf22fda4edbfb5a71f952d9f61d22d08138ea3bda3b99331056a38116",
+    "selected-ice-last-received-observation.patch": "487e4cf270b62aae74e51ed3f2957b706e05594ef7cb6186bbbdbf227955de9d",
+    "selected-ice-receive-lifetime-and-restart-epochs.patch": "3c672b2fd082513f8fad18e581f8928278e0d982255798f7339bd1f6c39083f4",
+    "server-reflexive-socket-base.patch": "57ed4bede2418a208204bea4b06913b443883bd18dd1e28454891dcef01717f0"
+  },
+  "execution": "NOT_COMPILED_NOT_RUN",
+  "sequential_patches": [
+    "mapped-host.patch",
+    "warp-sped-dtls-in-stun.patch",
+    "nomination-acceptance-min-waits.patch",
+    "actual-transport-fallback-observations.patch",
+    "selected-ice-last-received-observation.patch",
+    "selected-ice-receive-lifetime-and-restart-epochs.patch",
+    "server-reflexive-socket-base.patch"
+  ],
+  "modified_native_files": [
+    "src/agent.rs",
+    "src/agent_acceptance_tests.rs",
+    "src/agent_selected_liveness_tests.rs",
+    "src/agent_transport_fallback_tests.rs",
+    "src/candidate.rs",
+    "src/lib.rs",
+    "src/pair.rs",
+    "src/sped.rs",
+    "src/stun.rs"
+  ],
+  "sped": {
+    "status": "IMPLEMENTED_NOT_RUN",
+    "sources": {
+      "references/go-modules/livekit-ice-v4-v4.4.0-warp.3/sped.go": "8a561a35b72b47e35912cd379e1b0e603a99398d78d3d5f51d28767425c53e70",
+      "references/go-modules/livekit-ice-v4-v4.4.0-warp.3/piggyback.go": "13b9e5b6b562596d4995d89f07c7b03997d8195221f3df490264cc4013ea973a"
+    },
+    "boundary": "Authenticated ICE only; unknown/non-supporting peer fallback, end-of-flight and pending ACK semantics require real str0m and fixed Go interop before acceptance."
+  },
+  "nomination_acceptance": {
+    "status": "SOURCE_ONLY_NOT_COMPILED_NOT_RUN",
+    "patch": "nomination-acceptance-min-waits.patch",
+    "scope": "controlling best valid pair local/remote kind eligibility; controlled nomination unchanged; generic waits default zero"
+  },
+  "actual_transport_fallback_observations": {
+    "patch": "actual-transport-fallback-observations.patch",
+    "patch_sha256": "85aeea6cf22fda4edbfb5a71f952d9f61d22d08138ea3bda3b99331056a38116",
+    "status": "SOURCE_ONLY_NOT_COMPILED_NOT_RUN",
+    "scope": "Actual nominated transport classification and authenticated same-primary ReceiverReport loss cohorts, independent of RTT change/LSR gates.",
+    "exact_files_sha256": {
+      "src/agent.rs": "1474d759ea6dd41ad3d8169730dbcba6ce550cc3b95b5a41c397a6b173517b3d",
+      "src/agent_transport_fallback_tests.rs": "331ed1820d3cc05eee794e427d3dc67b9fe4f8f083779e39fff08c6a5dc1dcfb"
+    }
+  },
+  "selected_ice_last_received_observation": {
+    "patch": "selected-ice-last-received-observation.patch",
+    "patch_sha256": "487e4cf270b62aae74e51ed3f2957b706e05594ef7cb6186bbbdbf227955de9d",
+    "status": "SOURCE_ONLY_NOT_COMPILED_NOT_RUN",
+    "scope": "Passive per-nominated-pair authenticated STUN/matching remote data last-received observation, with no generic native timeout/retransmission changes",
+    "exact_files_sha256": {
+      "src/agent_selected_liveness_tests.rs": "9b2e88e14576fa26a56396dfa164eda8cca6532547c10f80d2eca0066fe5101e",
+      "src/pair.rs": "940ca9b4bc7f8c7bf01bfad0f63394dfcbf7b0399861d8f56b458aaefa12e40c",
+      "src/agent.rs": "c0aa9918052842dd4554d282b1b25af9ad8c7ec5ae056ebd8a378938618d292e"
+    }
+  },
+  "selected_ice_receive_lifetime_and_restart_epochs": {
+    "patch": "selected-ice-receive-lifetime-and-restart-epochs.patch",
+    "patch_sha256": "3c672b2fd082513f8fad18e581f8928278e0d982255798f7339bd1f6c39083f4",
+    "status": "SOURCE_ONLY_NOT_COMPILED_NOT_RUN",
+    "scope": "Monotonic per-pair admitted-receive timestamp independent of bounded transaction history; opt-in selected receive retention defaultsNone; actual compat subscriber restart epochs fenced by owner while genuine answer/keepalive required.",
+    "exact_files_sha256": {
+      "src/agent_selected_liveness_tests.rs": "fd47a16a651e1a19d701c39a4b4c9ec55f4ea79401cecb9ae14280ddd79ba03b",
+      "src/pair.rs": "b44fc5a20993a054d598715b9f777b4b5f648830f803337759214b3e012c1091",
+      "src/agent.rs": "a89563ac4e1f8e3893e934ea5232b8bbf2041b43a7aabf8a2b4fa0b95b6668df"
+    }
+  }
+}

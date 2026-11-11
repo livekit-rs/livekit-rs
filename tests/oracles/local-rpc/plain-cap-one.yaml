@@ -1,0 +1,8 @@
+# Coordinator supplies owned port/keys using its normal private YAML overlay.
+room:
+  auto_create: true
+psrpc:
+  compression:
+    quality: 0
+    threshold: 1
+    max_decompressed_size: 1

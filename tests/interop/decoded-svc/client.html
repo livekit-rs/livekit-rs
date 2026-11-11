@@ -1,0 +1,108 @@
+<!doctype html><meta charset="utf-8"><title>Official SDK decoded SVC acceptance</title>
+<script>
+// Observe only standard public browser APIs; never inspect an SDK engine.
+window.pcs=[];window.signalSockets=[];
+const NativePC=window.RTCPeerConnection;
+window.RTCPeerConnection=class extends NativePC{
+ constructor(...args){super(...args);pcs.push(this);}
+ addTrack(track,...streams){const sender=super.addTrack(track,...streams);window.attachSourceTransform?.(sender,track,'addTrack');return sender;}
+ addTransceiver(track,options){const t=super.addTransceiver(track,options);window.attachSourceTransform?.(t.sender,typeof track==='object'?track:null,'addTransceiver');return t;}
+};
+const nativeReplaceTrack=RTCRtpSender.prototype.replaceTrack;
+RTCRtpSender.prototype.replaceTrack=function(track){window.attachSourceTransform?.(this,track,'replaceTrack-before');return nativeReplaceTrack.call(this,track);};
+const NativeWS=window.WebSocket;
+window.WebSocket=class extends NativeWS{constructor(...args){super(...args);signalSockets.push(this);}};
+</script><script src="/sdk.js"></script><body><script>
+const {Room,RoomEvent,Track,VideoQuality}=LivekitClient;
+let room,localTrack,publication,timer,epoch=1,frameNumber=0,worker,workerFatal,policyGeneration=0;
+const state={events:[],errors:[],pixels:[],source:[],data:[],video:[],workers:[],closed:false,postCloseFrames:0};
+const pending=new Map();let request=0;let targetSourceId;const installedSenders=new WeakMap();
+state.transformInstalls=[];
+window.attachSourceTransform=(sender,track,phase)=>{
+ if(!worker||!targetSourceId||track?.id!==targetSourceId||installedSenders.get(sender)===targetSourceId)return;
+ const transform=new RTCRtpScriptTransform(worker,{kind:'encode',trackId:targetSourceId});
+ sender.transform=transform;installedSenders.set(sender,targetSourceId);
+ state.transformInstalls.push({phase,trackId:targetSourceId,at:performance.now(),nativeIdentityConfirmed:sender.transform===transform});
+};
+function decode(video,metadata,sid){
+ const canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+ const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(video,0,0);
+ let value=0;const tiles=[];
+ for(let bit=0;bit<24;bit++){
+  const x=Math.min(canvas.width-2,Math.max(1,Math.floor(((bit%6)+.5)*canvas.width/6)));
+  const y=Math.min(canvas.height-2,Math.max(1,Math.floor((Math.floor(bit/6)+.5)*canvas.height/4)));
+  const b=ctx.getImageData(x-1,y-1,3,3).data;let sum=0;for(let i=0;i<b.length;i+=4)sum+=(b[i]+b[i+1]+b[i+2])/3;
+  const mean=Math.round(sum/9);tiles.push(mean);if(mean>120)value+=2**bit;
+ }
+ const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;let hash=2166136261;
+ for(let y=0;y<16;y++)for(let x=0;x<24;x++){const i=(Math.floor((y+.5)*canvas.height/16)*canvas.width+Math.floor((x+.5)*canvas.width/24))*4;hash=Math.imul(hash^pixels[i],16777619)>>>0;}
+ state.pixels.push({sid,epoch:value>>>16,frame:value&65535,hash,tiles,width:canvas.width,height:canvas.height,presentedFrames:metadata.presentedFrames,mediaTime:metadata.mediaTime,at:performance.now()});
+ if(state.closed)state.postCloseFrames++;
+ if(state.pixels.length>4000)state.pixels.splice(0,1000);
+}
+window.decoded={
+ async connect({url,token,single}){
+  room=new Room({singlePeerConnection:single,adaptiveStream:false,dynacast:false});
+  room.on(RoomEvent.ConnectionStateChanged,s=>state.events.push({event:'connection',state:s,at:performance.now()}));
+  room.on(RoomEvent.DataReceived,b=>state.data.push(new TextDecoder().decode(b)));
+  room.on(RoomEvent.TrackSubscribed,(track,pub)=>{
+   if(track.kind!==Track.Kind.Video)return;
+   const video=track.attach();video.autoplay=true;video.muted=true;document.body.append(video);
+   const entry={video,sid:pub.trackSid,callback:undefined};state.video.push(entry);
+   const tick=(_,meta)=>{try{decode(video,meta,entry.sid);}catch(e){state.errors.push(String(e));}if(!state.closed)entry.callback=video.requestVideoFrameCallback(tick);};
+   entry.callback=video.requestVideoFrameCallback(tick);video.play().catch(e=>state.errors.push(String(e)));
+  });
+  await room.connect(url,token);
+ },
+ capabilities(codec){return {codec:RTCRtpSender.getCapabilities('video').codecs.some(c=>c.mimeType.toLowerCase()===`video/${codec}`),transform:typeof RTCRtpScriptTransform!=='undefined',rvfc:typeof HTMLVideoElement.prototype.requestVideoFrameCallback==='function',isolated:crossOriginIsolated};},
+ async publish({codec,mode}){
+  const canvas=document.createElement('canvas');canvas.width=960;canvas.height=544;const c=canvas.getContext('2d');
+  function paint(){frameNumber=(frameNumber+1)&65535;const value=(epoch<<16)|frameNumber;
+   for(let bit=0;bit<24;bit++){c.fillStyle=(value&(1<<bit))?'rgb(235,235,235)':'rgb(16,16,16)';const x=(bit%6)*160,y=Math.floor(bit/6)*136;c.fillRect(x,y,160,136);}
+   state.source.push({epoch,frame:frameNumber,at:performance.now()});if(state.source.length>4000)state.source.splice(0,1000);
+  }
+  paint();timer=setInterval(paint,1000/15);localTrack=canvas.captureStream(15).getVideoTracks()[0];
+  targetSourceId=localTrack.id;
+  if(typeof RTCRtpScriptTransform!=='undefined'){
+   worker=new Worker('/worker.js');
+   worker.onerror=e=>{workerFatal='worker error: '+e.message;};
+   worker.onmessageerror=e=>{workerFatal='worker message error';};
+   worker.onmessage=e=>{if(e.data.fatal){workerFatal=e.data.fatal;return;}const resolve=pending.get(e.data.id);if(resolve){pending.delete(e.data.id);resolve(e.data.snapshot);}};
+  }
+  if(worker)await this.worker(); // worker/event handler must be loaded before sender attachment
+  publication=await room.localParticipant.publishTrack(localTrack,{source:Track.Source.Camera,videoCodec:codec,scalabilityMode:mode,simulcast:false,videoEncoding:{maxBitrate:2200000,maxFramerate:15}});
+  const candidates=pcs.filter(pc=>pc.connectionState!=='closed').flatMap(pc=>pc.getSenders()).filter(s=>s.track?.id===localTrack.id);
+  if(candidates.length!==1)throw Error('standard public source sender must be unambiguous: '+candidates.length);
+  // Diagnostics only: a missed pre-encoder hook must fail, not be mislabeled as
+  // unavailable encoded metadata while source video bypasses the transform.
+  if(worker&&!installedSenders.has(candidates[0]))throw Error('HARNESS_TRANSFORM_NOT_INSTALLED_BEFORE_PUBLISH');
+  return {sid:publication.trackSid,track:localTrack.id};
+ },
+ async worker(){if(!worker)return null;const id=++request;return await Promise.race([new Promise(resolve=>{pending.set(id,resolve);worker.postMessage({snapshot:true,id});}),new Promise((_,reject)=>setTimeout(()=>reject(Error('worker snapshot timeout')),3000))]);},
+ async stage({nextEpoch,quality,fps,policy}){
+  if(policy){policyGeneration++;worker?.postMessage({policy,generation:policyGeneration});if(worker)await this.worker();}
+  epoch=nextEpoch;const qualities={low:VideoQuality.LOW,high:VideoQuality.HIGH};
+  for(const p of room.remoteParticipants.values())for(const pub of p.trackPublications.values())if(pub.kind===Track.Kind.Video){if(quality)pub.setVideoQuality(qualities[quality]);if(fps)pub.setVideoFPS(fps);}
+  return {epoch,at:performance.now(),policyGeneration};
+ },
+ reconnect(){const ws=signalSockets.filter(s=>s.readyState===WebSocket.OPEN).at(-1);if(!ws)throw Error('no live signal socket');ws.close(4000,'decoded acceptance resume');},
+ async unpublish(){await room.localParticipant.unpublishTrack(localTrack,false);localTrack.stop();clearInterval(timer);worker?.terminate();worker=undefined;return publication.trackSid;},
+ async data(value){await room.localParticipant.publishData(new TextEncoder().encode(value),{reliable:true});},
+ async report(){
+  const outbound=[],inbound=[],transports=[];
+  for(const pc of pcs){if(pc.connectionState==='closed')continue;const stats=await pc.getStats();
+   transports.push({index:pcs.indexOf(pc),connection:pc.connectionState,ice:pc.iceConnectionState,signaling:pc.signalingState,
+     senders:pc.getSenders().map(s=>({trackId:s.track?.id,kind:s.track?.kind,state:s.track?.readyState,encodings:s.getParameters().encodings})),
+     receivers:pc.getReceivers().map(r=>({trackId:r.track?.id,kind:r.track?.kind,state:r.track?.readyState})),
+     transceivers:pc.getTransceivers().map(t=>({mid:t.mid,direction:t.direction,currentDirection:t.currentDirection,senderTrack:t.sender.track?.id,receiverTrack:t.receiver.track?.id})),
+     activeOutboundVideo:[...stats.values()].filter(s=>s.type==='outbound-rtp'&&s.kind==='video'&&s.packetsSent>0).map(s=>({ssrc:s.ssrc,packetsSent:s.packetsSent,codec:stats.get(s.codecId)?.mimeType})),
+     activeInboundVideo:[...stats.values()].filter(s=>s.type==='inbound-rtp'&&s.kind==='video'&&s.packetsReceived>0).map(s=>({ssrc:s.ssrc,packetsReceived:s.packetsReceived,codec:stats.get(s.codecId)?.mimeType}))});
+   for(const s of stats.values())if(s.kind==='video'&&['inbound-rtp','outbound-rtp'].includes(s.type)){
+    const entry={...s,mimeType:stats.get(s.codecId)?.mimeType};(s.type==='outbound-rtp'?outbound:inbound).push(entry);
+   }
+  }
+  return {events:state.events,errors:state.errors,pixels:state.pixels,source:state.source,data:state.data,closed:state.closed,postCloseFrames:state.postCloseFrames,workerFatal,transformInstalls:state.transformInstalls,participantSid:room?.localParticipant.sid,remoteParticipants:[...(room?.remoteParticipants.values()||[])].map(p=>({identity:p.identity,sid:p.sid,tracks:[...p.trackPublications.values()].map(t=>({sid:t.trackSid,kind:t.kind}))})),connection:room?.state,outbound,inbound,transports};
+ },
+ async close(){clearInterval(timer);state.closed=true;for(const e of state.video){e.video.cancelVideoFrameCallback(e.callback);e.video.pause();e.video.srcObject=null;e.video.remove();}await room?.disconnect();localTrack?.stop();worker?.terminate();for(const pc of pcs)pc.close();return this.report();}
+};
+</script>

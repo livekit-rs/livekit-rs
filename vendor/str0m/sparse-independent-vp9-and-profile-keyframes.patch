@@ -1,0 +1,323 @@
+--- a/src/_internal_test_exports/fuzz.rs
++++ b/src/_internal_test_exports/fuzz.rs
+@@ -107,6 +107,7 @@
+             let hlen = rng.usize(76)?;
+             let header = RtpHeader::_parse(rng.slice(hlen)?, &exts)?;
+             let meta = RtpMeta {
++                vp9_dependency: None,
+                 received: start + Duration::from_millis(rng.u64(10000)?),
+                 time: MediaTime::new(rng.u64(u64::MAX)?, Frequency::MICROS),
+                 seq_no: rng.u64(u64::MAX)?.into(),
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -229,6 +229,11 @@
+     pub buffered: bool,
+ }
+ 
++/// Required lower-layer presence for a sparse VP9 spatial picture. Stored
++/// out of line only when its actual spatial IDs have holes.
++#[derive(Clone, Copy, Debug)]
++pub struct Vp9FrameDependencies(pub [Option<bool>; 3]);
++
+ // Local-only metadata lives behind the existing type map. It has no wire
+ // serializer and does not enlarge Event/RtpPacket/RtpMeta inline layout.
+ #[derive(Clone, Debug)]
+--- a/src/media/mod.rs
++++ b/src/media/mod.rs
+@@ -361,6 +361,27 @@
+                 let audio_start_of_talk_spurt =
+                     codec.spec().codec.kind().is_audio() && dep.start_of_talkspurt();
+                 let mut ext_vals = dep.ext_vals();
++                if let crate::format::CodecExtra::Vp9(extra) = dep.codec_extra {
++                    let mut gap = false;
++                    let sparse = extra.layers_scheme.iter().any(|end| match end {
++                        None => {
++                            gap = true;
++                            false
++                        }
++                        Some(_) => gap,
++                    });
++                    if sparse {
++                        let mut dependencies = [None; 3];
++                        for meta in &dep.meta {
++                            if let Some((spatial, dependent)) = meta.vp9_dependency {
++                                let value = &mut dependencies[usize::from(spatial)];
++                                *value = Some(value.unwrap_or(false) || dependent);
++                            }
++                        }
++                        ext_vals.user_values.set(Vp9FrameDependencies(dependencies));
++                    }
++                }
++
+                 let mut extension_index = 0;
+                 let forwarding_packets = dep
+                     .meta
+@@ -472,6 +493,7 @@
+         }
+ 
+         let meta = RtpMeta {
++            vp9_dependency: None,
+             received: packet.timestamp,
+             time: packet.time,
+             seq_no: packet.seq_no,
+@@ -840,6 +862,7 @@
+         for seq in [1u64, 3] {
+             buffer.push(
+                 RtpMeta {
++                    vp9_dependency: None,
+                     received: base,
+                     time: MediaTime::from_90khz(seq * 3000),
+                     seq_no: seq.into(),
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -19,6 +19,8 @@
+ #[derive(Clone, PartialEq, Eq)]
+ /// Holds metadata incoming RTP data.
+ pub struct RtpMeta {
++    /// Actual VP9 spatial descriptor dependency, independent of optional timing.
++    pub vp9_dependency: Option<(u8, bool)>,
+     /// When this RTP packet was received.
+     pub received: Instant,
+     /// Media time translated from the RtpHeader time.
+@@ -567,6 +569,7 @@
+             // the next packet can replace it or the frame merges layers.
+             if let CodecDepacketizer::Vp9(vp9) = &self.depack {
+                 if vp9.l {
++                    packet_meta.vp9_dependency = Some((vp9.sid, vp9.d));
+                     if let Some(mut timing) = packet_meta
+                         .header
+                         .ext_vals
+@@ -774,6 +777,7 @@
+ 
+     fn bounded_queue_meta(seq: u64) -> RtpMeta {
+         RtpMeta {
++            vp9_dependency: None,
+             received: Instant::now(),
+             seq_no: seq.into(),
+             time: MediaTime::from_90khz(seq),
+@@ -921,6 +925,7 @@
+                 let mut header = RtpHeader::default();
+                 header.ext_vals.user_values.set(index as u32);
+                 RtpMeta {
++                    vp9_dependency: None,
+                     received: now,
+                     time,
+                     seq_no: SeqNo::from(index as u64 + 1),
+@@ -997,6 +1002,7 @@
+             contiguous: true,
+             meta: vec![
+                 RtpMeta {
++                    vp9_dependency: None,
+                     received: first_time,
+                     time: MediaTime::new(time_value, Frequency::new(90000).unwrap()),
+                     seq_no: SeqNo::from(1u64),
+@@ -1004,6 +1010,7 @@
+                     last_sender_info: None,
+                 },
+                 RtpMeta {
++                    vp9_dependency: None,
+                     received: first_time + Duration::from_millis(1),
+                     time: MediaTime::new(time_value, Frequency::new(90000).unwrap()),
+                     seq_no: SeqNo::from(2u64),
+@@ -1131,6 +1138,7 @@
+         let depack = CodecDepacketizer::Boxed(Box::new(TestDepack));
+         let mut buf = DepacketizingBuffer::new(depack, 3);
+         let meta = |seq: u64| RtpMeta {
++            vp9_dependency: None,
+             received: Instant::now(),
+             seq_no: seq.into(),
+             time: MediaTime::from_90khz(seq),
+@@ -1171,6 +1179,7 @@
+         let depack = CodecDepacketizer::Boxed(Box::new(TestDepack));
+         let mut buf = DepacketizingBuffer::new(depack, 3);
+         let meta = |seq: u64| RtpMeta {
++            vp9_dependency: None,
+             received: Instant::now(),
+             seq_no: seq.into(),
+             time: MediaTime::from_90khz(seq),
+@@ -1211,6 +1220,7 @@
+         let depack = CodecDepacketizer::Vp8(Default::default());
+         let mut buf = DepacketizingBuffer::new(depack, 3);
+         let meta = |seq: u64, marker: bool| RtpMeta {
++            vp9_dependency: None,
+             received: Instant::now(),
+             seq_no: seq.into(),
+             time: MediaTime::from_90khz(seq),
+@@ -1249,6 +1259,7 @@
+         let depack = CodecDepacketizer::Vp8(Default::default());
+         let mut buf = DepacketizingBuffer::new(depack, 3);
+         let meta = |seq: u64, marker: bool| RtpMeta {
++            vp9_dependency: None,
+             received: Instant::now(),
+             seq_no: seq.into(),
+             time: MediaTime::from_90khz(seq),
+@@ -1294,6 +1305,7 @@
+         let depack = CodecDepacketizer::Vp8(Default::default());
+         let mut buf = DepacketizingBuffer::new(depack, 3);
+         let meta = |seq: u64| RtpMeta {
++            vp9_dependency: None,
+             received: Instant::now(),
+             seq_no: seq.into(),
+             time: MediaTime::from_90khz(seq),
+@@ -1324,6 +1336,7 @@
+ 
+     fn test_meta(base: Instant, seq: u64, time: u64, received_ms: u64) -> RtpMeta {
+         RtpMeta {
++            vp9_dependency: None,
+             received: base + Duration::from_millis(received_ms),
+             time: MediaTime::from_90khz(time),
+             seq_no: seq.into(),
+@@ -1895,6 +1908,7 @@
+ 
+         for (step, (seq, time, data, checks)) in (1..).zip(v.iter()) {
+             let meta = RtpMeta {
++                vp9_dependency: None,
+                 received: Instant::now(),
+                 seq_no: (*seq).into(),
+                 time: MediaTime::from_90khz(*time),
+@@ -1977,6 +1991,7 @@
+             |(time, seq, marker, cc, data): (u32, u16, bool, u16, Vec<u8>)| -> (RtpMeta, Vec<u8>) {
+                 (
+                     RtpMeta {
++                        vp9_dependency: None,
+                         received: Instant::now(),
+                         time: MediaTime::new(time.into(), Frequency::new(90000).unwrap()),
+                         seq_no: SeqNo::from(seq as u64),
+--- a/src/packet/vp9.rs
++++ b/src/packet/vp9.rs
+@@ -129,29 +129,20 @@
+ ///
+ /// This function works on raw VP9 bitstream data (without RTP descriptor).
+ pub fn detect_vp9_keyframe_bitstream(payload: &[u8]) -> bool {
+-    if payload.is_empty() {
++    let Some(&byte) = payload.first() else {
+         return false;
+-    }
+-    let b = payload[0];
+-    // frame_marker must be 0b10 (bits 7-6)
+-    if (b & 0xC0) != 0x80 {
++    };
++    if byte & 0xc0 != 0x80 {
+         return false;
+     }
+-    // profile_high_bit is at bit 4
+-    let profile_high = (b >> 4) & 1;
+-    let (show_existing_frame, frame_type) = if profile_high == 1 {
+-        // Profile 2 or 3: reserved_zero at bit 3, show_existing at bit 2, frame_type at bit 1
+-        ((b >> 2) & 1, (b >> 1) & 1)
++    // Fixed Go codec.IsVP9KeyFrame: only profile 3 carries the additional
++    // reserved bit. Profiles 1 and 2 must not be inferred from one profile bit.
++    let profile = (byte >> 4) & 3;
++    if profile != 3 {
++        byte & 0x0c == 0
+     } else {
+-        // Profile 0 or 1: show_existing at bit 3, frame_type at bit 2
+-        ((b >> 3) & 1, (b >> 2) & 1)
+-    };
+-    // show_existing_frame references a previously decoded frame, not a real keyframe
+-    if show_existing_frame != 0 {
+-        return false;
+-    }
+-    // frame_type: 0 = KEY_FRAME
+-    frame_type == 0
++        byte & 0x06 == 0
++    }
+ }
+ 
+ /// Detect whether a VP9 RTP payload contains a keyframe by inspecting the P bit.
+@@ -520,6 +511,18 @@
+         }
+ 
+         self.update_extra(extra, out.len(), packet.len(), payload_index)?;
++        // Independently coded higher spatial layers can begin without a base
++        // frame; the original Go consumer inspects their actual bitstream.
++        if self.b
++            && self.l
++            && self.sid > 0
++            && !self.d
++            && detect_vp9_keyframe_bitstream(&packet[payload_index..])
++        {
++            if let CodecExtra::Vp9(value) = extra {
++                value.is_keyframe = true;
++            }
++        }
+ 
+         out.extend_from_slice(&packet[payload_index..]);
+ 
+@@ -1499,18 +1502,69 @@
+         assert!(!detect_vp9_keyframe_bitstream(&[0x88]));
+         assert!(!detect_vp9_keyframe_bitstream(&[0x8C]));
+ 
+-        // Profile 1 keyframe: 10_10_0_0_xx = 0xA0..0xA3
++        // Profile 2 keyframe: 10_10_0_0_xx = 0xA0..0xA3
+         assert!(detect_vp9_keyframe_bitstream(&[0xA0]));
+ 
+-        // Profile 1 inter-frame: 10_10_0_1_xx = 0xA4..0xA7
++        // Profile 2 inter-frame: 10_10_0_1_xx = 0xA4..0xA7
+         assert!(!detect_vp9_keyframe_bitstream(&[0xA4]));
+ 
+-        // Profile 2 keyframe: 10_01_R_0_0_x
+-        // 0x90 = 10_01_0_0_00 → profile_high=1, show_existing=0, frame_type=0
++        // Fixed original Go: profile 1 has no reserved bit. 0x92 is
++        // still a keyframe (show_frame=1), not an inter-frame.
+         assert!(detect_vp9_keyframe_bitstream(&[0x90]));
+-
+-        // Profile 2 inter-frame: 10_01_0_0_1_0 = 0x92
+-        assert!(!detect_vp9_keyframe_bitstream(&[0x92]));
++        assert!(detect_vp9_keyframe_bitstream(&[0x92]));
++        assert!(!detect_vp9_keyframe_bitstream(&[0x94]));
++        // Only profile 3 uses the extra reserved bit position.
++        assert!(detect_vp9_keyframe_bitstream(&[0xb0]));
++        assert!(!detect_vp9_keyframe_bitstream(&[0xb2]));
++        assert!(!detect_vp9_keyframe_bitstream(&[0xb4]));
++    }
++
++    #[test]
++    fn profile_one_keyframe_reaches_actual_packetizer_p_flag_and_depacketizer() {
++        let mut packetizer = Vp9Packetizer::with_mode(Vp9PacketizerMode::NonFlexible);
++        let bytes = vec![0x92, 0x01, 0x02];
++        let packets = packetizer.packetize(1200, &bytes).unwrap();
++        assert_eq!(packets.len(), 1);
++        assert_eq!(
++            packets[0][0] & 0x40,
++            0,
++            "valid profile 1 keyframe must be signaled independently decodable"
++        );
++        let mut depacketizer = Vp9Depacketizer::default();
++        let mut decoded = Vec::new();
++        let mut extra = CodecExtra::None;
++        depacketizer
++            .depacketize(&packets[0], &mut decoded, &mut extra)
++            .unwrap();
++        assert_eq!(decoded, bytes);
++        assert!(matches!(extra,CodecExtra::Vp9(value)if value.is_keyframe));
++    }
++    #[test]
++    #[ignore = "requires fixed original Go SOURCE_VP9_KEYFRAME results"]
++    fn original_go_profile_keyframe_rows_match_actual_packetizer_flags() {
++        let log = std::fs::read_to_string(
++            std::env::var("GO_VP9_KEYFRAME_RESULTS").expect("actual original Go log"),
++        )
++        .unwrap();
++        let mut rows = 0;
++        for line in log.lines() {
++            let Some((_, raw)) = line.split_once("SOURCE_VP9_KEYFRAME ") else {
++                continue;
++            };
++            let row: serde_json::Value = serde_json::from_str(raw).unwrap();
++            let byte = row["byte"].as_u64().unwrap() as u8;
++            let expected = row["keyframe"].as_bool().unwrap();
++            assert_eq!(detect_vp9_keyframe_bitstream(&[byte]), expected, "{row}");
++            let mut packetizer = Vp9Packetizer::with_mode(Vp9PacketizerMode::NonFlexible);
++            let packets = packetizer.packetize(1200, &[byte, 0]).unwrap();
++            assert_eq!(
++                packets[0][0] & 0x40 == 0,
++                expected,
++                "actual serialized P flag: {row}"
++            );
++            rows += 1;
++        }
++        assert_eq!(rows, 14);
+     }
+ 
+     #[test]

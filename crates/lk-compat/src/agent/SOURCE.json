@@ -1,0 +1,75 @@
+{
+  "status": "INTEGRATED_SOURCE_COORDINATOR_VERIFICATION_PENDING",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "license": "Apache-2.0",
+  "sources": [
+    {
+      "path": "references/livekit-stable/pkg/agent/worker.go",
+      "sha256": "15f9d79d8f7df68ed9e606184699abf7740750f3ed7b7639bca77be106e25a39"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/agentws.go",
+      "sha256": "d7b341d929e5f54add5b6d93a76243688018f2ae4c1ea8dba9eba8ada656f48f"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/agenthandler.go",
+      "sha256": "670d32529c7a1292c479f619f59448d748d5ff8d913a102c2c4f5126ebf72aa2"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/wsprotocol.go",
+      "sha256": "abe344372d1ae66077c3799b2d12cf423b7429407daf6c9f6c04f8f5de73c01f"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/livekit_agent.proto",
+      "sha256": "60b189a51a1b2701bab7b5319fd2d81fcb824aa4f2ed2287f628f7f828327aa5"
+    },
+    {
+      "path": "references/protocol-stable/agent/token.go",
+      "sha256": "cea9b34f70896dae34668061a8e81b88ac9cb9c2abeebc0113b69ab38b2c1cd6"
+    },
+    {
+      "path": "references/protocol-stable/agent/environment.go",
+      "sha256": "f1c054a7c28a65c603ab14b0b549c047a1f981a5aeb4909f2d63747b182b1701"
+    },
+    {
+      "path": "references/livekit-stable/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "references/protocol-stable/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "references/livekit-stable/pkg/agent/client.go",
+      "sha256": "f4f09bbb55577d8d81a3b12dcd8a457911265973f2f356d2688f15a15c93a988"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/room.go",
+      "sha256": "6ef255a852f1be81f5fb9f0116d5eb12cc6a3d6d741293c6346ad9e4a59d101a"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/participant.go",
+      "sha256": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8"
+    },
+    {
+      "path": "references/livekit-stable/pkg/config/config.go",
+      "sha256": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a"
+    }
+  ],
+  "scope": {
+    "implemented_source": [
+      "bounded worker registry with real writer receipts",
+      "authenticated protobuf/JSON WebSocket adapter",
+      "real assignment token minting",
+      "single room/runtime effect consumer and genuine job results",
+      "room and participant generation-guarded cancellation"
+    ],
+    "not_claimed": [
+      "distributed target_load affinity and PSRPC routing",
+      "WebTransport/data-plane endpoints",
+      "official Worker SDK acceptance before coordinator execution",
+      "arbitrary overload equivalence"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "PION_ACTUAL_JSON_FLOAT_BIT_CONSUMER",
+  "status": "FROZEN_NOT_RUN",
+  "target": {
+    "server": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "protocol": "9bb708cdb81918a6c63dd25e915b4644310b45b6"
+  },
+  "case_count": 20,
+  "inputs": {
+    "main.go": "c9a2635c7227ae0ae6baafed8475b2cbcab78b9f002d1374005eceabce2d8ecd",
+    "cases.jsonl": "fd52500447001aeba7e0a7eede9f60c877483f10fb03eb081709ef133a97a035",
+    "README.md": "8b66aaedfdf513880d5fcefc9173dbd348eef1b0f198eb86b75ebfcd47405693"
+  }
+}

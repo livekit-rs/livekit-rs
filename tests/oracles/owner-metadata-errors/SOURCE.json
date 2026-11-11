@@ -1,0 +1,23 @@
+{
+  "status": "NOT_RUN",
+  "scope": "Three actual signalling error objects converted by pinned xtwirp.ToError. Not an owner RPC, RoomManager execution, HTTP handler or SDK signal delivery test.",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "source_sha256": {
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "references/livekit-stable/pkg/rtc/signalling/errors.go": "cc2d3ccce8ddb54e54f24c0df26d5762cdd4567a14f48c156a6ed4b202af48b6",
+    "references/protocol-stable/utils/xtwirp/errors.go": "f7497b50bc92bd3f1858aa0729218a9bb67b70a41941b2e8a25acfe709308d8e",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/participant_signal.go": "8a3ae07330888bd6737409ffc02a07820458b3de7f48dc825c22bcf17fbe59ac",
+    "references/livekit-stable/pkg/rtc/clientinfo.go": "d42ca04f2e41475d38960c637c55a3aff4dd2897a149126333647acca025b7a4",
+    "references/livekit-stable/pkg/rtc/types/protocol_version.go": "828e21990793f3fb48d72a64517a9609797f7327c431e27a21fb613b3471e5fb"
+  },
+  "oracle_sha256": {
+    "main.go": "2e91f692198652f398de5d8f4d9d5a1b660e8b7f8f5bae0f49c0ca785861805c",
+    "prepare.py": "12eafb651f63252a48eb098afd913f8dcda63bf9d9e1e7f724769f8f99acb31f"
+  }
+}

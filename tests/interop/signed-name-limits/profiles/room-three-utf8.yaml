@@ -1,0 +1,4 @@
+limit:
+  max_room_name_length: 3
+  max_participant_identity_length: 256
+  max_participant_name_length: 256

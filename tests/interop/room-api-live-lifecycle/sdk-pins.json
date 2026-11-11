@@ -1,0 +1,25 @@
+{
+  "packages": {
+    "livekit-client": {
+      "version": "2.23.0",
+      "entry_sha256": "fb646f2260d84f91238d0a2dc10726c456631d6a26c7cafc43cfee5959b4d31d",
+      "package_sha256": "3ef52809d61120c14fd5c790618cc3b16f20687d06616d0417e1bb4a5f2b9099"
+    },
+    "livekit-server-sdk": {
+      "version": "2.19.2",
+      "entry_sha256": "3ba382cf5b74b8bdf0abbeecbf91d09b80895011db716e6ea188d3fff5d851c3",
+      "package_sha256": "a23ec8ff894efebf07e75e5cd8f9ec8092c16e5b4a0cf60ce889c079993dbbc0"
+    },
+    "@livekit/protocol": {
+      "version": "1.52.1",
+      "entry_sha256": "2697548059dec7b0b9b187042acf066ef56eb095e6704761519f691630e1b49a",
+      "package_sha256": "8fe041bd934e8764062e7f9cf66ea2612a68f59282d4f79b800b88018c29cf4c"
+    },
+    "playwright": {
+      "version": "1.64.1",
+      "entry_sha256": "4e98f65f0a9d9bcab8cffc0c5cfdd87fd3f5b0be74fc494ff166a466b204cd44",
+      "package_sha256": "313d23ce667d93962d3a1ab4be80908cefe840e4d9e48f1cd5863b91f65e8e39"
+    }
+  },
+  "package_lock_sha256": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b"
+}

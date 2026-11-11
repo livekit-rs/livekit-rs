@@ -1,0 +1,122 @@
+diff --git a/src/format/codec_config.rs b/src/format/codec_config.rs
+index 0b65b156..ecfe09e0 100644
+--- a/src/format/codec_config.rs
++++ b/src/format/codec_config.rs
+@@ -148,6 +148,7 @@ impl CodecConfig {
+             fb_remb,
+             red: None,
+             locked: false,
++            fb_negotiated: false,
+         };
+ 
+         self.params.push(p);
+diff --git a/src/format/payload_params.rs b/src/format/payload_params.rs
+index f4d2eac2..0e4afb5f 100644
+--- a/src/format/payload_params.rs
++++ b/src/format/payload_params.rs
+@@ -114,9 +114,16 @@ pub struct PayloadParams {
+     /// can't be further changed. If we make an OFFER for a sendonly, the parameters are only proposed
+     /// and don't lock.
+     pub(crate) locked: bool,
++
++    /// Whether NACK/PLI/FIR/REMB were already intersected with a remote description.
++    ///
++    /// Pion's MediaEngine negotiates a codec's RTCP feedback as the intersection of the
++    /// local and remote lists when the first remote description is applied; it never
++    /// advertises or uses feedback the remote did not list. Not compared, like `locked`.
++    pub(crate) fb_negotiated: bool,
+ }
+ 
+-// we don't want to compare "locked"
++// we don't want to compare "locked" or "fb_negotiated"
+ impl PartialEq for PayloadParams {
+     fn eq(&self, other: &Self) -> bool {
+         self.pt == other.pt
+@@ -175,6 +182,7 @@ impl PayloadParams {
+ 
+             red: None,
+             locked: false,
++            fb_negotiated: false,
+         }
+     }
+ 
+@@ -203,6 +211,7 @@ impl PayloadParams {
+             fb_remb: false,
+             red: None,
+             locked: false,
++            fb_negotiated: false,
+         }
+     }
+ 
+@@ -628,6 +637,17 @@ impl PayloadParams {
+             self.fb_transport_cc &= first.fb_transport_cc();
+         }
+ 
++        // Pion mediaengine.go rtcpFeedbackIntersection: the first remote description
++        // limits NACK/PLI/FIR/REMB to what both sides listed (e.g. Chrome offers Opus
++        // without `nack`, so the answer must not enable audio NACK).
++        if !self.fb_negotiated {
++            self.fb_nack &= first.fb_nack;
++            self.fb_pli &= first.fb_pli;
++            self.fb_fir &= first.fb_fir;
++            self.fb_remb &= first.fb_remb;
++            self.fb_negotiated = true;
++        }
++
+         if self.spec.codec.is_tele() {
+             let local = self
+                 .spec
+@@ -853,6 +873,53 @@ mod test {
+         assert_eq!(p.red(), None);
+     }
+ 
++    #[test]
++    fn rtcp_feedback_is_the_intersection_with_the_first_remote_description() {
++        use std::collections::HashSet;
++
++        // Pion mediaengine.go rtcpFeedbackIntersection: Chrome offers Opus with only
++        // transport-cc, so a local `nack` must not be negotiated for audio.
++        let opus = CodecSpec {
++            codec: Codec::Opus,
++            clock_rate: Frequency::FORTY_EIGHT_KHZ,
++            channels: Some(2),
++            format: FormatParams::default(),
++        };
++        let mut local = PayloadParams::new(Pt::new_with_value(111), None, opus);
++        local.fb_nack = true;
++        let mut remote = PayloadParams::new(Pt::new_with_value(111), None, opus);
++        remote.fb_nack = false;
++        let (mut claimed, mut unlocked) = ([false; 128], HashSet::new());
++        local.update_param(&[remote], &mut claimed, false, &mut unlocked);
++        assert!(
++            !local.fb_nack(),
++            "feedback the remote did not list is not negotiated"
++        );
++        assert!(local.fb_transport_cc(), "listed by both sides");
++
++        // Later descriptions do not re-enable it (pion negotiates once).
++        let mut later = PayloadParams::new(Pt::new_with_value(111), None, opus);
++        later.fb_nack = true;
++        let mut claimed = [false; 128];
++        local.update_param(&[later], &mut claimed, false, &mut unlocked);
++        assert!(!local.fb_nack());
++
++        // Video feedback both sides list survives; one the remote omits is dropped.
++        let vp8 = CodecSpec {
++            codec: Codec::Vp8,
++            clock_rate: Frequency::NINETY_KHZ,
++            channels: None,
++            format: FormatParams::default(),
++        };
++        let mut local = PayloadParams::new(Pt::new_with_value(96), None, vp8);
++        let mut remote = PayloadParams::new(Pt::new_with_value(96), None, vp8);
++        remote.fb_remb = false;
++        let (mut claimed, mut unlocked) = ([false; 128], HashSet::new());
++        local.update_param(&[remote], &mut claimed, false, &mut unlocked);
++        assert!(local.fb_nack() && local.fb_pli() && local.fb_fir());
++        assert!(!local.fb_remb());
++    }
++
+     #[test]
+     fn red_pt_remapped_on_conflict() {
+         use std::collections::HashSet;

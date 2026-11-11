@@ -1,0 +1,8 @@
+{"name":"twcc-normal","payload_bytes":512,"padding_bytes":0,"twcc_negotiated":true,"extension_present":true,"ssrc":44,"csrc":[],"sequence":7,"transport_sequence":99}
+{"name":"twcc-padding-only","payload_bytes":0,"padding_bytes":240,"twcc_negotiated":true,"extension_present":true,"ssrc":44,"csrc":[],"sequence":7,"transport_sequence":99}
+{"name":"twcc-media-with-padding","payload_bytes":50,"padding_bytes":3,"twcc_negotiated":true,"extension_present":true,"ssrc":44,"csrc":[],"sequence":7,"transport_sequence":99}
+{"name":"twcc-rtx-osn","payload_bytes":1202,"padding_bytes":0,"twcc_negotiated":true,"extension_present":true,"ssrc":45,"csrc":[],"sequence":7,"transport_sequence":99}
+{"name":"rfc-normal","payload_bytes":512,"padding_bytes":0,"twcc_negotiated":false,"extension_present":false,"ssrc":44,"csrc":[],"sequence":7,"transport_sequence":99}
+{"name":"rfc-padding-only","payload_bytes":0,"padding_bytes":240,"twcc_negotiated":false,"extension_present":false,"ssrc":44,"csrc":[],"sequence":7,"transport_sequence":99}
+{"name":"rfc-csrc","payload_bytes":8,"padding_bytes":0,"twcc_negotiated":false,"extension_present":false,"ssrc":44,"csrc":[1,2,3],"sequence":7,"transport_sequence":99}
+{"name":"missing-negotiated-twcc","payload_bytes":1,"padding_bytes":0,"twcc_negotiated":true,"extension_present":false,"ssrc":44,"csrc":[],"sequence":7,"transport_sequence":99}

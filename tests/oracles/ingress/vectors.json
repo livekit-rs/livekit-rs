@@ -1,0 +1,424 @@
+[
+  {
+    "kind": "guid",
+    "name": "guid-0-IN_",
+    "prefix": "IN_",
+    "input": ""
+  },
+  {
+    "kind": "guid",
+    "name": "guid-0-EG_",
+    "prefix": "EG_",
+    "input": ""
+  },
+  {
+    "kind": "guid",
+    "name": "guid-1-IN_",
+    "prefix": "IN_",
+    "input": "abc"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-1-EG_",
+    "prefix": "EG_",
+    "input": "abc"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-2-IN_",
+    "prefix": "IN_",
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-2-EG_",
+    "prefix": "EG_",
+    "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-3-IN_",
+    "prefix": "IN_",
+    "input": "request-1"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-3-EG_",
+    "prefix": "EG_",
+    "input": "request-1"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-4-IN_",
+    "prefix": "IN_",
+    "input": "request-2"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-4-EG_",
+    "prefix": "EG_",
+    "input": "request-2"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-5-IN_",
+    "prefix": "IN_",
+    "input": "中文😀"
+  },
+  {
+    "kind": "guid",
+    "name": "guid-5-EG_",
+    "prefix": "EG_",
+    "input": "中文😀"
+  },
+  {
+    "kind": "url",
+    "name": "url-00",
+    "input": ""
+  },
+  {
+    "kind": "url",
+    "name": "url-01",
+    "input": "http://example.com"
+  },
+  {
+    "kind": "url",
+    "name": "url-02",
+    "input": "HTTP://EXAMPLE.com/a b"
+  },
+  {
+    "kind": "url",
+    "name": "url-03",
+    "input": "http:foo"
+  },
+  {
+    "kind": "url",
+    "name": "url-04",
+    "input": "http:"
+  },
+  {
+    "kind": "url",
+    "name": "url-05",
+    "input": "http:?"
+  },
+  {
+    "kind": "url",
+    "name": "url-06",
+    "input": "http:/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-07",
+    "input": "http:///p"
+  },
+  {
+    "kind": "url",
+    "name": "url-08",
+    "input": "http:////p"
+  },
+  {
+    "kind": "url",
+    "name": "url-09",
+    "input": "http://"
+  },
+  {
+    "kind": "url",
+    "name": "url-10",
+    "input": "http://?"
+  },
+  {
+    "kind": "url",
+    "name": "url-11",
+    "input": "http://#"
+  },
+  {
+    "kind": "url",
+    "name": "url-12",
+    "input": "https://host/a%2fb"
+  },
+  {
+    "kind": "url",
+    "name": "url-13",
+    "input": "https://host/a%2Fb"
+  },
+  {
+    "kind": "url",
+    "name": "url-14",
+    "input": "https://host/%41"
+  },
+  {
+    "kind": "url",
+    "name": "url-15",
+    "input": "http://host/中文"
+  },
+  {
+    "kind": "url",
+    "name": "url-16",
+    "input": "http://host/?q=has space#frag space"
+  },
+  {
+    "kind": "url",
+    "name": "url-17",
+    "input": "http://host/%FF"
+  },
+  {
+    "kind": "url",
+    "name": "url-18",
+    "input": "http://host/%"
+  },
+  {
+    "kind": "url",
+    "name": "url-19",
+    "input": "http://host/%2"
+  },
+  {
+    "kind": "url",
+    "name": "url-20",
+    "input": "http://host/%zz"
+  },
+  {
+    "kind": "url",
+    "name": "url-21",
+    "input": "http://host/#%"
+  },
+  {
+    "kind": "url",
+    "name": "url-22",
+    "input": "http://host/a\nb"
+  },
+  {
+    "kind": "url",
+    "name": "url-23",
+    "input": "http://host/ab"
+  },
+  {
+    "kind": "url",
+    "name": "url-24",
+    "input": "http://a b/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-25",
+    "input": "http://a%20b/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-26",
+    "input": "http://%41/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-27",
+    "input": "http://%E4%B8%AD/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-28",
+    "input": "http://user:p@ss@host/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-29",
+    "input": "http://u%3Aer:p%40ss@host/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-30",
+    "input": "http://u中@host"
+  },
+  {
+    "kind": "url",
+    "name": "url-31",
+    "input": "http://host:"
+  },
+  {
+    "kind": "url",
+    "name": "url-32",
+    "input": "http://host:9999999"
+  },
+  {
+    "kind": "url",
+    "name": "url-33",
+    "input": "http://host:-1"
+  },
+  {
+    "kind": "url",
+    "name": "url-34",
+    "input": "http://host:abc"
+  },
+  {
+    "kind": "url",
+    "name": "url-35",
+    "input": "http://x:y:z/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-36",
+    "input": "http://[::1]/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-37",
+    "input": "http://[::1]:99/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-38",
+    "input": "http://[127.0.0.1]/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-39",
+    "input": "http://[fe80::1%25en0]/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-40",
+    "input": "http://[fe80::1%25en%20a]/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-41",
+    "input": "http://[fe80::1%en0]/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-42",
+    "input": "http://[::g]/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-43",
+    "input": "http://[::1"
+  },
+  {
+    "kind": "url",
+    "name": "url-44",
+    "input": "http://a[b::1]/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-45",
+    "input": "srt://host:9999?streamid=#!::r=live"
+  },
+  {
+    "kind": "url",
+    "name": "url-46",
+    "input": "udp://239.0.0.1:1234"
+  },
+  {
+    "kind": "url",
+    "name": "url-47",
+    "input": "ftp://host/a"
+  },
+  {
+    "kind": "url",
+    "name": "url-48",
+    "input": "http://host/a?bad%zz"
+  },
+  {
+    "kind": "url",
+    "name": "url-49",
+    "input": "http://host/a#frag[]!%2f"
+  },
+  {
+    "kind": "url",
+    "name": "url-50",
+    "input": "http://host/!()*[]"
+  },
+  {
+    "kind": "url",
+    "name": "url-51",
+    "input": "http://host/a?"
+  },
+  {
+    "kind": "url",
+    "name": "url-52",
+    "input": "http://host/a??"
+  },
+  {
+    "kind": "url",
+    "name": "url-53",
+    "input": "//host/path"
+  },
+  {
+    "kind": "url",
+    "name": "url-54",
+    "input": "relative/path"
+  },
+  {
+    "kind": "url",
+    "name": "url-55",
+    "input": "1x:abc"
+  },
+  {
+    "kind": "url",
+    "name": "url-56",
+    "input": ":abc"
+  },
+  {
+    "kind": "url",
+    "name": "url-57",
+    "input": "cache_object:foo/bar"
+  },
+  {
+    "kind": "url",
+    "name": "url-58",
+    "input": "http://[%ff]/"
+  },
+  {
+    "kind": "url",
+    "name": "url-59",
+    "input": "http://[::%25%ff]/"
+  },
+  {
+    "kind": "url",
+    "name": "url-60",
+    "input": "http://[::%25]/"
+  },
+  {
+    "kind": "url",
+    "name": "url-61",
+    "input": "http://[::%25en%0a]/"
+  },
+  {
+    "kind": "url",
+    "name": "url-62",
+    "input": "http://host/%2a"
+  },
+  {
+    "kind": "url",
+    "name": "url-63",
+    "input": "http://host/*"
+  },
+  {
+    "kind": "url",
+    "name": "url-64",
+    "input": "http://host/#a\u0001b"
+  },
+  {
+    "kind": "url",
+    "name": "url-65",
+    "input": "http://host/a?unescaped"
+  },
+  {
+    "kind": "url",
+    "name": "url-66",
+    "input": "http://]x[/"
+  },
+  {
+    "kind": "url",
+    "name": "url-67",
+    "input": "http://[::1]x[/"
+  },
+  {
+    "kind": "url",
+    "name": "url-68",
+    "input": "postgres://x:y:99/p"
+  },
+  {
+    "kind": "url",
+    "name": "url-69",
+    "input": "http://host/😀 # "
+  }
+]

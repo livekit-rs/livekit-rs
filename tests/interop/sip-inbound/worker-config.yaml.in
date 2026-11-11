@@ -1,0 +1,26 @@
+# Coordinator renders placeholders into a private task config (never commit secrets).
+# Fixed references/sip v1.21.0 pkg/config/config.go fields; no worker source patch.
+api_key: '@API_KEY@'
+api_secret: '@API_SECRET@'
+ws_url: '@LIVEKIT_WS_URL@'
+redis:
+  address: '@DEDICATED_REDIS_ADDRESS@'
+  db: @DEDICATED_REDIS_DB@
+listen_ip: 127.0.0.1
+sip_hostname: 127.0.0.1
+sip_port: 15060
+sip_port_listen: 15060
+use_external_ip: false
+nat_1_to_1_ip: 127.0.0.1
+media_use_external_ip: false
+media_nat_1_to_1_ip: 127.0.0.1
+rtp_port: 15100-15199
+health_port: 15061
+prometheus_port: 0
+pprof_port: 0
+logging:
+  level: info
+# SIP does not consume psrpc max_attempts/timeout/backoff/buffer_size by source.
+psrpc:
+  compression:
+    quality: 0

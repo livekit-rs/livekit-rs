@@ -1,0 +1,545 @@
+diff --git a/src/rtp/rtcp/twcc.rs b/src/rtp/rtcp/twcc.rs
+index fbe078db..92e0cd5a 100644
+--- a/src/rtp/rtcp/twcc.rs
++++ b/src/rtp/rtcp/twcc.rs
+@@ -254,6 +254,7 @@ pub struct TwccRecvRegister {
+ 
+     /// Data to calculate received loss.
+     receive_window: ReceiveWindow,
++    publisher_history: Option<PublisherReceiptHistory>,
+     observations: super::twcc_observation::ObservationHistory,
+     observations_enabled: bool,
+ }
+@@ -264,6 +265,33 @@ struct Receipt {
+     time: Instant,
+ }
+ 
++#[derive(Debug, Default)]
++struct PublisherReceiptHistory {
++    last_sequence: Option<u64>,
++    cursor: Option<u64>,
++    bounds: Option<std::ops::Range<u64>>,
++}
++
++impl PublisherReceiptHistory {
++    fn unwrap(&mut self, sequence: u16) -> u64 {
++        // Pion unwraps against the last arrival, including out-of-order and
++        // duplicate packets, and never returns a negative sequence number.
++        let unwrapped = self.last_sequence.map_or(u64::from(sequence), |last| {
++            let previous = last as u16;
++            let delta = u64::from(sequence.wrapping_sub(previous));
++            let newer = delta < 32768 || (delta == 32768 && sequence > previous);
++            let forward = last + delta;
++            if !newer && forward >= 65536 {
++                forward - 65536
++            } else {
++                forward
++            }
++        });
++        self.last_sequence = Some(unwrapped);
++        unwrapped
++    }
++}
++
+ impl TwccRecvRegister {
+     pub fn new(keep_reported: usize) -> Self {
+         TwccRecvRegister {
+@@ -274,6 +302,7 @@ impl TwccRecvRegister {
+             time_start: None,
+             generated_reports: 0,
+             receive_window: ReceiveWindow::default(),
++            publisher_history: None,
+             observations: Default::default(),
+             observations_enabled: false,
+         }
+@@ -322,6 +351,80 @@ impl TwccRecvRegister {
+         }
+     }
+ 
++    pub(crate) fn enable_publisher_history(&mut self) {
++        self.publisher_history.get_or_insert_with(Default::default);
++    }
++
++    pub(crate) fn record_publisher_receipt(&mut self, sequence: u16, time: Instant) -> bool {
++        const WINDOW: Duration = Duration::from_millis(500);
++        const SEQUENCE_CAPACITY: u64 = 1 << 15;
++
++        let history = self.publisher_history.as_mut().expect("publisher history");
++        let sequence = history.unwrap(sequence);
++        let bounds = history.bounds.get_or_insert(sequence..sequence + 1);
++        if history.cursor.is_some_and(|cursor| cursor >= bounds.end) {
++            // Pion ages the contiguous prefix, including missing positions.
++            // A newer receipt in that prefix stops the time-based eviction.
++            let limit = sequence.min(bounds.end);
++            let old_count = self
++                .queue
++                .iter()
++                .take_while(|receipt| {
++                    *receipt.seq < limit && time.saturating_duration_since(receipt.time) >= WINDOW
++                })
++                .count();
++            self.queue.drain(..old_count);
++            if bounds.start < limit {
++                bounds.start = self.queue.front().map_or(limit, |r| (*r.seq).min(limit));
++            }
++        }
++
++        // Rewind first even if this is a duplicate, but only distinct packets
++        // advance the responder's trigger. Keep the first receive timestamp.
++        let cursor = history.cursor.get_or_insert(sequence);
++        *cursor = (*cursor).min(sequence);
++        let seq = sequence.into();
++        self.receive_window.record_seq(seq);
++        if self.queue.binary_search_by_key(&seq, |r| r.seq).is_ok() {
++            return false;
++        }
++
++        if sequence < bounds.start {
++            if bounds.end - sequence <= SEQUENCE_CAPACITY {
++                bounds.start = sequence;
++            }
++        } else if sequence >= bounds.end {
++            let end = sequence + 1;
++            bounds.start = if end - bounds.end >= SEQUENCE_CAPACITY {
++                sequence
++            } else {
++                bounds.start.max(end.saturating_sub(SEQUENCE_CAPACITY))
++            };
++            bounds.end = end;
++            let evicted = self.queue.partition_point(|r| *r.seq < bounds.start);
++            self.queue.drain(..evicted);
++        }
++        if bounds.contains(&sequence) {
++            let idx = self.queue.partition_point(|r| r.seq < seq);
++            self.queue.insert(idx, Receipt { seq, time });
++            self.time_start.get_or_insert(time);
++            if self.observations_enabled {
++                self.observations.received(time);
++            }
++        }
++        *cursor = (*cursor).max(bounds.start);
++        // Pion counts the new receipt even if it was too old for the map.
++        true
++    }
++
++    pub(crate) fn build_publisher_report(&mut self, max_byte_size: usize) -> Option<Twcc> {
++        let cursor = self.publisher_history.as_ref()?.cursor?;
++        self.report_from = self.queue.partition_point(|r| *r.seq < cursor);
++        let (report, next) = self.build_report_from(max_byte_size, Some(cursor.into()))?;
++        self.publisher_history.as_mut().unwrap().cursor = Some(*next);
++        Some(report)
++    }
++
+     pub fn build_report(&mut self, max_byte_size: usize) -> Option<Twcc> {
+         self.build_report_from(max_byte_size, None)
+             .map(|(report, _)| report)
+@@ -559,7 +662,7 @@ impl TwccRecvRegister {
+         self.generated_reports += 1;
+ 
+         // clean up
+-        if self.report_from > self.keep_reported {
++        if self.publisher_history.is_none() && self.report_from > self.keep_reported {
+             let to_remove = self.report_from - self.keep_reported;
+             self.queue.drain(..to_remove);
+             self.report_from -= to_remove;
+@@ -656,8 +759,7 @@ fn build_interims(
+         if missing != 0 {
+             let mut todo = missing;
+             while todo > 0 {
+-                // max 2^13 run length in each missing chunk
+-                let n = todo.min(8192);
++                let n = todo.min(u64::from(MAX_RUN_LENGTH));
+                 interims.push_back(ChunkInterim::Missing(n as u16));
+                 todo -= n;
+             }
+@@ -677,7 +779,7 @@ fn build_interims(
+ 
+ #[derive(Debug, Clone, Copy)]
+ enum ChunkInterim {
+-    Missing(u16), // max 2^13 (one run length)
++    Missing(u16),
+     Received(PacketStatus, i16),
+ }
+ 
+@@ -750,6 +852,8 @@ pub enum PacketChunk {
+     VectorDouble(u16, u16),
+ }
+ 
++const MAX_RUN_LENGTH: u16 = (1 << 13) - 1;
++
+ impl PacketChunk {
+     fn append_max<'a>(&self, iter: impl Iterator<Item = &'a ChunkInterim>) -> u16 {
+         let mut to_fill = *self;
+@@ -849,7 +953,7 @@ impl PacketChunk {
+ 
+     fn free(&self) -> u16 {
+         match self {
+-            PacketChunk::Run(_, n) => 8192 - *n,
++            PacketChunk::Run(_, n) => MAX_RUN_LENGTH - *n,
+             PacketChunk::VectorSingle(_, filled) => 14 - *filled,
+             PacketChunk::VectorDouble(_, filled) => 7 - *filled,
+         }
+@@ -869,7 +973,7 @@ impl PacketChunk {
+             PacketChunk::Run(s, n) => {
+                 let mut x = 0_u16;
+                 x |= (*s as u16) << 13;
+-                assert!(*n <= 8192);
++                assert!(*n <= MAX_RUN_LENGTH);
+                 x |= n;
+                 x
+             }
+@@ -1808,7 +1912,7 @@ mod test {
+     }
+ 
+     #[test]
+-    fn run_max_is_8192() {
++    fn run_length_respects_13_bit_limit() {
+         let mut reg = TwccRecvRegister::new(100);
+ 
+         let now = Instant::now();
+diff --git a/src/session.rs b/src/session.rs
+index 40b1a0e5..d871e677 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -34,7 +34,7 @@ use crate::rtp_::{Bitrate, ExtensionMap, Goodbye, Mid, ReportList, Rtcp, RtcpFb}
+ use crate::rtp_::{Dlrr, DlrrItem, ExtendedReport, ReportBlock};
+ use crate::rtp_::{RtpHeader, SessionId, TwccPacketId, extend_u16};
+ use crate::rtp_::{SrtpContext, Ssrc};
+-use crate::rtp_::{TwccRecvRegister, TwccSendRegister, TwccSeq};
++use crate::rtp_::{TwccRecvRegister, TwccSendRegister};
+ use crate::stats::StatsSnapshot;
+ use crate::streams::{RtpPacket, StreamTimeoutConfig, Streams};
+ use crate::util::{Soonest, SystemTimeExt, already_happened, not_happening};
+@@ -52,7 +52,6 @@ const TWCC_INTERVAL: Duration = Duration::from_millis(50);
+ struct LiveKitPublisherTwcc {
+     sender_ssrc: Ssrc,
+     last_report: Option<Instant>,
+-    next_sequence: Option<TwccSeq>,
+     packets_held: usize,
+ }
+ 
+@@ -61,12 +60,12 @@ impl LiveKitPublisherTwcc {
+         &mut self,
+         register: &mut TwccRecvRegister,
+         header: &RtpHeader,
+-        sequence: TwccSeq,
++        sequence: u16,
+         now: Instant,
+         max_report_bytes: usize,
+         feedback: &mut VecDeque<Rtcp>,
+     ) {
+-        self.packets_held += usize::from(register.record_receipt(sequence, now));
++        self.packets_held += usize::from(register.record_publisher_receipt(sequence, now));
+         let should_report = self.packets_held > 20
+             && (self.packets_held > 100
+                 || self.last_report.is_none_or(|last| {
+@@ -80,10 +79,7 @@ impl LiveKitPublisherTwcc {
+ 
+         self.last_report = Some(now);
+         self.packets_held = 0;
+-        while let Some((mut report, next_sequence)) =
+-            register.build_report_from(max_report_bytes, self.next_sequence)
+-        {
+-            self.next_sequence = Some(next_sequence);
++        while let Some(mut report) = register.build_publisher_report(max_report_bytes) {
+             report.sender_ssrc = self.sender_ssrc;
+             report.ssrc = header.ssrc;
+             trace!("Created publisher feedback TWCC: {:?}", report);
+@@ -919,8 +915,6 @@ impl Session {
+ 
+         // Record authenticated wire RTP before logical media de-duplication.
+         if let Some(transport_cc) = header.ext_vals.transport_cc {
+-            let prev = self.twcc_rx_register.max_seq();
+-            let extended = extend_u16(prev.map(|s| *s), transport_cc);
+             if let Some(profile) = &mut self.livekit_publisher_twcc {
+                 let video_twcc = if ssrc.is_probe() {
+                     // Pion binds SSRC 0 to an implicit video receiver. The
+@@ -945,13 +939,15 @@ impl Session {
+                     profile.record(
+                         &mut self.twcc_rx_register,
+                         &header,
+-                        extended.into(),
++                        transport_cc,
+                         now,
+                         max_twcc_report_bytes,
+                         &mut self.feedback_tx,
+                     );
+                 }
+             } else {
++                let prev = self.twcc_rx_register.max_seq();
++                let extended = extend_u16(prev.map(|s| *s), transport_cc);
+                 self.twcc_rx_register.update_seq(extended.into(), now);
+             }
+         }
+@@ -1865,10 +1861,10 @@ impl Session {
+     }
+ 
+     pub(crate) fn enable_livekit_publisher_twcc(&mut self) {
++        self.twcc_rx_register.enable_publisher_history();
+         self.livekit_publisher_twcc = Some(LiveKitPublisherTwcc {
+             sender_ssrc: self.streams.new_ssrc(),
+             last_report: None,
+-            next_sequence: None,
+             packets_held: 0,
+         });
+     }
+@@ -2291,6 +2287,7 @@ mod tests {
+         let profile = session.livekit_publisher_twcc.as_mut().unwrap();
+         let sender_ssrc = profile.sender_ssrc;
+         let mut receipts = TwccRecvRegister::new(100);
++        receipts.enable_publisher_history();
+         let mut feedback = VecDeque::new();
+         let mut packet = RtpHeader {
+             ssrc: 123.into(),
+@@ -2301,12 +2298,12 @@ mod tests {
+                       receipts: &mut TwccRecvRegister,
+                       feedback: &mut VecDeque<Rtcp>,
+                       packet: &RtpHeader,
+-                      sequence: u64,
++                      sequence: u16,
+                       elapsed_ms: u64| {
+             profile.record(
+                 receipts,
+                 packet,
+-                sequence.into(),
++                sequence,
+                 start + Duration::from_millis(elapsed_ms),
+                 1100,
+                 feedback,
+@@ -2385,6 +2382,236 @@ mod tests {
+         assert_eq!(session.twcc_at(), None);
+     }
+ 
++    #[test]
++    fn livekit_publisher_twcc_matches_pion_receipt_history() {
++        struct Case {
++            start: Instant,
++            profile: LiveKitPublisherTwcc,
++            receipts: TwccRecvRegister,
++            feedback: VecDeque<Rtcp>,
++        }
++
++        impl Case {
++            fn new() -> Self {
++                let mut receipts = TwccRecvRegister::new(100);
++                receipts.enable_publisher_history();
++                Self {
++                    start: Instant::now(),
++                    profile: LiveKitPublisherTwcc {
++                        sender_ssrc: 10.into(),
++                        last_report: None,
++                        packets_held: 0,
++                    },
++                    receipts,
++                    feedback: VecDeque::new(),
++                }
++            }
++
++            fn push(&mut self, seq: u64, us: u64) {
++                self.profile.record(
++                    &mut self.receipts,
++                    &RtpHeader {
++                        ssrc: 123.into(),
++                        ..RtpHeader::default()
++                    },
++                    seq as u16,
++                    self.start + Duration::from_micros(us),
++                    1100,
++                    &mut self.feedback,
++                );
++            }
++
++            fn check(
++                &mut self,
++                label: &str,
++                packets: usize,
++                spans: &[(u16, u16, bool)],
++            ) -> Vec<Instant> {
++                let mut actual = Vec::<(u16, u16, bool)>::new();
++                let mut times = Vec::new();
++                let mut sizes = Vec::new();
++                while let Some(packet) = self.feedback.pop_front() {
++                    let mut encoded = [0u8; 1100];
++                    let size =
++                        Rtcp::write_packet(&mut VecDeque::from([packet]), &mut encoded, |packet| {
++                            assert!(matches!(packet, Rtcp::Twcc(_)))
++                        });
++                    assert!((24..=1100).contains(&size));
++                    sizes.push(size);
++                    let Rtcp::Twcc(report) = Rtcp::try_from(&encoded[..size]).unwrap() else {
++                        panic!("expected wire TWCC");
++                    };
++                    assert_eq!(report.ssrc, 123.into());
++                    let base = u64::from(report.base_seq).into();
++                    let count = usize::from(report.status_count);
++                    let entries: Vec<_> = report.into_iter(self.start, base).collect();
++                    assert_eq!(entries.len(), count);
++                    for (seq, _, time) in entries {
++                        let seq = *seq as u16;
++                        let received = time.is_some();
++                        times.extend(time);
++                        if let Some((base, count, previous)) = actual.last_mut() {
++                            if base.wrapping_add(*count) == seq && *previous == received {
++                                *count += 1;
++                                continue;
++                            }
++                        }
++                        actual.push((seq, 1, received));
++                    }
++                }
++                assert_eq!(sizes.len(), packets, "{label}");
++                assert_eq!(actual, spans, "{label}");
++                println!("{label}: {actual:?}; bytes={sizes:?}");
++                times
++            }
++        }
++
++        let mut burst = Case::new();
++        for seq in 1..=324 {
++            burst.push(seq, seq * 250);
++        }
++        burst.check("high-rate-initial-4-reports", 4, &[(1, 324, true)]);
++        burst.push(10, 100_000);
++        for seq in 325..=344 {
++            burst.push(seq, 181_000 + (seq - 325) * 250);
++        }
++        burst.check("retained-duplicate-does-not-trigger-on-20-new", 0, &[]);
++        burst.push(345, 186_000);
++        let times = burst.check(
++            "retained-duplicate-rewinds-336-statuses-with-original-timestamp",
++            1,
++            &[(10, 336, true)],
++        );
++        let original_delta = times[1] - times[0];
++        assert_eq!(original_delta, Duration::from_micros(250));
++        println!(
++            "retained-duplicate-relative-micros={}",
++            original_delta.as_micros()
++        );
++
++        for (age, label, expected) in [
++            (
++                499_999,
++                "499999us-old-prefix-retained",
++                &[(10, 33, true)][..],
++            ),
++            (
++                500_000,
++                "500000us-old-prefix-expired",
++                &[(10, 1, true), (11, 11, false), (22, 20, true)][..],
++            ),
++        ] {
++            let mut window = Case::new();
++            for seq in 1..=21 {
++                window.push(seq, 0);
++            }
++            window.check("window-initial", 1, &[(1, 21, true)]);
++            window.push(22, age);
++            window.push(10, age);
++            for seq in 23..=42 {
++                window.push(seq, age + 250);
++            }
++            window.check(label, 1, expected);
++        }
++
++        let mut wrap = Case::new();
++        for seq in (65_525..=65_546).filter(|seq| *seq != 65_532) {
++            wrap.push(seq, (seq - 65_525) * 250);
++        }
++        wrap.check(
++            "wrap-with-gap",
++            1,
++            &[(65_525, 7, true), (65_532, 1, false), (65_533, 14, true)],
++        );
++        wrap.push(65_532, 100_000);
++        wrap.push(65_530, 100_250);
++        for seq in 65_547..=65_566 {
++            wrap.push(seq, 100_500 + (seq - 65_547) * 250);
++        }
++        wrap.check(
++            "late-wrap-hole-repaired-and-duplicate-rewind",
++            1,
++            &[(65_530, 37, true)],
++        );
++
++        let mut cap = Case::new();
++        for seq in [65_000, 65_200, 64_500, 32_000] {
++            cap.push(seq, 0);
++        }
++        for seq in 65_201..=65_217 {
++            cap.push(seq, 250);
++        }
++        cap.check(
++            "late-unwrapping-and-exact-32768-cap",
++            1,
++            &[
++                (64_500, 1, true),
++                (64_501, 499, false),
++                (65_000, 1, true),
++                (65_001, 199, false),
++                (65_200, 18, true),
++            ],
++        );
++        for seq in 65_218..=65_238 {
++            cap.push(seq, 100_250);
++        }
++        cap.check("exact-32768-cap-next-report", 1, &[(65_218, 21, true)]);
++
++        for (sequence, label, expected) in [
++            (
++                32_633,
++                "map-range-exactly-32768-includes-edge",
++                &[
++                    (32_633, 1, true),
++                    (32_634, 32_747, false),
++                    (65_381, 20, true),
++                ][..],
++            ),
++            (
++                32_632,
++                "map-range-32769-excludes-edge",
++                &[(65_381, 20, true)][..],
++            ),
++        ] {
++            let mut edge = Case::new();
++            for seq in (65_382..=65_400).rev() {
++                edge.push(seq, 0);
++            }
++            edge.push(sequence, 250);
++            edge.push(65_381, 500);
++            edge.check(label, 1, expected);
++        }
++
++        let mut gap = Case::new();
++        for seq in 1..=21 {
++            gap.push(seq, 0);
++        }
++        gap.check("long-gap-first", 1, &[(1, 21, true)]);
++        for seq in 20_000..=20_020 {
++            gap.push(seq, 100_000);
++        }
++        gap.check(
++            "long-gap-roundtrip-13-bit-run-length",
++            1,
++            &[(22, 19_978, false), (20_000, 21, true)],
++        );
++
++        let mut mtu = Case::new();
++        for seq in 1..=1233 {
++            mtu.push(seq, seq * 250);
++        }
++        mtu.check("high-rate-mtu-baseline", 13, &[(1, 1233, true)]);
++        mtu.push(2, 310_000);
++        for seq in 1234..=1254 {
++            mtu.push(seq, 410_000);
++        }
++        mtu.check(
++            "large-go-feedback-covers-retained-1253-statuses",
++            2,
++            &[(2, 1253, true)],
++        );
++    }
++
+     #[test]
+     fn livekit_publisher_twcc_reports_missing_sequences_across_reports_and_wrap() {
+         let now = Instant::now();

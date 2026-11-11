@@ -1,0 +1,9 @@
+{
+  "commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/sfu/rtpstats/rtpstats_receiver.go": "6b7c3659adfa297297075588bbba8446c59b87d92aff66cc3f05b09367d05b26",
+    "pkg/sfu/buffer/buffer_base.go": "29d6e77102c60e6defd12550c3e9b2877325c339da2e008713ef1ff80303e403",
+    "pkg/sfu/buffer/buffer.go": "a342e16f0a5672079b663dc5d66e8623c3c3afd39e92edcfa9bb1c5d15c516cb",
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5"
+  }
+}

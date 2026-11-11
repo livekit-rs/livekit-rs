@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "status": "NOT_RUN",
+  "scope": "Development-only independent typed JSON decode oracle; no HTTP/auth/backend or Rust execution claimed.",
+  "server": {
+    "repository": "https://github.com/livekit/livekit",
+    "commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "go_mod_sha256": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go_sum_sha256": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85"
+  },
+  "protocol": {
+    "repository": "https://github.com/livekit/protocol",
+    "commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+    "go_mod_sha256": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "module_version": "v1.52.2-0.20261012065025-9bb708cdb819"
+  },
+  "protobuf_version": "v1.36.12",
+  "toolchain_directive": "go 1.26.0 (copied fixed upstream directive)",
+  "manifest_transformation": [
+    "module path changed only",
+    "all upstream require/tool/replace directives retained",
+    "local fixed protocol and psrpc checkout replaces appended"
+  ],
+  "inputs_sha256": {
+    "main.go": "33f5b5545de40801232594ee4b06ac9f19ee80651ff0f3e9a03ad838269dc1ef",
+    "go.mod": "5e80cdf87e2874b26283d535039cfc4b60730962e19b0e7d0df0c82cea06fa13",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "cases.json": "8b45cccd7f443a8fbded2f8abc3cfaf08e2b5efa0ec02795399cd6c75b3016b4",
+    "residual-cases.json": "54bb671e894290a68879dfa871b0a637257a249ab49831a1cd21cb4cc27a0002",
+    "response-enum-cases.json": "52bc7d0c050579d8b4eec788584dbbb0f97d3b14f25ad441775f03cde5d95df5"
+  },
+  "output": "not generated; coordinator must capture actual stdout and identity",
+  "psrpc": {
+    "repository": "https://github.com/livekit/psrpc",
+    "commit": "e9701ee1b5a981cfa3c7c69503d4775ddff13729",
+    "module_version": "v0.8.2",
+    "go_mod_sha256": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0"
+  },
+  "historical_main_sha256_before_residual_extension": "810ce960bea215e3e36a8ccc3e107c95f871ed7be7e15c377347a75c3e86122a",
+  "residual_corpus": {
+    "status": "NOT_RUN",
+    "cases": 49,
+    "body_input": "exactly one body string or strict body_base64 bytes",
+    "explicit_additional_wkt_registration": [
+      "google.protobuf.Empty",
+      "google.protobuf.FieldMask",
+      "google.protobuf.Value",
+      "google.protobuf.Struct",
+      "google.protobuf.ListValue",
+      "google.protobuf.*Value wrappers"
+    ],
+    "scope": "Maps in real LiveKit messages; Any nested in SIPCallInfo.call_context; direct WKT/message decoding and invalid token bytes. Not all are 47 RPC request fields."
+  },
+  "historical_main_sha256": [
+    "3024fc62d568a03ddf12397161bbda319e62ed904cda244cb09e91ee37814036",
+    "b59b6aa1b041498df64f9693141ed142bfc9d6396352af93b4cfb075d0b6dbcc"
+  ],
+  "wire_oracle_extension": {
+    "status": "NOT_RUN",
+    "success_field": "wire_base64",
+    "producer": "actual google.golang.org/protobuf/proto.Marshal(msg)",
+    "comparison": "decode actual Go wire to same descriptor; compare typed fields/values/presence, not serialization order or JSON numeric spelling",
+    "old_json_message_field_preserved": true
+  },
+  "response_enum_oracle": {
+    "status": "NOT_RUN",
+    "cases": 7,
+    "options": "UseProtoNames=true, EmitUnpopulated from corpus flag (defaultfalse preserves old fixtures)",
+    "map_scope": "known string-map companion; no enum-valued map exists in pinned public schema"
+  }
+}

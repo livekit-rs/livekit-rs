@@ -1,0 +1,280 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1451,6 +1451,12 @@
+     /// order, without periodic sampling, TWCC or ICE fallback.
+     pub fn take_receiver_report_rtt(&mut self) -> Vec<ReceiverReportRtt> {
+         self.session.receiver_report_rtt.drain(..).collect()
++    }
++
++    /// Retain per-original-packet timing through codec frame assembly.
++    /// Disabled by default; no additional packet-timing queue is created.
++    pub fn set_forwarding_timing_enabled(&mut self, enabled: bool) {
++        self.session.forwarding_timing_enabled = enabled;
+     }
+ 
+     /// Enable the fixed Go five-rejected-packet source restart detector.
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -210,6 +210,24 @@
+     }
+ }
+ 
++/// Actual authenticated receive timing of an original RTP packet.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct ForwardingPacket {
++    /// Actual input datagram arrival, before codec frame assembly.
++    pub received: Instant,
++    /// Original receiver sequence/timestamp admission classified it out of order.
++    pub out_of_order: bool,
++    /// Replayed from a prebinding raw packet buffer (distinct from depayload wait).
++    pub buffered: bool,
++}
++
++// Local-only metadata lives behind the existing type map. It has no wire
++// serializer and does not enlarge Event/RtpPacket/RtpMeta inline layout.
++#[derive(Clone, Debug)]
++pub(crate) struct ForwardingPacketMeta(pub Option<ForwardingPacket>);
++#[derive(Clone, Debug)]
++pub(crate) struct ForwardingPacketCohort(pub Vec<ForwardingPacket>);
++
+ /// Video or audio data from the remote peer.
+ ///
+ /// This is obtained via [`Event::MediaData`][crate::Event::MediaData].
+@@ -285,6 +303,16 @@
+ }
+ 
+ impl MediaData {
++    /// Actual original packet timing retained through this frame's assembly.
++    /// Empty when observation was disabled; storage shares the frame's bounded
++    /// extension metadata lifetime and is never serialized as a wire extension.
++    pub fn forwarding_packets(&self) -> &[ForwardingPacket] {
++        self.ext_vals
++            .user_values
++            .get::<ForwardingPacketCohort>()
++            .map_or(&[], |cohort| cohort.0.as_slice())
++    }
++
+     /// Return true if MediaData is keyframe independently of Codec
+     pub fn is_keyframe(&self) -> bool {
+         match self.codec_extra {
+--- a/src/media/mod.rs
++++ b/src/media/mod.rs
+@@ -360,6 +360,23 @@
+                 // excludes their payload format.
+                 let audio_start_of_talk_spurt =
+                     codec.spec().codec.kind().is_audio() && dep.start_of_talkspurt();
++                let mut ext_vals = dep.ext_vals();
++                let forwarding_packets = dep
++                    .meta
++                    .iter()
++                    .filter_map(|meta| {
++                        meta.header
++                            .ext_vals
++                            .user_values
++                            .get::<ForwardingPacketMeta>()
++                            .and_then(|value| value.0)
++                    })
++                    .collect::<Vec<_>>();
++                if !forwarding_packets.is_empty() {
++                    ext_vals
++                        .user_values
++                        .set(ForwardingPacketCohort(forwarding_packets));
++                }
+                 return Ok(Some(MediaData {
+                     mid: self.mid,
+                     pt: *pt,
+@@ -375,7 +392,7 @@
+                     network_time: dep.first_network_time(),
+                     seq_range: dep.seq_range(),
+                     contiguous: dep.contiguous,
+-                    ext_vals: dep.ext_vals(),
++                    ext_vals,
+                     codec_extra: dep.codec_extra,
+                     last_sender_info: dep.first_sender_info(),
+                     audio_start_of_talk_spurt,
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -219,7 +219,13 @@
+         self.push_entry(meta, data.into(), None);
+     }
+ 
+-    pub(crate) fn push_padding(&mut self, meta: RtpMeta) {
++    pub(crate) fn push_padding(&mut self, mut meta: RtpMeta) {
++        // A synthetic sequence placeholder for another payload type is not
++        // an original packet forwarded by this assembled frame.
++        meta.header
++            .ext_vals
++            .user_values
++            .set(crate::media::ForwardingPacketMeta(None));
+         self.push_entry(meta, Arc::from([]), Some((false, false)));
+     }
+ 
+@@ -428,6 +434,14 @@
+             entry.meta.time.frequency(),
+         );
+         entry.meta.header.marker = false;
++        // Packed telephone reports are split from one original RTP packet.
++        // The first emitted report already owns its one timing observation.
++        entry
++            .meta
++            .header
++            .ext_vals
++            .user_values
++            .set(crate::media::ForwardingPacketMeta(None));
+         self.segments_dirty = true;
+         self.depack_cache = None;
+     }
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -91,6 +91,7 @@
+     pub(crate) receiver_report_rtt_enabled: bool,
+     pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
+     pub(crate) rtp_stream_restart_detection: bool,
++    pub(crate) forwarding_timing_enabled: bool,
+     srtp_rx: Option<SrtpContext>,
+     srtp_tx: Option<SrtpContext>,
+     last_nack: Instant,
+@@ -210,6 +211,7 @@
+             receiver_report_rtt_enabled: false,
+             receiver_report_rtt: VecDeque::new(),
+             rtp_stream_restart_detection: false,
++            forwarding_timing_enabled: false,
+             srtp_rx: None,
+             srtp_tx: None,
+             last_nack: already_happened(),
+@@ -1022,7 +1024,21 @@
+         // only the trimmed payload bytes out of the SRTP scratch buffer.
+         let payload: Arc<[u8]> = Arc::from(data);
+ 
+-        let packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
++        let mut packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
++        if self.forwarding_timing_enabled {
++            packet
++                .header
++                .ext_vals
++                .user_values
++                .set(crate::media::ForwardingPacketMeta(admitted_flow.map(
++                    |flow| crate::media::ForwardingPacket {
++                        received: now,
++                        out_of_order: !flow.in_order,
++                        // Codec assembly is real work, not prebinding replay.
++                        buffered: false,
++                    },
++                )));
++        }
+ 
+         if self.rtp_mode {
+             // In RTP mode, we store the packet temporarily here for the next poll_output().
+@@ -2108,6 +2124,112 @@
+         let cfg = RtcConfig::default().set_mtu(900..=1280);
+         let s = Session::new(&cfg);
+         assert_eq!(s.mtu(), 900);
++    }
++
++    #[test]
++    fn authenticated_fragmented_frame_preserves_each_arrival_and_original_out_of_order_flag() {
++        for enabled in [false, true] {
++            let start = Instant::now();
++            let crypto = crate::crypto::test_default_provider();
++            let profile = SrtpProfile::AES128_CM_SHA1_80;
++            let material = vec![0x61; profile.keying_material_len()];
++            let key = KeyingMaterial::new(&material);
++            let mut tx = SrtpContext::new(crypto, profile, &key, true);
++            let mut session = Session::new(&RtcConfig::default());
++            session.forwarding_timing_enabled = enabled;
++            session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++            let params = session
++                .codec_config
++                .params()
++                .iter()
++                .find(|p| p.spec().codec == crate::format::Codec::Vp8)
++                .copied()
++                .unwrap();
++            let mid = Mid::from("v");
++            let mut media = Media::from_direct_api(
++                mid,
++                0,
++                crate::media::MediaKind::Video,
++                ExtensionMap::empty(),
++            );
++            media.set_remote_pts(vec![params.pt()]);
++            session.add_media(media);
++            session
++                .streams
++                .expect_stream_rx(101.into(), None, MidRid(mid, None), false);
++            // A complete codec frame has three distinct real encrypted RTP
++            // packets; the middle sequence arrives last and is out of order.
++            for (sn, ms, marker, payload) in [
++                (100u16, 0u64, false, vec![0x10, 0, 0]),
++                (102, 40, true, vec![0, 2]),
++                (101, 60, false, vec![0, 1]),
++            ] {
++                let mut bytes = vec![
++                    0x80,
++                    *params.pt() | if marker { 0x80 } else { 0 },
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    101,
++                ];
++                bytes[2..4].copy_from_slice(&sn.to_be_bytes());
++                bytes[4..8].copy_from_slice(&3000u32.to_be_bytes());
++                bytes.extend_from_slice(&payload);
++                let header = RtpHeader::parse(&bytes, &ExtensionMap::empty()).unwrap();
++                let encrypted = tx.protect_rtp(&bytes, &header, u64::from(sn));
++                session.handle_rtp_receive(start + Duration::from_millis(ms), &encrypted);
++            }
++            let event = session
++                .poll_event_fallible(start + Duration::from_secs(1))
++                .unwrap()
++                .expect("actual SRTP codec frame must assemble");
++            let Event::MediaData(data) = event else {
++                panic!("expected actual media frame")
++            };
++            if enabled {
++                assert_eq!(data.forwarding_packets().len(), 3);
++                let times = data
++                    .forwarding_packets()
++                    .iter()
++                    .map(|p| {
++                        (
++                            p.received.duration_since(start).as_millis(),
++                            p.out_of_order,
++                            p.buffered,
++                        )
++                    })
++                    .collect::<Vec<_>>();
++                assert_eq!(
++                    times,
++                    vec![(0, false, false), (60, true, false), (40, false, false)]
++                );
++            } else {
++                assert!(
++                    data.forwarding_packets().is_empty(),
++                    "disabled instrumentation must not allocate a packet cohort"
++                );
++            }
++            assert!(
++                session
++                    .poll_event_fallible(start + Duration::from_secs(1))
++                    .unwrap()
++                    .is_none(),
++                "one frame consumes its timing cohort exactly once"
++            );
++            drop(data);
++            session.remove_media(mid);
++            assert!(session.medias.is_empty());
++            assert!(
++                session.streams.stream_rx(&101.into()).is_none(),
++                "retirement releases bounded packet/metadata owners together"
++            );
++        }
+     }
+ 
+     #[test]

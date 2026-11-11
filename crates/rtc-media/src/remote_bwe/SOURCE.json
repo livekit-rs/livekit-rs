@@ -1,0 +1,40 @@
+{
+  "reference_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "license": "Apache-2.0",
+  "upstream_sha256": {
+    "pkg/sfu/bwe/remotebwe/remote_bwe.go": "9c6311c303c9efc2098183b94080e68f5e917248b7d2ac1ef4911af81db5a970",
+    "pkg/sfu/bwe/remotebwe/channel_observer.go": "4c34e1312146b1c1fe3f99f27a084406857f14303ab8a59b34f99cc03ab4e723",
+    "pkg/sfu/bwe/remotebwe/nack_tracker.go": "4f207d1ac5ab85998fff0c5029f3394fc9b6f73f6b54db9dbfe378fa97e9b3c6",
+    "pkg/sfu/bwe/remotebwe/probe_controller.go": "d7b504333ed7e553f89434180bd38b336c9f014ec0a77eeddada56eca50d6647",
+    "pkg/sfu/ccutils/trenddetector.go": "81457cf292cba3824c3d6f27df48a6046625d613da5f144cfb9d25c931ca509e",
+    "pkg/sfu/ccutils/probe_regulator.go": "34f6520bbe8065d33ba0afe2aca7a8ea2ba398c2e137bb0397022c4e85bcd9c8",
+    "pkg/sfu/ccutils/probe_signal.go": "92298bccc9295cdbf225d18c598c66c89f1376f27d7a0ecf427956cbd51515fd",
+    "pkg/sfu/ccutils/prober.go": "592dff9d8943ac6f17fb5e9eceeb7c4da3efdf93b29f1850af156343eab0f1c4",
+    "pkg/sfu/bwe/bwe.go": "8f90440a0d7a002fce868bc4cfdf45818c802ddcf265e5659a92b125961525ec",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "port_sha256": {
+    "trend.rs": "dcf2dc41f925c484e865b91777a7af0c7bc62a05d46ef36b1b0183a722ebbbf0",
+    "time.rs": "62f49c9f47cd035b9b847afb7e81d7dd900fdc51d9de378771e9d2d04585563d",
+    "golden.py": "48aa942438903361985e1df655e408862cf6610e7245899cbff6fb19d5202b4c",
+    "observer.rs": "89958225065e466453caec093ccf5a69e7daa1f49afd2d415c656ebb6804c48a",
+    "operations.csv": "f556a32068425c390b95a6ca67a7f5f43b867d74cd7689cf62effe3de9b65792",
+    "golden.tsv": "78a48e2ad48f5672e72a50a359f126aa49a629c5b357fdfb02e8c1954ec9dfdc",
+    "mod.rs": "3a5723b24a2544fa6d2f092aec416f5294bbc037252041a885f12c3ff629d643",
+    "tests.rs": "4f4f3d11eb4f7853857b963102df860f12ca9e47cf5e5da34821c057c38b3453",
+    "probe.rs": "06604841933ce0bf0f9c2fd741a466584f31582fa1eabe98fce913f6c8ed5885"
+  },
+  "scope": "Single-owner pure sender REMB RemoteBWE policy foundation; not receiver-side ABS estimator, actual prober/pacer, stream allocator integration or SDK acceptance. No production feedback strategy switched by these files.",
+  "supported_domain": "Finite representable arithmetic and nonnegative required sample counts; signed duration and zero predicates preserved. Out-of-range float conversions vary by Go architecture and are explicitly unsupported, not asserted equivalent.",
+  "adaptations": [
+    "Explicit caller Instant replaces monotonic global clock",
+    "Returned state changes replace locked asynchronous BWEListener notification",
+    "Boundary goal/result use i64 values, caller IDs use u32",
+    "Actual source Go golden transforms namespaces, logging interfaces and clock only; no Rust output generates expected values"
+  ],
+  "verification": {
+    "rust": "NOT_RUN coordinator owns compilers",
+    "go_golden": "PASS: 462 rows actual pinned Go1.26; coordinator evidence livekit-rs-docs/evidence/2026-10-24/remote-bwe-go-golden.json",
+    "static": "rustfmt completed; independent review confirmed trend/NACK and state transition formula semantics; Rust/compiler results pending"
+  }
+}

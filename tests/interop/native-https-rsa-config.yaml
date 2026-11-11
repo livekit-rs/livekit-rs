@@ -1,0 +1,36 @@
+# Test-only RSA/PKCS#1 endpoint using generated short-lived fixtures.
+# Paths are relative to the server workspace, matching official cert_file semantics.
+port: 9480
+bind_addresses: [127.0.0.1]
+rtc:
+  tcp_port: 9441
+  udp_port: 9442
+  node_ip: 127.0.0.1
+  use_external_ip: false
+  enable_loopback_candidate: true
+  ips:
+    includes: [127.0.0.1/32]
+livecloud:
+  schema_version: 1
+  https:
+    port: 9443
+    bind_addresses: [127.0.0.1]
+    cert_file: tests/interop/output/tls-rsa/server.pem
+    key_file: tests/interop/output/tls-rsa/server-rsa-pkcs1-key.pem
+    http_enabled: false
+    max_connections: 128
+    handshake_timeout_ms: 3000
+turn:
+  enabled: true
+  domain: turn.localhost
+  tls_port: 5350
+  udp_port: 0
+  external_tls: false
+  cert_file: tests/interop/output/tls-rsa/server.pem
+  key_file: tests/interop/output/tls-rsa/server-rsa-pkcs1-key.pem
+  bind_addresses: [127.0.0.1]
+  relay_range_start: 36400
+  relay_range_end: 36500
+  allow_restricted_peer_cidrs: [127.0.0.1/32]
+logging:
+  level: info

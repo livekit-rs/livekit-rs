@@ -1,0 +1,775 @@
+// Copyright 2019 TiKV Project Authors. Licensed under Apache-2.0.
+
+use std::convert::TryInto;
+use std::os::raw::c_int;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::SystemTime;
+
+use nix::sys::signal;
+use once_cell::sync::Lazy;
+use smallvec::SmallVec;
+use spin::RwLock;
+
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
+use findshlibs::{Segment, SharedLibrary, TargetSharedLibrary};
+
+use crate::backtrace::{Trace, TraceImpl};
+use crate::collector::Collector;
+use crate::error::{Error, Result};
+use crate::frames::UnresolvedFrames;
+use crate::report::ReportBuilder;
+use crate::timer::{ClockType, Timer};
+use crate::{MAX_DEPTH, MAX_THREAD_NAME};
+
+pub(crate) static PROFILER: Lazy<RwLock<Result<Profiler>>> =
+    Lazy::new(|| RwLock::new(Profiler::new()));
+
+/// Number of SIGPROF ticks dropped because the profiler lock could not be
+/// acquired in the signal handler. Each dropped tick corresponds to one missed
+/// sampling interval. Reset to zero when the profiler starts.
+pub(crate) static MISSED_SAMPLES: AtomicU64 = AtomicU64::new(0);
+
+pub struct Profiler {
+    pub(crate) data: Collector<UnresolvedFrames>,
+    sample_counter: i32,
+
+    old_sigaction: Option<signal::SigAction>,
+    running: bool,
+    clock_type: ClockType,
+    thread_blocklist: Vec<Vec<u8>>,
+
+    #[cfg(feature = "frame-pointer")]
+    on_stack: bool,
+
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64"
+    ))]
+    blocklist_segments: Vec<(usize, usize)>,
+}
+
+#[derive(Clone)]
+pub struct ProfilerGuardBuilder {
+    frequency: c_int,
+    clock_type: ClockType,
+    thread_blocklist: Vec<Vec<u8>>,
+
+    #[cfg(feature = "frame-pointer")]
+    on_stack: bool,
+
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64"
+    ))]
+    blocklist_segments: Vec<(usize, usize)>,
+}
+
+impl Default for ProfilerGuardBuilder {
+    fn default() -> ProfilerGuardBuilder {
+        ProfilerGuardBuilder {
+            frequency: 99,
+            clock_type: ClockType::Cpu,
+            thread_blocklist: Vec::new(),
+
+            #[cfg(feature = "frame-pointer")]
+            on_stack: false,
+
+            #[cfg(any(
+                target_arch = "x86_64",
+                target_arch = "aarch64",
+                target_arch = "riscv64",
+                target_arch = "loongarch64"
+            ))]
+            blocklist_segments: Vec::new(),
+        }
+    }
+}
+
+impl ProfilerGuardBuilder {
+    /// Creates a new `ProfilerGuardBuilder` with default configuration.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the sampling frequency in Hz.
+    pub fn frequency(self, frequency: c_int) -> Self {
+        Self { frequency, ..self }
+    }
+
+    /// Sets the clock type used for profiling (CPU time or real Wall-clock time).
+    pub fn clock_type(self, clock_type: ClockType) -> Self {
+        Self { clock_type, ..self }
+    }
+
+    /// Excludes threads whose names contain any of the given substrings from profiling.
+    pub fn thread_blocklist<T: AsRef<str>>(self, blocklist: &[T]) -> Self {
+        let thread_blocklist = blocklist
+            .iter()
+            .map(|s| s.as_ref().as_bytes().to_vec())
+            .collect();
+        Self {
+            thread_blocklist,
+            ..self
+        }
+    }
+
+    #[cfg(feature = "frame-pointer")]
+    /// Sets whether to use an alternate signal stack via `SA_ONSTACK`.
+    ///
+    /// This is only available and only works correctly when the `frame-pointer` feature is enabled.
+    ///
+    /// The `backtrace-rs` unwinder ignores the signal context and unwinds the current stack. Using
+    /// an alternate stack with it would produce meaningless results. The `frame-pointer` unwinder,
+    /// however, uses the provided `ucontext` to correctly walk the original application stack.
+    ///
+    /// This should be enabled when the profiler is used in an environment
+    /// with small stacks (e.g., inside a Go program) to prevent stack overflow.
+    pub fn on_stack(self, on_stack: bool) -> Self {
+        Self { on_stack, ..self }
+    }
+
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64"
+    ))]
+    pub fn blocklist<T: AsRef<str>>(self, blocklist: &[T]) -> Self {
+        let blocklist_segments = {
+            let mut segments = Vec::new();
+            TargetSharedLibrary::each(|shlib| {
+                let in_blocklist = match shlib.name().to_str() {
+                    Some(name) => {
+                        let mut in_blocklist = false;
+                        for blocked_name in blocklist.iter() {
+                            if name.contains(blocked_name.as_ref()) {
+                                in_blocklist = true;
+                            }
+                        }
+
+                        in_blocklist
+                    }
+
+                    None => false,
+                };
+                if in_blocklist {
+                    for seg in shlib.segments() {
+                        let avam = seg.actual_virtual_memory_address(shlib);
+                        let start = avam.0;
+                        let end = start + seg.len();
+                        segments.push((start, end));
+                    }
+                }
+            });
+            segments
+        };
+
+        Self {
+            blocklist_segments,
+            ..self
+        }
+    }
+    pub fn build(self) -> Result<ProfilerGuard<'static>> {
+        trigger_lazy();
+
+        match PROFILER.write().as_mut() {
+            Err(err) => {
+                log::error!("Error in creating profiler: {}", err);
+                Err(Error::CreatingError)
+            }
+            Ok(profiler) => {
+                #[cfg(feature = "frame-pointer")]
+                {
+                    profiler.on_stack = self.on_stack;
+                }
+
+                #[cfg(any(
+                    target_arch = "x86_64",
+                    target_arch = "aarch64",
+                    target_arch = "riscv64",
+                    target_arch = "loongarch64"
+                ))]
+                {
+                    profiler.blocklist_segments = self.blocklist_segments;
+                }
+
+                match profiler.start(self.clock_type, self.thread_blocklist) {
+                    Ok(()) => Ok(ProfilerGuard::<'static> {
+                        profiler: &PROFILER,
+                        timer: Some(Timer::with_clock_type(self.frequency, self.clock_type)),
+                    }),
+                    Err(err) => Err(err),
+                }
+            }
+        }
+    }
+}
+
+/// RAII structure used to stop profiling when dropped. It is the only interface to access profiler.
+pub struct ProfilerGuard<'a> {
+    profiler: &'a RwLock<Result<Profiler>>,
+    timer: Option<Timer>,
+}
+
+fn trigger_lazy() {
+    let _ = backtrace::Backtrace::new();
+    let _profiler = PROFILER.read();
+    TraceImpl::init();
+}
+
+impl ProfilerGuard<'_> {
+    /// Start profiling with given sample frequency.
+    pub fn new(frequency: c_int) -> Result<ProfilerGuard<'static>> {
+        ProfilerGuardBuilder::default().frequency(frequency).build()
+    }
+
+    /// Start profiling with given sample frequency and clock type.
+    pub fn with_clock_type(
+        frequency: c_int,
+        clock_type: ClockType,
+    ) -> Result<ProfilerGuard<'static>> {
+        ProfilerGuardBuilder::default()
+            .frequency(frequency)
+            .clock_type(clock_type)
+            .build()
+    }
+
+    /// Generate a report
+    pub fn report(&self) -> ReportBuilder<'_> {
+        ReportBuilder::new(
+            self.profiler,
+            self.timer.as_ref().map(Timer::timing).unwrap_or_default(),
+        )
+    }
+
+    /// Returns the number of samples dropped due to lock contention in the signal handler.
+    pub fn missed_samples(&self) -> u64 {
+        MISSED_SAMPLES.load(Ordering::Relaxed)
+    }
+}
+
+impl<'a> Drop for ProfilerGuard<'a> {
+    fn drop(&mut self) {
+        drop(self.timer.take());
+
+        match self.profiler.write().as_mut() {
+            Err(_) => {}
+            Ok(profiler) => match profiler.stop() {
+                Ok(()) => {}
+                Err(err) => log::error!("error while stopping profiler {}", err),
+            },
+        }
+    }
+}
+
+fn write_thread_name_fallback(current_thread: libc::pthread_t, name: &mut [libc::c_char]) {
+    let mut len = 0;
+    let mut base = 1;
+
+    while current_thread as u128 > base && len < MAX_THREAD_NAME {
+        base *= 10;
+        len += 1;
+    }
+
+    let mut index = 0;
+    while index < len && base > 1 {
+        base /= 10;
+
+        name[index] = match (48 + (current_thread as u128 / base) % 10).try_into() {
+            Ok(digit) => digit,
+            Err(_) => {
+                log::error!("fail to convert thread_id to string");
+                0
+            }
+        };
+
+        index += 1;
+    }
+}
+
+#[cfg(any(
+    target_os = "macos",
+    all(target_os = "linux", any(target_env = "gnu", target_env = "musl"))
+))]
+fn write_thread_name(current_thread: libc::pthread_t, name: &mut [libc::c_char]) {
+    let name_ptr = name as *mut [libc::c_char] as *mut libc::c_char;
+    let ret = unsafe { libc::pthread_getname_np(current_thread, name_ptr, MAX_THREAD_NAME) };
+
+    if ret != 0 || name[0] == 0 {
+        write_thread_name_fallback(current_thread, name);
+    }
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    all(target_os = "linux", any(target_env = "gnu", target_env = "musl"))
+)))]
+fn write_thread_name(current_thread: libc::pthread_t, name: &mut [libc::c_char]) {
+    write_thread_name_fallback(current_thread, name);
+}
+
+struct ErrnoProtector(libc::c_int);
+
+impl ErrnoProtector {
+    fn new() -> Self {
+        unsafe {
+            #[cfg(target_os = "android")]
+            {
+                let errno = *libc::__errno();
+                Self(errno)
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let errno = *libc::__errno_location();
+                Self(errno)
+            }
+            #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+            {
+                let errno = *libc::__error();
+                Self(errno)
+            }
+        }
+    }
+}
+
+impl Drop for ErrnoProtector {
+    fn drop(&mut self) {
+        unsafe {
+            #[cfg(target_os = "android")]
+            {
+                *libc::__errno() = self.0;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                *libc::__errno_location() = self.0;
+            }
+            #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+            {
+                *libc::__error() = self.0;
+            }
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+#[cfg_attr(
+    not(all(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64"
+    ))),
+    allow(unused_variables)
+)]
+#[allow(clippy::unnecessary_cast)]
+extern "C" fn perf_signal_handler(
+    _signal: c_int,
+    _siginfo: *mut libc::siginfo_t,
+    ucontext: *mut libc::c_void,
+) {
+    let _errno = ErrnoProtector::new();
+
+    if let Some(mut guard) = PROFILER.try_write() {
+        if let Ok(profiler) = guard.as_mut() {
+            #[cfg(any(
+                target_arch = "x86_64",
+                target_arch = "aarch64",
+                target_arch = "riscv64",
+                target_arch = "loongarch64"
+            ))]
+            if !ucontext.is_null() {
+                let ucontext: *mut libc::ucontext_t = ucontext as *mut libc::ucontext_t;
+
+                #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+                let addr =
+                    unsafe { (*ucontext).uc_mcontext.gregs[libc::REG_RIP as usize] as usize };
+
+                #[cfg(all(target_arch = "x86_64", target_os = "freebsd"))]
+                let addr = unsafe { (*ucontext).uc_mcontext.mc_rip as usize };
+
+                #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+                let addr = unsafe {
+                    let mcontext = std::ptr::addr_of!((*ucontext).uc_mcontext).read_unaligned();
+                    if mcontext.is_null() {
+                        0
+                    } else {
+                        std::ptr::addr_of!((*mcontext).__ss.__rip).read_unaligned() as usize
+                    }
+                };
+
+                #[cfg(all(
+                    target_arch = "aarch64",
+                    any(target_os = "android", target_os = "linux")
+                ))]
+                let addr = unsafe { (*ucontext).uc_mcontext.pc as usize };
+
+                #[cfg(all(target_arch = "aarch64", target_os = "freebsd"))]
+                let addr = unsafe { (*ucontext).mc_gpregs.gp_elr as usize };
+
+                #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+                let addr = unsafe {
+                    let mcontext = std::ptr::addr_of!((*ucontext).uc_mcontext).read_unaligned();
+                    if mcontext.is_null() {
+                        0
+                    } else {
+                        std::ptr::addr_of!((*mcontext).__ss.__pc).read_unaligned() as usize
+                    }
+                };
+
+                #[cfg(all(target_arch = "riscv64", target_os = "linux"))]
+                let addr = unsafe { (*ucontext).uc_mcontext.__gregs[libc::REG_PC] as usize };
+
+                #[cfg(all(target_arch = "loongarch64", target_os = "linux"))]
+                let addr = unsafe { (*ucontext).uc_mcontext.__pc as usize };
+
+                if profiler.is_blocklisted(addr) {
+                    return;
+                }
+            }
+
+            let mut bt: SmallVec<[<TraceImpl as Trace>::Frame; MAX_DEPTH]> =
+                SmallVec::with_capacity(MAX_DEPTH);
+            let mut index = 0;
+
+            let sample_timestamp: SystemTime = SystemTime::now();
+            TraceImpl::trace(ucontext, |frame| {
+                #[cfg(feature = "frame-pointer")]
+                {
+                    let ip = crate::backtrace::Frame::ip(frame);
+                    if profiler.is_blocklisted(ip) {
+                        return false;
+                    }
+                }
+
+                if index < MAX_DEPTH {
+                    bt.push(frame.clone());
+                    index += 1;
+                    true
+                } else {
+                    false
+                }
+            });
+
+            let current_thread = unsafe { libc::pthread_self() };
+            let mut name = [0; MAX_THREAD_NAME];
+            let name_ptr = &mut name as *mut [libc::c_char] as *mut libc::c_char;
+
+            write_thread_name(current_thread, &mut name);
+
+            let name = unsafe { std::ffi::CStr::from_ptr(name_ptr) };
+            let name_bytes = name.to_bytes();
+
+            if profiler.is_thread_blocklisted(name_bytes) {
+                return;
+            }
+
+            profiler.sample(bt, name_bytes, current_thread as u64, sample_timestamp);
+        }
+    } else {
+        MISSED_SAMPLES.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl Profiler {
+    fn new() -> Result<Self> {
+        Ok(Profiler {
+            data: Collector::new()?,
+            sample_counter: 0,
+            old_sigaction: None,
+            running: false,
+            clock_type: ClockType::Cpu,
+            thread_blocklist: Vec::new(),
+
+            #[cfg(feature = "frame-pointer")]
+            on_stack: false,
+
+            #[cfg(any(
+                target_arch = "x86_64",
+                target_arch = "aarch64",
+                target_arch = "riscv64",
+                target_arch = "loongarch64"
+            ))]
+            blocklist_segments: Vec::new(),
+        })
+    }
+
+    fn is_thread_blocklisted(&self, thread_name: &[u8]) -> bool {
+        for blocked in &self.thread_blocklist {
+            if !blocked.is_empty()
+                && thread_name
+                    .windows(blocked.len())
+                    .any(|window| window == blocked.as_slice())
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64"
+    ))]
+    fn is_blocklisted(&self, addr: usize) -> bool {
+        for libs in &self.blocklist_segments {
+            if addr > libs.0 && addr < libs.1 {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+impl Profiler {
+    pub fn start(&mut self, clock_type: ClockType, thread_blocklist: Vec<Vec<u8>>) -> Result<()> {
+        log::info!("starting {:?} profiler", clock_type);
+        if self.running {
+            Err(Error::Running)
+        } else {
+            self.clock_type = clock_type;
+            self.thread_blocklist = thread_blocklist;
+            self.register_signal_handler()?;
+            MISSED_SAMPLES.store(0, Ordering::Relaxed);
+            self.running = true;
+
+            Ok(())
+        }
+    }
+
+    /// Number of samples dropped due to lock contention in the signal handler.
+    #[allow(dead_code)]
+    pub fn missed_samples() -> u64 {
+        MISSED_SAMPLES.load(Ordering::Relaxed)
+    }
+
+    fn init(&mut self) -> Result<()> {
+        self.sample_counter = 0;
+        self.data = Collector::new()?;
+        self.running = false;
+
+        Ok(())
+    }
+
+    pub fn stop(&mut self) -> Result<()> {
+        log::info!("stopping profiler");
+        if self.running {
+            self.unregister_signal_handler()?;
+            self.init()?;
+
+            Ok(())
+        } else {
+            Err(Error::NotRunning)
+        }
+    }
+
+    fn register_signal_handler(&mut self) -> Result<()> {
+        let handler = signal::SigHandler::SigAction(perf_signal_handler);
+        // SA_RESTART will only restart a syscall when it's safe to do so,
+        // e.g. when it's a blocking read(2) or write(2). See man 7 signal.
+        let flags = signal::SaFlags::SA_SIGINFO | signal::SaFlags::SA_RESTART;
+        #[cfg(feature = "frame-pointer")]
+        let flags = if self.on_stack {
+            // SA_ONSTACK will deliver the signal on an alternate stack. This is crucial
+            // to prevent a stack overflow if the signal arrives at a thread with
+            // a small stack, which is common when use pprof-rs in Go runtimes.
+            flags | signal::SaFlags::SA_ONSTACK
+        } else {
+            flags
+        };
+        let sigaction = signal::SigAction::new(handler, flags, signal::SigSet::empty());
+        let sig = match self.clock_type {
+            ClockType::Cpu => signal::Signal::SIGPROF,
+            ClockType::Wall => signal::Signal::SIGALRM,
+        };
+        let old_action = unsafe { signal::sigaction(sig, &sigaction) }?;
+        self.old_sigaction = Some(old_action);
+        Ok(())
+    }
+
+    fn unregister_signal_handler(&mut self) -> Result<()> {
+        let sig = match self.clock_type {
+            ClockType::Cpu => signal::Signal::SIGPROF,
+            ClockType::Wall => signal::Signal::SIGALRM,
+        };
+        if let Some(old_action) = self.old_sigaction.take() {
+            if matches!(old_action.handler(), signal::SigHandler::SigDfl) {
+                let ignore = signal::SigAction::new(
+                    signal::SigHandler::SigIgn,
+                    signal::SaFlags::empty(),
+                    signal::SigSet::empty(),
+                );
+                unsafe { signal::sigaction(sig, &ignore) }?;
+            } else {
+                unsafe { signal::sigaction(sig, &old_action) }?;
+            }
+        }
+        Ok(())
+    }
+
+    // This function has to be AS-safe
+    pub fn sample(
+        &mut self,
+        backtrace: SmallVec<[<TraceImpl as Trace>::Frame; MAX_DEPTH]>,
+        thread_name: &[u8],
+        thread_id: u64,
+        sample_timestamp: SystemTime,
+    ) {
+        let frames = UnresolvedFrames::new(backtrace, thread_name, thread_id, sample_timestamp);
+        self.sample_counter += 1;
+
+        if let Ok(()) = self.data.add(frames, 1) {}
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    struct AllocDetector {
+        should_count_alloc: std::sync::atomic::AtomicBool,
+        alloc_count: std::sync::atomic::AtomicUsize,
+    }
+
+    unsafe impl std::alloc::GlobalAlloc for AllocDetector {
+        unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+            if self
+                .should_count_alloc
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                self.alloc_count
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+
+            unsafe { std::alloc::System.alloc(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+            unsafe { std::alloc::System.dealloc(ptr, layout) }
+        }
+    }
+    impl AllocDetector {
+        fn enable_count_alloc(&self) {
+            self.should_count_alloc
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        fn disable_count_alloc(&self) {
+            self.should_count_alloc
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        fn alloc_count(&self) -> usize {
+            self.alloc_count.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[global_allocator]
+    static ALLOC: AllocDetector = AllocDetector {
+        should_count_alloc: std::sync::atomic::AtomicBool::new(false),
+        alloc_count: std::sync::atomic::AtomicUsize::new(0),
+    };
+
+    #[test]
+    fn test_no_alloc_during_unwind() {
+        // This test cannot run parallelly because it requires the global allocator to
+        // record the allocation count.
+
+        trigger_lazy();
+        PROFILER
+            .write()
+            .as_mut()
+            .unwrap()
+            .start(ClockType::Cpu, Vec::new())
+            .unwrap();
+        let timer = Timer::new(999);
+        let start = std::time::Instant::now();
+        ALLOC.enable_count_alloc();
+
+        // alloc something to make sure the ALLOC works fine.
+        let _alloc = Box::new(1usize);
+        // busy loop for a while to trigger some samples
+        while start.elapsed().as_millis() < 500 {
+            std::hint::black_box(());
+        }
+        ALLOC.disable_count_alloc();
+
+        assert_eq!(ALLOC.alloc_count(), 1);
+
+        drop(timer);
+        PROFILER.write().as_mut().unwrap().stop().unwrap();
+    }
+
+    #[test]
+    fn test_missed_samples_counter() {
+        trigger_lazy();
+        MISSED_SAMPLES.store(42, Ordering::Relaxed);
+        let guard = ProfilerGuard::new(100).unwrap();
+        assert_eq!(guard.missed_samples(), 0);
+
+        // Simulated missed sample (e.g. from lock contention in signal handler)
+        MISSED_SAMPLES.fetch_add(5, Ordering::Relaxed);
+        assert_eq!(guard.missed_samples(), 5);
+
+        let report = guard.report().build().unwrap();
+        assert_eq!(report.missed_samples, 5);
+    }
+
+    #[test]
+    fn test_stray_sigprof_handling() {
+        trigger_lazy();
+        {
+            let _guard = ProfilerGuard::new(100).unwrap();
+        }
+        // Profiler guard is dropped, unregister_signal_handler should have set SIG_IGN
+        // (since original disposition was default/none), so raising SIGPROF must NOT terminate the process.
+        unsafe {
+            libc::raise(libc::SIGPROF);
+        }
+    }
+
+    #[test]
+    fn test_wall_clock_profiling() {
+        trigger_lazy();
+        let guard = ProfilerGuard::with_clock_type(100, ClockType::Wall).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let report = guard.report().build().unwrap();
+        assert_eq!(report.clock_type(), ClockType::Wall);
+    }
+
+    #[test]
+    fn test_thread_blocklist_filter() {
+        trigger_lazy();
+        let profiler = Profiler {
+            data: Collector::new().unwrap(),
+            sample_counter: 0,
+            old_sigaction: None,
+            running: false,
+            clock_type: ClockType::Cpu,
+            thread_blocklist: vec![b"worker".to_vec(), b"tokio".to_vec()],
+            #[cfg(feature = "frame-pointer")]
+            on_stack: false,
+            #[cfg(any(
+                target_arch = "x86_64",
+                target_arch = "aarch64",
+                target_arch = "riscv64",
+                target_arch = "loongarch64"
+            ))]
+            blocklist_segments: Vec::new(),
+        };
+
+        assert!(profiler.is_thread_blocklisted(b"worker-1"));
+        assert!(profiler.is_thread_blocklisted(b"tokio-runtime"));
+        assert!(!profiler.is_thread_blocklisted(b"main"));
+    }
+}

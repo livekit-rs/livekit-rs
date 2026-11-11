@@ -1,0 +1,18 @@
+{
+  "status": "ACTUAL_FIXED_GO_EXECUTION_PASS",
+  "scope": "Selected actual PSRPC Response Any-wrapper unknown provenance; no media acceptance claim",
+  "source_sha256": {
+    "references/psrpc/internal/internal.proto": "839214ad35246c70dec0813904688fc99ff8168259c44e21bf22baf3f778a85e",
+    "references/psrpc/errors.go": "595d7fed393c73122019286415206428de82df85ee66f4b341b64c9b19ad5230",
+    "references/protocol-stable/utils/xtwirp/errors.go": "f7497b50bc92bd3f1858aa0729218a9bb67b70a41941b2e8a25acfe709308d8e",
+    "references/protocol-stable/livekit/sip.go": "0aab27de0f34e1dccfc8d5cbe2c58b65d83069f36f33d9c1eae9a68c20e17098"
+  },
+  "inputs_sha256": {
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "README.md": "4b9333312ea5d5f873ce5ce060cb925ad5f9e259bcb2c2eb34bd5e7288015563",
+    "go.mod": "317faee67284d8d21dff5dac1814968c34d125cc5fcc6542f8832cccbca5e7a3",
+    "go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "main.go": "703ea3cb486b39f480828118638a493d6ca50e3c825810c34a1da8230eb4bd45"
+  },
+  "actual_rows": 18
+}

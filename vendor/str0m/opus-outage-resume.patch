@@ -1,0 +1,333 @@
+diff --git a/src/config.rs b/src/config.rs
+index 4da30fc2..96ceae7e 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -48,6 +48,7 @@ pub struct RtcConfig {
+     pub(crate) reordering_size_audio: usize,
+     pub(crate) reordering_size_video: usize,
+     pub(crate) reordering_timeout_audio: Option<Duration>,
++    pub(crate) resume_opus_after_outage: bool,
+     pub(crate) reordering_timeout_video: Option<Duration>,
+     pub(crate) pause_threshold: Duration,
+     pub(crate) send_buffer_audio: usize,
+@@ -551,6 +552,14 @@ impl RtcConfig {
+         self.reordering_timeout_audio
+     }
+ 
++    /// Release complete Opus packets immediately after a source outage beyond
++    /// the reordering window. Ordinary gaps still use the configured timeout.
++    /// Disabled by default and ignored in RTP mode.
++    pub fn set_resume_opus_after_outage(mut self, enabled: bool) -> Self {
++        self.resume_opus_after_outage = enabled;
++        self
++    }
++
+     /// Sets the number of packets held back for reordering video packets.
+     ///
+     /// Str0m tries to deliver the frames in order. This number determines how many
+@@ -936,6 +945,7 @@ impl Default for RtcConfig {
+             reordering_size_audio: 15,
+             reordering_size_video: 30,
+             reordering_timeout_audio: Some(Duration::from_secs(1)),
++            resume_opus_after_outage: false,
+             reordering_timeout_video: Some(Duration::from_secs(2)),
+             pause_threshold: Duration::from_millis(1500),
+             send_buffer_audio: 50,
+diff --git a/src/media/mod.rs b/src/media/mod.rs
+index c5a09ffb..73146fa4 100644
+--- a/src/media/mod.rs
++++ b/src/media/mod.rs
+@@ -429,6 +429,7 @@ impl Media {
+         packet: RtpPacket,
+         reordering_size_audio: usize,
+         reordering_size_video: usize,
++        opus_outage_primary: bool,
+         params: &[PayloadParams],
+     ) {
+         if !self.dir.is_receiving() {
+@@ -501,7 +502,7 @@ impl Media {
+         // The entry will be there by now.
+         let buffer = self.depayloaders.get_mut(&key).unwrap();
+ 
+-        buffer.push(meta, packet.payload);
++        buffer.push_media(meta, packet.payload, opus_outage_primary);
+     }
+ 
+     pub(crate) fn set_cname(&mut self, cname: String) {
+diff --git a/src/packet/buffer_rx.rs b/src/packet/buffer_rx.rs
+index 3d50d6a8..34ccb64a 100644
+--- a/src/packet/buffer_rx.rs
++++ b/src/packet/buffer_rx.rs
+@@ -5,7 +5,7 @@ use std::sync::Arc;
+ use std::time::{Duration, Instant};
+ 
+ use crate::rtp::vla::VideoLayersAllocation;
+-use crate::rtp_::{ExtensionValues, MediaTime, RtpHeader, SenderInfo, SeqNo};
++use crate::rtp_::{ExtensionValues, MediaTime, RtpHeader, SenderInfo, SeqNo, Ssrc};
+ 
+ use super::contiguity::Contiguity;
+ use super::contiguity_vp8::Vp8Contiguity;
+@@ -136,6 +136,7 @@ struct Entry {
+     offset: usize,
+     head: bool,
+     tail: bool,
++    opus_outage_primary: bool,
+ }
+ 
+ impl Entry {
+@@ -182,6 +183,20 @@ pub struct DepacketizingBuffer {
+     max_time: Option<MediaTime>,
+     depack_cache: Option<(Range<usize>, Depacketized)>,
+     contiguity: Contiguity,
++    opus_outage_resume: Option<OpusOutageResume>,
++}
++
++#[derive(Debug, Default)]
++struct OpusOutageResume {
++    last: Option<OpusProgress>,
++}
++
++#[derive(Debug)]
++struct OpusProgress {
++    source: Ssrc,
++    sequence: SeqNo,
++    time: MediaTime,
++    received: Instant,
+ }
+ 
+ impl DepacketizingBuffer {
+@@ -214,11 +229,26 @@ impl DepacketizingBuffer {
+             max_time: None,
+             depack_cache: None,
+             contiguity,
++            opus_outage_resume: None,
+         }
+     }
+ 
+     pub fn push(&mut self, meta: RtpMeta, data: impl Into<Arc<[u8]>>) {
+-        self.push_entry(meta, data.into(), None);
++        self.push_media(meta, data, false);
++    }
++
++    pub(crate) fn push_media(
++        &mut self,
++        meta: RtpMeta,
++        data: impl Into<Arc<[u8]>>,
++        opus_outage_primary: bool,
++    ) {
++        let opus_outage_primary =
++            opus_outage_primary && matches!(self.depack, CodecDepacketizer::Opus(_));
++        if opus_outage_primary {
++            self.opus_outage_resume.get_or_insert_with(Default::default);
++        }
++        self.push_entry(meta, data.into(), None, opus_outage_primary);
+     }
+ 
+     pub(crate) fn push_padding(&mut self, mut meta: RtpMeta) {
+@@ -228,10 +258,16 @@ impl DepacketizingBuffer {
+             .ext_vals
+             .user_values
+             .set(crate::media::ForwardingPacketMeta(None));
+-        self.push_entry(meta, Arc::from([]), Some((false, false)));
++        self.push_entry(meta, Arc::from([]), Some((false, false)), false);
+     }
+ 
+-    fn push_entry(&mut self, meta: RtpMeta, data: Arc<[u8]>, partition: Option<(bool, bool)>) {
++    fn push_entry(
++        &mut self,
++        meta: RtpMeta,
++        data: Arc<[u8]>,
++        partition: Option<(bool, bool)>,
++        opus_outage_primary: bool,
++    ) {
+         // We're not emitting frames in the wrong order. If we receive
+         // packets that are before the last emitted, we drop.
+         //
+@@ -285,6 +321,7 @@ impl DepacketizingBuffer {
+                     offset: 0,
+                     head,
+                     tail,
++                    opus_outage_primary,
+                 };
+                 self.queue.insert(i, entry);
+                 self.segments_dirty = true;
+@@ -391,6 +428,7 @@ impl DepacketizingBuffer {
+         let wait_for_contiguity = !contiguous_seq
+             && !independent
+             && !more_than_hold_back
++            && !self.can_resume_opus_after_outage(start, reordering_timeout)
+             && !self.timeout_allows_progress(now, first_received, reordering_timeout);
+ 
+         if wait_for_contiguity {
+@@ -421,6 +459,7 @@ impl DepacketizingBuffer {
+ 
+         // We're not going to emit frames in the incorrect order, there's no point in keeping
+         // stuff before the emitted range.
++        let opus_outage_primary = self.queue[stop].opus_outage_primary;
+         self.consume_segment(stop);
+ 
+         if !can_emit {
+@@ -428,10 +467,52 @@ impl DepacketizingBuffer {
+         }
+ 
+         self.last_processed = Some(LastProcessed::Advanced(last));
++        if let Some(recovery) = &mut self.opus_outage_resume {
++            recovery.last = opus_outage_primary.then(|| {
++                let packet = dep.meta.last().expect("complete Opus packet");
++                OpusProgress {
++                    source: packet.header.ssrc,
++                    sequence: packet.seq_no,
++                    time: packet.time,
++                    received: packet.received,
++                }
++            });
++        }
+ 
+         Some(Ok(dep))
+     }
+ 
++    fn can_resume_opus_after_outage(&self, start: usize, timeout: Option<Duration>) -> bool {
++        let Some(last) = self
++            .opus_outage_resume
++            .as_ref()
++            .and_then(|state| state.last.as_ref())
++        else {
++            return false;
++        };
++        let Some(timeout) = timeout.filter(|timeout| !timeout.is_zero()) else {
++            return false;
++        };
++        let entry = &self.queue[start];
++        let packet = &entry.meta;
++        let missing = (*packet.seq_no)
++            .saturating_sub(*last.sequence)
++            .saturating_sub(1);
++        if !entry.opus_outage_primary
++            || packet.header.ssrc != last.source
++            || missing < self.hold_back as u64
++        {
++            return false;
++        }
++        // A jump in only the sequence number or source timestamp can be a
++        // restart rather than an outage. Both clocks must advance beyond the
++        // configured reordering window and agree within one repair deadline.
++        let horizon = timeout.saturating_mul(u32::try_from(self.hold_back).unwrap_or(u32::MAX));
++        let receive_gap = packet.received.saturating_duration_since(last.received);
++        let source_gap = Duration::from_micros(packet.time.saturating_sub(last.time).as_micros());
++        receive_gap >= horizon && source_gap >= horizon && receive_gap.abs_diff(source_gap) <= timeout
++    }
++
+     /// Fixed LiveKit (Go) forwards packets as they arrive, so after an upstream gap a
+     /// subscriber decodes the next keyframe as soon as it arrives. This frame-based buffer
+     /// would instead hold that keyframe behind older frames still waiting for retransmission,
+@@ -2636,6 +2717,64 @@ mod keyframe_skip_boundaries {
+         assert_eq!(dep.seq_range(), SeqNo::from(5)..=SeqNo::from(5));
+     }
+ 
++    #[test]
++    fn opted_in_opus_reorders_short_gaps_and_resumes_immediately_after_an_outage() {
++        let now = Instant::now();
++        let wait = Some(Duration::from_millis(40));
++        let mut buf = DepacketizingBuffer::new(CodecDepacketizer::Opus(OpusDepacketizer), 15);
++        let packet = |received_ms, seq, source_ms| {
++            let mut packet = meta(now + Duration::from_millis(received_ms), seq, 0, false);
++            packet.time = MediaTime::from_millis(source_ms);
++            packet.header.ssrc = Ssrc::from(55);
++            packet
++        };
++        buf.push_media(packet(0, 1, 20), [0xf8, 1], true);
++        assert!(buf.pop(now, wait).is_some());
++
++        buf.push_media(packet(30, 3, 60), [0xf8, 3], true);
++        assert!(buf.pop(now + Duration::from_millis(30), wait).is_none());
++        buf.push_media(packet(38, 2, 40), [0xf8, 2], false);
++        for sequence in 2u64..=3 {
++            let out = buf
++                .pop(now + Duration::from_millis(38), wait)
++                .unwrap()
++                .unwrap();
++            assert_eq!(out.seq_range(), sequence.into()..=sequence.into());
++        }
++
++        let resumed = now + Duration::from_millis(970);
++        buf.push_media(packet(970, 50, 1000), [0xf8, 50], true);
++        let out = buf.pop(resumed, wait).unwrap().unwrap();
++        assert_eq!(out.seq_range(), SeqNo::from(50)..=SeqNo::from(50));
++        assert!(!out.contiguous, "preserve the missing RTP sequence range");
++    }
++
++    #[test]
++    fn opted_in_opus_requires_same_source_and_matching_clock_advance() {
++        let now = Instant::now();
++        let wait = Some(Duration::from_millis(40));
++        let packet = |received_ms, seq, source_ms, ssrc| {
++            let mut packet = meta(now + Duration::from_millis(received_ms), seq, 0, false);
++            packet.time = MediaTime::from_millis(source_ms);
++            packet.header.ssrc = Ssrc::from(ssrc);
++            packet
++        };
++        for (next, primary) in [
++            (packet(960, 49, 980, 66), true),
++            (packet(960, 49, 20, 55), true),
++            (packet(30, 49, 980, 55), true),
++            (packet(960, 49, 1300, 55), true),
++            (packet(960, 49, 980, 55), false),
++        ] {
++            let mut buf = DepacketizingBuffer::new(CodecDepacketizer::Opus(OpusDepacketizer), 15);
++            buf.push_media(packet(0, 1, 20, 55), [0xf8, 1], true);
++            assert!(buf.pop(now, wait).is_some());
++            let received = next.received;
++            buf.push_media(next, [0xf8, 49], primary);
++            assert!(buf.pop(received, wait).is_none());
++        }
++    }
++
+     #[test]
+     fn h264_idr_after_a_gap_is_unchanged_and_waits() {
+         let now = Instant::now();
+diff --git a/src/session.rs b/src/session.rs
+index d871e677..121f2774 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -112,6 +112,7 @@ pub(crate) struct Session {
+     reordering_size_audio: usize,
+     reordering_size_video: usize,
+     reordering_timeout_audio: Option<Duration>,
++    resume_opus_after_outage: bool,
+     reordering_timeout_video: Option<Duration>,
+     intervals: RtcpReportIntervals,
+     pub send_buffer_audio: usize,
+@@ -245,6 +246,7 @@ impl Session {
+             reordering_size_audio: config.reordering_size_audio,
+             reordering_size_video: config.reordering_size_video,
+             reordering_timeout_audio: config.reordering_timeout_audio,
++            resume_opus_after_outage: config.resume_opus_after_outage,
+             reordering_timeout_video: config.reordering_timeout_video,
+             intervals: config.intervals,
+             send_buffer_audio: config.send_buffer_audio,
+@@ -1162,11 +1164,17 @@ impl Session {
+             // In non-RTP mode, we let the Media use a Depayloader.
+             // unwrap is fine because mid_and_ssrc_for_header guarantees it.
+             let media = self.medias.iter_mut().find(|m| m.mid() == mid).unwrap();
++            let outage_primary = self.resume_opus_after_outage
++                && !is_repair
++                && !is_red
++                && receipt.is_new_packet
++                && !packet.payload.is_empty();
+             media.depayload(
+                 stream.rid(),
+                 packet,
+                 self.reordering_size_audio,
+                 self.reordering_size_video,
++                outage_primary,
+                 &self.codec_config,
+             );
+         }
+@@ -1183,6 +1191,7 @@ impl Session {
+                 rec_packet,
+                 self.reordering_size_audio,
+                 self.reordering_size_video,
++                false,
+                 &self.codec_config,
+             );
+         }

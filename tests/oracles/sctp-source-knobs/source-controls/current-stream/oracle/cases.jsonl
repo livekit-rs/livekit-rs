@@ -1,0 +1,8 @@
+{"id":"fast_rexmit_to_reliable","selector":"fast","initial_kind":"rexmit","initial_value":1,"operation":"set","replacement_kind":"reliable","replacement_value":0}
+{"id":"fast_reliable_to_rexmit","selector":"fast","initial_kind":"reliable","initial_value":0,"operation":"set","replacement_kind":"rexmit","replacement_value":1}
+{"id":"fast_removed_rexmit","selector":"fast","initial_kind":"rexmit","initial_value":1,"operation":"remove","replacement_kind":"reliable","replacement_value":0}
+{"id":"fast_reliable_control","selector":"fast","initial_kind":"reliable","initial_value":0,"operation":"set","replacement_kind":"reliable","replacement_value":0}
+{"id":"rto_rexmit_to_reliable","selector":"rto","initial_kind":"rexmit","initial_value":1,"operation":"set","replacement_kind":"reliable","replacement_value":0}
+{"id":"rto_reliable_to_rexmit","selector":"rto","initial_kind":"reliable","initial_value":0,"operation":"set","replacement_kind":"rexmit","replacement_value":1}
+{"id":"rto_removed_rexmit","selector":"rto","initial_kind":"rexmit","initial_value":1,"operation":"remove","replacement_kind":"reliable","replacement_value":0}
+{"id":"rto_reliable_control","selector":"rto","initial_kind":"reliable","initial_value":0,"operation":"set","replacement_kind":"reliable","replacement_value":0}

@@ -1,0 +1,94 @@
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -229,9 +229,9 @@
+     /// Reserved bits in frame header are non-zero.
+     #[error("Reserved bits are non-zero")]
+     NonZeroReservedBits,
+-    /// Frame header rejected by the opted-in LiveKit RTC/Gorilla wire policy.
+-    #[error("LiveKit RTC frame header: {0}")]
+-    LivekitRtcFrameHeader(std::sync::Arc<String>),
++    /// Frame rejected by the opted-in LiveKit RTC/Gorilla wire policy.
++    #[error("LiveKit RTC frame: {0}")]
++    LivekitRtcProtocolViolation(std::sync::Arc<String>),
+     /// The negotiated raw DEFLATE message was malformed or incomplete.
+     #[error("Invalid permessage-deflate payload")]
+     InvalidCompression,
+--- a/src/protocol/mod.rs
++++ b/src/protocol/mod.rs
+@@ -747,7 +747,11 @@
+                         Err(Error::Protocol(ProtocolError::ControlFrameTooBig))
+                     }
+                     OpCtl::Close => {
+-                        let close = frame.into_close()?;
++                        let close = if server && livekit_rtc_reserved_bits {
++                            read_livekit_rtc_close(frame)?
++                        } else {
++                            frame.into_close()?
++                        };
+                         self.incoming_deflate = None;
+                         self.incomplete = None;
+                         self.wire_message_size = 0;
+@@ -1028,7 +1032,26 @@
+     if errors.is_empty() {
+         return Ok(());
+     }
+-    Err(ProtocolError::LivekitRtcFrameHeader(std::sync::Arc::new(errors.join(", "))).into())
++    Err(livekit_rtc_violation(errors.join(", ")))
++}
++
++// Gorilla v1.5.3 conn.go advanceFrame accepts a missing status even for
++// a one-byte Close and checks the code before the UTF-8 reason.
++fn read_livekit_rtc_close(frame: Frame) -> Result<Option<CloseFrame>> {
++    let [high, low, ..] = frame.payload().as_ref() else {
++        return Ok(None);
++    };
++    let code = u16::from_be_bytes([*high, *low]);
++    if !matches!(code, 1000..=1003 | 1007..=1013 | 3000..=4999) {
++        return Err(livekit_rtc_violation(format!("bad close code {code}")));
++    }
++    frame
++        .into_close()
++        .map_err(|_| livekit_rtc_violation("invalid utf8 payload in close frame".to_owned()))
++}
++
++fn livekit_rtc_violation(reason: String) -> Error {
++    ProtocolError::LivekitRtcProtocolViolation(std::sync::Arc::new(reason)).into()
+ }
+ 
+ // Gorilla v1.5.3 conn.go advanceFrame accepts negotiated RSV1 on all
+@@ -1426,6 +1449,35 @@
+     }
+ 
+     #[test]
++    fn livekit_rtc_close_payload_uses_gorilla_status_then_utf8() {
++        let close = |payload: &[u8]| raw(OpCode::Control(OpCtl::Close), true, false, payload, true);
++        let mut rtc = config();
++        rtc.livekit_rtc_reserved_bits = true;
++        let one_byte = close(&[3]);
++        assert_eq!(
++            reader(one_byte.clone(), Role::Server, rtc).read().unwrap(),
++            Message::Close(None)
++        );
++        assert!(matches!(
++            reader(one_byte, Role::Server, config()).read(),
++            Err(Error::Protocol(ProtocolError::InvalidCloseSequence))
++        ));
++
++        for (payload, expected) in [
++            ([3, 246, 255], "bad close code 1014"),
++            ([3, 232, 255], "invalid utf8 payload in close frame"),
++        ] {
++            let error = reader(close(&payload), Role::Server, rtc).read().unwrap_err();
++            match error {
++                Error::Protocol(ProtocolError::LivekitRtcProtocolViolation(reason)) => {
++                    assert_eq!(reason.as_str(), expected);
++                }
++                other => panic!("unexpected close error: {other}"),
++            }
++        }
++    }
++
++    #[test]
+     fn malformed_deflate_reserved_bits_and_context_takeover_are_rejected() {
+         let good = [0xf2, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00];
+         let input = raw(OpCode::Data(OpData::Text), true, true, &good, true);

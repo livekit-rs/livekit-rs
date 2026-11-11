@@ -1,0 +1,4 @@
+/target/
+/target-armv8/
+/target-software/
+/__pycache__/

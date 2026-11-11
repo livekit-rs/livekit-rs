@@ -1,0 +1,144 @@
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -571,7 +571,11 @@
+     }
+ 
+     pub fn reset(&mut self, init_bitrate: Bitrate) {
++        // TWCC send records outlive a BWE reset. Never reuse a cluster identity
++        // within this transport, including packets sent at the same Instant.
++        let next_id = self.probe_control.next_cluster_id();
+         *self = Self::new(init_bitrate);
++        self.probe_control.continue_cluster_ids(next_id);
+     }
+ }
+ 
+--- a/src/bwe/probe/cluster.rs
++++ b/src/bwe/probe/cluster.rs
+@@ -265,7 +265,12 @@
+     /// to calculate the target bytes threshold. This ensures probes complete even
+     /// when all packets are sent at the same instant (e.g., in tests or when the
+     /// pacer generates bursts faster than wall-clock time advances).
+-    pub fn is_complete(&self, _now: Instant) -> bool {
++    pub fn is_complete(&self, now: Instant) -> bool {
++        if self.config.kind == ProbeKind::Validation
++            && self.validation_end().is_some_and(|end| now >= end)
++        {
++            return true;
++        }
+         if self.started_at.is_none() {
+             return false; // Not started yet
+         }
+@@ -285,13 +290,29 @@
+         bytes_met && packets_met && validation_span_met
+     }
+ 
++    pub(crate) fn validation_end(&self) -> Option<Instant> {
++        (self.config.kind == ProbeKind::Validation)
++            .then(|| {
++                self.config
++                    .requested_at
++                    .or(self.started_at)
++                    .map(|at| at + Duration::from_secs(2))
++            })
++            .flatten()
++    }
++
++    /// Packet pacing and padding generation deadlines are separate: empty
++    /// queues must wait for the next request burst, not spin on an old packet time.
++    pub(crate) fn next_padding_time(&self) -> Instant {
++        self.next_probe_time()
++            .max(self.last_padding_at + self.config.min_probe_delta())
++    }
++
+     /// Check if it's time to send the next probe packet.
+     ///
+     /// Returns `true` if `now >= next_probe_time()`, meaning we should send a packet now.
+     pub fn should_send_now(&self, now: Instant) -> bool {
+-        let next_time = self.next_probe_time();
+-        let min_burst_time = self.last_padding_at + self.config.min_probe_delta();
+-        now >= next_time && now >= min_burst_time
++        now >= self.next_padding_time()
+     }
+ 
+     /// Calculate how much padding should be generated for the next probe packet.
+@@ -396,6 +417,24 @@
+ #[cfg(test)]
+ mod test {
+     use super::*;
++
++    #[test]
++    fn validation_padding_generation_and_two_second_wall_deadline_are_separate() {
++        let start = Instant::now();
++        let config = ProbeClusterConfig::new(0.into(), Bitrate::mbps(2), ProbeKind::Validation)
++            .with_duration(Duration::from_secs(2))
++            .with_requested_at(start);
++        let mut state = ProbeClusterState::new(config);
++        let size = state.next_packet(start).unwrap();
++        state.record_packet(start, DataSize::bytes(280));
++        // Queued packets may spend earned credit immediately, but an empty
++        // padding queue waits for a fresh request burst instead of busy-spinning.
++        assert!(state.next_probe_time() <= start);
++        assert_eq!(state.next_padding_time(), start + Duration::from_millis(2));
++        assert!(size > DataSize::ZERO);
++        assert!(!state.is_complete(start + Duration::from_secs(2) - Duration::from_nanos(1)));
++        assert!(state.is_complete(start + Duration::from_secs(2)));
++    }
+ 
+     #[test]
+     fn long_validation_stall_credit_is_bounded_to_one_burst_plus_packet() {
+--- a/src/bwe/probe/control.rs
++++ b/src/bwe/probe/control.rs
+@@ -125,6 +125,13 @@
+ impl ProbeControl {
+     pub fn new() -> Self {
+         Self::default()
++    }
++
++    pub(crate) fn next_cluster_id(&self) -> TwccClusterId {
++        self.next_cluster_id
++    }
++    pub(crate) fn continue_cluster_ids(&mut self, next: TwccClusterId) {
++        self.next_cluster_id = next;
+     }
+ 
+     pub(crate) fn validation_config(
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -73,7 +73,10 @@
+             .map(|(t, r)| (Some(t), Reason::Pacer(r)))
+             .unwrap_or((None, Reason::NotHappening));
+ 
+-        (next_handle_time, Reason::Pacer(PacerReason::Handle)).soonest(poll_at)
++        let validation_end = self.probe_queue.front().and_then(|p| p.validation_end());
++        (next_handle_time, Reason::Pacer(PacerReason::Handle))
++            .soonest(poll_at)
++            .soonest((validation_end, Reason::Pacer(PacerReason::Probe1)))
+     }
+ 
+     fn handle_timeout(
+@@ -154,6 +157,16 @@
+         // This ensures probe timing advances correctly even when sending media packets
+         if let Some(probe) = self.probe_queue.front_mut() {
+             probe.record_packet(now, packet_size);
++        }
++
++        if let Some(probe) = self.probe_queue.front()
++            && probe.config().kind() == crate::bwe::ProbeKind::Validation
++        {
++            // The native driver already supports draining due-now work in one
++            // bounded wake. Do not force a fresh OS timer for every padding
++            // packet: a 1us timer becomes ~1ms and caps small packets at 1kpps.
++            // Only already-earned, bounded 2ms credit can produce a due-now poll.
++            self.next_poll_time = Some((probe.next_probe_time().max(now), PacerReason::Immediate));
+         }
+ 
+         // Check if probe is complete and store it for later retrieval
+@@ -363,7 +376,7 @@
+ 
+         // If we're actively probing, use probe timing for padding
+         if let Some(probe) = self.probe_queue.front() {
+-            let next_probe_time = probe.next_probe_time();
++            let next_probe_time = probe.next_padding_time();
+             // We explicitly don't return a queue to poll here. We need another call to
+             // handle_timeout to request the padding before we can poll the selected queue.
+             return Some(((next_probe_time, PacerReason::Probe2), None));

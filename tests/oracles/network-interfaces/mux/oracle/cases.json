@@ -1,0 +1,781 @@
+[
+  {
+    "id": "include-0-exclude-0",
+    "includes": [],
+    "excludes": [],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-0-exclude-1",
+    "includes": [],
+    "excludes": [
+      "en0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-0-exclude-2",
+    "includes": [],
+    "excludes": [
+      "lo0",
+      "en1"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-0-exclude-3",
+    "includes": [],
+    "excludes": [
+      "en*"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-0-exclude-4",
+    "includes": [],
+    "excludes": [
+      "lo0",
+      "en0",
+      "en1",
+      "eth0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-1-exclude-0",
+    "includes": [
+      "lo0"
+    ],
+    "excludes": [],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-1-exclude-1",
+    "includes": [
+      "lo0"
+    ],
+    "excludes": [
+      "en0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-1-exclude-2",
+    "includes": [
+      "lo0"
+    ],
+    "excludes": [
+      "lo0",
+      "en1"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-1-exclude-3",
+    "includes": [
+      "lo0"
+    ],
+    "excludes": [
+      "en*"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-1-exclude-4",
+    "includes": [
+      "lo0"
+    ],
+    "excludes": [
+      "lo0",
+      "en0",
+      "en1",
+      "eth0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-2-exclude-0",
+    "includes": [
+      "en0"
+    ],
+    "excludes": [],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-2-exclude-1",
+    "includes": [
+      "en0"
+    ],
+    "excludes": [
+      "en0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-2-exclude-2",
+    "includes": [
+      "en0"
+    ],
+    "excludes": [
+      "lo0",
+      "en1"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-2-exclude-3",
+    "includes": [
+      "en0"
+    ],
+    "excludes": [
+      "en*"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-2-exclude-4",
+    "includes": [
+      "en0"
+    ],
+    "excludes": [
+      "lo0",
+      "en0",
+      "en1",
+      "eth0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-3-exclude-0",
+    "includes": [
+      "en*"
+    ],
+    "excludes": [],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-3-exclude-1",
+    "includes": [
+      "en*"
+    ],
+    "excludes": [
+      "en0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-3-exclude-2",
+    "includes": [
+      "en*"
+    ],
+    "excludes": [
+      "lo0",
+      "en1"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-3-exclude-3",
+    "includes": [
+      "en*"
+    ],
+    "excludes": [
+      "en*"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-3-exclude-4",
+    "includes": [
+      "en*"
+    ],
+    "excludes": [
+      "lo0",
+      "en0",
+      "en1",
+      "eth0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-4-exclude-0",
+    "includes": [
+      "en1",
+      "lo0"
+    ],
+    "excludes": [],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-4-exclude-1",
+    "includes": [
+      "en1",
+      "lo0"
+    ],
+    "excludes": [
+      "en0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-4-exclude-2",
+    "includes": [
+      "en1",
+      "lo0"
+    ],
+    "excludes": [
+      "lo0",
+      "en1"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-4-exclude-3",
+    "includes": [
+      "en1",
+      "lo0"
+    ],
+    "excludes": [
+      "en*"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-4-exclude-4",
+    "includes": [
+      "en1",
+      "lo0"
+    ],
+    "excludes": [
+      "lo0",
+      "en0",
+      "en1",
+      "eth0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-5-exclude-0",
+    "includes": [
+      "adapter name"
+    ],
+    "excludes": [],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-5-exclude-1",
+    "includes": [
+      "adapter name"
+    ],
+    "excludes": [
+      "en0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-5-exclude-2",
+    "includes": [
+      "adapter name"
+    ],
+    "excludes": [
+      "lo0",
+      "en1"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-5-exclude-3",
+    "includes": [
+      "adapter name"
+    ],
+    "excludes": [
+      "en*"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-5-exclude-4",
+    "includes": [
+      "adapter name"
+    ],
+    "excludes": [
+      "lo0",
+      "en0",
+      "en1",
+      "eth0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-6-exclude-0",
+    "includes": [
+      "网卡"
+    ],
+    "excludes": [],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-6-exclude-1",
+    "includes": [
+      "网卡"
+    ],
+    "excludes": [
+      "en0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-6-exclude-2",
+    "includes": [
+      "网卡"
+    ],
+    "excludes": [
+      "lo0",
+      "en1"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-6-exclude-3",
+    "includes": [
+      "网卡"
+    ],
+    "excludes": [
+      "en*"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  },
+  {
+    "id": "include-6-exclude-4",
+    "includes": [
+      "网卡"
+    ],
+    "excludes": [
+      "lo0",
+      "en0",
+      "en1",
+      "eth0"
+    ],
+    "names": [
+      "lo",
+      "lo0",
+      "en0",
+      "en1",
+      "en10",
+      "eth0",
+      "ETH0",
+      "en*",
+      "adapter name",
+      "网卡",
+      ""
+    ]
+  }
+]

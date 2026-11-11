@@ -1,0 +1,12 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -73,7 +73,8 @@
+ default-features = false
+ 
+ [dependencies.paste]
+-version = "1"
++version = "=0.2.3"
++package = "pastey"
+ 
+ [dependencies.rkyv]
+ version = "0.8"

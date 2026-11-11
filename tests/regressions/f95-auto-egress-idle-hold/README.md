@@ -1,0 +1,3 @@
+# Actual automatic-Egress owner idle hold counterexample
+
+From livekit-rs-server apply bypass-idle-hold.patch with patch -p1, run cargo test --locked -p rtc-runtime --lib auto_egress_creation_tests:: -- --nocapture, then reverse the patch before any build/release. The actual3 unchanged owner tests all fail when only idle-close holding is bypassed; restoring production passes3/3. Compilation failures and0 tests are not this RED. This preserves the real registry, owner task, idle timer, explicit delete/newSID and actual spawned-task abort behavior. No external worker reply is mocked or claimed successful. Real automatic Egress worker/file/API gates remain separately pending; see f95-owner-idle-hold-red-green.json.

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/livekit/psrpc",
+  "tag": "v0.8.2",
+  "commit": "e9701ee1b5a981cfa3c7c69503d4775ddff13729",
+  "sha256": {
+    "internal.proto": "839214ad35246c70dec0813904688fc99ff8168259c44e21bf22baf3f778a85e",
+    "options.proto": "8fa315f0fd52c612ab1f7cdfd7979f14f94ccd480b418425103d34121aa824ca"
+  },
+  "reference_subdirectory": "internal",
+  "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "reference_paths": {
+    "options.proto": "protoc-gen-psrpc/options/options.proto"
+  }
+}

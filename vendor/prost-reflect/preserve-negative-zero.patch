@@ -1,0 +1,49 @@
+--- a/src/dynamic/mod.rs
++++ b/src/dynamic/mod.rs
+@@ -23,13 +23,13 @@
+ pub(crate) use self::fields::FieldDescriptorLike;
+ 
+ use prost::{
++    DecodeError, Message,
+     bytes::{Buf, Bytes},
+-    DecodeError, Message,
+ };
+ 
+ use self::fields::DynamicMessageFieldSet;
+ use crate::{
+-    descriptor::Kind, ExtensionDescriptor, FieldDescriptor, MessageDescriptor, ReflectMessage,
++    ExtensionDescriptor, FieldDescriptor, MessageDescriptor, ReflectMessage, descriptor::Kind,
+ };
+ 
+ /// [`DynamicMessage`] provides encoding, decoding and reflection of a protobuf message.
+@@ -619,17 +619,27 @@
+ 
+     /// Returns `true` if this is the default value for the given protobuf field.
+     pub fn is_default_for_field(&self, field_desc: &FieldDescriptor) -> bool {
+-        *self == Value::default_value_for_field(field_desc)
++        self.default_value_eq(&Value::default_value_for_field(field_desc))
+     }
+ 
+     /// Returns `true` if this is the default value for the given protobuf extension field.
+     pub fn is_default_for_extension(&self, extension_desc: &ExtensionDescriptor) -> bool {
+-        *self == Value::default_value_for_extension(extension_desc)
++        self.default_value_eq(&Value::default_value_for_extension(extension_desc))
+     }
+ 
+     /// Returns `true` if this is the default value for the given protobuf type `kind`.
+     pub fn is_default(&self, kind: &Kind) -> bool {
+-        *self == kind.default_value()
++        self.default_value_eq(&kind.default_value())
++    }
++
++    // Protobuf implicit float presence distinguishes -0 from the +0 default.
++    // Keep ordinary equality (including existing NaN behavior) otherwise.
++    fn default_value_eq(&self, default: &Self) -> bool {
++        match (self, default) {
++            (Self::F32(a), Self::F32(b)) if *a == 0.0 && *b == 0.0 => a.to_bits() == b.to_bits(),
++            (Self::F64(a), Self::F64(b)) if *a == 0.0 && *b == 0.0 => a.to_bits() == b.to_bits(),
++            _ => self == default,
++        }
+     }
+ 
+     /// Returns `true` if this value can be set for a given field.

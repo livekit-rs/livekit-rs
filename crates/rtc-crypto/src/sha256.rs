@@ -1,0 +1,19 @@
+// Copied from str0m-rust-crypto 0.6.0 (MIT OR Apache-2.0, (c) Martin Algesten).
+// Unmodified apart from this header; see crates/rtc-crypto/NOTICE.
+//! RustCrypto SHA-256 implementation.
+
+use sha2::{Digest, Sha256};
+
+use str0m_proto::crypto::Sha256Provider;
+
+/// RustCrypto-based SHA-256 provider.
+#[derive(Debug)]
+pub struct RustCryptoSha256Provider;
+
+impl Sha256Provider for RustCryptoSha256Provider {
+    fn sha256(&self, data: &[u8]) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        hasher.finalize().into()
+    }
+}

@@ -1,0 +1,51 @@
+{
+  "repository": "https://github.com/RustCrypto/rustls-rustcrypto",
+  "commit": "70f76c039e587192688af18a80d5d6435dedaf22",
+  "license": "MIT OR Apache-2.0",
+  "scope": "interface/glue reference only; alpha crate not a production dependency",
+  "reference_sha256": {
+    "src/hash.rs": "0b3794dc220e978328989edb4f437c084ef39f9cf982ca6f8f5bd9b4745e23ab",
+    "src/hmac.rs": "f83bc9024113136cebd184c1aae335e56564bd5bbe42587dc0622108995dc5a3",
+    "src/kx.rs": "c50172468fe432fc8d288e7b76d9558de0f893fddc32349a882a2b9d9df3fd65",
+    "src/sign/ecdsa.rs": "86e9764968168db4975e206181985024448ae6c86dc03ee367ed513d75e1ed42",
+    "src/verify/ecdsa.rs": "22ea7cddc0aa3b1280d101519e074bf52050cbf9085ab3fe6a6591cd425bda25",
+    "src/aead/gcm.rs": "82a1eed6200d429d6e34f24281608b13d99ba483c0cd5e3a3e1946cf2e17c2c1"
+  },
+  "license_files_sha256": {
+    "third-party/rustls-rustcrypto/LICENSE-MIT": "1b9cec622a18a7789d0154a3040d7448f79414aed2fc31b95e49b01a234fb998",
+    "third-party/rustls-rustcrypto/LICENSE-APACHE": "a9040321c3712d8fd0b09cf52b17445de04a23a10165049ae187cd39e5c86be5"
+  },
+  "upstream_notice": "No NOTICE file exists in the locked upstream commit.",
+  "attribution": "THIRD_PARTY.md",
+  "rsa_signing_reference": {
+    "repository": "https://github.com/RustCrypto/RSA",
+    "version": "0.10.0-rc.19",
+    "commit": "db103005d1c9ae550efc5f6daa1b9cfe150e549a",
+    "production_dependency": false,
+    "purpose": "Narrow sign encoding/blinding/fault-check source reference; private arithmetic uses stable crypto-bigint, not rsa0.9 private API or rc package.",
+    "sha256": {
+      "src/algorithms/rsa.rs": "08783ec21465790dd209599fd9a2f392ee0e691d68bbb360a0f1d137ac221613",
+      "src/algorithms/pss.rs": "dbf4cac03181170001cc488bf23b0c2c251ad3c3d4e0ee5b07f8c9fd7d92b9e2",
+      "src/algorithms/pkcs1v15.rs": "7edd2f5a75fbb0e258eede24abb1297246c1fb974ca8dd45a3796cbc78a80d1a",
+      "LICENSE-MIT": "30fefc3a7d6a0041541858293bcbea2dde4caa4c0a5802f996a7f7e8c0085652",
+      "LICENSE-APACHE": "769f80b5bcb42ed0af4e4d2fd74e1ac9bf843cb80c5a29219d1ef3544428a6bb"
+    }
+  },
+  "crypto_bigint_reference": {
+    "version": "0.7.5",
+    "repository": "https://github.com/RustCrypto/crypto-bigint",
+    "scope": "stable production arithmetic: full-width pow, constant-time modular inverse, zeroization; no _vartime operation on private exponent",
+    "reference_sha256": {
+      "src/modular/boxed_monty_form/pow.rs": "cff0db0dd0ca7b2b9d37a2ee10d9802f27530c1b5f15122d8a08bc1a478ea339",
+      "src/modular/pow.rs": "29436a29f53911ee90c5566b13de84410936b1d575172318fa9f986f29702fb9",
+      "src/uint/boxed/invert_mod.rs": "d73c34c128c17a72b954acd823e96f9d07716bb1f63c918cc98004f7aa071049",
+      "src/modular/boxed_monty_form.rs": "b7342e45b34f5fc3a052b603564799c3e9c44f21a2396ce9350c7d46553814c4"
+    }
+  },
+  "adapted_aead_sources": {
+    "src/aead.rs": "c29e5e65f9c8ad5d6f759f507d4722363bb614b9d184b4098f990057e9ed86f6",
+    "src/aead/gcm.rs": "82a1eed6200d429d6e34f24281608b13d99ba483c0cd5e3a3e1946cf2e17c2c1",
+    "src/aead/chacha20.rs": "1977208a25c634fcf4a0e713b49631a6f13fc787953441779459e8795226b93c"
+  },
+  "native_roots_notice": "NOTICE-rustls-native-certs.txt"
+}

@@ -1,0 +1,31 @@
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -2217,7 +2217,7 @@
+             bytes[2..4].copy_from_slice(&sequence.to_be_bytes());
+             bytes[4..8].copy_from_slice(&3000u32.to_be_bytes());
+             // Genuine encrypted RTP, intentionally no E/marker or complete codec frame.
+-            let payload = [0xa8, 0x81, 0x23, 0x20, 0x82, sequence as u8];
++            let payload = [0xa8, 0x81, 0x23, 0x60, 0x82, sequence as u8];
+             bytes.extend_from_slice(&payload);
+             let header = RtpHeader::parse(&bytes, &ExtensionMap::empty()).unwrap();
+             let encrypted = tx.protect_rtp(&bytes, &header, u64::from(sequence));
+@@ -2230,7 +2230,7 @@
+             );
+             session.handle_rtp_receive(now, &encrypted);
+             let mut observed = None;
+-            while let Some(event) = session.poll_event_fallible(now).unwrap() {
++            while let Some(event) = session.poll_event() {
+                 match event {
+                     Event::MediaPacket(packet) => {
+                         assert!(observed.is_none());
+@@ -2240,6 +2240,10 @@
+                     _ => {}
+                 }
+             }
++            assert!(
++                session.poll_event_fallible(now).unwrap().is_none(),
++                "original incomplete payload must not fabricate an assembled frame"
++            );
+             let packet =
+                 observed.expect("every accepted original packet emits before a final fragment");
+             assert_eq!(*packet.packet.seq_no, u64::from(sequence));

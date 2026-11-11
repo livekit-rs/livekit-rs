@@ -1,0 +1,14 @@
+{
+  "status": "PUBLIC_REPRODUCIBLE_FIXTURE_ACTUAL_RESULTS_IN_EVIDENCE",
+  "scope": "Actual config.NewConfig YAML-to-generated-double-bit source consumer, not a hand-written expected parser",
+  "case_count": 47,
+  "inputs": {
+    "README.md": "d492af98bd0d699639feabb944d944e3d5f37a78a1650db8a30bcca06c6f68fa",
+    "cases.jsonl": "cf753deaaa3c6ea621f2afe1a9be08df9ebb8ba8fdfed8250628f64e7046497d",
+    "main.go": "cc2d0819ed016adb842125cc38abf38c7c773fb1eb9f2018c6c4b8342c55771f"
+  },
+  "target": {
+    "server": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "protocol": "9bb708cdb81918a6c63dd25e915b4644310b45b6"
+  }
+}

@@ -1,0 +1,1363 @@
+[
+  {
+    "name": "sort-clients",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.8,
+          "load_avg_last1min": 1.6,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "sort-rooms",
+    "kind": "any",
+    "sort_by": "rooms",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.8,
+          "load_avg_last1min": 1.6,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "sort-tracks",
+    "kind": "any",
+    "sort_by": "tracks",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.8,
+          "load_avg_last1min": 1.6,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "sort-cpuload",
+    "kind": "any",
+    "sort_by": "cpuload",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.8,
+          "load_avg_last1min": 1.6,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "sort-sysload",
+    "kind": "any",
+    "sort_by": "sysload",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.8,
+          "load_avg_last1min": 1.6,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "sort-bytespersec",
+    "kind": "any",
+    "sort_by": "bytespersec",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.8,
+          "load_avg_last1min": 1.6,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "cpu-strict",
+    "kind": "cpuload",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.9,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.8,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "cpu-all-over-fallback",
+    "kind": "cpuload",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.01,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "sys-strict",
+    "kind": "sysload",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 1.8,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 1.6,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "sys-all-over-fallback",
+    "kind": "sysload",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.01,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "exact-five-expired",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      5,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "future-available",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      -1,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "draining-excluded",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 1,
+        "region": "",
+        "stats": {
+          "num_clients": 0,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 0,
+          "num_tracks_in": 0,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 0.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "twochoice-two-exhaustive",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "twochoice",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "random-single-nil-stats",
+    "kind": "any",
+    "sort_by": "random",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": ""
+      }
+    ]
+  },
+  {
+    "name": "nil-stats-cpu-source-panic",
+    "kind": "cpuload",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": ""
+      }
+    ]
+  },
+  {
+    "name": "unknown-kind",
+    "kind": "invalid",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "unknown-sort",
+    "kind": "any",
+    "sort_by": "invalid",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "unknown-algorithm",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "invalid",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "empty-sort",
+    "kind": "any",
+    "sort_by": "",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "empty-algorithm",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "region-empty",
+    "kind": "regionaware",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "region-not-listed",
+    "kind": "regionaware",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ],
+    "region": "home",
+    "regions": [
+      {
+        "name": "other",
+        "lat": 0,
+        "lon": 0
+      }
+    ]
+  },
+  {
+    "name": "region-nearest",
+    "kind": "regionaware",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "far-cheap",
+        "state": 0,
+        "region": "far",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "near-busy",
+        "state": 0,
+        "region": "near",
+        "stats": {
+          "num_clients": 10,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 10,
+          "num_tracks_in": 10,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 1000.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ],
+    "region": "home",
+    "regions": [
+      {
+        "name": "home",
+        "lat": 0,
+        "lon": 0
+      },
+      {
+        "name": "near",
+        "lat": 0,
+        "lon": 1
+      },
+      {
+        "name": "far",
+        "lat": 0,
+        "lon": 100
+      }
+    ]
+  },
+  {
+    "name": "limit-equal",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      0,
+      0
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ],
+    "track_limit": 2,
+    "bytes_limit": 200
+  },
+  {
+    "name": "no-fresh",
+    "kind": "any",
+    "sort_by": "clients",
+    "algorithm": "lowest",
+    "cpu_limit": 0.9,
+    "sysload_limit": 0.9,
+    "ages": [
+      5,
+      99
+    ],
+    "nodes": [
+      {
+        "id": "a",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 1,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 1,
+          "num_tracks_in": 1,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 100.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "b",
+        "state": 0,
+        "region": "",
+        "stats": {
+          "num_clients": 2,
+          "cpu_load": 0.1,
+          "load_avg_last1min": 0.2,
+          "num_cpus": 2,
+          "num_rooms": 2,
+          "num_tracks_in": 2,
+          "bytes_in": 100,
+          "rates": [
+            {
+              "bytes_in": 200.0,
+              "bytes_out": 0.0
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

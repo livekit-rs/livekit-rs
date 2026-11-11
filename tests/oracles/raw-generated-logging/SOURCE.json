@@ -1,0 +1,8 @@
+{
+  "status": "NOT_COMPILED_NOT_RUN",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "inputs": {
+    "main.go": "32345a3631c8517e039e6b0a98ec7240fcc00ab6678f5643be5d6acc58c066c8"
+  }
+}

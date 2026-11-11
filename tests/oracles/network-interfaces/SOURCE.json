@@ -1,0 +1,39 @@
+{
+  "status": "PUBLIC_INPUTS_BYTE_IDENTICAL_TO_ORIGINAL_FROZEN_ORACLES_NO_RESULTS_EMBEDDED",
+  "source_modules": [
+    "fixed LiveKit server module/sum with original replacement closure",
+    "github.com/livekit/ice/v4 v4.4.0-warp.3",
+    "github.com/livekit/mediatransportutil f234b534b095",
+    "github.com/livekit/webrtc-pion/v4 v4.2.18-warp.6"
+  ],
+  "original_mux_stage_lock_sha256": "f61d9b1470ddea0e0f300a30fd2a8d36762dc4b59b0c5fec652c6536b4853589",
+  "original_loopback_source_sha256": "1d1fbe89ac38f23e7c0b201dc764404119569b5f9a749fbb0c9d3b7236df07af",
+  "files_sha256": {
+    "LICENSE-LIVEKIT-APACHE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-PION-MIT.txt": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "README.md": "a63733cbf8f40e9433fab7b68414a33c878fa737c3f0f429982d185a49dee56c",
+    "loopback/README.md": "b9c21b730f9ecd182979c4fa362e207f6d56e15968a19783d22ee051eb490da0",
+    "loopback/SOURCE.json": "1d1fbe89ac38f23e7c0b201dc764404119569b5f9a749fbb0c9d3b7236df07af",
+    "loopback/oracle/go.mod": "8897f277a34a6f8e4a1917c030adf5f8a6b8f9931d2f58a15a8f725c98a7bade",
+    "loopback/oracle/go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "loopback/oracle/loopback/main.go": "6a830bccc5b0b087360c8a498ac5b738f45b39126e61d02a77ce4fb88f4c5753",
+    "loopback/prepare.py": "0e89b29d905ad6b4257965a95097d5780a9cd959dc4868e7bed1f92b76604aaf",
+    "loopback/source/LiveKit-MTU-LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "loopback/source/Pion-MIT.txt": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "loopback/source/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "loopback/source/mtu-config.go": "9ee3e62387fd102bc993c7cd85f9f2218dc3b9541b1a015c0b595cba6a7594ac",
+    "loopback/source/udpmultimux.go": "94ffc3c30cd70f60cdd7fcd3b7d97ddad29a83d353ae18c2bc37c84ea3a02b77",
+    "loopback/source/webrtc_config.go": "9314905fef010cb6d647d153d66365e56d2e894d4b845ee3b24d058a77248e16",
+    "mux/oracle/cases.json": "0e2e0e13b8305c1590428e36eefcdacda24122d1c5c42bd8ff868adf3bd53b94",
+    "mux/oracle/edges/main.go": "42873e0f7cad00d042b8a002dc998de6046a2545af6a580bbf281121a44d27e4",
+    "mux/oracle/full-agent/main.go": "fe41c5aa57592e821b2aa8f9eb1ac3a914ef1cf1be573d135c90833839c8b1a2",
+    "mux/oracle/full-agent-existing/main.go": "2da7c7c845fc479aec094b0df04ff33b0814daf7827adaef8c230195de7d685a",
+    "mux/oracle/go.mod": "8897f277a34a6f8e4a1917c030adf5f8a6b8f9931d2f58a15a8f725c98a7bade",
+    "mux/oracle/go.sum": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e",
+    "mux/oracle/main.go": "eaca7bed18796f91f390f7652149da1a60c00466fb98779bdd1a58052d1e57eb",
+    "mux/oracle/multiport/main.go": "a09c8ee52d131e41beb716f006b41fa6d9f68efdfadd3b694f5dead3158cadf5",
+    "mux/oracle/owner-lifetime/main.go": "1323a5d2ffd189960dec5963a48e170c28b07ba73b359036c547bbd46cb1dfed",
+    "mux/oracle-stage-lock.json": "f61d9b1470ddea0e0f300a30fd2a8d36762dc4b59b0c5fec652c6536b4853589",
+    "mux/prepare_oracle.py": "749a1cd884e3cb761bf0b564fb1a87b5a702a580305a44d9da6571e9df8f7bc6"
+  }
+}

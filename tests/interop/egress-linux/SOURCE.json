@@ -1,0 +1,51 @@
+{
+  "status": "ACTUAL_PAIRED_FUNCTIONAL_SUBPROFILE_PASS",
+  "no_shared_repo_edits": false,
+  "scope": "Linux ARM64 complete loopback task stack; VM2CPU4GiB; actual TrackDirectFile",
+  "source_urls": [
+    "https://cloud-images.ubuntu.com/noble/20261017/SHA256SUMS",
+    "https://ubuntu.com/docs/public-images/public-images-how-to/verify-image-checksum/",
+    "https://go.dev/dl/?mode=json&include=all"
+  ],
+  "verified_signature": true,
+  "downloaded_image": true,
+  "executed_vm": true,
+  "image_sha256": "50e24e1fb79e89116e939d90aa7738f7af48c442fa1bc2510131e0b39c50348e",
+  "files_sha256": {
+    "README.md": "5d780f8bacb674a64d4ccf9b6f79f06678c05c1b856ced31564aa0384d747bc2",
+    "fetch-verified-image.sh": "e5e1d6586dcb4dbf5eb2add48f98c0fc8a6b26b54a86408fb38c3b00ebf21999",
+    "guest-build.sh": "62c43b853fe93b83eefea5303db0b078ac15ec3783f9d107663b4a42e9bf9824",
+    "guest-language-toolchains.sh": "f17364c663a15722905f451ddd234e6dbd68d7f582389d5d22195d1ad2ddcf07",
+    "guest-lock-network.sh": "4caea382b063373407c743edf269348f90b60ae59f464960808f0c54f98dbadd",
+    "guest-prerequisites.sh": "801b1eaee03aaaa747831d63db480d2e7a652bdfd55a130715d7b7a8d03bdb99",
+    "main.yaml.template": "da84c9d84b3ebab28beb395c28b4360aacb761a8c75e6a40f9b1801218571145",
+    "package-inputs.py": "9743ca3e6b754c8a5a744f23da4b6db5171289fe6f182c1d6f6252ff1ae19caf",
+    "prepare-boot.sh": "8d25a5bb4871ac794830d468f8ce79b504b303acd8c5c5ba18ae1c631d3a40cb",
+    "run-track-file.mjs": "72a938511b2143f58d051c1b837b62242c9280202d710fc718da6ed852bd797d",
+    "verify-image.py": "f71bf68aef0f75bc548ee45ee946958a9b05a0dc4070c090f2e3a16b312bc5fd",
+    "worker.yaml.template": "48843e6148904ed479b1c6fe1dd5dab52ab936b57fc262075b2a33aa1c3d9d6b"
+  },
+  "language_artifacts": {
+    "rust1.99.0-linux-arm64": "5a30ce742be0835d9b23fc862db5cbbbc71464e1c9b1fca22917e10e4ba32a92",
+    "node24.22.1-linux-arm64": "dbabf7a1cbf947e6059ffad2c27b80041db97dea1e553b62afdee7f13fca336e",
+    "go1.26.8-linux-arm64": "211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0"
+  },
+  "static_validation": {
+    "bash_n": "PASS_6_SHELL_FILES",
+    "python_ast_target_3_9": "PASS_2_PYTHON_FILES",
+    "execution": "Actual Go/Rust builds and full paired recording PASS; no full Egress100 claim",
+    "corrections": [
+      "actual manifest filename consistent",
+      "bounded streaming SHA compatible Python3.9",
+      "owned resumable .part and explicit checkpoint states"
+    ]
+  },
+  "signing_fingerprint": "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",
+  "binary_sha256": {
+    "Rust_Linux": "602c712862fd10d91b50ca0343ce1aa5aa307e3dbfaaca944cdca447ae68a21d",
+    "Egress_original": "ad803cac2e56b1eddfcf4ebb12b54ad227ad66390165b0fea05dd4eca86c2cda",
+    "Official_reference_Linux": "8864efa6f0638629095a3dce822903d3382466497b3e2c26de0d33587b39d8c8"
+  },
+  "GStreamer_actual": "1.24.2; upstream .gst-version1.24.13 not falsely claimed",
+  "evidence": "livekit-rs-docs/evidence/2026-10-25/f11-egress-functional-delivery.json"
+}

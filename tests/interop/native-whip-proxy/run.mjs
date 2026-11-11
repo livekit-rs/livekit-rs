@@ -1,0 +1,52 @@
+// NOT_RUN: actual official Ingress proxy -> native WHIP -> unchanged SDK.
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';import {createServer} from 'node:http';import {readFile,writeFile} from 'node:fs/promises';import {randomUUID,createHash} from 'node:crypto';import {resolve,dirname} from 'node:path';import {fileURLToPath} from 'node:url';
+const env=process.env,here=dirname(fileURLToPath(import.meta.url));
+for(const k of ['INTEROP_PROJECT','LIVEKIT_URL','LIVEKIT_API_KEY','LIVEKIT_API_SECRET','WORKER_ORIGIN','INGRESS_WORKER_PID','WHIP_TRACE_FILE','WHIP_TRACE_RUN_ID','WHIP_PROXY_OUTPUT'])assert(env[k],`${k} required`);
+const require=createRequire(resolve(env.INTEROP_PROJECT,'package.json')),{chromium}=require('playwright'),{IngressClient,RoomServiceClient,AccessToken}=require('livekit-server-sdk');
+assert.equal(JSON.parse(await readFile(resolve(env.INTEROP_PROJECT,'node_modules/livekit-server-sdk/package.json'),'utf8')).version,'2.19.2');
+const hash=s=>createHash('sha256').update(s).digest('hex'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const roomName=`f20-whip-${randomUUID()}`,identity=`f20-ingress-${randomUUID()}`,observer=`f20-observer-${randomUUID()}`;
+const ingressClient=new IngressClient(env.LIVEKIT_URL,env.LIVEKIT_API_KEY,env.LIVEKIT_API_SECRET),rooms=new RoomServiceClient(env.LIVEKIT_URL,env.LIVEKIT_API_KEY,env.LIVEKIT_API_SECRET);
+const report={status:'RUNNING',scope:'Original Ingress v1.5.0 WHIP proxy, actual returned URL+stream key, native ingress participant, real decoded440Hz into unchangedSDK, passive actual RPC replies and10s alive+Closed+publicDelete. Not native standalone or bidirectional ingress.',cleanup_errors:[]};
+let ingress,roomCreated=false,host,browser,peer,observation;
+async function wait(check,label,timeout=45000){const end=Date.now()+timeout;while(Date.now()<end){const v=await check();if(v)return v;await sleep(100);}throw Error(`${label} deadline`);}
+async function trace(){const text=await readFile(env.WHIP_TRACE_FILE,'utf8');assert(Buffer.byteLength(text)<=1024*1024);const t=JSON.parse(text);assert.equal(t.run_id,env.WHIP_TRACE_RUN_ID);assert.equal(t.ready,true);assert.equal(t.coverage_complete,true);assert.equal(t.overflow,0);assert.equal(t.decode_or_transport_errors,0);return t;}
+function alive(){process.kill(Number(env.INGRESS_WORKER_PID),0);}
+function safeSDK(s){return {subscribed:s.subscribed,disconnected:s.disconnected,errors_count:s.errors.length,diagnosticOverflow:s.diagnosticOverflow,tone440:s.tone440,receivers:s.receivers.map(r=>({inbound:r.inbound.map(({codecId,...v})=>v),codecs:r.codecs.map(({id,...v})=>v),mediaTrack:r.mediaTrack,element:r.element,publication:r.publication,statsErrorPresent:!!r.statsError}))};}
+function counters(s){const v=s.receivers.flatMap(r=>r.inbound);return {packets:v.reduce((n,r)=>n+(r.packetsReceived||0),0),samples:v.reduce((n,r)=>n+(r.totalSamplesReceived||0),0),bytes:v.reduce((n,r)=>n+(r.bytesReceived||0),0)};}
+try{
+ const first=await trace();assert.equal(first.events.length,0,'start a fresh passive recorder before fixture');alive();
+ await rooms.createRoom({name:roomName,emptyTimeout:30});roomCreated=true;
+ const sdk=await readFile(require.resolve('livekit-client')),html=await readFile(resolve(env.INTEROP_PROJECT,'native-whip/client.html')),script=await readFile(resolve(here,'proxy-peer.js'));
+ host=createServer((req,res)=>{const v=req.url==='/sdk.js'?sdk:req.url==='/proxy-peer.js'?script:req.url==='/'?html:null;if(!v){res.writeHead(404);res.end();return;}res.writeHead(200,{'content-type':req.url==='/'?'text/html':'text/javascript'});res.end(v);});await new Promise(r=>host.listen(0,'127.0.0.1',r));
+ browser=await chromium.launch({channel:env.BROWSER_CHANNEL||'chrome',headless:true,args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
+ const token=new AccessToken(env.LIVEKIT_API_KEY,env.LIVEKIT_API_SECRET,{identity:observer});token.addGrant({roomJoin:true,room:roomName,canPublish:true,canSubscribe:true});
+ observation=await browser.newPage();await observation.goto(`http://127.0.0.1:${host.address().port}`);await observation.evaluate(args=>fixture.connect(args),{url:env.LIVEKIT_URL.replace(/^http/,'ws'),token:await token.toJwt(),sipIdentity:identity});
+ ingress=await ingressClient.createIngress(1,{name:'actual WHIP proxy440Hz',roomName,participantIdentity:identity,participantName:'original Ingress bypass',enableTranscoding:false});
+ assert.equal(ingress.inputType,1);assert.equal(ingress.enableTranscoding,false);assert.equal(ingress.state.status,0);assert(ingress.ingressId&&ingress.streamKey&&ingress.url);
+ const endpoint=new URL(ingress.url);assert.equal(endpoint.origin,new URL(env.WORKER_ORIGIN).origin,'returned URL must target actual worker, never standalone SFU');assert.equal(endpoint.pathname.replace(/\/$/,''),'/whip');
+ peer=await browser.newPage();await peer.goto(`http://127.0.0.1:${host.address().port}`);await peer.addScriptTag({url:'/proxy-peer.js'});
+ const wireResponse=peer.waitForResponse(r=>r.request().method()==='POST'&&r.url()===endpoint.href,{timeout:20000});wireResponse.catch(()=>{});report.http=await peer.evaluate(args=>proxyWhip.start(args),{endpoint:endpoint.href,streamKey:ingress.streamKey});const headers=(await wireResponse).headers();assert.equal(report.http.postStatus,201);assert(report.http.locationPresent);assert(headers.etag&&headers.location);report.http.actualWireEtagPresent=true;report.http.browserEtagExposed=report.http.etagPresent;delete report.http.etagPresent;
+ const publishing=await wait(async()=>{const v=(await ingressClient.listIngress({ingressId:ingress.ingressId}))[0];assert.notEqual(v?.state?.status,3,'real worker error state');return v?.state?.status===2?v:null;},'real IOInfo publishing');
+ assert(publishing.state.resourceId);assert(BigInt(publishing.state.startedAt)>0n&&BigInt(publishing.state.updatedAt)>0n);
+ const participant=await wait(async()=>(await rooms.listParticipants(roomName)).find(p=>p.identity===identity),'real ingress participant');assert.equal(participant.kind,1,'actual INGRESS kind');assert(participant.tracks.some(t=>t.type===0));
+ const pidHash=hash(participant.sid),ingressHash=hash(ingress.ingressId),resourceHash=hash(publishing.state.resourceId);
+ await wait(async()=>{const s=await observation.evaluate(()=>fixture.snapshot()),p=await peer.evaluate(()=>proxyWhip.snapshot());assert.deepEqual(s.errors,[]);assert(!s.diagnosticOverflow);const c=counters(s);return s.tone440?.rms>.02&&s.tone440?.toneAmplitude>.025&&p.connected&&p.outbound.packetsSent>=75&&c.packets>=75&&c.samples>=8000;},'actual decoded440Hz and RTP progress',20000);
+ const before=await observation.evaluate(()=>fixture.snapshot()),timeBefore=performance.now();report.media_before=safeSDK(before);
+ const aliveTrace=await wait(async()=>{alive();const t=await trace(),e=t.events.filter(e=>e.kind==='notify'&&e.participant_sha256===pidHash&&!e.closed&&e.ack);if(e.length<2||e.at(-1).t_ms-e[0].t_ms<10000)return null;assert(e.some(e=>e.audio?.average_bitrate>0&&e.audio?.channels>0&&e.audio?.mime_type==='audio/opus'),'real input notify audio statistics');assert(t.events.some(e=>e.kind==='get_info'&&e.ingress_sha256===ingressHash&&e.ack&&!e.token_present&&!e.ws_url_present&&e.whip_bypass),'fixed OSS GetIngressInfo returns actual ingress only; original worker supplies configured URL/token');assert(t.events.some(e=>e.kind==='state'&&e.ingress_sha256===ingressHash&&e.resource_sha256===resourceHash&&e.status===2&&e.ack));return t;},'actual10s alive acknowledged notifications');
+ // Media also continues over a genuine >=10s local interval, not callback-only success.
+ await wait(()=>performance.now()-timeBefore>=10000,'actual media alive interval',15000);const after=await observation.evaluate(()=>fixture.snapshot());assert(counters(after).samples>=counters(before).samples+8000);assert(counters(after).packets>counters(before).packets);assert(after.tone440.rms>.02&&after.tone440.toneAmplitude>.025);report.media_after=safeSDK(after);report.alive_interval_ms=performance.now()-timeBefore;
+ await rooms.removeParticipant(roomName,identity);
+ await wait(async()=>!(await rooms.listParticipants(roomName)).some(p=>p.identity===identity),'native participant removal',15000);
+ await wait(async()=>{const t=await trace();return t.events.some(e=>e.kind==='notify'&&e.participant_sha256===pidHash&&e.closed&&e.ack);},'actual Closed notification acknowledged by original proxy',15000);
+ const inactive=await wait(async()=>{const v=(await ingressClient.listIngress({ingressId:ingress.ingressId}))[0];return v?.state?.status===0&&BigInt(v.state.endedAt)>0n?v:null;},'real worker end/state callback',15000);assert.equal(inactive.state.resourceId,publishing.state.resourceId);
+ const endedTrace=await trace();assert(endedTrace.events.some(e=>e.kind==='state'&&e.ingress_sha256===ingressHash&&e.resource_sha256===resourceHash&&e.status===0&&e.ended_at_ns>0&&e.ack));
+ const deleted=await ingressClient.deleteIngress(ingress.ingressId);assert.equal(deleted.ingressId,ingress.ingressId);await assert.rejects(()=>ingressClient.listIngress({ingressId:ingress.ingressId}),e=>e.code==='not_found');ingress=null;
+ assert((await rooms.listParticipants(roomName)).some(p=>p.identity===observer));alive();report.trace=endedTrace;report.generation={same_resource_at_end:true,actual_started_updated_ended:true};report.status='PASS';
+}catch(e){if(env.WHIP_PROXY_DEBUG_FILE)await writeFile(env.WHIP_PROXY_DEBUG_FILE,String(e.stack||e)+'\n',{mode:0o600});report.status='FAIL';report.failure={name:e.name,message_sha256:hash(String(e.message))};process.exitCode=1;try{report.trace=await trace();}catch{report.trace_unavailable_or_incomplete=true;}}
+finally{
+ try{await peer?.evaluate(()=>proxyWhip.close());}catch{report.cleanup_errors.push('owned proxy peer close');}try{await observation?.evaluate(()=>fixture.close());}catch{report.cleanup_errors.push('SDK close');}try{await browser?.close();}catch{report.cleanup_errors.push('owned browser close');}
+ if(ingress)try{await ingressClient.deleteIngress(ingress.ingressId);}catch{report.cleanup_errors.push('owned ingress deletion');}if(roomCreated)try{await rooms.deleteRoom(roomName);}catch{report.cleanup_errors.push('owned room deletion');}if(host)await new Promise(r=>host.close(r));
+ if(report.cleanup_errors.length){report.status='FAIL';process.exitCode=1;}await writeFile(env.WHIP_PROXY_OUTPUT,JSON.stringify(report,null,2)+'\n',{mode:0o600});
+}

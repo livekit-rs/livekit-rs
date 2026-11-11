@@ -1,0 +1,59 @@
+{
+  "status": "ACTUAL_SCOPED_PROFILE_PASS_FIXED_GO_AND_RUST",
+  "scope": "Actual inbound authenticated UDP SIP direct dispatch and true RTC audio content. No fake RPC worker, PSTN/provider/TLS/SRTP/PIN/DTMF acceptance.",
+  "worker": {
+    "tag": "v1.21.0",
+    "commit": "ee19da1a7ef178593e232a27365de7b4ba8f8829",
+    "source_modified": false
+  },
+  "sdk_modified": false,
+  "source_sha256": {
+    "references/sip/pkg/sip/inbound.go": "4bd6e9863c0937590e2ef8dab80a0993575b6cd5421147484bfc7667bb6862d7",
+    "references/sip/pkg/sip/service.go": "9c6a462430be76ab6723fd9d27d432416044e0a90d5977930e406858e08fae45",
+    "references/sip/pkg/config/config.go": "40a7a9dc601a9345e01944bbfca378dacd76e7a86cf16bd66a8b94b4b404f765",
+    "references/sip/cmd/livekit-sip/main.go": "d09ab86826b789024a00d52ce681d3ed44cae2aafea59e03f1750bacac783b48",
+    "references/sip/pkg/service/psrpc.go": "c24216a95cfb9785c70a77ab14b7f1e2eed1256be977519a6c8fd9c919bc7591",
+    "references/protocol-stable/sip/sip.go": "62dc163b49f64a6cc58386e47cf9c380da1852b9fa185baed9d45d028c0c06f9",
+    "references/protocol-stable/livekit/attrs.go": "df4a8ebf4e9f0deb89e25757551fbdf4f274847a3d975312cb204c4af20cf341",
+    "references/livekit-stable/pkg/service/ioservice_sip.go": "320f2b41843e223db511ce53924a83b10ccad4b4ed064c77c8843e41ab61b29f",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b",
+    "livekit-rs-server/tests/interop/sip-media/peer.mjs": "904e1cf522c2e7d1267de00e406b51b1aa33a66a602b48f1ee1deb2904ab7591",
+    "livekit-rs-server/tests/interop/sip-media/client.html": "686837b183790c59fc95f41975496fc4e174255e1bdc8a86cd601f39edfe0267"
+  },
+  "inputs_sha256": {
+    "README.md": "b498175d8d867922ae295de3049036a028752298ed33cb3faa2bfaa3037e4c2b",
+    "client.html": "773d0cd424abfb2a8415b27caee51ec7a2cc6a5980d17fff11f10df1586ee155",
+    "peer.test.mjs": "a5d1a3eaf7602d48eeea0ef1a34b3572bf2be219f1a8a161e35ec32a94b0ee21",
+    "run.mjs": "2253c74a6d47ecbdb6a72f798f41956816008a0b1990971b06d7bbd70ac8c2a8",
+    "uac.mjs": "ed7084bdfe98b558977d6484247c7c7a38eb7a929559a5b3e488a3812987d416",
+    "worker-config.yaml.in": "fdf6ce81c844725dd3af3abea789c79c4151a36c48bff3f4b9621dc04f35c29a"
+  },
+  "required_actual_checks": [
+    "node pure UA/codec/Digest tests",
+    "real407 and wrongDigest rejection withoutRTC participant",
+    "validDigest actualofficialworker callsRustIOauth/dispatch",
+    "actualSIPparticipant trunk/rule/call attributes",
+    "PCMU440->RTC440 andRTC880->PCMU880 unchanged original thresholds",
+    "BYE200 removesSIPparticipant whileobserverremains"
+  ],
+  "runtime_or_browser_execution": "NOT_RUN_BY_SUBAGENT",
+  "ports": {
+    "worker_sip_udp": 15060,
+    "worker_health": 15061,
+    "worker_rtp_range": [
+      15100,
+      15199
+    ],
+    "owned_uac_and_html": "ephemeral loopback"
+  },
+  "fixture_sha256": {
+    "README.md": "d7ef085f2d2ac3eccdf5bd5bb2bcbc8064f287a5121be2d752a4c8a52018d511",
+    "client.html": "773d0cd424abfb2a8415b27caee51ec7a2cc6a5980d17fff11f10df1586ee155",
+    "peer.test.mjs": "a5d1a3eaf7602d48eeea0ef1a34b3572bf2be219f1a8a161e35ec32a94b0ee21",
+    "run.mjs": "2253c74a6d47ecbdb6a72f798f41956816008a0b1990971b06d7bbd70ac8c2a8",
+    "uac.mjs": "ed7084bdfe98b558977d6484247c7c7a38eb7a929559a5b3e488a3812987d416",
+    "worker-config.yaml.in": "fdf6ce81c844725dd3af3abea789c79c4151a36c48bff3f4b9621dc04f35c29a"
+  },
+  "evidence_scope": "See SPEC0019/0020 and f07-functional-delivery.json; no whole-service or performance claim."
+}

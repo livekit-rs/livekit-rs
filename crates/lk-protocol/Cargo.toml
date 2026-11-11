@@ -1,0 +1,26 @@
+[package]
+name = "lk-protocol"
+description = "Types generated from the pinned LiveKit protobuf schema (protocol 9bb708cdb819)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+prost.workspace = true
+prost-reflect.workspace = true
+pbjson.workspace = true
+pbjson-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+prost.workspace = true
+prost-build.workspace = true
+prost-types.workspace = true
+protox.workspace = true
+pbjson-build.workspace = true
+
+[dev-dependencies]
+base64.workspace = true

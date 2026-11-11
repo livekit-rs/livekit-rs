@@ -1,0 +1,9 @@
+{
+  "name": "livekit-rs-agent-worker-interop",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@livekit/agents": "1.9.4"
+  },
+  "version": "0.0.0"
+}

@@ -1,0 +1,36 @@
+{
+  "status": "DRAFT_NOT_EXECUTED",
+  "scope": "CLI create-join-token key-file loading only; no shared Rust/Cargo changes",
+  "source_commits": {
+    "livekit-server": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "protocol": "9bb708cdb81918a6c63dd25e915b4644310b45b6"
+  },
+  "references_sha256": {
+    "references/livekit-stable/cmd/server/commands.go": "5d678d42b9b396007eae9a22d5dd6c6963cae3c625ea6a8735bab0cead4c79d0",
+    "references/livekit-stable/cmd/server/main.go": "9006ed033eb2786629d950b08321206cdd0f1202fe89f999c9a331e1e0dc691f",
+    "references/livekit-stable/pkg/config/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "references/protocol-stable/auth/accesstoken.go": "69925afa571f79dc3715496bdfb3f4e2453fa543596f80aa77afa7d87811471b",
+    "references/protocol-stable/auth/grants.go": "eff12c293de465c4e95185de96b8d5510f5f97f1f10e48c93d63fa0540bbe9d7"
+  },
+  "base_rust_sha256": {
+    "livekit-rs-server/crates/lk-config/src/keys.rs": "6703be158be5d93837c7e0a9ad03562906482c4003a098ca9b5790bafef5cceb",
+    "livekit-rs-server/crates/lk-config/src/load.rs": "e02772dc3d049d81110366e97a3a6287db8769fbf7e8d2792aedd8daff409f33"
+  },
+  "draft_files_sha256": {
+    "keys.rs": "793fe838044be575016d8b4f6aca266dbca923eb40e7a25d94c5a4da8123413c",
+    "compare-token-binaries.py": "37759b1438ab3fae6593015279e0d78da143e3acfbc587e685cd4700f20051ad",
+    "load.rs": "7df1db448a0f0c0a36bb46622e5c04200ff505282ad37988b232032c32ef7740",
+    "create_join_token.rs": "8f6ef44dafc72c5827f8baf9117b7ad5c268f9755050b8394e9c012671a57020",
+    "source-inputs.json": "02cb8238a8093e1be145371a3b89453c07d1c5e5bbd0b122448b06f7dc20816f",
+    "create-join-token-file-permissions.patch": "dc6b390025d59a87eb202fcd0a9ab4be0f49127e06efe3f522f7bcedbac1eb49",
+    "README.md": "75f9c02162d2fef4485d1d3a91a320ff97139da7d2e26f906ef67558ee0683c0"
+  },
+  "actual_validation": {
+    "rustfmt": "PASS (syntax/format only, no compilation)",
+    "python_ast": "PASS (syntax only, no subprocess execution)",
+    "unit_tests": "NOT_RUN",
+    "official_go_binary_oracle": "NOT_RUN",
+    "candidate_binary_differential": "NOT_RUN"
+  },
+  "dependencies": "none added/updated"
+}

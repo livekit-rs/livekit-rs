@@ -1,0 +1,205 @@
+{
+  "status": "FUNCTIONAL_SUBSCOPES_VERIFIED_F09_NOT_ALL_INGRESS",
+  "license": "Apache-2.0",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "sources": [
+    {
+      "path": "references/livekit-stable/pkg/service/ingress.go",
+      "sha256": "1baa3f432985f43ab35ad6c09ee23c030e3ebeed6e4770a55bcf1f48ec9ff1e5"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/requestid.go",
+      "sha256": "43ca2d8e5338cef7285787295911e5dce72394bf2e8ce6153a310c12a1c488fb"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/whipservice.go",
+      "sha256": "afd37a33e08dca00a0e29ac103acef935cd1d77d6d57a904b5960f5e7f7aca83"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/roommanager_service.go",
+      "sha256": "7c6f0c50ae8a96e7975397748cf56b6e659be37a7603f063c70d17b636ae8266"
+    },
+    {
+      "path": "references/protocol-stable/ingress/validation.go",
+      "sha256": "44a2963edd7b9a1b76d8d16678b7563cff1be431a7d41e026d4e50b3b3a22329"
+    },
+    {
+      "path": "references/protocol-stable/ingress/errors.go",
+      "sha256": "b79d4a2297b6a25042c9c4c22f183171f70518420a238d7e65e62583d59d3116"
+    },
+    {
+      "path": "references/protocol-stable/utils/guid/id.go",
+      "sha256": "f9225a90d0e391075f004ce3fb889faf0abc7e0ce6fba311dd6fd3c9cac0450e"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/livekit_ingress.proto",
+      "sha256": "c04ed0c0deb05c76c1d9ac1dc64e4284ec88b92441ec08be846173cf7dceb86b"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/rpc/ingress.proto",
+      "sha256": "9a6f772b8ca7c73cd8fce7318afc39f5c9ca4add3b9164415dfd08761450d799"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/rpc/whip_signal.proto",
+      "sha256": "1e5d8ab6d52a038697a571248a8dcbd4e5ab38e7c215c51dd28cd30988f3699a"
+    },
+    {
+      "path": "references/go/src/net/netip/netip.go",
+      "sha256": "dbebdcbfd55f9619d57f55910b2af6240adb84dcd58bc76b9b396e479b91815e"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/server.go",
+      "sha256": "d61f2d9caf4aed2b5f7c655f3f8eb8a51b0b0f357632d471d2b81b883d7ede0f"
+    },
+    {
+      "path": "references/livekit-stable/pkg/telemetry/events.go",
+      "sha256": "89414c13ac3ec608a7edd56bb7c14ddeecd3434d7979c0ff39cc1f827588cd99"
+    },
+    {
+      "path": "references/psrpc/errors.go",
+      "sha256": "595d7fed393c73122019286415206428de82df85ee66f4b341b64c9b19ad5230"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/workers/sip_callbacks/netip.rs",
+      "sha256": "b9d80b3e74cfd12fb97862532d8aae22cc14a5bdde323a9edf1d92a61ad48565"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/sip/domain/go_print.rs",
+      "sha256": "527743afb4f2f13544cc853317b2349f4a2a688c5c099bf6201ce39ef3107b9e"
+    }
+  ],
+  "additional_reference": "references/go-stdlib-1.26.0/ingress-url-guid/SOURCE.json",
+  "remaining_activation_gaps": [
+    "Native WHIP six routes",
+    "full transcoding/video/codecs/config/error/recovery variants",
+    "old worker compression with positive global quality"
+  ],
+  "additional_references": [
+    "references/go-stdlib-1.26.0/ingress-url-guid/SOURCE.json",
+    "references/go-modules/shortuuid-v4.3.0/SOURCE.json",
+    "references/go-modules/negroni-v3.1.1/SOURCE.json"
+  ],
+  "oracles": {
+    "url_guid": {
+      "actual_execution": "PASS actual fixed Go executable + four final Rust comparisons",
+      "guid_rows": 12,
+      "url_rows": 70,
+      "Go_reference_stream_words": 372
+    },
+    "boundary": {
+      "actual_execution": "PASS actual fixed Go executable + four final Rust comparisons",
+      "nil_state_or_store_rows": 4,
+      "typed_identity_rows": 3
+    }
+  },
+  "boundary_inference_correction": {
+    "original_draft": "text/plain PANIC-only; superseded as source inference, never runtime PASS",
+    "actual_go_result_sha256": "b1b62e9231f222f402239e80366452ac2687cb58a8526d233f61b7431a53feec",
+    "actual_status": 500,
+    "actual_content_type": "application/json",
+    "actual_stable_first_line": "{\"code\":\"internal\",\"msg\":\"Internal service panic\"}PANIC: runtime error: invalid memory address or nil pointer dereference",
+    "dynamic_go_frames": "not fabricated"
+  },
+  "historical_draft_inputs": [
+    {
+      "path": "CONTRACT-initial-history.md",
+      "sha256": "3adb6afb4821eaa9a46570cea87376615456d5f6eda0830b0f5fac12cefd1e61"
+    },
+    {
+      "path": "CONTRACT.md",
+      "sha256": "98ec7651bf2b7370ce8aa9b050523b1870f11980defe2a8d461148ece304eded"
+    },
+    {
+      "path": "LICENSE-APACHE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "LICENSE-GO",
+      "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+    },
+    {
+      "path": "LICENSE-MIT-shortuuid",
+      "sha256": "d2e98cf1530c13d97df36a890831a2a1adb0a4580af192b6477bdac7f7af2461"
+    },
+    {
+      "path": "boundary-oracle/go.mod",
+      "sha256": "0e5c5755ff7a66d0adf156469a9791243b0bc317cf9d29adb6312b2d06a39388"
+    },
+    {
+      "path": "boundary-oracle/go.sum",
+      "sha256": "b015ff57abab5c1748a3b8c3d1a2706ed5a3e537256b73b92d8145e02a82d23e"
+    },
+    {
+      "path": "boundary-oracle/main.go",
+      "sha256": "eb1b95c6767d2846d468da3fbde8a36871bb6d265071bac2736667b55f290cfb"
+    },
+    {
+      "path": "events.rs",
+      "sha256": "c54ea831ed23054c6ede1dfd03a1d524759ef314b8138dc1e62539f77ae67150"
+    },
+    {
+      "path": "failure.rs",
+      "sha256": "dc07a351ac2cee9c10c4680906d91e395bbad4abc625b420c65edc55c2b00649"
+    },
+    {
+      "path": "gateway.rs",
+      "sha256": "d23f8a43bbf714e16d5241f2a40d86779503ed12da4dca650b51212ca3d500d9"
+    },
+    {
+      "path": "go_url.rs",
+      "sha256": "2b48828aecfdab60276f67681e9e41066cc82242b306b8a36adf65c688874148"
+    },
+    {
+      "path": "guid.rs",
+      "sha256": "cf7d9a991867d1cf4dd2303ca1d270b57b3c107827dfe23b59ccec01f6593a0e"
+    },
+    {
+      "path": "integration-edits.json",
+      "sha256": "6edde9fa3332b46924a552490c30d011f66d58321a74b9341da20f0eaeaeb9d8"
+    },
+    {
+      "path": "mod.rs",
+      "sha256": "30a76195ee5d7ff42dd0ed844ca25b8e9cf5cb81a6cc1f99413bda99e74c524d"
+    },
+    {
+      "path": "oracle/go.mod",
+      "sha256": "4fc71cd968ec87afe983c3ed27cda9c22ba2de3f0bd448ef4f24c1339cb5d922"
+    },
+    {
+      "path": "oracle/main.go",
+      "sha256": "4fccfd0cd3d4a363a1a7bced68f4f93439080a0d02aa9bc05163b9da35a7a7a5"
+    },
+    {
+      "path": "oracle/vectors.json",
+      "sha256": "95e64c48ee131271ce1919fe3ba750958e46438de716a241ed1f7763ed73527a"
+    },
+    {
+      "path": "url_oracle_tests.rs",
+      "sha256": "7384bd03f249fafa9ed1ea5249a11ef19bdeadaf3dcf2ca66d300959e12ea81c"
+    },
+    {
+      "path": "url_support.rs",
+      "sha256": "96274815cc5839fcba9b3046d283b2178234fafc2810c7c12261238692476b85"
+    },
+    {
+      "path": "validation.rs",
+      "sha256": "1387d18f3c37f1c1dbe3a635a1bfa83d2ff46160ed2fc6c5fdf5e5a14fd0c19a"
+    }
+  ],
+  "files": {
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-GO": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad",
+    "LICENSE-MIT-shortuuid": "d2e98cf1530c13d97df36a890831a2a1adb0a4580af192b6477bdac7f7af2461",
+    "events.rs": "c54ea831ed23054c6ede1dfd03a1d524759ef314b8138dc1e62539f77ae67150",
+    "failure.rs": "e8775fd945a18feb4db283f79852056b1ebfcf46d276136e02e66336c6714bf4",
+    "gateway.rs": "107214f043cf745600a7ec2ac8b85bccad01da40d1aff6f3f34344c2c3303c14",
+    "go_url.rs": "da09e652b224ab9884ca220984fd37b48977f1970bbc6450ad5c9c26213ffca9",
+    "guid.rs": "5ccb1509b3fb5bc269c9d33f1e69ab12ab9bff4da85cdb904e7ef4bf0baa0fe4",
+    "mod.rs": "30a76195ee5d7ff42dd0ed844ca25b8e9cf5cb81a6cc1f99413bda99e74c524d",
+    "url_oracle_tests.rs": "7384bd03f249fafa9ed1ea5249a11ef19bdeadaf3dcf2ca66d300959e12ea81c",
+    "url_support.rs": "96274815cc5839fcba9b3046d283b2178234fafc2810c7c12261238692476b85",
+    "validation.rs": "1387d18f3c37f1c1dbe3a635a1bfa83d2ff46160ed2fc6c5fdf5e5a14fd0c19a"
+  },
+  "evidence": "livekit-rs-docs/evidence/2026-10-25/f09-functional-delivery.json"
+}

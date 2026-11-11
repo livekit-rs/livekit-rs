@@ -1,0 +1,229 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -112,6 +112,9 @@
+     pub latest_scheduled_probe: Option<BweProbeObservation>,
+     /// Whether the native application-limited-region detector is active.
+     pub application_limited: bool,
++    /// Number of real post-ALR-send ACKs that triggered classic fast adaptation.
++    /// Reset together with the native estimator; a notification is not capacity.
++    pub ack_fast_rate_changes: u64,
+ }
+ 
+ /// Access to the Bandwidth Estimate subsystem.
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -116,11 +116,10 @@
+         self.bwe.last_estimate()
+     }
+ 
+-    pub fn on_media_sent(&mut self, payload_size: DataSize, is_padding: bool, now: Instant) {
+-        if !is_padding {
+-            // Update ALR detector with media bytes sent
+-            self.bwe.on_media_sent(payload_size, now);
+-        }
++    pub fn on_media_sent(&mut self, payload_size: DataSize, _is_padding: bool, now: Instant) {
++        // Google GoogCC OnSentPacket accounts every tracked RTP send, including
++        // padding/probe packets. They consume link capacity and can end ALR.
++        self.bwe.on_media_sent(payload_size, now);
+     }
+ 
+     pub fn is_overusing(&self) -> bool {
+@@ -146,6 +145,7 @@
+     latest_feedback: Option<BweFeedbackObservation>,
+     last_successful_probe: Option<BweProbeObservation>,
+     latest_scheduled_probe: Option<BweProbeObservation>,
++    previously_in_alr: bool,
+ }
+ 
+ impl SendSideBandwidthEstimator {
+@@ -173,6 +173,7 @@
+             latest_feedback: None,
+             last_successful_probe: None,
+             latest_scheduled_probe: None,
++            previously_in_alr: false,
+         }
+     }
+ 
+@@ -186,7 +187,7 @@
+ 
+     /// Update ALR detector with actual bytes sent.
+     ///
+-    /// Should be called for media packets (not padding/probes).
++    /// Accounts all tracked RTP packets, including padding and probes.
+     /// This is typically called from the session's packet sending logic.
+     pub fn on_media_sent(&mut self, bytes: DataSize, now: Instant) {
+         self.alr_detector.on_bytes_sent(bytes, now);
+@@ -199,6 +200,17 @@
+         let send_records: Vec<_> = records.collect();
+         if !send_records.is_empty() {
+             self.last_twcc_feedback_at = Some(now);
++        }
++
++        // Google classic GoogCC detects ALR exit on feedback, then waits for
++        // a packet whose local send time is later than this feedback time.
++        // Late feedback for packets already in flight cannot trigger adaptation.
++        let in_alr = self.alr_detector.alr_start_time().is_some();
++        if !send_records.is_empty() {
++            if self.previously_in_alr && !in_alr {
++                self.acked_bitrate_estimator.set_alr_ended_time(now);
++            }
++            self.previously_in_alr = in_alr;
+         }
+ 
+         // Feed records to probe estimator for analysis and process any new probe results
+@@ -248,8 +260,11 @@
+         acked_packets.sort_by(AckedPacket::order_by_receive_time);
+ 
+         for acked_packet in acked_packets.iter() {
+-            self.acked_bitrate_estimator
+-                .update(acked_packet.remote_recv_time, acked_packet.size);
++            self.acked_bitrate_estimator.update_with_send_time(
++                acked_packet.local_send_time,
++                acked_packet.remote_recv_time,
++                acked_packet.size,
++            );
+         }
+ 
+         let acked_bitrate = self.acked_bitrate_estimator.current_estimate();
+@@ -396,6 +411,7 @@
+             last_successful_probe: self.last_successful_probe,
+             latest_scheduled_probe: self.latest_scheduled_probe,
+             application_limited: self.alr_detector.alr_start_time().is_some(),
++            ack_fast_rate_changes: self.acked_bitrate_estimator.fast_rate_changes(),
+         }
+     }
+ 
+--- a/src/bwe/acked_bitrate_estimator.rs
++++ b/src/bwe/acked_bitrate_estimator.rs
+@@ -1,3 +1,6 @@
++// ALR-exit fast adaptation follows Google WebRTC classic GoogCC at commit
++// 202acee882062f7ca632472e4810f25938828f6a. See googcc-alr-ack.patch,
++// GOOGLE-WEBRTC-LICENSE and PATCHES.md for source attribution and scope.
+ use std::time::{Duration, Instant};
+ 
+ use crate::Bitrate;
+@@ -23,6 +26,8 @@
+     current_window: Duration,
+     /// The last time the window was updated.
+     last_update: Option<Instant>,
++    alr_ended_at: Option<Instant>,
++    fast_rate_changes: u64,
+ }
+ 
+ impl AckedBitrateEstimator {
+@@ -35,7 +40,34 @@
+             sum: DataSize::ZERO,
+             current_window: Duration::ZERO,
+             last_update: None,
+-        }
++            alr_ended_at: None,
++            fast_rate_changes: 0,
++        }
++    }
++
++    /// Arm a single fast adaptation for feedback about packets sent after ALR exit.
++    pub(super) fn set_alr_ended_time(&mut self, at: Instant) {
++        self.alr_ended_at = Some(at);
++    }
++
++    pub(super) fn fast_rate_changes(&self) -> u64 {
++        self.fast_rate_changes
++    }
++
++    pub(super) fn update_with_send_time(
++        &mut self,
++        send_time: Instant,
++        receive_time: Instant,
++        packet_size: DataSize,
++    ) {
++        if self.alr_ended_at.is_some_and(|ended| send_time > ended) {
++            // Google classic BitrateEstimator::ExpectFastRateChange(): boost
++            // uncertainty, never set an estimate to requested/probed capacity.
++            self.estimate_var += 200.0;
++            self.alr_ended_at = None;
++            self.fast_rate_changes += 1;
++        }
++        self.update(receive_time, packet_size);
+     }
+ 
+     pub(super) fn update(&mut self, receive_time: Instant, packet_size: DataSize) {
+@@ -141,6 +173,68 @@
+     use super::*;
+ 
+     #[test]
++    fn alr_exit_waits_for_post_exit_send_and_boosts_variance_exactly_once() {
++        let now = Instant::now();
++        let mut estimator =
++            AckedBitrateEstimator::new(Duration::from_millis(500), Duration::from_millis(150));
++        estimator.update(now, DataSize::bytes(100));
++        let exit = now + Duration::from_millis(100);
++        estimator.set_alr_ended_time(exit);
++        for sent in [now, exit] {
++            estimator.update_with_send_time(
++                sent,
++                now + Duration::from_millis(120),
++                DataSize::bytes(100),
++            );
++            assert_eq!(
++                estimator.fast_rate_changes(),
++                0,
++                "old/in-flight packets must not trigger"
++            );
++            assert_eq!(estimator.estimate_var, 50.0);
++        }
++        estimator.update_with_send_time(
++            exit + Duration::from_millis(1),
++            now + Duration::from_millis(130),
++            DataSize::bytes(100),
++        );
++        assert_eq!(estimator.fast_rate_changes(), 1);
++        assert_eq!(estimator.estimate_var, 250.0);
++        estimator.update_with_send_time(
++            exit + Duration::from_millis(2),
++            now + Duration::from_millis(140),
++            DataSize::bytes(100),
++        );
++        assert_eq!(estimator.fast_rate_changes(), 1);
++        assert_eq!(estimator.estimate_var, 250.0);
++        assert!(
++            estimator.current_estimate().is_none(),
++            "variance notification cannot invent capacity before any sample"
++        );
++    }
++
++    #[test]
++    fn a_second_real_alr_exit_can_arm_a_second_adaptation() {
++        let now = Instant::now();
++        let mut estimator =
++            AckedBitrateEstimator::new(Duration::from_millis(500), Duration::from_millis(150));
++        estimator.set_alr_ended_time(now);
++        estimator.update_with_send_time(
++            now + Duration::from_millis(1),
++            now + Duration::from_millis(10),
++            DataSize::bytes(100),
++        );
++        estimator.set_alr_ended_time(now + Duration::from_millis(20));
++        estimator.update_with_send_time(
++            now + Duration::from_millis(21),
++            now + Duration::from_millis(30),
++            DataSize::bytes(100),
++        );
++        assert_eq!(estimator.fast_rate_changes(), 2);
++        assert_eq!(estimator.estimate_var, 450.0);
++    }
++
++    #[test]
+     fn test_no_estimate_before_initial_window_has_passed() {
+         let now = Instant::now();
+         let mut estimator =
+--- a/src/bwe/alr_detector/detector.rs
++++ b/src/bwe/alr_detector/detector.rs
+@@ -85,7 +85,7 @@
+ 
+     /// Update with bytes sent.
+     ///
+-    /// Should be called for every media packet sent (excluding padding and probes).
++    /// Should be called for every tracked RTP packet sent, including padding and probes.
+     /// This updates the IntervalBudget and checks for ALR state transitions.
+     pub fn on_bytes_sent(&mut self, bytes: DataSize, now: Instant) {
+         // First call - just record time

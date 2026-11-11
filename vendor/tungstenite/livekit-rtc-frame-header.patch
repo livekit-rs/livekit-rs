@@ -1,0 +1,178 @@
+diff --git a/src/error.rs b/src/error.rs
+index 2ac1ac58..88df2a62 100644
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -229,9 +229,9 @@ pub enum ProtocolError {
+     /// Reserved bits in frame header are non-zero.
+     #[error("Reserved bits are non-zero")]
+     NonZeroReservedBits,
+-    /// Reserved bits rejected by the opted-in LiveKit RTC/Gorilla wire policy.
+-    #[error("LiveKit RTC reserved bits: {0:#04x}")]
+-    LivekitRtcReservedBits(u8),
++    /// Frame header rejected by the opted-in LiveKit RTC/Gorilla wire policy.
++    #[error("LiveKit RTC frame header: {0}")]
++    LivekitRtcFrameHeader(std::sync::Arc<String>),
+     /// The negotiated raw DEFLATE message was malformed or incomplete.
+     #[error("Invalid permessage-deflate payload")]
+     InvalidCompression,
+diff --git a/src/protocol/frame/mod.rs b/src/protocol/frame/mod.rs
+index 8ef0e905..e172fd9f 100644
+--- a/src/protocol/frame/mod.rs
++++ b/src/protocol/frame/mod.rs
+@@ -165,7 +165,9 @@ impl FrameCodec {
+         unmask: bool,
+         accept_unmasked: bool,
+     ) -> Result<Option<Frame>> {
+-        self.read_frame_with_header_check(stream, max_size, unmask, accept_unmasked, |_, _| Ok(()))
++        self.read_frame_with_header_check(
++            stream, max_size, unmask, accept_unmasked, |_, _| Ok(()), |_, _| Ok(()),
++        )
+     }
+ 
+     // A complete parsed header including mask, before reserve/read of payload.
+@@ -175,12 +177,16 @@ impl FrameCodec {
+         max_size: Option<usize>,
+         unmask: bool,
+         accept_unmasked: bool,
++        mut check_start: impl FnMut(u8, u8) -> Result<()>,
+         mut check_header: impl FnMut(&FrameHeader, u64) -> Result<()>,
+     ) -> Result<Option<Frame>> {
+         let max_size = max_size.unwrap_or_else(usize::max_value);
+ 
+         let mut payload = loop {
+             if self.header.is_none() {
++                if let [first, second, ..] = self.in_buffer.as_ref() {
++                    check_start(*first, *second)?;
++                }
+                 let mut cursor = Cursor::new(&mut self.in_buffer);
+                 self.header = FrameHeader::parse(&mut cursor)?;
+                 let advanced = cursor.position();
+diff --git a/src/protocol/mod.rs b/src/protocol/mod.rs
+index d77df122..e420a79f 100644
+--- a/src/protocol/mod.rs
++++ b/src/protocol/mod.rs
+@@ -657,20 +657,32 @@ impl WebSocketContext {
+ 
+     /// Try to decode one message frame. May return None.
+     fn read_message_frame(&mut self, stream: &mut impl Read) -> Result<Option<Message>> {
+-        #[cfg(feature = "livekit-server-header-read-budget")]
+-        let read = if self.role == Role::Server {
++        let livekit_rtc_reserved_bits = self.config.livekit_rtc_reserved_bits;
++        let header_budget = cfg!(feature = "livekit-server-header-read-budget");
++        let server = self.role == Role::Server;
++        let read = if server && (header_budget || livekit_rtc_reserved_bits) {
+             let can_read = self.state.can_read();
+             let incomplete = self.incomplete.as_ref().map(|_| self.wire_message_size);
+             let message_limit = self.config.max_message_size;
+             let accept_unmasked = self.config.accept_unmasked_frames;
+             let compressed = self.config.permessage_deflate;
+-            let livekit_rtc_reserved_bits = self.config.livekit_rtc_reserved_bits;
+             self.frame.read_frame_with_header_check(
+                 stream,
+                 self.config.max_frame_size,
+                 true,
+                 accept_unmasked,
++                |first, second| {
++                    if livekit_rtc_reserved_bits && can_read {
++                        check_livekit_rtc_header_start(
++                            first, second, incomplete.is_some(), compressed, accept_unmasked,
++                        )?;
++                    }
++                    Ok(())
++                },
+                 |header, payload_len| {
++                    if !header_budget {
++                        return Ok(());
++                    }
+                     check_server_header_budget(
+                         header,
+                         payload_len,
+@@ -687,17 +699,10 @@ impl WebSocketContext {
+             self.frame.read_frame(
+                 stream,
+                 self.config.max_frame_size,
+-                false,
++                server,
+                 self.config.accept_unmasked_frames,
+             )
+         };
+-        #[cfg(not(feature = "livekit-server-header-read-budget"))]
+-        let read = self.frame.read_frame(
+-            stream,
+-            self.config.max_frame_size,
+-            matches!(self.role, Role::Server),
+-            self.config.accept_unmasked_frames,
+-        );
+         let mut frame = match read.check_connection_reset(self.state)? {
+             None => {
+                 // Connection closed by peer
+@@ -932,7 +937,6 @@ impl WebSocketContext {
+ // Source-derived BSD-2-Clause logic; see LICENSE-GORILLA (workspace notice also retained in LICENSES).
+ // Source: Gorilla1.5.3 conn.go advanceFrame steps2-5. Invalid protocol
+ // headers retain priority over data-budget failures. Controls consume no budget.
+-#[cfg(feature = "livekit-server-header-read-budget")]
+ fn check_server_header_budget(
+     header: &frame::FrameHeader,
+     payload_len: u64,
+@@ -985,6 +989,48 @@ fn check_server_header_budget(
+     Ok(())
+ }
+ 
++// Gorilla v1.5.3 advanceFrame validates the first two bytes before reading
++// an extended length or mask key, and reports the violations in wire order.
++fn check_livekit_rtc_header_start(
++    first: u8,
++    second: u8,
++    incomplete: bool,
++    permessage_deflate: bool,
++    accept_unmasked: bool,
++) -> Result<()> {
++    let mut errors = Vec::new();
++    if !permessage_deflate && first & 0x40 != 0 {
++        errors.push("RSV1 set".to_owned());
++    }
++    if first & 0x20 != 0 {
++        errors.push("RSV2 set".to_owned());
++    }
++    if first & 0x10 != 0 {
++        errors.push("RSV3 set".to_owned());
++    }
++    match first & 0x0f {
++        8..=10 => {
++            if second & 0x7f > 125 {
++                errors.push("len > 125 for control".to_owned());
++            }
++            if first & 0x80 == 0 {
++                errors.push("FIN not set on control".to_owned());
++            }
++        }
++        1 | 2 if incomplete => errors.push("data before FIN".to_owned()),
++        0 if !incomplete => errors.push("continuation after FIN".to_owned()),
++        0..=2 => {}
++        opcode => errors.push(format!("bad opcode {opcode}")),
++    }
++    if !accept_unmasked && second & 0x80 == 0 {
++        errors.push("bad MASK".to_owned());
++    }
++    if errors.is_empty() {
++        return Ok(());
++    }
++    Err(ProtocolError::LivekitRtcFrameHeader(std::sync::Arc::new(errors.join(", "))).into())
++}
++
+ // Gorilla v1.5.3 conn.go advanceFrame accepts negotiated RSV1 on all
+ // opcodes. Only the first data frame selects a decompression reader.
+ fn check_reserved_bits(
+@@ -999,12 +1045,6 @@ fn check_reserved_bits(
+     if !unexpected_rsv1 && !header.rsv2 && !header.rsv3 {
+         return Ok(());
+     }
+-    if livekit_rtc_reserved_bits {
+-        let bits = (u8::from(unexpected_rsv1) << 6)
+-            | (u8::from(header.rsv2) << 5)
+-            | (u8::from(header.rsv3) << 4);
+-        return Err(Error::Protocol(ProtocolError::LivekitRtcReservedBits(bits)));
+-    }
+     Err(Error::Protocol(ProtocolError::NonZeroReservedBits))
+ }
+ 

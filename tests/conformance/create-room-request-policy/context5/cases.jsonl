@@ -1,0 +1,5 @@
+{"id":"ctx-deadline-retry-remains","attempts":3,"timeout":"1s","context_deadline":"100ms","hold_until_expiry":true}
+{"id":"ctx-deadline-attempt-exhausted","attempts":1,"timeout":"1s","context_deadline":"100ms","hold_until_expiry":true}
+{"id":"default-selection-timeout-only-claimed","attempts":1,"timeout":"1s","caller_timeout":"2s"}
+{"id":"explicit-selection-false-with-affinity","attempts":1,"timeout":"1s","selection":{"accept_first":false,"affinity_timeout":"1ms"}}
+{"id":"ctx-cancel-with-attempts-remaining","attempts":3,"timeout":"1s","errors":["unavailable"],"cancel_at":1}

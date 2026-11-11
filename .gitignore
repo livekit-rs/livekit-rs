@@ -1,0 +1,14 @@
+.DS_Store
+**/.DS_Store
+**/target/
+**/node_modules/
+**/output/
+.playwright/
+.playwright-cli/
+references/*
+!references/README.md
+!references/fetch.sh
+!references/fetch.py
+!references/*.json
+**/__pycache__/
+**/*.pyc

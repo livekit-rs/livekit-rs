@@ -1,0 +1,106 @@
+livekit-rs server
+
+This project is licensed under the Apache License, Version 2.0.
+
+The protobuf schemas under crates/lk-protocol/protos/ contain material from
+https://github.com/livekit/protocol, commit
+9bb708cdb81918a6c63dd25e915b4644310b45b6.
+Copyright LiveKit, Inc. Licensed under the Apache License, Version 2.0.
+Original copyright and license headers are preserved in the schema files.
+
+The rtc-crypto provider includes material from str0m-rust-crypto 0.6.0,
+Copyright (c) Martin Algesten, licensed MIT OR Apache-2.0. Detailed attribution
+and license texts are in crates/rtc-crypto/NOTICE and LICENSE-* files.
+
+The implementation was developed with source references listed in
+../livekit-rs-docs/specs/0001-source-review.md and the references lock.
+Source inspection is not a claim of a clean-room implementation.
+Dependency licenses and source identities are recorded in Cargo.lock and
+checked by cargo-deny; release packaging must preserve required notices.
+
+LiveKit is a trademark of LiveKit, Inc. This independent project is not
+affiliated with or endorsed by LiveKit, Inc. Compatibility claims refer
+only to the versions and profiles actually validated in the test report.
+
+The deterministic RemoteBWE sender policy in crates/rtc-media/src/remote_bwe
+is a Rust port of LiveKit Server commit
+e5655ac20267fa5005dccaf3f0e3bfc3ea688c07, Copyright 2023 LiveKit, Inc.,
+licensed under Apache-2.0. Source identities, clock adaptations used only by
+the independent Go test oracle, and scope are recorded alongside the module;
+its LICENSE-UPSTREAM text must accompany redistributed material. The Go
+oracle is a development test tool and is not a server runtime dependency.
+
+The vendored dimpl 0.7.6 DTLS engine is Copyright (c) Martin Algesten,
+licensed MIT OR Apache-2.0. The RustCrypto curve/key bridge is locally
+modified for RUSTSEC-2026-0387; vendor/dimpl/SOURCE.json and its patch record
+the exact changes. Preserve vendor/dimpl/LICENSE-MIT.txt and
+vendor/dimpl/LICENSE-APACHE.txt when redistributing the vendored material.
+
+The psrpc wire schema (crates/lk-protocol/protos/psrpc) and channel formatting
+in crates/lk-compat/src/service_bus/channels.rs derive from LiveKit psrpc
+v0.8.2 commit e9701ee1b5a981cfa3c7c69503d4775ddff13729, Copyright 2023
+LiveKit, Inc., licensed Apache-2.0. The original schema and license are
+preserved with its source lock. The Go oracle is a development test tool,
+not a product runtime dependency. Wire compatibility alone does not provide
+a working worker backend or recording/ingress/telephone execution.
+
+The worker gateway/store/callback behavioral ports under crates/lk-compat/src/workers
+include LiveKit Server/protocol material at the fixed commits recorded in
+workers/SOURCE.json, licensed Apache-2.0. Worker SIP address/error quoting also
+uses Go BSD-3-Clause material with notices in workers/sip_callbacks/.
+
+The narrow version parser/comparator workers/version.rs is a modified Rust
+behavioral port of hashicorp/go-version v1.9.0, Copyright IBM Corp. 2014, 2025,
+licensed MPL-2.0. Its source and modifications are distributed in that file;
+preserve workers/LICENSE-MPL-2.0 and workers/SOURCE.json. The MPL applies to
+that covered file, not as a replacement for the remaining Apache-2.0 project.
+
+The independent sender estimator/feedback adapter and typed RTCP compatibility
+port in crates/rtc-media/src/pion_gcc derive from github.com/pion/interceptor
+v0.1.49 and github.com/pion/rtcp v1.2.19, Copyright (c) 2026 The Pion community
+<https://pion.ly>, licensed MIT. Preserve LICENSES/pion-interceptor-0.1.49-MIT.txt
+and LICENSES/pion-rtcp-1.2.19-MIT.txt. Complete original module sources/archive
+hashes are retained in the SPEC0018 references lock. Explicit-clock adapters
+and independent Go observers are documented in tests/oracles/pion-gcc; Go is
+a test reference, not a production runtime. Native default-off observation and
+authenticated admission integration is recorded by str0m patch19; it does not
+replace native GCC arithmetic with a renamed estimator.
+
+The modified is0.11.1 ICE dependency under vendor/is derives from the original
+published is package, Copyright (c) Martin Algesten, licensed MIT OR Apache-2.0.
+The narrow mapped-host physical-base changes preserve the Host candidate kind;
+exact patch/full-file reconstruction is recorded in vendor/is/SOURCE.json.
+Preserve vendor/is/LICENSE-MIT.txt and all original source notices. Fixed Pion
+ICE/LiveKit transport source observers are development references only, with
+original MIT/Apache notices under tests/oracles/network-interfaces. No Go
+runtime is linked by the Rust network implementation.
+
+smallvec-wrapper0.4.1 retains original MIT OR Apache-2.0 notices in vendor/smallvec-wrapper. Its manifest alone aliases the maintained pastey0.2.3 macro provider; original library source and licenses are unchanged.
+
+The DataTrack writer admission policy in crates/rtc-media/src/data_track_writer.rs
+is ported from fixed LiveKit Server pkg/sfu/datachannel/{datachannel_writer,bitrate}.go,
+commit e5655ac20267fa5005dccaf3f0e3bfc3ea688c07, licensed Apache-2.0.
+The original LICENSE is retained with the public development source oracle.
+The oracle's clock-only adapter and controlled IO seam are test tooling, not a
+Go runtime dependency or proof of physical SCTP/SDK behavior.
+
+The vendored sctp-proto0.10.7 is licensed MIT OR Apache-2.0 with both original
+notices retained. Its optional congestion minimum/CA step/fast retransmission
+burst implementation references github.com/pion/sctp v1.12.0, Copyright2026
+The Pion community, MIT; preserve vendor/sctp-proto/LICENSES/pion-sctp-1.12.0-MIT.txt.
+Package source, exact3-source-file patch and full71-file reconstruction are
+recorded in vendor/sctp-proto/SOURCE.json. No Go runtime is introduced.
+
+List-nodes display measurement includes a Rust translation of the generated
+Unicode property trie/scalar rules from github.com/clipperhouse/displaywidth
+v0.11.0 and the measurement wrapper rules from github.com/olekukonko/tablewriter
+v1.1.4. Both are MIT licensed. Original notices/licenses are preserved in
+LICENSES/displaywidth-MIT.txt and LICENSES/tablewriter-MIT.txt. Source identity
+and reproducible generation live in tests/oracles/list-nodes-go-width/.
+
+The Redis list-nodes address consumer in crates/livecloud/src/redis_address.rs
+adapts Go1.26.3 net/ipsock.go, net/port.go, net/lookup.go, net/port_unix.go and
+net/cgo_unix.go, Copyright The Go Authors, BSD-3-Clause. The original license
+text is preserved in LICENSES/Go-BSD-3-Clause.txt. The Go observer is a
+development-only source consumer, not a production dependency. Existing libc
+is used only for the operating system service database boundary.

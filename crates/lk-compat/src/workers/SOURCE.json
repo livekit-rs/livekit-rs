@@ -1,0 +1,154 @@
+{
+  "status": "IMPLEMENTED_SCOPED_FUNCTIONAL_TESTS_PASSED_FULL_WORKER_MEDIA_OPEN",
+  "server_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "protocol_commit": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+  "license": "Apache-2.0 except version.rs behavioral port MPL-2.0; file notices retained",
+  "sources": [
+    {
+      "path": "references/livekit-stable/pkg/service/ioservice.go",
+      "sha256": "73360d78bb03f2706f757ab2b5bfffd6fc72a7225ef01fab57e0c263f53156c1"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/ioservice_ingress.go",
+      "sha256": "f23b1aa4f71c02f11e71e6b28dfa9ea25ad8c8d4cf82c4ba4731dd55fa36a733"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/ioservice_sip.go",
+      "sha256": "320f2b41843e223db511ce53924a83b10ccad4b4ed064c77c8843e41ab61b29f"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/egress.go",
+      "sha256": "076578f06700738efb7d5f92f9451c2c7e9a715f955036009d69f1586d0adabe"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/ingress.go",
+      "sha256": "1baa3f432985f43ab35ad6c09ee23c030e3ebeed6e4770a55bcf1f48ec9ff1e5"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/sip.go",
+      "sha256": "3df44eb29477053061f1b7c15040ac9bff2fe89fdd9f7788c028bd6ec7e60a13"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/redisstore.go",
+      "sha256": "70c2e0ba92361665d896f2cbd1fbd1a7ce6256d630c5a7fdc6183f0a92fa5569"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/clients.go",
+      "sha256": "fcffb6838e4ce18b5ac63648ee335f77148b68de31c758a94bb1f3fa374f6082"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/wire.go",
+      "sha256": "c5cc7cc603eba7e6ef7ff40df7397aeb4b34e23878af0eff4b333b69b924e922"
+    },
+    {
+      "path": "references/livekit-stable/pkg/service/server.go",
+      "sha256": "d61f2d9caf4aed2b5f7c655f3f8eb8a51b0b0f357632d471d2b81b883d7ede0f"
+    },
+    {
+      "path": "references/livekit-stable/pkg/rtc/egress.go",
+      "sha256": "b4bc08286ee62a7af4941aeeb7d2866433217880b5006db8543ba4daad767b0d"
+    },
+    {
+      "path": "references/livekit-stable/pkg/config/config.go",
+      "sha256": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a"
+    },
+    {
+      "path": "references/protocol-stable/rpc/typed_api.go",
+      "sha256": "edfa7e151b7e91a4a5039c45e44acd53ff68fdbc9c714ac8afb7de5aa71b9eb3"
+    },
+    {
+      "path": "references/psrpc/pkg/info/info.go",
+      "sha256": "c062c15dca465dbd65b0aaac08bc618fbca7ed5c1cf734731b425b0cd8cbd1e6"
+    },
+    {
+      "path": "references/psrpc/pkg/info/channels.go",
+      "sha256": "a283dff70db2e4f41dc0aae243b18deba294dc040c17050af2f1ff0400f4538e"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/rpc/io.proto",
+      "sha256": "f647e42b6579b8a7c3491af84d335a52e63779dcaef525b8a7eaec4c6a50bf39"
+    },
+    {
+      "path": "references/protocol-stable/rpc/io.psrpc.go",
+      "sha256": "9f6f2996359006bee96fa1138fca0cccc1b8c1f307ad09faed6a04a856546acd"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/rpc/egress.proto",
+      "sha256": "a166b66ca543ee62cd0c4e91df60db9263b36e9f6a82ebceef4f56b641ab533b"
+    },
+    {
+      "path": "references/protocol-stable/rpc/egress.psrpc.go",
+      "sha256": "04a960d380a11b08ec099c7f826b075cc33366b04f563bdf2f1c9c6543217562"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/rpc/ingress.proto",
+      "sha256": "9a6f772b8ca7c73cd8fce7318afc39f5c9ca4add3b9164415dfd08761450d799"
+    },
+    {
+      "path": "references/protocol-stable/rpc/ingress.psrpc.go",
+      "sha256": "da5a101f8e988b821e5bbc548637da9239831c986f09632dfbae331712b05917"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/rpc/sip.proto",
+      "sha256": "6886e42073aa2e5be71937444398e732c72699fe291df06c580f82b19ef88681"
+    },
+    {
+      "path": "references/protocol-stable/rpc/sip.psrpc.go",
+      "sha256": "b55d1da8310e8110c71f4da0f9681156b2aa8cdabb519676c82043519c8a1ffd"
+    },
+    {
+      "path": "references/protocol-stable/rpc/egress_client.go",
+      "sha256": "6c206ba0985db92547b97822ff07800f2c293cee0c97c56531a73758bd43c448"
+    },
+    {
+      "path": "references/protocol-stable/rpc/ingress_client.go",
+      "sha256": "a07e78b8faf48bb9d2f75f5d1df50d29c1ab59aee8758a18fc38e1541363c6f4"
+    },
+    {
+      "path": "references/protocol-stable/rpc/sip_client.go",
+      "sha256": "5a828b23977b049f85fc09cb8196096e8825ac1a69afaa76331792591bfb7fcb"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/livekit_egress.proto",
+      "sha256": "20c87b9d0a798fe4176720af0acb5471d6fd7bf654c0b15b11a9cbe765bc4290"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/livekit_ingress.proto",
+      "sha256": "c04ed0c0deb05c76c1d9ac1dc64e4284ec88b92441ec08be846173cf7dceb86b"
+    },
+    {
+      "path": "references/protocol-stable/protobufs/livekit_sip.proto",
+      "sha256": "eab546a338a218b1eb9351265171506654b10b854d17e0f829081035bbc19009"
+    },
+    {
+      "path": "references/protocol-stable/ingress/errors.go",
+      "sha256": "b79d4a2297b6a25042c9c4c22f183171f70518420a238d7e65e62583d59d3116"
+    },
+    {
+      "path": "references/psrpc/pkg/middleware/retry.go",
+      "sha256": "eedb9d160f4558dc82feb022eb2c3edde245f9f5b4296f40586fae2d9dd2f2df"
+    },
+    {
+      "path": "references/go-modules/hashicorp-go-version-v1.9.0/version.go",
+      "sha256": "4c090b093437945311267bcbb20d3bdfdcd1382883acd238393c47c91a4b4b77",
+      "license": "MPL-2.0"
+    },
+    {
+      "path": "references/go-modules/hashicorp-go-version-v1.9.0/LICENSE",
+      "sha256": "b31266a0a4ade23e6c0cb5a6ae1c7933b390f30b80550a715579989639b4f55e",
+      "license": "MPL-2.0"
+    },
+    {
+      "path": "references/go-modules/hashicorp-go-version-v1.9.0/DOWNLOAD.json",
+      "sha256": "4f79869a4aebfc0e25c738fd8e5fea798add320d8ddc029a774d6136215cb140",
+      "license": "source metadata"
+    }
+  ],
+  "external_worker_source_status": "THREE_FIXED_CHECKOUTS_PINNED; SIP_BUILT_NOT_RUN; EGRESS_NATIVE_MAC_HOME_UNWRITABLE; INGRESS_NOT_RUN",
+  "verification": {
+    "rust_compilation": "PASS_WORKSPACE_AND_STRICT_CLIPPY",
+    "actual_redis_tests": "PASS_22_OPT_IN_WORKER_CASES_AND_FOUR_CROSS_DIRECTIONS",
+    "external_workers": "MEDIA_NOT_RUN_NOT_CLAIMED",
+    "evidence": "livekit-rs-docs/evidence/2026-10-25/f06-functional-delivery.json"
+  }
+}

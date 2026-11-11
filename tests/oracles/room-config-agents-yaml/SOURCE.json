@@ -1,0 +1,12 @@
+{
+  "target": {
+    "server": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "protocol": "9bb708cdb81918a6c63dd25e915b4644310b45b6"
+  },
+  "inputs": {
+    "main.go": "1141271ee4553dd0737923bd0378253d5536e95c59f1da5f6db36a51ca1ef49d",
+    "cases.jsonl": "74989c230fd0467caa702de775f82dbb181454b2e66d517c89b67a526d83788d",
+    "README.md": "34459e3681dea2e1789dada160ddda862a2c15364351c2dd41add3a093318905"
+  },
+  "scope": "10 actual generated agents slice observations; no universal config claim"
+}

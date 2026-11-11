@@ -1,0 +1,125 @@
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -472,6 +472,10 @@
+     /// Actual receiving RTP lifetime, distinct across reuse or detected restart.
+     pub source_id: u64,
+ 
++    /// Actual authenticated logical receive-flow order, independent of optional
++    /// timing observation. Includes initialized primary padding packets.
++    pub received_out_of_order: bool,
++
+     /// Negotiated media identifier bound to the actual authenticated SSRC.
+     pub mid: Mid,
+     /// Negotiated stream RID, if present.
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1061,6 +1061,7 @@
+         {
+             self.pending_media_packet = Some(crate::media::MediaPacket {
+                 source_id: stream.receive_traffic.source_id(),
++                received_out_of_order: admitted_flow.is_some_and(|flow| !flow.in_order),
+                 mid,
+                 rid: stream.rid(),
+                 params: packet_params,
+@@ -2319,6 +2320,101 @@
+         );
+         session.remove_media(mid);
+         assert!(session.pending_media_packet.is_none());
++    }
++
++    #[test]
++    fn authenticated_primary_padding_reports_original_receive_order_without_timing_observer() {
++        for timing in [false, true] {
++            let now = Instant::now();
++            let crypto = crate::crypto::test_default_provider();
++            let profile = SrtpProfile::AES128_CM_SHA1_80;
++            let material = vec![0x62; profile.keying_material_len()];
++            let key = KeyingMaterial::new(&material);
++            let mut tx = SrtpContext::new(crypto, profile, &key, true);
++            let mut session = Session::new(&RtcConfig::default().enable_vp9(true));
++            session.video_packet_events = true;
++            session.forwarding_timing_enabled = timing;
++            session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++            session.srtp_tx = Some(SrtpContext::new(crypto, profile, &key, false));
++            let params = session
++                .codec_config
++                .params()
++                .iter()
++                .find(|p| p.spec().codec == crate::format::Codec::Vp9)
++                .copied()
++                .unwrap();
++            let mid = Mid::from("v");
++            let mut media = Media::from_direct_api(
++                mid,
++                0,
++                crate::media::MediaKind::Video,
++                ExtensionMap::empty(),
++            );
++            media.set_remote_pts(vec![params.pt()]);
++            session.add_media(media);
++            session
++                .streams
++                .expect_stream_rx(101.into(), None, MidRid(mid, None), false);
++            for (index, (sequence, padding, out_of_order)) in [
++                (1000u16, false, false),
++                (1002, false, false),
++                (1001, true, true),
++                (1003, false, false),
++                (1004, true, false),
++            ]
++            .into_iter()
++            .enumerate()
++            {
++                let mut bytes = vec![
++                    if padding { 0xa0 } else { 0x80 },
++                    *params.pt() | 0x80,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    0,
++                    101,
++                ];
++                bytes[2..4].copy_from_slice(&sequence.to_be_bytes());
++                bytes[4..8].copy_from_slice(&(3000 * (u32::from(sequence) - 999)).to_be_bytes());
++                if padding {
++                    bytes.extend_from_slice(&[0, 0, 0, 4]);
++                } else {
++                    bytes.extend_from_slice(&[0xbc, 0x81, sequence as u8, 0, 0x80, 0]);
++                }
++                let header = RtpHeader::parse(&bytes, &ExtensionMap::empty()).unwrap();
++                let encrypted = tx.protect_rtp(&bytes, &header, u64::from(sequence));
++                let at = now + Duration::from_millis(index as u64);
++                session.handle_rtp_receive(at, &encrypted);
++                let mut packet = None;
++                while let Some(event) = session.poll_event() {
++                    if let Event::MediaPacket(value) = event {
++                        assert!(packet.is_none());
++                        packet = Some(value)
++                    }
++                }
++                let packet=packet.expect("each authenticated nonduplicate initialized primary, including padding, has its actual packet observer event");
++                assert_eq!(*packet.packet.seq_no, u64::from(sequence));
++                assert_eq!(
++                    packet.received_out_of_order, out_of_order,
++                    "receive order comes from the source admission flow, never optional telemetry"
++                );
++                assert_eq!(packet.packet.payload.is_empty(), padding);
++                assert_eq!(packet.packet.forwarding_observation().is_some(), timing);
++                while session.poll_event_fallible(at).unwrap().is_some() {}
++                session.handle_rtp_receive(at, &encrypted);
++                assert!(
++                    session.pending_media_packet.is_none(),
++                    "authenticated replay cannot produce a second padding/control transition"
++                );
++            }
++            session.remove_media(mid);
++            assert!(session.pending_media_packet.is_none());
++        }
+     }
+ 
+     #[test]

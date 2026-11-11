@@ -1,0 +1,10 @@
+{
+  "status": "SOURCE_TABLE_PARSE_NO_COMPILER",
+  "source": "/Users/zoujiaqing/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.3.darwin-arm64/src/unicode/tables.go",
+  "sha256": "6a88d48746c4b2c471cc04ae40559694b734770212e6f5ea5f1962adb0c0bdb1",
+  "non_ascii_simple_upper_preimage_of_ASCII_enum_letters": {
+    "U+0131": "I",
+    "U+017F": "S"
+  },
+  "scope": "finite ASCII names of modeled TrackSource; not a generic Unicode uppercaser"
+}

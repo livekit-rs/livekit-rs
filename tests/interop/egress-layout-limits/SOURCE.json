@@ -1,0 +1,91 @@
+{
+  "status": "FROZEN_FIXTURE_V4_STRICT_SOURCE_NAMES_LISTENER_PROVENANCE_NOT_RUN",
+  "parent_candidate": {
+    "path": "/tmp/egress-layout-name-preflight-current",
+    "source_sha256": "09cf6aa3cbc200f951c8b56e8dc7790961bc036946e18a2585b690827088a63d",
+    "fixtures_three_byte_identical": true
+  },
+  "targets": [
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/twirp/room_service.rs",
+      "before_sha256": "39285896f1ad47a348836ae0b6605b0d790f4e49d7e7ddf0a3b1020425888d89",
+      "after_sha256": "4f4ea4410bcb0eb9c6bdc927658017207c0e5291b7045a6fe4d8aeac24faaf4b"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/worker_services.rs",
+      "before_sha256": "bf9160f636c58e741d5fa6c6dcea269318c85904634c09cb1abf0969654a594e",
+      "after_sha256": "0568806e39d09d43e90636373776422663ff239364d25bf119b6fb987bc26563"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/egress-layout-limits/run.mjs",
+      "before_sha256": null,
+      "after_sha256": "5e94e056c675bc62ff8b1a8f7f69967f69cf3669e8ae33f9be7be300679c786e"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/egress-layout-limits/redis-op.py",
+      "before_sha256": null,
+      "after_sha256": "9372b35f5f24c31df6026433b96b68da61e3ed3d04a09424006d9fe18fdb8074"
+    },
+    {
+      "path": "livekit-rs-server/tests/interop/egress-layout-limits/compare.py",
+      "before_sha256": null,
+      "after_sha256": "123087e1548daf3c8fbdd0265da0864325fefa73b5bac72eca9caeeaa241e0c2"
+    }
+  ],
+  "context_sha256": {
+    "livekit-rs-server/Cargo.toml": "2f3f63b714aad310cbf895c9132ed3e0de7ec56298da995318c3a49a7eabbc54",
+    "livekit-rs-server/Cargo.lock": "3294a4493aa1b5150051d2f34153097c5c6f6dc7a6ee1fd59d9725315ab5f748",
+    "livekit-rs-server/crates/rtc-runtime/src/net/mod.rs": "863b37e8cd618e369ec1ac25be024fefc3520754eaa106c16ca3a2621eb12b37",
+    "livekit-rs-server/crates/rtc-runtime/src/room_task.rs": "260eff4db06310b5afdab635f4a2e39bc8bb6f782c5ede6e09f40458ea4af95c",
+    "livekit-rs-server/crates/rtc-core/src/room/requests.rs": "98f1c33e467b167dac41402bb34d5b180015a4a04806cb45bd6b574a521fe4e8",
+    "livekit-rs-server/crates/rtc-core/src/room/tests.rs": "37d026ae34fa797dafe8fbb687d534b1bbac4d1b52bcfbc6994347ed34b80c87",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b",
+    "livekit-rs-server/tests/interop/participant-data-blob/raw-peer.mjs": "1f12c8b0ddbfca3d717c755db7a360a14cf7ed7b781b469772c9733839854485",
+    "livekit-rs-server/tests/interop/participant-data-blob/raw-protocol.mjs": "dc0a88ca8270c6212972b07d6bd128446b049c7576a3f4cbf666bdfc19e4f698"
+  },
+  "source_sha256": {
+    "references/livekit-stable/pkg/service/egress.go": "076578f06700738efb7d5f92f9451c2c7e9a715f955036009d69f1586d0adabe",
+    "references/livekit-stable/pkg/service/roomservice.go": "81edf654a71eb328c07e7632bec2aeb22fed23316de15458ba9403967adcfe00",
+    "references/livekit-stable/pkg/config/config.go": "bd3ff9842ddcb84aa6a4992d7b9a8cc6a24265e255e154c6fbd6e51b3783e47a",
+    "livekit-rs-server/crates/lk-compat/src/workers/egress.rs": "1fce0ce98d350299b58bd101288e2cbbf25af22dc71a92ffc0a2bc24af0d0f7a",
+    "livekit-rs-server/crates/lk-compat/src/twirp/error.rs": "26c267dc652a28fd92a687b18a08af7a5f3a6d2ac64e461ad0f99e5b46fdd7b6",
+    "references/livekit-stable/pkg/service/utils.go": "6aa8ccbcf6490c05a153128c7acded6459af0158aea40d4f8217fbc8d81defea",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "livekit-rs-server/crates/rtc-runtime/src/manager.rs": "68647025bf5bc870c9badf6b0b3d3d854380969e71ecaa07f9fc234b6cbc2ada",
+    "livekit-rs-server/crates/lk-config/src/normalize.rs": "bd3e9ecf653dc73031cf1a49f447b73aa75038b63c9c5970411646e2541a73ec",
+    "livekit-rs-server/crates/rtc-core/src/room/join.rs": "f50cd449ee308502f76a68c487e67a23fb67cfb56716997a02563f870d3efea6",
+    "references/protocol-stable/livekit/livekit_egress.twirp.go": "5dde3c186580f2f3aa7cb01813ec465e687b548c3a3601c78fdfd3cdeee2dcf8",
+    "references/protocol-stable/livekit/livekit_egress.pb.go": "caf277fa37d930c2340af04bd82fafbca44d2c301765999bca544c5179b230f8",
+    "references/livekit-stable/pkg/service/server.go": "d61f2d9caf4aed2b5f7c655f3f8eb8a51b0b0f357632d471d2b81b883d7ede0f"
+  },
+  "assets_sha256": {
+    "fixture-v1-to-v2.patch": "df6a5be812ae8637c1df712381a00cb476c1bad8d7b43dcc9983bcdf6597467e",
+    "fixture-v2-to-v3.patch": "cfb314afe5c35c106d3b1d4f543be5508095afeb91ed3e7f496965e6eae0d700",
+    "line-hunks.json": "af13b374fe93fa1d6e8e6cf58da1c726ad61b8e89081d65cf1877c083e6ba2ec",
+    "changes.patch": "5d6067e54430a53550dbb611e5770cfa25321baceac572ede089974ea4fb13ef",
+    "baseline-red-only.patch": "2834f35bb7764cf0ddbfe40a4b43a9b6460a64c92ba489040bd49056e75f1b59",
+    "SPEC-ROW-PROPOSAL.json": "7e277cc86cd843b7840eff6834d09711d748de13e06ec4bb9c2bfb516ae3ea83",
+    "CONTRACT.md": "858b2c445775003994f4033d96102e298f0b92f171f05ffe1ae2a7b829a655f0",
+    "fixture-v3-to-v4.patch": "a467305f0e4fb002c65671a8df33f034d5162b62c212f3f7b9d86977ba36e331",
+    "apply-narrow.py": "5eaaba0c3cca94685f799e36bf96f9c3c378f262937e09d031a2282b1b8605bd",
+    "fixture/run.mjs": "5e94e056c675bc62ff8b1a8f7f69967f69cf3669e8ae33f9be7be300679c786e",
+    "fixture/redis-op.py": "9372b35f5f24c31df6026433b96b68da61e3ed3d04a09424006d9fe18fdb8074",
+    "fixture/compare.py": "123087e1548daf3c8fbdd0265da0864325fefa73b5bac72eca9caeeaa241e0c2",
+    "payload/livekit-rs-server/crates/lk-compat/src/worker_services.rs": "0568806e39d09d43e90636373776422663ff239364d25bf119b6fb987bc26563",
+    "payload/livekit-rs-server/crates/lk-compat/src/twirp/room_service.rs": "4f4ea4410bcb0eb9c6bdc927658017207c0e5291b7045a6fe4d8aeac24faaf4b",
+    "payload/livekit-rs-server/tests/interop/egress-layout-limits/run.mjs": "5e94e056c675bc62ff8b1a8f7f69967f69cf3669e8ae33f9be7be300679c786e",
+    "payload/livekit-rs-server/tests/interop/egress-layout-limits/redis-op.py": "9372b35f5f24c31df6026433b96b68da61e3ed3d04a09424006d9fe18fdb8074",
+    "payload/livekit-rs-server/tests/interop/egress-layout-limits/compare.py": "123087e1548daf3c8fbdd0265da0864325fefa73b5bac72eca9caeeaa241e0c2",
+    "base/livekit-rs-server/crates/lk-compat/src/worker_services.rs": "bf9160f636c58e741d5fa6c6dcea269318c85904634c09cb1abf0969654a594e",
+    "base/livekit-rs-server/crates/lk-compat/src/twirp/room_service.rs": "39285896f1ad47a348836ae0b6605b0d790f4e49d7e7ddf0a3b1020425888d89"
+  },
+  "production_existing_files": 2,
+  "core_RoomTask_attrs_F150_CLI_width_changes": false,
+  "actual_results_generated": false,
+  "parent_2026_10_28_source_sha256": "1074f48b04eb3a968f9fa3159716610c076c8cd01194459ff464475165a3b219",
+  "production_payload_byte_identical_to_parent": true,
+  "parent_fixture_v2_source_sha256": "d2734a00c96eb41da9602a1215379880cd72e7d5f4951a22a18d7765f5d5ae01",
+  "parent_fixture_v3_source_sha256": "57f653518a8c7fce33c5ef6354c0a9e5125d33eda7130915ace40376a05e63b3"
+}

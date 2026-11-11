@@ -1,0 +1,9 @@
+{
+  "original_frozen_lock_sha256": "b356a74c043805e7560896bd253466ca570f941a9261bb99b8a64d6f7babfa3e",
+  "additional_inputs": {
+    "oracle/to_tsv.py": "7d93554dd65bc7aee231178bfaf03f77d29fa0ae0185da734c07e2e3b5935fa7",
+    "prepare_oracle.py": "6058ec5b6c2276dc49430d4756404b9afe7392fd838f155aa93aa1e27352a77d",
+    "ORACLE-README.md": "4310035d9909c6974132493a9a9367944ce6298f57da527ee31d221a785d98fa"
+  },
+  "status": "NOT_RUN"
+}

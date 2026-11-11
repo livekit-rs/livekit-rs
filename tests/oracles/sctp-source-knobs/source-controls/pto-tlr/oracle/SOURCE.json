@@ -1,0 +1,23 @@
+{
+  "status": "FROZEN_PRIVATE_PTO_TLR_SOURCE_OBSERVER_NOT_RUN",
+  "rows": 18,
+  "scope": "Original source actual original DATA+ACK RTT seeding in nonzero samples; original DATA PTO selection and actual gather serialization; phase/loss/reset/allow tests explicitly controlled private-state observations. No claim of actual wall timer, native wire or writer goroutine execution.",
+  "methods_clock_reads_only": [
+    "movePendingDataChunkToInflightQueue",
+    "onRackAfterSACK",
+    "startRackTimer",
+    "startPTOTimer",
+    "processSelectiveAck",
+    "getDataPacketsToRetransmit",
+    "onPTOTimerLocked",
+    "tlrCurrentBurstUnitsLocked",
+    "tlrBeginLocked",
+    "gatherOutboundFastRetransmissionPackets"
+  ],
+  "assets_sha256": {
+    "LICENSE-Pion-MIT": "6483daf6c8aa2c8192528e60be098aa82dd18f6d7b96dc8246f4f7c3333fbf3f",
+    "pion-source-inputs.json": "a0a6539e65a4895c6ea899a043588368670da2e5b5e24d1f90793c8fd590bd53",
+    "prepare.py": "e88362f666d1c0259d40ffce87dec61bad437048cc7e03684b2d60e1524fce5f",
+    "pto_tlr_test.go": "dda5f2bed824fcb2d2ec6a5f9e6d8394bfed543672d0603adbd8ba6b4e440547"
+  }
+}

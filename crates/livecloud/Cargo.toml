@@ -1,0 +1,85 @@
+[package]
+name = "livecloud"
+description = "LiveKit-compatible single-binary RTC server (also installed as livekit-server)"
+# CLI parity (SPEC-0074 C31): `--version`/help must print exactly the upstream
+# version this build is compatible with, so the package version mirrors it.
+version = "1.13.10"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Same implementation under both names (§6.1); `livekit-server` is a packaging
+# alias, not a second program.
+[[bin]]
+name = "livecloud"
+path = "src/main.rs"
+
+[[bin]]
+name = "livekit-server"
+path = "src/bin/livekit-server.rs"
+
+[features]
+cloud = ["dep:msgtrans", "dep:tokio-tungstenite", "dep:futures-util", "dep:serde"]
+
+[dependencies]
+# The WSS adapter uses rtc-tls. MsgTrans default transports enable ring.
+msgtrans = { git = "https://github.com/zoujiaqing/msgtrans.git", rev = "b6d13f658b368b676d61d650c7803476a266ce6a", default-features = false, optional = true }
+tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"], optional = true }
+futures-util = { workspace = true, optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+getifs.workspace = true
+libc.workspace = true
+rpprof = { version = "=0.18.3", default-features = false, features = ["framehop-unwinder", "prost-codec"] }
+flate2.workspace = true
+lk-config.workspace = true
+lk-protocol.workspace = true
+# SPEC-0074 C15: WebTransport listener wiring in the production binary.
+lk-webtransport.workspace = true
+quinn = { workspace = true }
+bytes.workspace = true
+http.workspace = true
+getrandom.workspace = true
+p256.workspace = true
+x509-cert.workspace = true
+prost.workspace = true
+redis.workspace = true
+rand.workspace = true
+chrono = { version = "=0.4.45", default-features = false, features = ["std", "clock"] }
+lk-compat.workspace = true
+rtc-core.workspace = true
+rtc-tls.workspace = true
+rtc-runtime.workspace = true
+rtc-turn.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-core.workspace = true
+xxhash-rust = { version = "=0.8.19", features = ["xxh3"] }
+tracing-subscriber = { workspace = true, features = ["tracing-log"] }
+tracing-log = { version = "=0.2.0", default-features = false, features = ["log-tracer", "std"] }
+thiserror.workspace = true
+base64.workspace = true
+# SPEC-0074 C14: /debug/rooms JSON body.
+serde_json.workspace = true
+prometheus-client.workspace = true
+
+tokio-rustls = { version = "=0.26.6", default-features = false }
+# SPEC-0074 C16: OTLP/Jaeger trace export. HTTP/prost transport (matches the
+# upstream otlptracehttp endpoint on :4318/v1/traces). reqwest-rustls is
+# intentionally omitted: reqwest's `rustls` feature pulls the `aws-lc-rs`
+# C provider, which the repo's pure-Rust crypto policy forbids (see
+# rtc-crypto / rustls `custom-provider`). Plaintext http:// OTLP is the
+# supported transport; https OTLP endpoints are out of scope for this build.
+# The batch processor runs on a std thread. Use the existing pure-Rust
+# rtc-tls provider with reqwest's no-provider rustls HTTP connector.
+opentelemetry-otlp = { version = "=0.33.1", default-features = false, features = ["http-proto", "trace", "reqwest-blocking-client"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["blocking", "http2", "rustls-no-provider"] }
+opentelemetry = { version = "=0.33.1", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "=0.33.1", default-features = false, features = ["trace", "rt-tokio"] }
+
+[dev-dependencies]
+log = { version = "=0.4.34", features = ["std"] }
+serde_json.workspace = true
+tokio-tungstenite = { version = "=0.29.0", default-features = false, features = ["handshake"] }
+futures-util.workspace = true

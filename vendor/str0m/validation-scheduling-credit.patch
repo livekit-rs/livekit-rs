@@ -1,0 +1,118 @@
+--- a/src/bwe/probe/cluster.rs
++++ b/src/bwe/probe/cluster.rs
+@@ -233,7 +233,7 @@
+ 
+         if self.config.kind == ProbeKind::Validation {
+             // Packet deadlines and padding-request burst spacing are distinct.
+-            // Already queued packets may use at most one 2ms burst of credit.
++            // Already queued packets may use at most the bounded scheduling credit.
+             return self.validation_next_at.unwrap_or(started_at);
+         }
+ 
+@@ -358,7 +358,17 @@
+         // It's time to send a new probe burst.
+         // Calculate recommended probe size as target_bitrate * min_probe_delta.
+         let min_delta = self.config.min_probe_delta();
+-        let recommended_probe_size = self.config.target_bitrate * min_delta;
++        let scheduling_credit = if self.config.kind == ProbeKind::Validation {
++            self.validation_next_at
++                .map(|next| now.saturating_duration_since(next).min(MAX_PROBE_DELAY))
++                .unwrap_or(Duration::ZERO)
++        } else {
++            Duration::ZERO
++        };
++        // Fill already earned, bounded scheduling credit as well as one future
++        // generation interval. Packet deadlines, not queued bytes, authorize
++        // actual sends. Media/RTX have already advanced the same packet ledger.
++        let recommended_probe_size = self.config.target_bitrate * (min_delta + scheduling_credit);
+ 
+         // Ensure we request at least one padding packet worth of bytes even if min_delta is 0.
+         let recommended_probe_size = DataSize::bytes(cmp::max(
+@@ -406,7 +416,10 @@
+         self.packets_sent += 1;
+         self.last_packet_at = Some(now);
+         if self.config.kind == ProbeKind::Validation {
+-            let credit = self.config.min_probe_delta();
++            // Padding-generation spacing is not the scheduler's wake-up budget.
++            // Preserve at most the existing 10ms native lateness tolerance;
++            // this is bounded debt, not a higher requested bandwidth.
++            let credit = MAX_PROBE_DELAY;
+             let floor = now.checked_sub(credit).unwrap_or(now);
+             let base = self.validation_next_at.unwrap_or(floor).max(floor);
+             self.validation_next_at = Some(base + size / self.config.target_bitrate);
+@@ -450,10 +463,63 @@
+                 while state.next_probe_time() <= resumed {
+                     state.record_packet(resumed, DataSize::bytes(240));
+                     sent += DataSize::bytes(240);
+-                    assert!(sent <= rate * Duration::from_millis(2) + DataSize::bytes(240));
++                    assert!(sent <= rate * MAX_PROBE_DELAY + DataSize::bytes(240));
+                 }
+                 assert!(sent > DataSize::ZERO);
+                 assert!(state.next_probe_time() > resumed);
++            }
++        }
++    }
++
++    #[test]
++    fn validation_padding_supply_covers_earned_credit_without_authorizing_extra_sends() {
++        let start = Instant::now();
++        let rate = Bitrate::mbps(2);
++        let mut state = ProbeClusterState::new(
++            ProbeClusterConfig::new(0.into(), rate, ProbeKind::Validation)
++                .with_duration(Duration::from_secs(2)),
++        );
++        state.record_packet(start, DataSize::bytes(240));
++        let wake = start + Duration::from_millis(10);
++        let requested = state.next_packet(wake).unwrap();
++        assert!(requested > rate * Duration::from_millis(2));
++        assert!(requested <= rate * (MAX_PROBE_DELAY + Duration::from_millis(2)));
++        // Merely queueing padding consumes no actual packet credit.
++        let before = state.next_probe_time();
++        assert!(state.next_packet(wake).is_none());
++        assert_eq!(state.next_probe_time(), before);
++    }
++
++    #[test]
++    fn validation_irregular_wakes_and_stalls_obey_every_interval_sender_envelope() {
++        for rate in [Bitrate::kbps(300), Bitrate::mbps(2), Bitrate::mbps(20)] {
++            let start = Instant::now();
++            let mut state = ProbeClusterState::new(
++                ProbeClusterConfig::new(0.into(), rate, ProbeKind::Validation)
++                    .with_duration(Duration::from_secs(2)),
++            );
++            let mut now = start;
++            let mut sends = Vec::new();
++            for delay_ms in [2, 7, 3, 10, 4, 9, 6, 5, 50, 2, 10, 1000, 3, 7] {
++                now += Duration::from_millis(delay_ms);
++                for _ in 0..16 {
++                    if state.next_probe_time() > now {
++                        break;
++                    }
++                    let size = DataSize::bytes([120, 240, 358, 1200][sends.len() % 4]);
++                    state.record_packet(now, size);
++                    sends.push((now, size));
++                }
++            }
++            // Includes 50ms/1s stalls: only the last 10ms debt survives, never
++            // a whole stale burst. Variable protected packet sizes remain real.
++            for first in 0..sends.len() {
++                let mut total = DataSize::ZERO;
++                for last in first..sends.len() {
++                    total += sends[last].1;
++                    let span = sends[last].0.duration_since(sends[first].0);
++                    assert!(total <= rate * (span + MAX_PROBE_DELAY) + DataSize::bytes(1200));
++                }
+             }
+         }
+     }
+--- a/src/pacer/leaky.rs
++++ b/src/pacer/leaky.rs
+@@ -165,7 +165,7 @@
+             // The native driver already supports draining due-now work in one
+             // bounded wake. Do not force a fresh OS timer for every padding
+             // packet: a 1us timer becomes ~1ms and caps small packets at 1kpps.
+-            // Only already-earned, bounded 2ms credit can produce a due-now poll.
++            // Only already-earned, bounded scheduling credit can produce a due-now poll.
+             self.next_poll_time = Some((probe.next_probe_time().max(now), PacerReason::Immediate));
+         }
+ 

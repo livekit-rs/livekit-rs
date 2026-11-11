@@ -1,0 +1,1236 @@
+{
+  "status": "NOT_RUN",
+  "scope": "Independent integer lexical/range corpus, expected results only from real fixed Go oracle",
+  "cases": [
+    {
+      "case": "CreateRoomRequest-0-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":0}"
+    },
+    {
+      "case": "CreateRoomRequest-0-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"0\"}"
+    },
+    {
+      "case": "CreateRoomRequest-1-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":-0}"
+    },
+    {
+      "case": "CreateRoomRequest-1-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"-0\"}"
+    },
+    {
+      "case": "CreateRoomRequest-2-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1}"
+    },
+    {
+      "case": "CreateRoomRequest-2-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1\"}"
+    },
+    {
+      "case": "CreateRoomRequest-3-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":-1}"
+    },
+    {
+      "case": "CreateRoomRequest-3-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"-1\"}"
+    },
+    {
+      "case": "CreateRoomRequest-4-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":01}"
+    },
+    {
+      "case": "CreateRoomRequest-4-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"01\"}"
+    },
+    {
+      "case": "CreateRoomRequest-5-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":+1}"
+    },
+    {
+      "case": "CreateRoomRequest-5-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"+1\"}"
+    },
+    {
+      "case": "CreateRoomRequest-6-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1.0}"
+    },
+    {
+      "case": "CreateRoomRequest-6-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1.0\"}"
+    },
+    {
+      "case": "CreateRoomRequest-7-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1.00}"
+    },
+    {
+      "case": "CreateRoomRequest-7-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1.00\"}"
+    },
+    {
+      "case": "CreateRoomRequest-8-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":0.1}"
+    },
+    {
+      "case": "CreateRoomRequest-8-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"0.1\"}"
+    },
+    {
+      "case": "CreateRoomRequest-9-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":10e-1}"
+    },
+    {
+      "case": "CreateRoomRequest-9-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"10e-1\"}"
+    },
+    {
+      "case": "CreateRoomRequest-10-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":100e-2}"
+    },
+    {
+      "case": "CreateRoomRequest-10-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"100e-2\"}"
+    },
+    {
+      "case": "CreateRoomRequest-11-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e-99999999}"
+    },
+    {
+      "case": "CreateRoomRequest-11-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e-99999999\"}"
+    },
+    {
+      "case": "CreateRoomRequest-12-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":0e99999999999999}"
+    },
+    {
+      "case": "CreateRoomRequest-12-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"0e99999999999999\"}"
+    },
+    {
+      "case": "CreateRoomRequest-13-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":-0e-99999999999999}"
+    },
+    {
+      "case": "CreateRoomRequest-13-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"-0e-99999999999999\"}"
+    },
+    {
+      "case": "CreateRoomRequest-14-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e+2}"
+    },
+    {
+      "case": "CreateRoomRequest-14-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e+2\"}"
+    },
+    {
+      "case": "CreateRoomRequest-15-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e02}"
+    },
+    {
+      "case": "CreateRoomRequest-15-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e02\"}"
+    },
+    {
+      "case": "CreateRoomRequest-16-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e-0}"
+    },
+    {
+      "case": "CreateRoomRequest-16-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e-0\"}"
+    },
+    {
+      "case": "CreateRoomRequest-17-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1E2}"
+    },
+    {
+      "case": "CreateRoomRequest-17-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1E2\"}"
+    },
+    {
+      "case": "CreateRoomRequest-18-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e}"
+    },
+    {
+      "case": "CreateRoomRequest-18-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e\"}"
+    },
+    {
+      "case": "CreateRoomRequest-19-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e+}"
+    },
+    {
+      "case": "CreateRoomRequest-19-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e+\"}"
+    },
+    {
+      "case": "CreateRoomRequest-20-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e2147483647}"
+    },
+    {
+      "case": "CreateRoomRequest-20-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e2147483647\"}"
+    },
+    {
+      "case": "CreateRoomRequest-21-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1e-2147483648}"
+    },
+    {
+      "case": "CreateRoomRequest-21-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1e-2147483648\"}"
+    },
+    {
+      "case": "CreateRoomRequest-22-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":4294967295}"
+    },
+    {
+      "case": "CreateRoomRequest-22-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"4294967295\"}"
+    },
+    {
+      "case": "CreateRoomRequest-23-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":4294967296}"
+    },
+    {
+      "case": "CreateRoomRequest-23-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"4294967296\"}"
+    },
+    {
+      "case": "CreateRoomRequest-24-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":2147483647}"
+    },
+    {
+      "case": "CreateRoomRequest-24-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"2147483647\"}"
+    },
+    {
+      "case": "CreateRoomRequest-25-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":2147483648}"
+    },
+    {
+      "case": "CreateRoomRequest-25-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"2147483648\"}"
+    },
+    {
+      "case": "CreateRoomRequest-26-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":-2147483648}"
+    },
+    {
+      "case": "CreateRoomRequest-26-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"-2147483648\"}"
+    },
+    {
+      "case": "CreateRoomRequest-27-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":-2147483649}"
+    },
+    {
+      "case": "CreateRoomRequest-27-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"-2147483649\"}"
+    },
+    {
+      "case": "CreateRoomRequest-28-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":9007199254740993}"
+    },
+    {
+      "case": "CreateRoomRequest-28-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"9007199254740993\"}"
+    },
+    {
+      "case": "CreateRoomRequest-29-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":9.007199254740993e15}"
+    },
+    {
+      "case": "CreateRoomRequest-29-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"9.007199254740993e15\"}"
+    },
+    {
+      "case": "CreateRoomRequest-30-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":9223372036854775807}"
+    },
+    {
+      "case": "CreateRoomRequest-30-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"9223372036854775807\"}"
+    },
+    {
+      "case": "CreateRoomRequest-31-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":9223372036854775808}"
+    },
+    {
+      "case": "CreateRoomRequest-31-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"9223372036854775808\"}"
+    },
+    {
+      "case": "CreateRoomRequest-32-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":-9223372036854775808}"
+    },
+    {
+      "case": "CreateRoomRequest-32-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"-9223372036854775808\"}"
+    },
+    {
+      "case": "CreateRoomRequest-33-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":-9223372036854775809}"
+    },
+    {
+      "case": "CreateRoomRequest-33-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"-9223372036854775809\"}"
+    },
+    {
+      "case": "CreateRoomRequest-34-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":18446744073709551615}"
+    },
+    {
+      "case": "CreateRoomRequest-34-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"18446744073709551615\"}"
+    },
+    {
+      "case": "CreateRoomRequest-35-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":18446744073709551616}"
+    },
+    {
+      "case": "CreateRoomRequest-35-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"18446744073709551616\"}"
+    },
+    {
+      "case": "CreateRoomRequest-36-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1.8446744073709551615e19}"
+    },
+    {
+      "case": "CreateRoomRequest-36-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1.8446744073709551615e19\"}"
+    },
+    {
+      "case": "CreateRoomRequest-37-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\": 1}"
+    },
+    {
+      "case": "CreateRoomRequest-37-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\" 1\"}"
+    },
+    {
+      "case": "CreateRoomRequest-38-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1 }"
+    },
+    {
+      "case": "CreateRoomRequest-38-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1 \"}"
+    },
+    {
+      "case": "CreateRoomRequest-39-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":}"
+    },
+    {
+      "case": "CreateRoomRequest-39-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"\"}"
+    },
+    {
+      "case": "CreateRoomRequest-40-raw",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":1_0}"
+    },
+    {
+      "case": "CreateRoomRequest-40-quoted",
+      "type": "livekit.CreateRoomRequest",
+      "body": "{\"emptyTimeout\":\"1_0\"}"
+    },
+    {
+      "case": "Room-0-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":0}"
+    },
+    {
+      "case": "Room-0-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"0\"}"
+    },
+    {
+      "case": "Room-1-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":-0}"
+    },
+    {
+      "case": "Room-1-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"-0\"}"
+    },
+    {
+      "case": "Room-2-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1}"
+    },
+    {
+      "case": "Room-2-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1\"}"
+    },
+    {
+      "case": "Room-3-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":-1}"
+    },
+    {
+      "case": "Room-3-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"-1\"}"
+    },
+    {
+      "case": "Room-4-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":01}"
+    },
+    {
+      "case": "Room-4-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"01\"}"
+    },
+    {
+      "case": "Room-5-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":+1}"
+    },
+    {
+      "case": "Room-5-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"+1\"}"
+    },
+    {
+      "case": "Room-6-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1.0}"
+    },
+    {
+      "case": "Room-6-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1.0\"}"
+    },
+    {
+      "case": "Room-7-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1.00}"
+    },
+    {
+      "case": "Room-7-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1.00\"}"
+    },
+    {
+      "case": "Room-8-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":0.1}"
+    },
+    {
+      "case": "Room-8-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"0.1\"}"
+    },
+    {
+      "case": "Room-9-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":10e-1}"
+    },
+    {
+      "case": "Room-9-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"10e-1\"}"
+    },
+    {
+      "case": "Room-10-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":100e-2}"
+    },
+    {
+      "case": "Room-10-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"100e-2\"}"
+    },
+    {
+      "case": "Room-11-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e-99999999}"
+    },
+    {
+      "case": "Room-11-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e-99999999\"}"
+    },
+    {
+      "case": "Room-12-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":0e99999999999999}"
+    },
+    {
+      "case": "Room-12-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"0e99999999999999\"}"
+    },
+    {
+      "case": "Room-13-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":-0e-99999999999999}"
+    },
+    {
+      "case": "Room-13-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"-0e-99999999999999\"}"
+    },
+    {
+      "case": "Room-14-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e+2}"
+    },
+    {
+      "case": "Room-14-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e+2\"}"
+    },
+    {
+      "case": "Room-15-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e02}"
+    },
+    {
+      "case": "Room-15-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e02\"}"
+    },
+    {
+      "case": "Room-16-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e-0}"
+    },
+    {
+      "case": "Room-16-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e-0\"}"
+    },
+    {
+      "case": "Room-17-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1E2}"
+    },
+    {
+      "case": "Room-17-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1E2\"}"
+    },
+    {
+      "case": "Room-18-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e}"
+    },
+    {
+      "case": "Room-18-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e\"}"
+    },
+    {
+      "case": "Room-19-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e+}"
+    },
+    {
+      "case": "Room-19-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e+\"}"
+    },
+    {
+      "case": "Room-20-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e2147483647}"
+    },
+    {
+      "case": "Room-20-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e2147483647\"}"
+    },
+    {
+      "case": "Room-21-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1e-2147483648}"
+    },
+    {
+      "case": "Room-21-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1e-2147483648\"}"
+    },
+    {
+      "case": "Room-22-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":4294967295}"
+    },
+    {
+      "case": "Room-22-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"4294967295\"}"
+    },
+    {
+      "case": "Room-23-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":4294967296}"
+    },
+    {
+      "case": "Room-23-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"4294967296\"}"
+    },
+    {
+      "case": "Room-24-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":2147483647}"
+    },
+    {
+      "case": "Room-24-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"2147483647\"}"
+    },
+    {
+      "case": "Room-25-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":2147483648}"
+    },
+    {
+      "case": "Room-25-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"2147483648\"}"
+    },
+    {
+      "case": "Room-26-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":-2147483648}"
+    },
+    {
+      "case": "Room-26-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"-2147483648\"}"
+    },
+    {
+      "case": "Room-27-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":-2147483649}"
+    },
+    {
+      "case": "Room-27-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"-2147483649\"}"
+    },
+    {
+      "case": "Room-28-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":9007199254740993}"
+    },
+    {
+      "case": "Room-28-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"9007199254740993\"}"
+    },
+    {
+      "case": "Room-29-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":9.007199254740993e15}"
+    },
+    {
+      "case": "Room-29-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"9.007199254740993e15\"}"
+    },
+    {
+      "case": "Room-30-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":9223372036854775807}"
+    },
+    {
+      "case": "Room-30-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"9223372036854775807\"}"
+    },
+    {
+      "case": "Room-31-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":9223372036854775808}"
+    },
+    {
+      "case": "Room-31-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"9223372036854775808\"}"
+    },
+    {
+      "case": "Room-32-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":-9223372036854775808}"
+    },
+    {
+      "case": "Room-32-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"-9223372036854775808\"}"
+    },
+    {
+      "case": "Room-33-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":-9223372036854775809}"
+    },
+    {
+      "case": "Room-33-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"-9223372036854775809\"}"
+    },
+    {
+      "case": "Room-34-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":18446744073709551615}"
+    },
+    {
+      "case": "Room-34-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"18446744073709551615\"}"
+    },
+    {
+      "case": "Room-35-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":18446744073709551616}"
+    },
+    {
+      "case": "Room-35-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"18446744073709551616\"}"
+    },
+    {
+      "case": "Room-36-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1.8446744073709551615e19}"
+    },
+    {
+      "case": "Room-36-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1.8446744073709551615e19\"}"
+    },
+    {
+      "case": "Room-37-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\": 1}"
+    },
+    {
+      "case": "Room-37-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\" 1\"}"
+    },
+    {
+      "case": "Room-38-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1 }"
+    },
+    {
+      "case": "Room-38-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1 \"}"
+    },
+    {
+      "case": "Room-39-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":}"
+    },
+    {
+      "case": "Room-39-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"\"}"
+    },
+    {
+      "case": "Room-40-raw",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":1_0}"
+    },
+    {
+      "case": "Room-40-quoted",
+      "type": "livekit.Room",
+      "body": "{\"creationTime\":\"1_0\"}"
+    },
+    {
+      "case": "RTPStats-0-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":0}"
+    },
+    {
+      "case": "RTPStats-0-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"0\"}"
+    },
+    {
+      "case": "RTPStats-1-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":-0}"
+    },
+    {
+      "case": "RTPStats-1-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"-0\"}"
+    },
+    {
+      "case": "RTPStats-2-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1}"
+    },
+    {
+      "case": "RTPStats-2-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1\"}"
+    },
+    {
+      "case": "RTPStats-3-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":-1}"
+    },
+    {
+      "case": "RTPStats-3-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"-1\"}"
+    },
+    {
+      "case": "RTPStats-4-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":01}"
+    },
+    {
+      "case": "RTPStats-4-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"01\"}"
+    },
+    {
+      "case": "RTPStats-5-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":+1}"
+    },
+    {
+      "case": "RTPStats-5-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"+1\"}"
+    },
+    {
+      "case": "RTPStats-6-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1.0}"
+    },
+    {
+      "case": "RTPStats-6-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1.0\"}"
+    },
+    {
+      "case": "RTPStats-7-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1.00}"
+    },
+    {
+      "case": "RTPStats-7-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1.00\"}"
+    },
+    {
+      "case": "RTPStats-8-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":0.1}"
+    },
+    {
+      "case": "RTPStats-8-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"0.1\"}"
+    },
+    {
+      "case": "RTPStats-9-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":10e-1}"
+    },
+    {
+      "case": "RTPStats-9-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"10e-1\"}"
+    },
+    {
+      "case": "RTPStats-10-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":100e-2}"
+    },
+    {
+      "case": "RTPStats-10-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"100e-2\"}"
+    },
+    {
+      "case": "RTPStats-11-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e-99999999}"
+    },
+    {
+      "case": "RTPStats-11-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e-99999999\"}"
+    },
+    {
+      "case": "RTPStats-12-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":0e99999999999999}"
+    },
+    {
+      "case": "RTPStats-12-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"0e99999999999999\"}"
+    },
+    {
+      "case": "RTPStats-13-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":-0e-99999999999999}"
+    },
+    {
+      "case": "RTPStats-13-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"-0e-99999999999999\"}"
+    },
+    {
+      "case": "RTPStats-14-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e+2}"
+    },
+    {
+      "case": "RTPStats-14-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e+2\"}"
+    },
+    {
+      "case": "RTPStats-15-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e02}"
+    },
+    {
+      "case": "RTPStats-15-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e02\"}"
+    },
+    {
+      "case": "RTPStats-16-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e-0}"
+    },
+    {
+      "case": "RTPStats-16-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e-0\"}"
+    },
+    {
+      "case": "RTPStats-17-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1E2}"
+    },
+    {
+      "case": "RTPStats-17-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1E2\"}"
+    },
+    {
+      "case": "RTPStats-18-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e}"
+    },
+    {
+      "case": "RTPStats-18-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e\"}"
+    },
+    {
+      "case": "RTPStats-19-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e+}"
+    },
+    {
+      "case": "RTPStats-19-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e+\"}"
+    },
+    {
+      "case": "RTPStats-20-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e2147483647}"
+    },
+    {
+      "case": "RTPStats-20-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e2147483647\"}"
+    },
+    {
+      "case": "RTPStats-21-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1e-2147483648}"
+    },
+    {
+      "case": "RTPStats-21-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1e-2147483648\"}"
+    },
+    {
+      "case": "RTPStats-22-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":4294967295}"
+    },
+    {
+      "case": "RTPStats-22-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"4294967295\"}"
+    },
+    {
+      "case": "RTPStats-23-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":4294967296}"
+    },
+    {
+      "case": "RTPStats-23-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"4294967296\"}"
+    },
+    {
+      "case": "RTPStats-24-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":2147483647}"
+    },
+    {
+      "case": "RTPStats-24-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"2147483647\"}"
+    },
+    {
+      "case": "RTPStats-25-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":2147483648}"
+    },
+    {
+      "case": "RTPStats-25-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"2147483648\"}"
+    },
+    {
+      "case": "RTPStats-26-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":-2147483648}"
+    },
+    {
+      "case": "RTPStats-26-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"-2147483648\"}"
+    },
+    {
+      "case": "RTPStats-27-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":-2147483649}"
+    },
+    {
+      "case": "RTPStats-27-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"-2147483649\"}"
+    },
+    {
+      "case": "RTPStats-28-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":9007199254740993}"
+    },
+    {
+      "case": "RTPStats-28-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"9007199254740993\"}"
+    },
+    {
+      "case": "RTPStats-29-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":9.007199254740993e15}"
+    },
+    {
+      "case": "RTPStats-29-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"9.007199254740993e15\"}"
+    },
+    {
+      "case": "RTPStats-30-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":9223372036854775807}"
+    },
+    {
+      "case": "RTPStats-30-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"9223372036854775807\"}"
+    },
+    {
+      "case": "RTPStats-31-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":9223372036854775808}"
+    },
+    {
+      "case": "RTPStats-31-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"9223372036854775808\"}"
+    },
+    {
+      "case": "RTPStats-32-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":-9223372036854775808}"
+    },
+    {
+      "case": "RTPStats-32-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"-9223372036854775808\"}"
+    },
+    {
+      "case": "RTPStats-33-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":-9223372036854775809}"
+    },
+    {
+      "case": "RTPStats-33-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"-9223372036854775809\"}"
+    },
+    {
+      "case": "RTPStats-34-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":18446744073709551615}"
+    },
+    {
+      "case": "RTPStats-34-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"18446744073709551615\"}"
+    },
+    {
+      "case": "RTPStats-35-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":18446744073709551616}"
+    },
+    {
+      "case": "RTPStats-35-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"18446744073709551616\"}"
+    },
+    {
+      "case": "RTPStats-36-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1.8446744073709551615e19}"
+    },
+    {
+      "case": "RTPStats-36-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1.8446744073709551615e19\"}"
+    },
+    {
+      "case": "RTPStats-37-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\": 1}"
+    },
+    {
+      "case": "RTPStats-37-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\" 1\"}"
+    },
+    {
+      "case": "RTPStats-38-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1 }"
+    },
+    {
+      "case": "RTPStats-38-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1 \"}"
+    },
+    {
+      "case": "RTPStats-39-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":}"
+    },
+    {
+      "case": "RTPStats-39-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"\"}"
+    },
+    {
+      "case": "RTPStats-40-raw",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":1_0}"
+    },
+    {
+      "case": "RTPStats-40-quoted",
+      "type": "livekit.RTPStats",
+      "body": "{\"bytes\":\"1_0\"}"
+    }
+  ]
+}

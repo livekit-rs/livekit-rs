@@ -1,0 +1,5 @@
+// Test-only actual fixed config.NewConfig -> typed key_frame_interval bits.
+package main
+import("bufio";"encoding/json";"fmt";"math";"os";"github.com/livekit/livekit-server/pkg/config")
+type Input struct{Name string `json:"name"`;YAML string `json:"yaml"`}
+func main(){s:=bufio.NewScanner(os.Stdin);s.Buffer(make([]byte,4096),1<<20);enc:=json.NewEncoder(os.Stdout);for s.Scan(){var in Input;if err:=json.Unmarshal(s.Bytes(),&in);err!=nil{panic(err)};out:=map[string]any{"name":in.Name,"yaml":in.YAML};c,err:=config.NewConfig(in.YAML,true,nil,nil);if err!=nil{out["error"]=err.Error()}else{preset:=c.Room.RoomConfigurations["record"];if preset==nil||preset.Egress==nil||preset.Egress.Room==nil||preset.Egress.Room.GetAdvanced()==nil{panic("actual complete advanced config required")};a:=preset.Egress.Room.GetAdvanced();out["bits"]=fmt.Sprintf("%016x",math.Float64bits(a.KeyFrameInterval));out["audio_quality"]=a.AudioQuality};if err:=enc.Encode(out);err!=nil{panic(err)}};if err:=s.Err();err!=nil{panic(err)}}

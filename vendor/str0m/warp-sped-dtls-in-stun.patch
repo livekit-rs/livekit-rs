@@ -1,0 +1,169 @@
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -59,6 +59,7 @@
+     pub(crate) dtls_version: DtlsVersion,
+     pub(crate) vp9_packetizer_mode: Vp9PacketizerMode,
+     pub(crate) snap_enabled: bool,
++    pub(crate) sped_enabled: bool,
+     pub(crate) mtu: RangeInclusive<usize>,
+ }
+ 
+@@ -761,6 +762,14 @@
+     /// Should not be enabled outside of tests and troubleshooting.
+     pub fn enable_raw_packets(mut self, enabled: bool) -> Self {
+         self.enable_raw_packets = enabled;
++        self
++    }
++
++    /// Enable fixed LiveKit WARP DTLS-in-STUN flight/ACK transport.
++    /// Only authenticated STUN attributes enter DTLS; ordinary peers fall back
++    /// to normal DTLS without losing an intercepted pre-ICE flight.
++    pub fn set_sped_enabled(mut self, enabled: bool) -> Self {
++        self.sped_enabled = enabled;
+         self
+     }
+ 
+@@ -915,6 +924,7 @@
+             dtls_version: DtlsVersion::Dtls12,
+             vp9_packetizer_mode: Vp9PacketizerMode::default(),
+             snap_enabled: false,
++            sped_enabled: false,
+             mtu: DATAGRAM_MTU_TARGET..=DATAGRAM_MTU_WARN,
+         }
+     }
+--- a/src/dtls.rs
++++ b/src/dtls.rs
+@@ -148,6 +148,10 @@
+         next
+     }
+ 
++    pub fn pending_packet_count(&self) -> usize {
++        self.pending_packets.len()
++    }
++
+     pub fn poll_packet(&mut self) -> Option<DatagramSend> {
+         self.pending_packets.pop_front()
+     }
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -917,6 +917,8 @@
+     ice: IceAgent,
+     dtls: Dtls,
+     dtls_connected: bool,
++    sped_enabled: bool,
++    sped_plain: std::collections::VecDeque<net::DatagramSend>,
+     dtls_buf: Vec<u8>,
+     next_dtls_timeout: Option<Instant>,
+     sctp: RtcSctp,
+@@ -1243,6 +1245,7 @@
+ 
+         let local_creds = config.local_ice_credentials.unwrap_or_else(IceCreds::new);
+         let mut ice = IceAgent::with_hmac(local_creds, crypto_provider.sha1_hmac_provider);
++        ice.set_sped_enabled(config.sped_enabled);
+         if config.ice_lite {
+             ice.set_ice_lite(config.ice_lite);
+         }
+@@ -1293,6 +1296,8 @@
+             )
+             .expect("DTLS to init without problem"),
+             dtls_connected: false,
++            sped_enabled: config.sped_enabled,
++            sped_plain: Default::default(),
+             dtls_buf: vec![0; 2000],
+             next_dtls_timeout: None,
+             session,
+@@ -1355,6 +1360,8 @@
+     /// assert!(!rtc.is_alive());
+     /// ```
+     pub fn disconnect(&mut self) {
++        self.ice.set_sped_enabled(false);
++        self.sped_plain.clear();
+         self.state = RtcState::Closed;
+     }
+ 
+@@ -1674,6 +1681,7 @@
+         // Poll DTLS output - collect packets, handle events
+         let mut just_connected = false;
+         loop {
++            let before_packets = self.dtls.pending_packet_count();
+             match self.dtls.poll_output(&mut self.dtls_buf) {
+                 DtlsOutput::Packet(_) => {
+                     unreachable!("We don't expect DTLS packets here since we use poll_packet");
+@@ -1721,6 +1729,15 @@
+                     self.sctp.handle_input(self.last_now, data);
+                 }
+                 DtlsOutput::Timeout(t) => {
++                    // The wrapper emits an already-due timeout for each queued
++                    // datagram. Collect the actual complete flight before its
++                    // end marker; never infer a flight from one record alone.
++                    if self.sped_enabled
++                        && t <= self.last_now
++                        && self.dtls.pending_packet_count() > before_packets
++                    {
++                        continue;
++                    }
+                     self.next_dtls_timeout = Some(t);
+                     break;
+                 }
+@@ -1736,6 +1753,24 @@
+             }
+         }
+ 
++        if self.sped_enabled && (!self.dtls_connected || just_connected) {
++            let mut flight = Vec::new();
++            while let Some(packet) = self.dtls.poll_packet() {
++                flight.push(packet);
++            }
++            let len = flight.len();
++            for (i, packet) in flight.into_iter().enumerate() {
++                // Keep ownership for fallback if the ICE controller has already
++                // discovered that the peer does not support embedding.
++                if !self.ice.queue_sped_dtls(packet.to_vec(), i + 1 == len) {
++                    self.sped_plain.push_back(packet);
++                }
++            }
++        }
++        if just_connected {
++            self.ice.complete_sped_dtls();
++        }
++        self.ice.drive_sped(self.last_now);
+         if just_connected {
+             return Ok(Some(Output::Event(Event::Connected)));
+         }
+@@ -1843,7 +1878,10 @@
+ 
+         if let Some(send) = &self.send_addr {
+             // These can only be sent after we got an ICE connection.
+-            let datagram = None
++            let datagram = self
++                .sped_plain
++                .pop_front()
++                .or_else(|| self.ice.poll_sped_plain().map(Into::into))
+                 .or_else(|| self.dtls.poll_packet())
+                 .or_else(|| self.session.poll_datagram(self.last_now));
+ 
+@@ -2028,6 +2066,8 @@
+         }
+ 
+         if self.state != RtcState::Closing {
++            self.ice.set_sped_enabled(false);
++            self.sped_plain.clear();
+             self.session.close_rtp();
+             self.sctp.close()?;
+             self.state = RtcState::Closing;
+@@ -2124,8 +2164,14 @@
+                     message: stun,
+                 };
+                 self.ice.handle_packet(recv_time, packet);
++                while let Some(record) = self.ice.poll_sped_dtls() {
++                    self.dtls.handle_receive(&record)?;
++                }
+             }
+-            Dtls(dtls) => self.dtls.handle_receive(dtls)?,
++            Dtls(dtls) => {
++                self.ice.report_sped_dtls(dtls);
++                self.dtls.handle_receive(dtls)?;
++            }
+             Rtp(rtp) => self.session.handle_rtp_receive(recv_time, rtp),
+             Rtcp(rtcp) => self.session.handle_rtcp_receive(recv_time, rtcp),
+         }

@@ -1,0 +1,8 @@
+{
+  "scope": "Test-only fixed Go1.26.3 + frozen LiveKit/Protocol source consumer",
+  "inputs": {
+    "cases.jsonl": "d2a2ef6d909ab71f74334c729838d8c0e4a3944fdf0f474e397c9c6ccf0fd370",
+    "README.md": "5f2361f2be13efabdae8536c4e65198083e0e43bbbe5fddd8a68eab8816de6c0",
+    "main.go": "e27627c9d0c648c1988210387e0d9fc73d075d97e91736f8efff683ff0f7834d"
+  }
+}

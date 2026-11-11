@@ -1,0 +1,309 @@
+--- a/src/bwe/api.rs
++++ b/src/bwe/api.rs
+@@ -1,6 +1,10 @@
+ //! Bandwidth estimation.
+ 
++use std::time::{Duration, Instant};
++
+ use crate::{Rtc, rtp_::Mid};
++
++pub use crate::bwe_::probe::ProbeKind;
+ 
+ pub use crate::rtp_::Bitrate;
+ 
+@@ -35,10 +39,90 @@
+     },
+ }
+ 
++/// The estimator's current limiting cause, independent of probing capability.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++#[non_exhaustive]
++pub enum BweEstimateCause {
++    /// No current native congestion signal (not proof of unused capacity).
++    Normal,
++    /// Delay-based detector currently signals overuse.
++    DelayOveruse,
++    /// Loss-based estimator is actively reducing its estimate.
++    LossLimited,
++    /// Loss-based estimator is recovering, still limiting the estimate.
++    LossRecovering,
++}
++
++/// One native probe result or scheduled cluster. A scheduled target is not capacity.
++#[derive(Debug, Clone, Copy)]
++pub struct BweProbeObservation {
++    /// Local observation time (feedback receipt or cluster scheduling).
++    pub at: Instant,
++    /// Measured received bitrate or the scheduled cluster target, respectively.
++    pub bitrate: Bitrate,
++    /// Native cluster identifier, unique until an estimator reset.
++    pub cluster_id: u64,
++    /// Earliest local send time included in a measured result; absent for a
++    /// merely scheduled cluster. Late feedback receipt cannot move this forward.
++    pub started_at: Option<Instant>,
++    /// Native reason for scheduling the cluster.
++    pub kind: ProbeKind,
++}
++
++/// Quality of the latest received TWCC batch containing matched send records.
++/// Counts cover that batch, not an assumed fixed-duration loss window.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct BweFeedbackObservation {
++    /// Local receipt time, equal to the snapshot's `last_twcc_feedback_at`.
++    pub at: Instant,
++    /// Matched records acknowledged as received by the remote endpoint.
++    pub received_packets: u64,
++    /// Matched records reported without a remote receive timestamp.
++    pub lost_packets: u64,
++    /// Largest RTT among the batch's acknowledged packets, if any.
++    pub max_rtt: Option<Duration>,
++}
++
++impl BweFeedbackObservation {
++    /// Reported loss fraction, absent for an empty batch. Native observations
++    /// always contain at least one matched record; local polling never adds one.
++    pub fn loss_fraction(&self) -> Option<f32> {
++        let total = self.received_packets as f64 + self.lost_packets as f64;
++        (total > 0.0).then(|| (self.lost_packets as f64 / total) as f32)
++    }
++}
++
++/// Read-only native bandwidth observations; polling never advances feedback time.
++#[derive(Debug, Clone, Copy)]
++pub struct BweSnapshot {
++    /// Unsmooth native estimate, which may fall merely because media is application-limited.
++    pub raw_estimate: Option<Bitrate>,
++    /// Current native acknowledged-throughput estimate.
++    pub acknowledged_bitrate: Option<Bitrate>,
++    /// Current native delay/loss limiting cause.
++    pub cause: BweEstimateCause,
++    /// Local receipt time of the latest TWCC report containing matched send records.
++    /// Bootstrap estimates, periodic stats and BWE timeouts do not update this field.
++    pub last_twcc_feedback_at: Option<Instant>,
++    /// Latest matched TWCC batch quality, retained unchanged across silence.
++    pub latest_feedback: Option<BweFeedbackObservation>,
++    /// Latest feedback-validated probe result, not a requested sending rate.
++    pub last_successful_probe: Option<BweProbeObservation>,
++    /// Latest cluster returned to the pacer; useful for correlating actual probe rates.
++    pub latest_scheduled_probe: Option<BweProbeObservation>,
++    /// Whether the native application-limited-region detector is active.
++    pub application_limited: bool,
++}
++
+ /// Access to the Bandwidth Estimate subsystem.
+ pub struct Bwe<'a>(pub(crate) &'a mut Rtc);
+ 
+ impl<'a> Bwe<'a> {
++    /// Read native state without changing the estimator or generating feedback.
++    pub fn snapshot(&self) -> Option<BweSnapshot> {
++        self.0.session.bwe_snapshot()
++    }
++
+     /// Configure the desired bitrate.
+     ///
+     /// Configure the bandwidth estimation system with the desired bitrate.
+--- a/src/bwe/mod.rs
++++ b/src/bwe/mod.rs
+@@ -34,6 +34,7 @@
+ 
+ use acked_bitrate_estimator::AckedBitrateEstimator;
+ use alr_detector::AlrDetector;
++use api::{BweEstimateCause, BweFeedbackObservation, BweProbeObservation, BweSnapshot};
+ use delay::DelayController;
+ use link_capacity_estimator::LinkCapacityEstimator;
+ use loss_controller::{LossController, LossControllerState};
+@@ -85,6 +86,10 @@
+ 
+     pub fn end_probe(&mut self, now: Instant, cluster_id: TwccClusterId) {
+         self.bwe.end_probe(now, cluster_id);
++    }
++
++    pub fn snapshot(&self) -> BweSnapshot {
++        self.bwe.snapshot()
+     }
+ 
+     pub fn reset(&mut self, init_bitrate: Bitrate) {
+@@ -137,6 +142,10 @@
+     alr_detector: AlrDetector,
+     link_capacity_estimator: LinkCapacityEstimator,
+     last_updated_estimate: Option<Bitrate>,
++    last_twcc_feedback_at: Option<Instant>,
++    latest_feedback: Option<BweFeedbackObservation>,
++    last_successful_probe: Option<BweProbeObservation>,
++    latest_scheduled_probe: Option<BweProbeObservation>,
+ }
+ 
+ impl SendSideBandwidthEstimator {
+@@ -160,6 +169,10 @@
+             alr_detector,
+             link_capacity_estimator: LinkCapacityEstimator::new(),
+             last_updated_estimate: None,
++            last_twcc_feedback_at: None,
++            latest_feedback: None,
++            last_successful_probe: None,
++            latest_scheduled_probe: None,
+         }
+     }
+ 
+@@ -184,11 +197,22 @@
+         let _ = self.started_at.get_or_insert(now);
+ 
+         let send_records: Vec<_> = records.collect();
++        if !send_records.is_empty() {
++            self.last_twcc_feedback_at = Some(now);
++        }
+ 
+         // Feed records to probe estimator for analysis and process any new probe results
+         let mut latest_probe_result = None;
+         for (config, bitrate) in self.probe_estimator.update(send_records.iter().copied()) {
+             latest_probe_result = Some(bitrate);
++            self.last_successful_probe = Some(BweProbeObservation {
++                at: now,
++                bitrate,
++                cluster_id: *config.cluster(),
++                kind: config.kind(),
++                started_at: config.started_at(),
++            });
++            debug!(cluster_id = *config.cluster(), kind = ?config.kind(), bitrate_bps = bitrate.as_u64(), "native probe measured");
+ 
+             // Update link capacity estimator for every successful ALR probe, not just the latest.
+             // The estimator internally takes the max of all probe results, building up knowledge
+@@ -213,6 +237,14 @@
+             acked_packets.push(acked_packet);
+             max_rtt = max_rtt.max(record.rtt());
+         }
++        if count > 0 {
++            self.latest_feedback = Some(BweFeedbackObservation {
++                at: now,
++                received_packets: count - lost,
++                lost_packets: lost,
++                max_rtt,
++            });
++        }
+         acked_packets.sort_by(AckedPacket::order_by_receive_time);
+ 
+         for acked_packet in acked_packets.iter() {
+@@ -333,7 +365,38 @@
+         self.probe_control.enable(do_probe);
+ 
+         // Timeout-driven probe logic (WebRTC `Process()` equivalent).
+-        self.probe_control.handle_timeout(now)
++        let cluster = self.probe_control.handle_timeout(now);
++        if let Some(config) = &cluster {
++            self.latest_scheduled_probe = Some(BweProbeObservation {
++                at: now,
++                bitrate: config.target_bitrate(),
++                cluster_id: *config.cluster(),
++                kind: config.kind(),
++                started_at: config.started_at(),
++            });
++            debug!(cluster_id = *config.cluster(), kind = ?config.kind(), target_bps = config.target_bitrate().as_u64(), desired_bps = desired_bitrate.as_u64(), "native probe scheduled");
++        }
++        cluster
++    }
++
++    fn snapshot(&self) -> BweSnapshot {
++        BweSnapshot {
++            raw_estimate: self.last_estimate(),
++            acknowledged_bitrate: self.acked_bitrate_estimator.current_estimate(),
++            cause: match self.bandwidth_limited_cause() {
++                BandwidthLimitedCause::DelayBasedLimited => BweEstimateCause::Normal,
++                BandwidthLimitedCause::DelayBasedLimitedDelayIncreased => {
++                    BweEstimateCause::DelayOveruse
++                }
++                BandwidthLimitedCause::LossLimitedBwe => BweEstimateCause::LossLimited,
++                BandwidthLimitedCause::LossLimitedBweIncreasing => BweEstimateCause::LossRecovering,
++            },
++            last_twcc_feedback_at: self.last_twcc_feedback_at,
++            latest_feedback: self.latest_feedback,
++            last_successful_probe: self.last_successful_probe,
++            latest_scheduled_probe: self.latest_scheduled_probe,
++            application_limited: self.alr_detector.alr_start_time().is_some(),
++        }
+     }
+ 
+     fn propagate_estimate(&mut self) {
+--- a/src/bwe/probe/cluster.rs
++++ b/src/bwe/probe/cluster.rs
+@@ -38,17 +38,26 @@
+ 
+     /// The kind of probe this is.
+     kind: ProbeKind,
++
++    // Read-only observation metadata, excluded from scheduling arithmetic.
++    started_at: Option<Instant>,
+ }
+ 
+ /// Kind of probe
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ #[non_exhaustive]
+ pub enum ProbeKind {
++    /// Startup discovery cluster.
+     Initial,
++    /// Further discovery after a successful preceding cluster.
+     Exponential,
++    /// Increased application demand while application-limited.
+     IncreaseAlr,
++    /// Periodic application-limited discovery.
+     PeriodicAlr,
++    /// Recovery discovery after a large estimate drop.
+     LargeDrop,
++    /// Discovery after unmet demand and a stagnant estimate.
+     Stagnant,
+ }
+ 
+@@ -72,6 +81,7 @@
+             // WebRTC default for general probing (not initial/network-state): 2ms.
+             min_probe_delta: Duration::from_millis(2),
+             kind,
++            started_at: None,
+         }
+     }
+ 
+@@ -92,6 +102,20 @@
+     pub fn with_min_probe_delta(mut self, min_probe_delta: Duration) -> Self {
+         self.min_probe_delta = min_probe_delta;
+         self
++    }
++
++    pub(crate) fn with_started_at(mut self, now: Instant) -> Self {
++        self.started_at = Some(now);
++        self
++    }
++
++    pub(crate) fn started_at(&self) -> Option<Instant> {
++        self.started_at
++    }
++
++    /// Native scheduling reason for this cluster.
++    pub fn kind(&self) -> ProbeKind {
++        self.kind
+     }
+ 
+     /// Check if this probe was created during ALR.
+--- a/src/bwe/probe/estimator.rs
++++ b/src/bwe/probe/estimator.rs
+@@ -294,7 +294,9 @@
+         trace!(%result, "Probe result");
+         log_probe_bitrate_estimate!(bitrate.as_f64());
+ 
+-        Some((self.config, bitrate))
++        // Observation only: bind proof to the measured send interval, not the
++        // later feedback receipt or the time a cluster entered the pacer queue.
++        Some((self.config.with_started_at(self.first_send_time?), bitrate))
+     }
+ 
+     /// Calculate the estimated bitrate for this probe cluster.
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1319,6 +1319,10 @@
+         snapshot.ingress_loss_fraction = self.twcc_rx_register.loss();
+     }
+ 
++    pub fn bwe_snapshot(&self) -> Option<crate::bwe::BweSnapshot> {
++        self.bwe.as_ref().map(Bwe::snapshot)
++    }
++
+     pub fn set_bwe_desired_bitrate(&mut self, desired_bitrate: Bitrate) {
+         if let Some(bwe) = self.bwe.as_mut() {
+             bwe.set_desired_bitrate(desired_bitrate);

@@ -1,0 +1,1 @@
+Build with GOTOOLCHAIN=go1.26.3 GOMAXPROCS=2 go build -trimpath -o OWNED_OUT/env-oracle .; run tests/interop/duplicate-env-process/run.py. Actual Go stdlib readers only; reference sources locked under references/deps/golang--go-1.26.3. No production Go dependency.

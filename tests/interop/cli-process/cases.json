@@ -1,0 +1,1963 @@
+[
+  {
+    "name": "help-long",
+    "args": [
+      "--help"
+    ],
+    "coverage": [
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-short",
+    "args": [
+      "-h"
+    ],
+    "coverage": [
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-command",
+    "args": [
+      "help"
+    ],
+    "coverage": [
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-command-alias",
+    "args": [
+      "h"
+    ],
+    "coverage": [
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-single-dash-long",
+    "args": [
+      "-help"
+    ],
+    "coverage": [
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "verbose-generated-all-rows",
+    "args": [
+      "help-verbose"
+    ],
+    "coverage": [
+      "command.help-verbose",
+      "cross.generated-config-surface"
+    ],
+    "generated_rows": true
+  },
+  {
+    "name": "version-long",
+    "args": [
+      "--version"
+    ],
+    "coverage": [
+      "builtin.version"
+    ]
+  },
+  {
+    "name": "version-short",
+    "args": [
+      "-v"
+    ],
+    "coverage": [
+      "builtin.version"
+    ]
+  },
+  {
+    "name": "generate-keys-flag-help",
+    "args": [
+      "generate-keys",
+      "--help"
+    ],
+    "coverage": [
+      "command.generate-keys",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "ports-flag-help",
+    "args": [
+      "ports",
+      "--help"
+    ],
+    "coverage": [
+      "command.ports",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "list-nodes-flag-help",
+    "args": [
+      "list-nodes",
+      "--help"
+    ],
+    "coverage": [
+      "command.list-nodes",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "create-join-token-flag-help",
+    "args": [
+      "create-join-token",
+      "--help"
+    ],
+    "coverage": [
+      "command.create-join-token",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-verbose-flag-help",
+    "args": [
+      "help-verbose",
+      "--help"
+    ],
+    "coverage": [
+      "command.help-verbose",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-topic-ports",
+    "args": [
+      "help",
+      "ports"
+    ],
+    "coverage": [
+      "command.ports",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-topic-list-nodes",
+    "args": [
+      "help",
+      "list-nodes"
+    ],
+    "coverage": [
+      "command.list-nodes",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-topic-create-join-token",
+    "args": [
+      "help",
+      "create-join-token"
+    ],
+    "coverage": [
+      "command.create-join-token",
+      "builtin.help"
+    ]
+  },
+  {
+    "name": "help-unknown-topic",
+    "args": [
+      "help",
+      "definitely-unknown-topic"
+    ],
+    "coverage": [
+      "builtin.help",
+      "cross.error-behavior"
+    ]
+  },
+  {
+    "name": "h-unknown-topic",
+    "args": [
+      "h",
+      "definitely-unknown-topic"
+    ],
+    "coverage": [
+      "builtin.help",
+      "cross.error-behavior"
+    ]
+  },
+  {
+    "name": "help-before-invalid-bool",
+    "args": [
+      "--help",
+      "--dev=invalid"
+    ],
+    "coverage": [
+      "base.dev",
+      "builtin.help",
+      "cross.precedence"
+    ]
+  },
+  {
+    "name": "invalid-bool-before-help",
+    "args": [
+      "--dev=invalid",
+      "--help"
+    ],
+    "coverage": [
+      "base.dev",
+      "builtin.help",
+      "cross.precedence"
+    ]
+  },
+  {
+    "name": "help-and-version-order-one",
+    "args": [
+      "--help",
+      "--version"
+    ],
+    "coverage": [
+      "builtin.help",
+      "builtin.version",
+      "cross.precedence"
+    ]
+  },
+  {
+    "name": "help-and-version-order-two",
+    "args": [
+      "--version",
+      "--help"
+    ],
+    "coverage": [
+      "builtin.help",
+      "builtin.version",
+      "cross.precedence"
+    ]
+  },
+  {
+    "name": "version-over-missing-config",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "--version"
+    ],
+    "coverage": [
+      "base.config",
+      "builtin.version",
+      "cross.precedence"
+    ]
+  },
+  {
+    "name": "unknown-root-flag",
+    "args": [
+      "--definitely-not-an-official-flag"
+    ],
+    "coverage": [
+      "cross.error-behavior"
+    ]
+  },
+  {
+    "name": "unknown-positional-is-root-action",
+    "args": [
+      "definitely-unknown-command",
+      "--config",
+      "{OWNED_MISSING}"
+    ],
+    "coverage": [
+      "cross.command-selection",
+      "base.config"
+    ]
+  },
+  {
+    "name": "token-required-flags",
+    "args": [
+      "create-join-token"
+    ],
+    "coverage": [
+      "command.create-join-token",
+      "cross.required-flags"
+    ]
+  },
+  {
+    "name": "help-preempts-all-sixteen-base-consumers",
+    "args": [
+      "--help",
+      "--bind",
+      "192.0.2.1",
+      "--config",
+      "{OWNED_MISSING}",
+      "--config-body",
+      "invalid_yaml: [",
+      "--key-file",
+      "{OWNED_MISSING}",
+      "--keys",
+      "public-fixture: not-production",
+      "--region",
+      "public-fixture",
+      "--node-ip",
+      "not-an-ip",
+      "--udp-port",
+      "not-a-port",
+      "--redis-host",
+      "not-a-host",
+      "--redis-password",
+      "public-fixture-not-secret",
+      "--turn-cert",
+      "{OWNED_MISSING}",
+      "--turn-key",
+      "{OWNED_MISSING}",
+      "--cpuprofile",
+      "{OWNED_MISSING}",
+      "--memprofile",
+      "{OWNED_MISSING}",
+      "--dev=false",
+      "--disable-strict-config=false"
+    ],
+    "coverage": [
+      "base.bind",
+      "base.config",
+      "base.config-body",
+      "base.key-file",
+      "base.keys",
+      "base.region",
+      "base.node-ip",
+      "base.udp-port",
+      "base.redis-host",
+      "base.redis-password",
+      "base.turn-cert",
+      "base.turn-key",
+      "base.cpuprofile",
+      "base.memprofile",
+      "base.dev",
+      "base.disable-strict-config",
+      "builtin.help",
+      "cross.precedence"
+    ]
+  },
+  {
+    "name": "help-before-invalid-bool",
+    "args": [
+      "--help",
+      "--dev=invalid"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "version-before-invalid-bool",
+    "args": [
+      "--version",
+      "--dev=invalid"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "invalid-bool-before-version",
+    "args": [
+      "--dev=invalid",
+      "--version"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "subcommand-invalid-before-help",
+    "args": [
+      "ports",
+      "--dev=invalid",
+      "--help"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "subcommand-help-before-invalid",
+    "args": [
+      "ports",
+      "--help",
+      "--dev=invalid"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "invalid-root-before-subcommand-help",
+    "args": [
+      "--dev=invalid",
+      "ports",
+      "--help"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "subcommand-invalid-recorder-before-help",
+    "args": [
+      "create-join-token",
+      "--recorder=invalid",
+      "--help"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "subcommand-help-before-invalid-recorder",
+    "args": [
+      "create-join-token",
+      "--help",
+      "--recorder=invalid"
+    ],
+    "coverage": [
+      "source.parse_flags_order",
+      "source.help_error_precedence"
+    ],
+    "status": "NOT_RUN"
+  },
+  {
+    "name": "root-help-before-child-invalid",
+    "args": [
+      "--help",
+      "ports",
+      "--dev=invalid"
+    ],
+    "env": {},
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "root-version-before-child-invalid",
+    "args": [
+      "--version",
+      "ports",
+      "--dev=invalid"
+    ],
+    "env": {},
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "root-invalid-before-child-help",
+    "args": [
+      "--dev=invalid",
+      "ports",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "root-env-before-child-help",
+    "args": [
+      "ports",
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "root-env-before-verbose-command",
+    "args": [
+      "help-verbose"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "root-help-still-preempts-env",
+    "args": [
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "root-version-still-preempts-env",
+    "args": [
+      "--version"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "child-help-after-valid-root",
+    "args": [
+      "--dev=false",
+      "ports",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.command_stages",
+      "source.root_postparse_order"
+    ]
+  },
+  {
+    "name": "root-help-before-unknown",
+    "args": [
+      "--help",
+      "--definitely-unknown"
+    ],
+    "coverage": [
+      "source.structural_error_order"
+    ]
+  },
+  {
+    "name": "root-help-before-missing-value",
+    "args": [
+      "--help",
+      "--config"
+    ],
+    "coverage": [
+      "source.structural_error_order"
+    ]
+  },
+  {
+    "name": "child-help-before-unknown",
+    "args": [
+      "ports",
+      "--help",
+      "--definitely-unknown"
+    ],
+    "coverage": [
+      "source.structural_error_order"
+    ]
+  },
+  {
+    "name": "typed-error-before-help-and-unknown",
+    "args": [
+      "--dev=invalid",
+      "--help",
+      "--definitely-unknown"
+    ],
+    "coverage": [
+      "source.first_parse_failure"
+    ]
+  },
+  {
+    "name": "repeated-help",
+    "args": [
+      "--help",
+      "--help"
+    ],
+    "coverage": [
+      "source.builtin_boolean_repetition"
+    ]
+  },
+  {
+    "name": "repeated-version",
+    "args": [
+      "--version",
+      "--version"
+    ],
+    "coverage": [
+      "source.builtin_boolean_repetition"
+    ]
+  },
+  {
+    "name": "help-false-clears-before-error",
+    "args": [
+      "--help",
+      "--help=false",
+      "--definitely-unknown"
+    ],
+    "coverage": [
+      "source.builtin_boolean_values"
+    ]
+  },
+  {
+    "name": "short-help-invalid-value",
+    "args": [
+      "-h=invalid"
+    ],
+    "coverage": [
+      "source.builtin_boolean_values"
+    ]
+  },
+  {
+    "name": "unknown-inline-value-before-help",
+    "args": [
+      "--definitely-unknown=x",
+      "--help"
+    ],
+    "coverage": [
+      "source.structural_error_order"
+    ]
+  },
+  {
+    "name": "root-valid-cli-before-bad-env-child-help",
+    "args": [
+      "--port=7880",
+      "ports",
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.command_stages",
+      "source.cli_over_env"
+    ]
+  },
+  {
+    "name": "child-cli-cannot-retroactively-override-root-env",
+    "args": [
+      "ports",
+      "--port=7880",
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.command_stages",
+      "source.cli_over_env"
+    ]
+  },
+  {
+    "name": "unknown-first-positional-before-command",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "unknown-first",
+      "ports",
+      "--help"
+    ],
+    "coverage": [
+      "source.positional_root_action"
+    ]
+  },
+  {
+    "name": "short-boolean-cluster-not-enabled",
+    "args": [
+      "-hv"
+    ],
+    "coverage": [
+      "source.short_option_handling_off"
+    ]
+  },
+  {
+    "name": "negative-positional-stops-flag-parsing",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "-1",
+      "--help"
+    ],
+    "coverage": [
+      "source.positional_root_action"
+    ]
+  },
+  {
+    "name": "lone-dash-root",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "-",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "lone-dash-child",
+    "args": [
+      "ports",
+      "-",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "help-first-topic",
+    "args": [
+      "help",
+      "ports",
+      "list-nodes"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "help-first-unknown-topic",
+    "args": [
+      "help",
+      "definitely-unknown",
+      "ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "help-local-flag-not-registered",
+    "args": [
+      "help",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "help-alias-local-short-not-registered",
+    "args": [
+      "h",
+      "-h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "help-topic-self",
+    "args": [
+      "help",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "help-topic-self-alias",
+    "args": [
+      "help",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "root-help-targets-first-command",
+    "args": [
+      "--help",
+      "ports",
+      "--dev=invalid"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "root-help-targets-unknown-positional",
+    "args": [
+      "--help",
+      "definitely-unknown"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "child-help-targets-unknown-positional",
+    "args": [
+      "ports",
+      "--help",
+      "definitely-unknown"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "child-help-error-context-no-options",
+    "args": [
+      "ports",
+      "--help",
+      "--dev=invalid"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "child-help-topic-help",
+    "args": [
+      "ports",
+      "--help",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-newline-bool",
+    "args": [
+      "--dev=a\nb",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-embedded-quote-bool",
+    "args": [
+      "--dev=a\"b",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-bell-bool",
+    "args": [
+      "--dev=a\u0007b",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-C1-bool",
+    "args": [
+      "--dev=ab",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-nbsp-bool",
+    "args": [
+      "--dev=a b",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-line-separator-bool",
+    "args": [
+      "--dev=a b",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-supplementary-bool",
+    "args": [
+      "--dev=a􀀀b",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-newline-generated-scalar",
+    "args": [
+      "--rtc.tcp_port=a\nb",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-C1-generated-scalar",
+    "args": [
+      "--rtc.tcp_port=ab",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-bell-generated-scalar",
+    "args": [
+      "--rtc.tcp_port=a\u0007b",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-embedded-quote-env",
+    "args": [
+      "ports",
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "a\"b"
+    },
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-newline-env",
+    "args": [
+      "ports",
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "a\nb"
+    },
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-C1-env",
+    "args": [
+      "ports",
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "ab"
+    },
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "quote-bell-env",
+    "args": [
+      "ports",
+      "--help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "a\u0007b"
+    },
+    "coverage": [
+      "source.final_help_boundaries",
+      "source.exact_quote"
+    ]
+  },
+  {
+    "name": "generate-keys-nested-help",
+    "args": [
+      "generate-keys",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "generate-keys-nested-help-alias",
+    "args": [
+      "generate-keys",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "generate-keys-separator-nested-help",
+    "args": [
+      "generate-keys",
+      "--",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "ports-nested-help",
+    "args": [
+      "ports",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "ports-nested-help-alias",
+    "args": [
+      "ports",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "ports-separator-nested-help",
+    "args": [
+      "ports",
+      "--",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "create-join-token-nested-help",
+    "args": [
+      "create-join-token",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "create-join-token-nested-help-alias",
+    "args": [
+      "create-join-token",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "create-join-token-separator-nested-help",
+    "args": [
+      "create-join-token",
+      "--",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "list-nodes-nested-help",
+    "args": [
+      "list-nodes",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "list-nodes-nested-help-alias",
+    "args": [
+      "list-nodes",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "list-nodes-separator-nested-help",
+    "args": [
+      "list-nodes",
+      "--",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "help-verbose-nested-help",
+    "args": [
+      "help-verbose",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "help-verbose-nested-help-alias",
+    "args": [
+      "help-verbose",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "help-verbose-separator-nested-help",
+    "args": [
+      "help-verbose",
+      "--",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-topic-own-alias",
+    "args": [
+      "ports",
+      "help",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-topic-own-name",
+    "args": [
+      "ports",
+      "help",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-extra-topics-ignore-after-first",
+    "args": [
+      "ports",
+      "help",
+      "h",
+      "ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-no-root-topic",
+    "args": [
+      "ports",
+      "help",
+      "ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-no-help-local",
+    "args": [
+      "ports",
+      "help",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-no-version-local",
+    "args": [
+      "ports",
+      "help",
+      "--version"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-own-short-local-absent",
+    "args": [
+      "ports",
+      "h",
+      "-h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-error-before-topic",
+    "args": [
+      "ports",
+      "help",
+      "--dev=invalid",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "token-nested-help-required-not-enforced",
+    "args": [
+      "create-join-token",
+      "help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "token-nested-help-inherits-fields",
+    "args": [
+      "create-join-token",
+      "--room=r",
+      "help",
+      "--identity=i"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "token-nested-help-invalid-recorder",
+    "args": [
+      "create-join-token",
+      "help",
+      "--recorder=invalid"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "root-separator-dispatches-ports",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "--",
+      "ports",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "root-separator-dispatches-builtin-help",
+    "args": [
+      "--",
+      "help",
+      "ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "child-separator-dispatches-builtin-help",
+    "args": [
+      "ports",
+      "--",
+      "help",
+      "h"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "child-separator-then-unavailable-local-help",
+    "args": [
+      "ports",
+      "--",
+      "help",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "nested-help-separator-keeps-topic-raw",
+    "args": [
+      "ports",
+      "help",
+      "--",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "root-env-precedes-nested-help",
+    "args": [
+      "ports",
+      "help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "parent-cli-precedes-root-env",
+    "args": [
+      "--port=7880",
+      "ports",
+      "help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "child-cannot-retrofix-root-env",
+    "args": [
+      "ports",
+      "--port=7880",
+      "help"
+    ],
+    "env": {
+      "LIVEKIT_PORT": "invalid"
+    },
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "trim-flag-ascii",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " --help "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-ascii",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-ascii",
+    "args": [
+      "help",
+      " ports "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-tab",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "\t--help\t"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-tab",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "\tports\t",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-tab",
+    "args": [
+      "help",
+      "\tports\t"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-nbsp",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " --help "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-nbsp",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-nbsp",
+    "args": [
+      "help",
+      " ports "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-C1-next-line",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-C1-next-line",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "ports",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-C1-next-line",
+    "args": [
+      "help",
+      "ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-ogham",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " --help "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-ogham",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-ogham",
+    "args": [
+      "help",
+      " ports "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-emspace",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " --help "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-emspace",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-emspace",
+    "args": [
+      "help",
+      " ports "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-line-separator",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " --help "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-line-separator",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-line-separator",
+    "args": [
+      "help",
+      " ports "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-narrow-nbsp",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " --help "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-narrow-nbsp",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-narrow-nbsp",
+    "args": [
+      "help",
+      " ports "
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trim-flag-ideographic",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "　--help　"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_flag_scan"
+    ]
+  },
+  {
+    "name": "raw-recognized-command-does-not-dispatch-ideographic",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "　ports　",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_recognize_raw_dispatch"
+    ]
+  },
+  {
+    "name": "builtin-topic-unknown-position-trims-ideographic",
+    "args": [
+      "help",
+      "　ports　"
+    ],
+    "env": {},
+    "coverage": [
+      "source.trimspace_unknown_positional"
+    ]
+  },
+  {
+    "name": "trimmed-builtin-spelling-does-not-dispatch",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " help ",
+      "ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "unknown-then-raw-child-stops-later-flags",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "unknown-first",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "separator-retains-spaced-raw-command",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "--",
+      " ports ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "whitespace-only-position-preserved",
+    "args": [
+      "--help",
+      " "
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "zero-width-not-trimspace",
+    "args": [
+      "--help",
+      "​ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "BOM-not-trimspace",
+    "args": [
+      "--help",
+      "﻿ports"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "trimmed-inline-flag",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      " --region=x ",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "trimmed-string-flag-consumes-raw-value",
+    "args": [
+      " --config ",
+      "{OWNED_MISSING}",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "unicode-short-name-first-byte-emoji-letter",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "-😀"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "unicode-short-name-first-byte-hebrew-nonletter",
+    "args": [
+      "--config",
+      "{OWNED_MISSING}",
+      "-א",
+      "--help"
+    ],
+    "env": {},
+    "coverage": [
+      "source.finite_nested_command_graph",
+      "source.args_first_dispatch"
+    ]
+  },
+  {
+    "name": "f53-empty-bool-control-0",
+    "args": [
+      "--help="
+    ],
+    "coverage": "fixed urfave v3.11.0 explicit empty CLI boolean true; actual Go control recorded"
+  },
+  {
+    "name": "f53-empty-bool-control-1",
+    "args": [
+      "--dev=",
+      "--help"
+    ],
+    "coverage": "fixed urfave v3.11.0 explicit empty CLI boolean true; actual Go control recorded"
+  },
+  {
+    "name": "f53-empty-bool-control-2",
+    "args": [
+      "create-join-token",
+      "--recorder=",
+      "--help"
+    ],
+    "coverage": "fixed urfave v3.11.0 explicit empty CLI boolean true; actual Go control recorded"
+  }
+]

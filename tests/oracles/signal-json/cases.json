@@ -1,0 +1,142 @@
+[
+  {
+    "id": "ping",
+    "json": "{\"pingReq\":{\"timestamp\":\"991\"}}"
+  },
+  {
+    "id": "snake",
+    "json": "{\"ping_req\":{\"timestamp\":991}}"
+  },
+  {
+    "id": "integer-exponent",
+    "json": "{\"pingReq\":{\"timestamp\":9.91e2}}"
+  },
+  {
+    "id": "integer-string-exponent",
+    "json": "{\"pingReq\":{\"timestamp\":\"9.91e2\"}}"
+  },
+  {
+    "id": "null-branch",
+    "json": "{\"pingReq\":null}"
+  },
+  {
+    "id": "empty",
+    "json": "{}"
+  },
+  {
+    "id": "unknown-root",
+    "json": "{\"future\":1}"
+  },
+  {
+    "id": "unknown-nested",
+    "json": "{\"pingReq\":{\"future\":1}}"
+  },
+  {
+    "id": "duplicate-root",
+    "json": "{\"pingReq\":{},\"pingReq\":{}}"
+  },
+  {
+    "id": "alias-duplicate",
+    "json": "{\"pingReq\":{},\"ping_req\":{}}"
+  },
+  {
+    "id": "duplicate-null",
+    "json": "{\"pingReq\":null,\"ping_req\":{}}"
+  },
+  {
+    "id": "oneof-two",
+    "json": "{\"pingReq\":{},\"ping\":991}"
+  },
+  {
+    "id": "oneof-null-unset",
+    "json": "{\"pingReq\":null,\"ping\":991}"
+  },
+  {
+    "id": "wrong-message-kind",
+    "json": "{\"pingReq\":1}"
+  },
+  {
+    "id": "wrong-string-kind",
+    "json": "{\"offer\":{\"sdp\":1}}"
+  },
+  {
+    "id": "unknown-enum-name",
+    "json": "{\"trickle\":{\"target\":\"FUTURE\"}}"
+  },
+  {
+    "id": "unknown-enum-number",
+    "json": "{\"trickle\":{\"target\":399}}"
+  },
+  {
+    "id": "enum-name",
+    "json": "{\"trickle\":{\"target\":\"PUBLISHER\"}}"
+  },
+  {
+    "id": "enum-numeric-string",
+    "json": "{\"trickle\":{\"target\":\"399\"}}"
+  },
+  {
+    "id": "fractional-integer",
+    "json": "{\"pingReq\":{\"timestamp\":1.1}}"
+  },
+  {
+    "id": "bool-integer",
+    "json": "{\"pingReq\":{\"timestamp\":true}}"
+  },
+  {
+    "id": "float-special",
+    "json": "{\"pingReq\":{\"timestamp\":\"NaN\"}}"
+  },
+  {
+    "id": "u32-negative",
+    "json": "{\"storeDataBlobRequest\":{\"requestId\":-1}}"
+  },
+  {
+    "id": "u32-overflow",
+    "json": "{\"storeDataBlobRequest\":{\"requestId\":4294967296}}"
+  },
+  {
+    "id": "null-scalar",
+    "json": "{\"pingReq\":{\"timestamp\":null}}"
+  },
+  {
+    "id": "trailing-value",
+    "json": "{\"pingReq\":{}} {}"
+  },
+  {
+    "id": "trailing-garbage",
+    "json": "{\"pingReq\":{}} xyz"
+  },
+  {
+    "id": "unknown-nested-null",
+    "json": "{\"pingReq\":{\"future\":null}}"
+  },
+  {
+    "id": "map-duplicate",
+    "json": "{\"updateMetadata\":{\"attributes\":{\"k\":\"a\",\"k\":\"b\"}}}"
+  },
+  {
+    "id": "bytes-urlbase64",
+    "json": "{\"storeDataBlobRequest\":{\"blob\":{\"contents\":\"_-8=\"}}}"
+  },
+  {
+    "id": "bytes-invalid",
+    "json": "{\"storeDataBlobRequest\":{\"blob\":{\"contents\":\"!!!\"}}}"
+  },
+  {
+    "id": "null-root",
+    "json": "null"
+  },
+  {
+    "id": "array-root",
+    "json": "[]"
+  },
+  {
+    "id": "duplicate-scalar-null",
+    "json": "{\"pingReq\":{\"timestamp\":null,\"timestamp\":1}}"
+  },
+  {
+    "id": "map-scalar-null",
+    "json": "{\"updateMetadata\":{\"attributes\":{\"x\":null}}}"
+  }
+]

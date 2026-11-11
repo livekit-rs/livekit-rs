@@ -1,0 +1,135 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -73,6 +73,7 @@
+     "dep:ecdsa",
+     "dep:generic-array",
+     "dep:rand_core",
++    "dep:rand_core_new",
+     "dep:ccm",
+     "dep:aes",
+     "_crypto-common",
+@@ -136,11 +137,8 @@
+ optional = true
+ 
+ [dependencies.ecdsa]
+-version = "0.16"
+-features = [
+-    "signing",
+-    "verifying",
+-]
++version = "0.17"
++features = ["algorithm", "der", "pkcs8", "std"]
+ optional = true
+ 
+ [dependencies.generic-array]
+@@ -167,12 +165,12 @@
+ version = "1.21.3"
+ 
+ [dependencies.p256]
+-version = "0.13"
++version = "0.14"
+ features = ["ecdh"]
+ optional = true
+ 
+ [dependencies.p384]
+-version = "0.13"
++version = "0.14"
+ features = ["ecdh"]
+ optional = true
+ 
+@@ -186,6 +184,7 @@
+ 
+ [dependencies.rand_core]
+ version = "0.6"
++features = ["std"]
+ optional = true
+ 
+ [dependencies.rcgen]
+@@ -245,3 +244,8 @@
+ 
+ [target."cfg(not(windows))".dev-dependencies.wolfssl]
+ version = "7.2.0"
++
++[dependencies.rand_core_new]
++package = "rand_core"
++version = "0.10"
++optional = true
+--- a/src/crypto/rust_crypto/kx_group.rs
++++ b/src/crypto/rust_crypto/kx_group.rs
+@@ -1,6 +1,6 @@
+ //! Key exchange group implementations using RustCrypto.
+ 
+-use p256::{PublicKey as P256PublicKey, ecdh::EphemeralSecret};
++use p256::{PublicKey as P256PublicKey, ecdh::EphemeralSecret, elliptic_curve::Generate};
+ use p384::{PublicKey as P384PublicKey, ecdh::EphemeralSecret as P384EphemeralSecret};
+ 
+ use super::super::{ActiveKeyExchange, SupportedKxGroup};
+@@ -58,8 +58,10 @@
+                 })
+             }
+             NamedGroup::Secp256r1 => {
+-                use rand_core::OsRng;
+-                let secret = EphemeralSecret::random(&mut OsRng);
++                let secret =
++                    EphemeralSecret::try_generate_from_rng(&mut CurveOsRng).map_err(|_| {
++                        CryptoError::OperationFailed(crate::CryptoOperation::StartKeyExchange)
++                    })?;
+                 let public_key_obj = P256PublicKey::from(&secret);
+                 let public_key_bytes = public_key_obj.to_sec1_bytes();
+                 buf.clear();
+@@ -70,8 +72,10 @@
+                 })
+             }
+             NamedGroup::Secp384r1 => {
+-                use rand_core::OsRng;
+-                let secret = P384EphemeralSecret::random(&mut OsRng);
++                let secret =
++                    P384EphemeralSecret::try_generate_from_rng(&mut CurveOsRng).map_err(|_| {
++                        CryptoError::OperationFailed(crate::CryptoOperation::StartKeyExchange)
++                    })?;
+                 let public_key_obj = P384PublicKey::from(&secret);
+                 let public_key_bytes = public_key_obj.to_sec1_bytes();
+                 buf.clear();
+@@ -190,6 +194,30 @@
+ pub(super) static ALL_KX_GROUPS: &[&dyn SupportedKxGroup] =
+     &[&KX_GROUP_X25519, &KX_GROUP_P256, &KX_GROUP_P384];
+ 
++// Adapter preserves the existing OS entropy source while modern curve types use
++// rand_core 0.10. X25519 retains its original rand_core 0.6 interface.
++struct CurveOsRng;
++impl rand_core_new::TryRng for CurveOsRng {
++    type Error = std::io::Error;
++    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
++        let mut bytes = [0; 4];
++        self.try_fill_bytes(&mut bytes)?;
++        Ok(u32::from_le_bytes(bytes))
++    }
++    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
++        let mut bytes = [0; 8];
++        self.try_fill_bytes(&mut bytes)?;
++        Ok(u64::from_le_bytes(bytes))
++    }
++    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Self::Error> {
++        use rand_core::RngCore;
++        rand_core::OsRng
++            .try_fill_bytes(dst)
++            .map_err(std::io::Error::other)
++    }
++}
++impl rand_core_new::TryCryptoRng for CurveOsRng {}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+--- a/src/crypto/rust_crypto/sign.rs
++++ b/src/crypto/rust_crypto/sign.rs
+@@ -6,7 +6,8 @@
+ use ecdsa::{Signature, SigningKey, VerifyingKey};
+ use p256::NistP256;
+ use p384::NistP384;
+-use pkcs8::DecodePrivateKey;
++// Curve types use modern PKCS#8 traits; old DER parsing remains a byte boundary.
++use p256::pkcs8::DecodePrivateKey;
+ use spki::ObjectIdentifier;
+ use x509_cert::Certificate as X509Certificate;
+ 

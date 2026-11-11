@@ -1,0 +1,116 @@
+[
+  {
+    "id": "single",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKAAwAFIGCAAQYxhYWgl2aWRlby9WUDhqLwoJdmlkZW8vVlA4GgphY3R1YWwtY2lkIgYIABAAGAAiBggBEAAYACIGCAIQABgAkgEA",
+    "mime": "video/VP8",
+    "sizes": [
+      [
+        640,
+        360
+      ]
+    ]
+  },
+  {
+    "id": "multiple",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKAAwAFIGCAAQYxhYWgl2aWRlby9WUDlqLwoJdmlkZW8vVlA5GgphY3R1YWwtY2lkIgYIABAAGAAiBggBEAAYACIGCAIQABgAkgEA",
+    "mime": "video/VP9",
+    "sizes": [
+      [
+        320,
+        180
+      ],
+      [
+        640,
+        360
+      ],
+      [
+        1280,
+        720
+      ]
+    ]
+  },
+  {
+    "id": "max-width-tie",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKAAwAFIGCAAQYxhYWgl2aWRlby9WUDhqLwoJdmlkZW8vVlA4GgphY3R1YWwtY2lkIgYIABAAGAAiBggBEAAYACIGCAIQABgAkgEA",
+    "mime": "video/VP8",
+    "sizes": [
+      [
+        640,
+        360
+      ],
+      [
+        640,
+        480
+      ]
+    ]
+  },
+  {
+    "id": "not-max-height",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKAAwAFIGCAAQYxhYWgl2aWRlby9WUDhqLwoJdmlkZW8vVlA4GgphY3R1YWwtY2lkIgYIABAAGAAiBggBEAAYACIGCAIQABgAkgEA",
+    "mime": "video/VP8",
+    "sizes": [
+      [
+        1280,
+        360
+      ],
+      [
+        640,
+        1080
+      ]
+    ]
+  },
+  {
+    "id": "same",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKIAFMOgCUgYIABBjGFhaCXZpZGVvL1ZQOGovCgl2aWRlby9WUDgaCmFjdHVhbC1jaWQiBggAEAAYACIGCAEQABgAIgYIAhAAGACSAQA=",
+    "mime": "video/VP8",
+    "sizes": [
+      [
+        640,
+        360
+      ]
+    ]
+  },
+  {
+    "id": "empty",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKIAFMOgCUgYIABBjGFhaCXZpZGVvL1ZQOGovCgl2aWRlby9WUDgaCmFjdHVhbC1jaWQiBggAEAAYACIGCAEQABgAIgYIAhAAGACSAQA=",
+    "mime": "video/VP8",
+    "sizes": []
+  },
+  {
+    "id": "zero-layer-retained",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKAAwAFIGCAAQYxhYWgl2aWRlby9WUDhqLwoJdmlkZW8vVlA4GgphY3R1YWwtY2lkIgYIABAAGAAiBggBEAAYACIGCAIQABgAkgEA",
+    "mime": "video/VP8",
+    "sizes": [
+      [
+        0,
+        0
+      ],
+      [
+        640,
+        360
+      ]
+    ]
+  },
+  {
+    "id": "other-codec",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKAAwAFIGCAAQYxhYWgl2aWRlby9WUDhqLwoJdmlkZW8vVlA4GgphY3R1YWwtY2lkIgYIABAAGAAiBggBEAAYACIGCAIQABgAkgEA",
+    "mime": "video/AV1",
+    "sizes": [
+      [
+        640,
+        360
+      ]
+    ]
+  },
+  {
+    "id": "case-fold",
+    "track": "ChFUUl9wdWJsaWNfZml4dHVyZRABKAAwAFIGCAAQYxhYWgl2aWRlby9WUDhqLwoJdmlkZW8vVlA4GgphY3R1YWwtY2lkIgYIABAAGAAiBggBEAAYACIGCAIQABgAkgEA",
+    "mime": "VIDEO/vp8",
+    "sizes": [
+      [
+        640,
+        360
+      ]
+    ]
+  }
+]

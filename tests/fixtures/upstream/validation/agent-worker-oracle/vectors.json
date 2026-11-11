@@ -1,0 +1,99 @@
+[
+  {
+    "name": "default",
+    "register": {}
+  },
+  {
+    "name": "explicit-zero-permissions",
+    "register": {
+      "allowed_permissions": {}
+    }
+  },
+  {
+    "name": "unknown-type",
+    "register": {
+      "type": 999
+    }
+  },
+  {
+    "name": "deployment-reserved",
+    "register": {
+      "deployment": "bad_name"
+    }
+  },
+  {
+    "name": "deployment-nonascii-space",
+    "register": {
+      "deployment": "a\u00a0b"
+    }
+  },
+  {
+    "name": "ws-endpoints-not-negotiated",
+    "register": {
+      "agent_name": "worker",
+      "endpoints": [
+        {
+          "path": "/test"
+        }
+      ]
+    }
+  },
+  {
+    "name": "status-sequence",
+    "register": {},
+    "updates": [
+      {
+        "status": 1,
+        "seq": "5",
+        "load": 0.9,
+        "draining": true
+      },
+      {
+        "status": 0,
+        "seq": "4",
+        "load": 0.1
+      },
+      {
+        "status": 0,
+        "seq": "0",
+        "load": 0.2
+      },
+      {
+        "status": 1,
+        "seq": "5",
+        "load": 0.9,
+        "draining": true
+      }
+    ]
+  },
+  {
+    "name": "accept",
+    "register": {
+      "agent_name": "fixture-agent"
+    },
+    "availability": {
+      "available": true,
+      "participant_identity": "agent-fixture",
+      "participant_name": "agent"
+    }
+  },
+  {
+    "name": "decline",
+    "register": {
+      "agent_name": "fixture-agent"
+    },
+    "availability": {
+      "available": false
+    }
+  },
+  {
+    "name": "terminate",
+    "register": {
+      "agent_name": "fixture-agent"
+    },
+    "availability": {
+      "available": false,
+      "terminate": true
+    }
+  }
+]

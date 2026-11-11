@@ -1,0 +1,46 @@
+{
+  "upstream_version": "0.4.1",
+  "registry_checksum": "5e7ac95ddfb355a82e23e3bdce91b646b847307bb481b1f7bc7f44942461d571",
+  "original_files_sha256": {
+    ".cargo_vcs_info.json": "e049791db44fb4a228974859059613d7b31716028f997351880cfcf80143246e",
+    ".github/FUNDING.yml": "315a16a30ce55a6303fa2b64e7d373ce372ae3ba8857b23524fa1c62350f61d9",
+    ".github/workflows/ci.yml": "5fe5f755de80728f1823665a1b24770f95b05ff0fdd5d22c3f1f2c7db92b23be",
+    ".gitignore": "0dc5114e54710b149a4c58329b2cc0f7c63d440f82433e58c434cb9eb39288d0",
+    "CHANGELOG.md": "1d9fa09273fefbc8a3e78d7291c1892ddd8b2c8a057c85e4b52cef6765e18bde",
+    "Cargo.lock": "9c697fb3201334d63f9a4a65ac7c7a797d2563ef3ffea363cd8745c50125e4a1",
+    "Cargo.toml": "3d905c068826603d1459940ef4472860f7a8117f3819dad46e8069f192147096",
+    "Cargo.toml.orig": "884c04e7400ac336c3466e6f6a46c00f0adad196f53a607a3e6367fd8f365217",
+    "LICENSE-APACHE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "LICENSE-MIT": "7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0",
+    "README.md": "a4a2c19117c5778266cab7e7e2c10a9720d79a5dfcefe0af15fc2629b9cccb25",
+    "examples/myvec.rs": "5c2de3990537e91449d9863f038e1020bbee04034fb7666463ff86c126ae6197",
+    "rustfmt.toml": "b39305a3eedea408ddc24da10e60182f531d3a9e4ba782618674d097f23494a8",
+    "src/lib.rs": "e8637e0975562700c00cd7615d3487dbb942b02fb6389750a095b339203b6726"
+  },
+  "expected_files_sha256": {
+    ".cargo_vcs_info.json": "e049791db44fb4a228974859059613d7b31716028f997351880cfcf80143246e",
+    ".github/FUNDING.yml": "315a16a30ce55a6303fa2b64e7d373ce372ae3ba8857b23524fa1c62350f61d9",
+    ".github/workflows/ci.yml": "5fe5f755de80728f1823665a1b24770f95b05ff0fdd5d22c3f1f2c7db92b23be",
+    ".gitignore": "0dc5114e54710b149a4c58329b2cc0f7c63d440f82433e58c434cb9eb39288d0",
+    "CHANGELOG.md": "1d9fa09273fefbc8a3e78d7291c1892ddd8b2c8a057c85e4b52cef6765e18bde",
+    "Cargo.lock": "9c697fb3201334d63f9a4a65ac7c7a797d2563ef3ffea363cd8745c50125e4a1",
+    "Cargo.toml": "2b0e929ee03b69cd44664a5e39a7225dd6e360b4158cf6d9d6dd21420e300786",
+    "Cargo.toml.orig": "884c04e7400ac336c3466e6f6a46c00f0adad196f53a607a3e6367fd8f365217",
+    "LICENSE-APACHE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "LICENSE-MIT": "7b63ecd5f1902af1b63729947373683c32745c16a10e8e6292e2e2dcd7e90ae0",
+    "README.md": "a4a2c19117c5778266cab7e7e2c10a9720d79a5dfcefe0af15fc2629b9cccb25",
+    "examples/myvec.rs": "5c2de3990537e91449d9863f038e1020bbee04034fb7666463ff86c126ae6197",
+    "rustfmt.toml": "b39305a3eedea408ddc24da10e60182f531d3a9e4ba782618674d097f23494a8",
+    "src/lib.rs": "e8637e0975562700c00cd7615d3487dbb942b02fb6389750a095b339203b6726"
+  },
+  "metadata_sha256": {
+    "maintained-paste-provider.patch": "5e935d47ae819bacd1014ebaace51b77ca0a784d577db531da4eb6603ace2aa2",
+    "PATCHES.md": "6a5130e61d54c29e6cf87d2525fdc13b5009fa54246e874146e5306b2a3e669e"
+  },
+  "metadata_files": [
+    "SOURCE.json",
+    "maintained-paste-provider.patch",
+    "PATCHES.md"
+  ],
+  "scope": "Manifest-only maintained macro-provider alias; no algorithm/runtime/library source changes. No advisory ignore added."
+}

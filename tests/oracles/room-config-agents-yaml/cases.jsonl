@@ -1,0 +1,10 @@
+{"name": "agents-nil", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {}\n"}
+{"name": "agents-empty", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: []}\n"}
+{"name": "agents-null", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: null}\n"}
+{"name": "agents-full", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: [{agent_name: assistant, metadata: context, restart_policy: 1, deployment: prod, attributes: {language: ja}}, null]}\n"}
+{"name": "agents-unknown-generated-spelling", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: [{agentname: assistant}]}\n"}
+{"name": "agents-canonical-agent-name", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: [{agent_name: assistant}]}\n"}
+{"name": "agents-canonical-named-enum", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: [{restart_policy: JRP_NEVER}]}\n"}
+{"name": "agents-json-field-aliases", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: [{agentName: assistant, restartPolicy: 1}]}\n"}
+{"name": "agents-wrong-list-scalar", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: 1}\n"}
+{"name": "agents-null-agent-element", "strict": true, "yaml": "room:\n  room_configurations:\n    record: {agents: [null]}\n"}

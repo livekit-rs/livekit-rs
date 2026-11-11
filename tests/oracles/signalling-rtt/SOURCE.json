@@ -1,0 +1,10 @@
+{
+  "scope": "Go language-conversion observer tied to original positive RTT statement, not execution of whole SignalHandler",
+  "go_toolchain": "go1.26.3",
+  "source_path": "references/livekit-stable/pkg/rtc/signalling/signalhandler.go",
+  "source_sha256": "eff1fea4244de08865ecfd0e54b346f03ddf6799448fd532b3c7791e3fd104ea",
+  "observer_sha256": "29b721c699bde48eac50730f598d128c44833ac483d4b4a5ed838dbb45f4175b",
+  "actual_output_sha256": "98ce3bcf93cafd050302c032290e0a3416817d858939957bb5587fe4d3e95ba7",
+  "actual_exit": 0,
+  "rows": 8
+}

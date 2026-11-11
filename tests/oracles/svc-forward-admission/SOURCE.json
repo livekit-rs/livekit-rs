@@ -1,0 +1,21 @@
+{
+  "commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/sfu/downtrack.go": "8fe93a5a773de34408be61d3b8917e1da60f766f2c13c61bd774aab14321fc8d",
+    "pkg/sfu/receiver_base.go": "38620b025861461becd90a2c9c413bb1bd06e8f56cba686300a3c7e0b274832d",
+    "pkg/sfu/forwarder.go": "f16138d5ced5491f57132174dc5bae35f0a6262339706f5cd2d502600474c6e7",
+    "pkg/sfu/videolayerselector/vp9.go": "194a073722a734e4770201bb892ef6c2aef1b6e1df17498eec2cd1acdc838072",
+    "pkg/sfu/downtrack_downstream_integration_test.go": "a2ad12aac012f747b3ae2d7a37fbe9a313b14ebc38dfc3d98574e5d446c695f2",
+    "pkg/testutils/vnettest/vnettest.go": "4c152f158d5902eb51354cda87df05e127d01f196343ddcd6da629f73e67a585",
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "pkg/sfu/export_test.go": "467b4f5df2bf1e3cb38814e528ac7635bdd2c8a36f5602a03928b4a72b2049ed",
+    "pkg/sfu/videolayerselector/dependencydescriptor.go": "28937564e23d61c31b1bc9f706ead33b0f6b0c54584730f0eb7b6191ef7ce45c",
+    "pkg/sfu/videolayerselector/decodetarget.go": "916b82e16a705576442b421916b978d8f605137c7e9feafd30219bacf3ef9294",
+    "pkg/sfu/buffer/dependencydescriptorparser.go": "c1e1f0c4112b8ba9815fa5e14796ef3b6ffe081a80fd8cb5f448bd792a56b5c4",
+    "pkg/sfu/rtpextension/dependencydescriptor/dependencydescriptorextension.go": "2982192d8cc60cd0727c60f82bee12a1827665c1d1c9f8a1b6a9bf6853bf266f"
+  },
+  "observer_sha256": "26cd00686f67435f5827800b796e7f7187a122da9d702b9f6f1e1920a65d95ef",
+  "high_only_observer_sha256": "2bd458adb6f468873e629dd1d1ef6a4b9b45e2223406daaa89fbe76c00aae9b5",
+  "codec_keyframe_sha256": "8b04e82ac48cb90341c6badae66d8a656480fb8ce2690b836a542592fd3e115d",
+  "av1_observer_sha256": "d1d6b3b6ad41b0617bd1169dce5d403f87f943f0e3d8d34db8e6c01759385001"
+}

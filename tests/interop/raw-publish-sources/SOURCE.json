@@ -1,0 +1,32 @@
+{
+  "status": "FROZEN_V3A_ACTUAL_SDK_HEADER_STANDARD_PROTOCOL_SIGNER_NOT_RUN",
+  "reused_committed_attributes_prefix_sha256": "419baa738a22806d327718cbbfbb72d1b7326599e439afb6042bb4db2831853f",
+  "actual_go16_source_receipt_sha256": "8e9645dbf0a9decaac3bb1ff08bb81e8c4741a969b433b2b617700a0b4abb799",
+  "source_sha256": {
+    "livekit-rs-server/tests/interop/participant-attributes/run.mjs": "d8cbad7cdd3dc6fca43894bb7ea479d9ccac9038f14098d5b7953d10fc3fb2f6",
+    "livekit-rs-server/tests/interop/participant-attributes/SOURCE.json": "5b59606c7bb8471802c88b1cebabb7b37a3c3bee8cdea59f27e98baa55bdc00a",
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/service/roommanager.go": "e30441085cc764c80238b8e78e5e2576bef3d775283f8f429ee0324e39f3e9f8",
+    "references/protocol-stable/auth/grants.go": "eff12c293de465c4e95185de96b8d5510f5f97f1f10e48c93d63fa0540bbe9d7",
+    "references/protocol-stable/protobufs/livekit_rtc.proto": "b15cdd37f7a3c84caed7c00b8177bd196235ced118e31a64511a9811d56ae928",
+    "livekit-rs-server/tests/interop/package.json": "f2ef6ff2d07cfbc00ed423c96c92ac610c2f7bb1ea19027bb21ff5b26e475a67",
+    "livekit-rs-server/tests/interop/package-lock.json": "e05d7e3d2d8cab16ac81217cc81192abe15c8dd8c0747b5d3e8246c0ac7aa23b",
+    "references/livekit-stable/pkg/rtc/room.go": "6ef255a852f1be81f5fb9f0116d5eb12cc6a3d6d741293c6346ad9e4a59d101a",
+    "references/livekit-stable/pkg/service/rtcservice.go": "3681755f84f24b7924dd68e292a8c0ddeed629731eb76d2b437c04e788a9cdc3",
+    "livekit-rs-server/crates/rtc-core/src/room/join.rs": "cfdb2627944f48661c0bb795953cbbec1160d958628eff94748b2992a380e531",
+    "livekit-rs-server/tests/interop/node_modules/livekit-server-sdk/src/AccessToken.ts": "e2442cafb480b3ba4d6346f327b02c9a526583cf6bc470b65ad6cb910a33eada"
+  },
+  "assets_sha256": {
+    "run.mjs": "4007be165516da54fb2a03690554bebac88a6e5eb1d15d022cb86c5268266d46",
+    "v2-to-v3.patch": "0e824d6a8f02887bc85fa65254ed72c5f4645907a1527fea966d2d4a0836e1d9",
+    "CONTRACT.md": "9fe589ff662f688825c0ae5c978e17a7f0a1976686de7c61c50106e3b0d666be",
+    "v1-to-v2.patch": "d6da6e8c5e2014abcd115255364786f23e9f9b2bc28050ca43f6a411f89b1184",
+    "cases.json": "0c38327afaead8367d130713d07681fc560425ba3e06729469e39bfe7e322965",
+    "fixed-go16-actual.jsonl": "dabb3523701bb92395d43338df0e85ca1562d455b225a7e768300408c1c906ce"
+  },
+  "scope": "Unchanged official ServerSDK HTTP, independent legal HS256 raw source protocol vectors, real binary WS/signature/owner/reservation/old original token Reconnect; not SDK raw token issuer or RTC",
+  "shared_edits": false,
+  "parent_v1_source_sha256": "2030e8976a9cd4348bd6e1fcca6fe274297b2e4499105aa2f1fd13f5d4b92231",
+  "parent_v2_source_sha256": "9cf1a8145207ce30ef917a91c18aa73b5e282a63b98209b342013d8d5ce88f0f",
+  "parent_v3_source_sha256": "ee7c48c1fb510d075cc0c882fd80cbfaeee1c521c05164db3dd2fd36a0815f75"
+}

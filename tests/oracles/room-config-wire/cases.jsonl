@@ -1,0 +1,13 @@
+{"id":"unknown-room-field","config":{"unknownField":1}}
+{"id":"unknown-egress-field","config":{"egress":{"unknownField":1}}}
+{"id":"unknown-advanced-field","config":{"egress":{"participant":{"advanced":{"unknownField":1}}}}}
+{"id":"duplicate-known-scalar","config":{"emptyTimeout":1,"emptyTimeout":2}}
+{"id":"alias-known-scalar","config":{"emptyTimeout":1,"empty_timeout":2}}
+{"id":"duplicate-repeated-field","config":{"agents":[],"agents":[]}}
+{"id":"duplicate-nested-double","config":{"egress":{"participant":{"advanced":{"keyFrameInterval":1,"keyFrameInterval":2}}}}}
+{"id":"alias-nested-double","config":{"egress":{"participant":{"advanced":{"keyFrameInterval":1,"key_frame_interval":2}}}}}
+{"id":"duplicate-unknown-fields","config":{"unknownField":1,"unknownField":2}}
+{"id":"duplicate-nested-unknown-fields","config":{"egress":{"unknownField":1,"unknownField":2}}}
+{"id":"unknown-enum-string","config":{"egress":{"participant":{"preset":"F102_FUTURE_ENUM"}}}}
+{"id":"unknown-enum-number","config":{"egress":{"participant":{"preset":-7}}}}
+{"id":"map-scalar-null","config":{"tags":{"x":null}}}

@@ -1,0 +1,26 @@
+{
+  "status": "PREPARED_NOT_RUN",
+  "fixed_server": "v1.13.10 e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "source": "cmd/server/main.go267-298; Go os/file.go399-400",
+  "candidate_manifest_sha256": "f3c399634a462ecfb07824d099110a2c4f0a7671aa3e22238e4ef58170d9d9df",
+  "independent_v3_review_sha256": "123a41a3921fbbc663e4621fd062a703736c7616cf8870187b7ed240fd2c6d26",
+  "files_sha256": {
+    "compare-profiles.py": "0c012126fe2af9afd92a83d95b1af77aceda3a1d57bba30640af44e143600a25",
+    "open-mode-profiles.py": "22b044a94c029dcff32d8e0bf1c7d8b2a63cb2c79e2a849b1617eeaf7c12b0a2",
+    "open-mode-profiles-v3.py": "6e9b753a65bfe716f00491ba9662b3f9b9c97922b58086eb85837e36da8bf71a"
+  },
+  "acceptance": [
+    "Original cpu/heap/both real profiles, unchanged Go pprof decode",
+    "256 actual rooms each60k metadata readback retained",
+    "Actual non-root0222 permission errors preserve file content",
+    "FIFO real HTTP readiness before external reader, then actual profile bytes",
+    "Nonzero real stack, CPU and live allocation samples"
+  ],
+  "limits": [
+    "No synthetic samples",
+    "Platform support and full dependency/link gates separate",
+    "This draft has not run real processes"
+  ],
+  "historical_v3_open_mode_sha256": "6e9b753a65bfe716f00491ba9662b3f9b9c97922b58086eb85837e36da8bf71a",
+  "fifo_followup": "V3 actual original and unchanged repeat failed. Native close-before-process-exit reproducer and actual official observer confirm EOF consumed while producer alive clears readiness; old consumer ignored cached exit0 for387 iterations. V4 checks exited producer independently and drains actual bytes. Original bounds/profile/workload assertions unchanged; all8 additive cases PASS. See f110-fifo-consumer-root-cause.json."
+}

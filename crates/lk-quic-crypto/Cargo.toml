@@ -1,0 +1,17 @@
+[package]
+name = "lk-quic-crypto"
+description = "Pure-Rust (RustCrypto) QUIC packet/header protection per RFC 9001 for the WebTransport (HTTP/3) crypto adapter. AES-128-GCM suite; no ring/aws-lc."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT OR Apache-2.0"
+publish.workspace = true
+
+[dependencies]
+aes.workspace = true
+aes-gcm.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+
+[dev-dependencies]

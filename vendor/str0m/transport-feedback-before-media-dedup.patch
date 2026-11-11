@@ -1,0 +1,122 @@
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -852,12 +852,6 @@
+         }
+         let source_restarted = media_admission.restarted();
+         let admitted_flow = media_admission.flow();
+-        // Preserve delivery replay rejection, but authenticated duplicates still
+-        // contribute the source's duplicate/RTX traffic total. Never count an
+-        // unverified sequence number or a failed SRTP tag.
+-        if media_admission.duplicated() || (admitted_flow.is_none() && !is_new_wire_packet) {
+-            return;
+-        }
+         if let Some(raw_packets) = &mut self.raw_packets {
+             raw_packets.push_back(Box::new(RawPacket::RtpRx(header.clone(), data.to_vec())));
+         }
+@@ -885,7 +879,14 @@
+             update_max_seq(&mut self.max_rx_seq_lookup, header.ssrc, seq_no);
+         }
+ 
+-        if media_admission.rejected() {
++        // Transport feedback precedes logical media de-duplication. A fresh
++        // RTX packet can carry an already received OSN (including padding),
++        // but its new transport sequence still acknowledges real delivery.
++        // Commit the outer crypto/RTX register independently of inner media.
++        if media_admission.rejected()
++            || media_admission.duplicated()
++            || (admitted_flow.is_none() && !is_new_wire_packet)
++        {
+             if is_repair {
+                 stream.ensure_media_register(true);
+                 stream.update_register(now, &header, clock_rate, true, seq_no);
+@@ -2230,6 +2231,90 @@
+                 "retirement releases bounded packet/metadata owners together"
+             );
+         }
++    }
++
++    #[test]
++    fn authenticated_duplicate_osn_and_replay_still_acknowledge_fresh_transport_sequences() {
++        let now = Instant::now();
++        let crypto = crate::crypto::test_default_provider();
++        let profile = SrtpProfile::AES128_CM_SHA1_80;
++        let material = vec![0x62; profile.keying_material_len()];
++        let key = KeyingMaterial::new(&material);
++        let mut tx = SrtpContext::new(crypto, profile, &key, true);
++        let mut session = Session::new(&RtcConfig::default().set_rtp_mode(true));
++        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
++        let params = session
++            .codec_config
++            .params()
++            .iter()
++            .find(|p| p.spec().codec == crate::format::Codec::Vp8 && p.resend().is_some())
++            .copied()
++            .unwrap();
++        session.streams.expect_stream_rx(
++            101.into(),
++            Some(201.into()),
++            MidRid("v".into(), None),
++            false,
++        );
++        let mut exts = ExtensionMap::empty();
++        exts.set(3, Extension::TransportSequenceNumber);
++        session.exts = exts.clone();
++        let mut feed = |session: &mut Session, repair: bool, sn: u16, tcc: u16, payload: &[u8]| {
++            let mut bytes = vec![
++                0x90,
++                if repair {
++                    *params.resend().unwrap()
++                } else {
++                    *params.pt()
++                },
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++                0,
++            ];
++            bytes[2..4].copy_from_slice(&sn.to_be_bytes());
++            bytes[4..8].copy_from_slice(&3000u32.to_be_bytes());
++            bytes[8..12].copy_from_slice(&(if repair { 201u32 } else { 101u32 }).to_be_bytes());
++            bytes.extend_from_slice(&[0xbe, 0xde, 0, 1, 0x31, (tcc >> 8) as u8, tcc as u8, 0]);
++            bytes.extend_from_slice(payload);
++            let header = RtpHeader::parse(&bytes, &exts).unwrap();
++            let encrypted = tx.protect_rtp(&bytes, &header, u64::from(sn));
++            session.handle_rtp_receive(now, &encrypted);
++        };
++        feed(&mut session, false, 100, 400, &[0x10, 0, 1]);
++        assert!(session.pending_packet.take().is_some());
++        session.streams.take_receive_traffic();
++        for (outer, tcc, payload) in [
++            (10u16, 401u16, vec![0, 100]),
++            (11, 402, vec![0, 100, 0x10, 0, 1]),
++            (11, 403, vec![0, 100, 0x10, 0, 1]),
++        ] {
++            feed(&mut session, true, outer, tcc, &payload);
++            assert!(
++                session.pending_packet.is_none(),
++                "duplicate original media must never redeliver"
++            );
++            assert_eq!(
++                session.twcc_rx_register.max_seq().map(|s| *s),
++                Some(u64::from(tcc)),
++                "fresh transport delivery must not appear lost because media OSN repeats"
++            );
++            assert_eq!(
++                session.max_rx_seq_lookup[&201.into()],
++                SeqNo::from(u64::from(outer))
++            );
++        }
++        let source = session.streams.take_receive_traffic().pop().unwrap();
++        assert_eq!(
++            (source.packets, source.expected_packets, source.duplicates),
++            (4, 1, 3)
++        );
+     }
+ 
+     #[test]

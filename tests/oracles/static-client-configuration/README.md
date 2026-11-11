@@ -1,0 +1,5 @@
+# Actual fixed original static client configuration manager159
+
+Stage using `prepare.py --root FIXED_REPO --out FRESH_OWNED_DIR`; compile a real executable there with GOTOOLCHAIN=go1.26.3 GOMAXPROCS=2 go build -mod=readonly -o OWNED_EXECUTABLE .; run it with STATIC_CLIENT_CONFIG_CASES=STAGED/cases.json and fresh STATIC_CLIENT_CONFIG_GO_RESULT. Preserve actual tool/module/source/executable/output identities and exit0/159 rows. The source calls the actual original static configuration manager, script matcher and proto.Merge. No expected configuration is prefilled.
+
+Run the complete Rust original-source consumer with STATIC_CLIENT_CONFIG_GO_RESULTS and selector old_public_static_config_actual_source_matrix -- --ignored --nocapture (require1). It compares all actual inputs, presence and complete production protobuf bytes. Then use the separate static-client-configuration interop fixture for actual main WS Join. Genuine Resume and Safari/Firefox media/native codec experience remain separate capabilities; neither static source corpus nor direct Join implies completed RTC.

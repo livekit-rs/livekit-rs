@@ -1,0 +1,26 @@
+{
+  "status": "PUBLIC_FIXTURES_NOT_RUN",
+  "worker_commit": "171423b0b3e7c6531de270b16f1db4f7a6bd2084",
+  "source_sha256": {
+    "references/egress/pkg/config/pipeline.go": "1c2033f8ceb6c4c393f2843d348a71bdbc80776eefbc076eed0bc5391a0ba3a3",
+    "references/egress/pkg/config/service.go": "a605426ceb081f27cdad71e93f77041aa6325a378abe809a8549f883f958d221",
+    "references/egress/pkg/config/output.go": "0e4e45c5c6238378e1d07513a7fb8de79fbd5e92eee881fd67de31ec88272e50",
+    "references/egress/pkg/types/types.go": "696e54c394f77c55d5587b0a4aeb089b42b975dfcf73183d52d374a9a76f2716",
+    "references/egress/pkg/pipeline/source/source.go": "b015c4f7d5046fcb84083c5c0e20fb4326c1977e26b33f53c9e4ecc29315fcdb",
+    "references/egress/pkg/pipeline/source/sdk.go": "2183073f29010c08e88bb410ccbcd719b14d3ee20feefe8027e6dff928343b02",
+    "references/egress/cmd/server/main.go": "e4aedf41345dc84f63d81e9148669b60e9df60ff453e87aa3ce8bda595df3094",
+    "livekit-rs-server/tests/interop/egress-linux/guest-build.sh": "62c43b853fe93b83eefea5303db0b078ac15ec3783f9d107663b4a42e9bf9824",
+    "livekit-rs-server/tests/interop/egress-linux/worker.yaml.template": "48843e6148904ed479b1c6fe1dd5dab52ab936b57fc262075b2a33aa1c3d9d6b"
+  },
+  "files": {
+    "README.md": "5f599c28d0ba3fbb3bf10f45353e46c33b2809e74d6fb71febab22462f826b9e",
+    "run-auto-audio.mjs": "b9d05b3802c30402a9a0a5e1707166c5feece0e56b872a5c2cd7e5dde90edf88",
+    "run-auto-participant-av.mjs": "63ebe71eb1b71bb4af3fe0deb3e63c07b18525936c5497020bed8eca00962fbe"
+  },
+  "historical_invalid_profile": "Participant Ogg proposal preserved in historical candidate; not accepted and not executed as a positive",
+  "acceptance": "Real unchanged worker, real callbacks, decoded outputs; README records exact media gates",
+  "not_claimed": [
+    "Runtime success",
+    "Full Egress functional compatibility"
+  ]
+}

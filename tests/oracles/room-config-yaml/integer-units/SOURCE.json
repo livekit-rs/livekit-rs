@@ -1,0 +1,18 @@
+{
+  "status": "ACTUAL_GO_EXECUTED_RUST_COMPONENT_FIX_PUBLIC_REPLAY_PENDING",
+  "source": "Pinned LiveKit1.13.10 config.NewConfig and ProtoYAML0.7.0 integer byte units",
+  "original_corpora_unchanged": [
+    84,
+    14,
+    10,
+    47
+  ],
+  "files_sha256": {
+    "baseline-comparison.json": "e64bb32270554e0cb6f8207c076b1b5f2a4a230b9db917fcd120c9c36160f5b3",
+    "cases.jsonl": "54046b31d9d1ace093d7453c0bed0b823a8596836fcc06c5eb5b7d926eb6d1dc",
+    "go-actual.jsonl": "6194e48f06160ddaddb747afb4674c792ee367dd079f442a2f7753810742f6d2",
+    "compare.py": "6772c48141af5bb758626fe1a930f9208549bc94eab3898905b062c87177dd42"
+  },
+  "baseline": "2PASS5FAIL in seven independent actual consumer cases",
+  "acceptance": "Feed same cases.jsonl to freshly built auto_egress_config_probe; compare.py GoActual RustActual --out result.json; exact JSON values and full diagnostics, no normalization."
+}

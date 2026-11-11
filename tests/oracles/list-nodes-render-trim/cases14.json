@@ -1,0 +1,89 @@
+{
+  "base_node_hex": "0a084e445f6f776e656412093132372e302e302e31180422210880e2cfaa061081e2cfaa061802200388010490028094ebdc03980280cab5ee0130013a056f776e6564",
+  "cases": [
+    {
+      "id": "ordinary",
+      "node_id": "ND_owned",
+      "ip": "127.0.0.1",
+      "region": "owned"
+    },
+    {
+      "id": "empty-id",
+      "node_id": "",
+      "ip": "127.0.0.1",
+      "region": "owned"
+    },
+    {
+      "id": "ascii-whole-edges",
+      "node_id": "\n  ND_owned  ",
+      "ip": "\t 127.0.0.1\r\n",
+      "region": " \towned \t\r\n"
+    },
+    {
+      "id": "unicode-whole-edges",
+      "node_id": "  ND_owned　",
+      "ip": "127.0.0.1 ",
+      "region": " owned　"
+    },
+    {
+      "id": "whitespace-only-region",
+      "node_id": "ND_owned",
+      "ip": "127.0.0.1",
+      "region": "\t\r\n        　"
+    },
+    {
+      "id": "embedded-newline",
+      "node_id": "ND_first\nND_last",
+      "ip": "127.0.0.1",
+      "region": "owned"
+    },
+    {
+      "id": "embedded-blank-cell-line",
+      "node_id": "ND_first\n\nND_last",
+      "ip": "127.0.0.1",
+      "region": "owned"
+    },
+    {
+      "id": "all-empty-visual-line",
+      "node_id": "ND_first\n\n\nND_last",
+      "ip": "127.0.0.1",
+      "region": "owned"
+    },
+    {
+      "id": "internal-line-edges",
+      "node_id": "ND_first \n ND_last",
+      "ip": "127.0.0.1",
+      "region": "owned"
+    },
+    {
+      "id": "non-space-zero-width",
+      "node_id": "​ND_owned﻿",
+      "ip": "127.0.0.1",
+      "region": "owned"
+    },
+    {
+      "id": "trailing-region-newlines",
+      "node_id": "ND_owned",
+      "ip": "127.0.0.1",
+      "region": "owned\n\n"
+    },
+    {
+      "id": "non-LF-separator",
+      "node_id": "ND_owned",
+      "ip": "127.0.0.1",
+      "region": "owned second"
+    },
+    {
+      "id": "whitespace-only-region-exact-go25",
+      "node_id": "ND_owned",
+      "ip": "127.0.0.1",
+      "region": "\t\n\u000b\f\r                  　"
+    },
+    {
+      "id": "paragraph-separator-inside",
+      "node_id": "ND_owned",
+      "ip": "127.0.0.1",
+      "region": "owned second"
+    }
+  ]
+}

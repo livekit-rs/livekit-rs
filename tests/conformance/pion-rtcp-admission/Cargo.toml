@@ -1,0 +1,18 @@
+[package]
+name = "pion-rtcp-admission-conformance"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+str0m = { path = "../../../vendor/str0m", default-features = false, features = ["_internal_test_exports"] }
+rtc-crypto = { path = "../../../crates/rtc-crypto" }
+rtc-media = { path = "../../../crates/rtc-media" }
+
+[patch.crates-io]
+str0m = { path = "../../../vendor/str0m" }
+dimpl = { path = "../../../vendor/dimpl" }
+prost-derive = { path = "../../../vendor/prost-derive" }
+prost-reflect = { path = "../../../vendor/prost-reflect" }

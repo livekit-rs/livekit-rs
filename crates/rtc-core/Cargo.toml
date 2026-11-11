@@ -1,0 +1,13 @@
+[package]
+name = "rtc-core"
+description = "Protocol-agnostic RTC engine model: ids, rooms, participants, tracks, permissions, events (ARCH-01)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+getrandom.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

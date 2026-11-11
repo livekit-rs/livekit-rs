@@ -1,0 +1,103 @@
+--- a/src/media_telemetry.rs
++++ b/src/media_telemetry.rs
+@@ -8,6 +8,10 @@
+ /// Replacing or removing an SSRC/media section cannot erase these counters.
+ #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+ pub struct MediaTraffic {
++    /// Requested sequence numbers in authenticated NACKs for a live sender.
++    pub nacks_received: u64,
++    /// Requested sequence numbers in emitted NACKs for a live receiver.
++    pub nacks_sent: u64,
+     /// Incoming logical RTP bytes, including authenticated duplicate packets.
+     pub bytes_in: u64,
+     /// Incoming authenticated RTP packets; excludes synthetic RED recovery.
+@@ -53,6 +57,8 @@
+     fn add_assign(&mut self, other: Self) {
+         macro_rules! add {($($field:ident),+)=>{$(self.$field=self.$field.saturating_add(other.$field);)+};}
+         add!(
++            nacks_received,
++            nacks_sent,
+             bytes_in,
+             packets_in,
+             bytes_out,
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1078,6 +1078,16 @@
+                 let Some(stream) = self.streams.stream_tx(&fb.ssrc()) else {
+                     continue;
+                 };
++                if let RtcpFb::Nack(_, reports) = &fb {
++                    // Go DownTrack counts every requested SN, including repeated
++                    // requests, not one count per RTCP feedback packet.
++                    let count = reports
++                        .iter()
++                        .map(|entry| 1 + entry.blp.count_ones() as u64)
++                        .sum::<u64>();
++                    self.node_traffic.nacks_received =
++                        self.node_traffic.nacks_received.saturating_add(count);
++                }
+                 stream.handle_rtcp(now, fb);
+             }
+         }
+@@ -1292,7 +1302,16 @@
+ 
+         let mut raw_packets = self.raw_packets.as_mut();
+         let twcc_register = &mut self.twcc_rx_register;
++        let node_traffic = &mut self.node_traffic;
+         let output = move |fb| {
++            if let Rtcp::Nack(report) = &fb {
++                let count = report
++                    .reports
++                    .iter()
++                    .map(|entry| 1 + entry.blp.count_ones() as u64)
++                    .sum::<u64>();
++                node_traffic.nacks_sent = node_traffic.nacks_sent.saturating_add(count);
++            }
+             if let Rtcp::Twcc(report) = &fb {
+                 twcc_register.observe_emitted(report, now);
+             }
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -1098,7 +1098,11 @@
+                 self.stats.update_with_rr(now, self.last_sent_seq_no, r)
+             }
+             Nack(_, list) => {
+-                self.stats.increase_nacks();
++                self.stats.increase_nacks(
++                    list.iter()
++                        .map(|entry| 1 + entry.blp.count_ones() as u64)
++                        .sum(),
++                );
+                 let entries = list.into_iter();
+                 self.handle_nack(entries, now);
+             }
+--- a/src/streams/send_stats.rs
++++ b/src/streams/send_stats.rs
+@@ -72,8 +72,8 @@
+         }
+     }
+ 
+-    pub fn increase_nacks(&mut self) {
+-        self.nacks += 1;
++    pub fn increase_nacks(&mut self, count: u64) {
++        self.nacks = self.nacks.saturating_add(count);
+     }
+ 
+     pub fn increase_plis(&mut self) {
+--- a/src/streams/receive.rs
++++ b/src/streams/receive.rs
+@@ -811,8 +811,13 @@
+             nack.ssrc = self.ssrc;
+ 
+             trace!("Created feedback NACK: {:?}", nack);
++            self.stats.nacks = self.stats.nacks.saturating_add(
++                nack.reports
++                    .iter()
++                    .map(|entry| 1 + entry.blp.count_ones() as u64)
++                    .sum::<u64>(),
++            );
+             feedback.push_back(Rtcp::Nack(nack));
+-            self.stats.nacks += 1;
+         }
+ 
+         Some(())

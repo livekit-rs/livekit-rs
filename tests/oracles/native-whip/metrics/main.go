@@ -1,0 +1,4 @@
+// Actual RTPStatsReceiver.Update/ToProto bytes; no replacement implementation.
+package main
+import("bufio";"fmt";"os";"strings";"strconv";"github.com/livekit/livekit-server/pkg/sfu/rtpstats")
+func main(){scanner:=bufio.NewScanner(os.Stdin);for scanner.Scan(){parts:=strings.SplitN(scanner.Text(),"\t",2);if len(parts)!=2{panic("invalid case")};r:=rtpstats.NewRTPStatsReceiver(rtpstats.RTPStatsParams{});r.SetClockRate(48000);for i,packet:=range strings.Split(parts[1],";"){var p []uint64;for _,s:=range strings.Split(packet,","){n,e:=strconv.ParseUint(s,10,64);if e!=nil{panic(e)};p=append(p,n)};if len(p)!=5{panic("invalid packet")};r.Update(1_000_000_000+int64(i)*20_000_000,uint16(p[0]),uint32(p[1]),false,int(p[2]),int(p[3]),int(p[4]))};s:=r.ToProto();n:=uint64(0);if s!=nil{n=s.Bytes};fmt.Printf("%s\t%d\n",parts[0],n)};if e:=scanner.Err();e!=nil{panic(e)}}

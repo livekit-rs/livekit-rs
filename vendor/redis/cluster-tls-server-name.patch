@@ -1,0 +1,1352 @@
+--- a/src/aio/smol.rs
++++ b/src/aio/smol.rs
+@@ -207,6 +207,10 @@
+     ) -> RedisResult<Self> {
+         let tcp_stream = connect_tcp(&socket_addr, tcp_settings).await?;
+ 
++        let hostname = tls_params
++            .as_ref()
++            .and_then(|params| params.server_name.as_deref())
++            .unwrap_or(hostname);
+         let config = create_rustls_config(insecure, tls_params.clone())?;
+         let tls_connector = TlsConnector::from(Arc::new(config));
+ 
+--- a/src/aio/tokio.rs
++++ b/src/aio/tokio.rs
+@@ -142,6 +142,10 @@
+         tls_params: &Option<TlsConnParams>,
+         tcp_settings: &crate::io::tcp::TcpSettings,
+     ) -> RedisResult<Self> {
++        let hostname = tls_params
++            .as_ref()
++            .and_then(|params| params.server_name.as_deref())
++            .unwrap_or(hostname);
+         let config = create_rustls_config(insecure, tls_params.clone())?;
+         let tls_connector = TlsConnector::from(Arc::new(config));
+ 
+--- a/src/cluster_handling/client.rs
++++ b/src/cluster_handling/client.rs
+@@ -53,6 +53,10 @@
+     tls: Option<TlsMode>,
+     #[cfg(feature = "tls-rustls")]
+     certs: Option<TlsCertificates>,
++    #[cfg(feature = "tls-rustls")]
++    tls_server_name: Option<String>,
++    #[cfg(feature = "tls-rustls")]
++    go_certificate_policy: bool,
+     #[cfg(any(feature = "tls-rustls-insecure", feature = "tls-native-tls"))]
+     danger_accept_invalid_hostnames: bool,
+     retries_configuration: RetryParams,
+@@ -89,6 +93,10 @@
+             tls,
+             #[cfg(feature = "tls-rustls")]
+             certs,
++            #[cfg(feature = "tls-rustls")]
++            tls_server_name,
++            #[cfg(feature = "tls-rustls")]
++            go_certificate_policy,
+             #[cfg(any(feature = "tls-rustls-insecure", feature = "tls-native-tls"))]
+             danger_accept_invalid_hostnames,
+             retries_configuration,
+@@ -130,7 +138,11 @@
+             .field("read_routing_factory", &set_or_unset(read_routing_factory));
+ 
+         #[cfg(feature = "tls-rustls")]
+-        str.field("certs", &redacted_if_set(certs));
++        {
++            str.field("certs", &redacted_if_set(certs));
++            str.field("tls_server_name", tls_server_name);
++            str.field("go_certificate_policy", go_certificate_policy);
++        }
+ 
+         #[cfg(any(feature = "tls-rustls-insecure", feature = "tls-native-tls"))]
+         str.field(
+@@ -328,6 +340,10 @@
+         let tls_params = if value.danger_accept_invalid_hostnames {
+             let mut tls_params = tls_params.unwrap_or(TlsConnParams {
+                 #[cfg(feature = "tls-rustls")]
++                server_name: None,
++                #[cfg(feature = "tls-rustls")]
++                go_certificate_policy: false,
++                #[cfg(feature = "tls-rustls")]
+                 client_tls_params: None,
+                 #[cfg(feature = "tls-rustls")]
+                 root_cert_store: None,
+@@ -341,6 +357,27 @@
+             });
+             tls_params.danger_accept_invalid_hostnames = true;
+             Some(tls_params)
++        } else {
++            tls_params
++        };
++
++        #[cfg(feature = "tls-rustls")]
++        let tls_params = if let Some(server_name) = value.tls_server_name {
++            // Validate once during construction; the actual dial address stays
++            // independent, including every discovered/redirected Cluster node.
++            rustls::pki_types::ServerName::try_from(server_name.clone())?;
++            let mut params = tls_params.unwrap_or_default();
++            params.server_name = Some(server_name);
++            Some(params)
++        } else {
++            tls_params
++        };
++
++        #[cfg(feature = "tls-rustls")]
++        let tls_params = if value.go_certificate_policy {
++            let mut params = tls_params.unwrap_or_default();
++            params.go_certificate_policy = true;
++            Some(params)
+         } else {
+             tls_params
+         };
+@@ -642,6 +679,27 @@
+         self
+     }
+ 
++    /// Override TLS SNI and certificate verification name for all Cluster
++    /// connections, while preserving each seed/discovered node's dial address.
++    /// No hostname verification or CA validation is disabled.
++    #[cfg(feature = "tls-rustls")]
++    pub fn tls_server_name(mut self, server_name: impl Into<String>) -> Self {
++        if self.builder_params.tls.is_none() {
++            self.builder_params.tls = Some(TlsMode::Secure);
++        }
++        self.builder_params.tls_server_name = Some(server_name.into());
++        self
++    }
++
++    /// Opt in to Go's verified leaf-role/certificate-alert policy for every
++    /// seed, discovered and redirected TLS connection. Does not enable TLS or
++    /// disable any trust, signature, name, time or purpose checks.
++    #[cfg(feature = "tls-rustls")]
++    pub fn go_certificate_policy(mut self, enabled: bool) -> Self {
++        self.builder_params.go_certificate_policy = enabled;
++        self
++    }
++
+     /// Enables reading from replicas for all new connections (default is disabled).
+     ///
+     /// Read queries will go to a random replica node and write queries will go to the
+@@ -1059,6 +1117,52 @@
+         );
+     }
+ 
++    #[test]
++    #[cfg(feature = "tls-rustls")]
++    fn cluster_verification_identity_follows_every_per_node_connection_info() {
++        use crate::ConnectionAddr;
++        use crate::cluster_handling::{NodeAddress, get_connection_info};
++        let client = ClusterClientBuilder::new(["rediss://127.0.0.1:7000"])
++            .tls_server_name("redis.internal.example")
++            .build()
++            .unwrap();
++        // The common factory is used for seeds, CLUSTER SLOTS discoveries and
++        // both ASK/MOVED redirections. Dial hosts remain their actual addresses.
++        for (host, port) in [("127.0.0.1", 7000), ("127.0.0.2", 7001), ("::1", 7002)] {
++            let info = get_connection_info(&NodeAddress::new(host, port), &client.cluster_params);
++            match info.addr {
++                ConnectionAddr::TcpTls {
++                    host: actual,
++                    port: actual_port,
++                    tls_params,
++                    insecure,
++                } => {
++                    assert_eq!(actual, host);
++                    assert_eq!(actual_port, port);
++                    assert!(!insecure);
++                    assert_eq!(
++                        tls_params.unwrap().server_name.as_deref(),
++                        Some("redis.internal.example")
++                    );
++                }
++                _ => panic!("TLS identity must not downgrade connection transport"),
++            }
++        }
++        let plain = ClusterClientBuilder::new(["redis://127.0.0.1:7000"])
++            .build()
++            .unwrap();
++        assert!(matches!(
++            get_connection_info(&NodeAddress::new("127.0.0.1", 7000), &plain.cluster_params).addr,
++            ConnectionAddr::Tcp(..)
++        ));
++        assert!(
++            ClusterClientBuilder::new(["rediss://127.0.0.1:7000"])
++                .tls_server_name("invalid name")
++                .build()
++                .is_err()
++        );
++    }
++
+     fn get_connection_data() -> Vec<ConnectionInfo> {
+         vec![
+             "redis://127.0.0.1:6379".into_connection_info().unwrap(),
+--- a/src/connection.rs
++++ b/src/connection.rs
+@@ -53,8 +53,12 @@
+ use crate::tls::NativeTlsParams;
+ 
+ // Non-exhaustive to prevent construction outside this crate
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Default)]
+ pub struct TlsConnParams {
++    #[cfg(feature = "tls-rustls")]
++    pub(crate) server_name: Option<String>,
++    #[cfg(feature = "tls-rustls")]
++    pub(crate) go_certificate_policy: bool,
+     #[cfg(feature = "tls-rustls")]
+     pub(crate) client_tls_params: Option<ClientTlsParams>,
+     #[cfg(feature = "tls-rustls")]
+@@ -268,6 +272,10 @@
+             } else if insecure {
+                 *tls_params = Some(TlsConnParams {
+                     #[cfg(feature = "tls-rustls")]
++                    server_name: None,
++                    #[cfg(feature = "tls-rustls")]
++                    go_certificate_policy: false,
++                    #[cfg(feature = "tls-rustls")]
+                     client_tls_params: None,
+                     #[cfg(feature = "tls-rustls")]
+                     root_cert_store: None,
+@@ -323,6 +331,18 @@
+ }
+ 
+ impl ConnectionInfo {
++    /// Explicit Go-compatible verified TLS leaf/alert policy. This preserves
++    /// CA, peer-name and mTLS validation; plaintext addresses are unchanged.
++    #[cfg(feature = "tls-rustls")]
++    pub fn with_go_certificate_policy(mut self, enabled: bool) -> Self {
++        if let ConnectionAddr::TcpTls { tls_params, .. } = &mut self.addr {
++            tls_params
++                .get_or_insert_with(Default::default)
++                .go_certificate_policy = enabled;
++        }
++        self
++    }
++
+     /// Returns the connection address.
+     pub fn addr(&self) -> &ConnectionAddr {
+         &self.addr
+@@ -1050,9 +1070,13 @@
+             } => {
+                 let host: &str = host;
+                 let config = create_rustls_config(insecure, tls_params.clone())?;
++                let verification_name = tls_params
++                    .as_ref()
++                    .and_then(|params| params.server_name.as_deref())
++                    .unwrap_or(host);
+                 let conn = rustls::ClientConnection::new(
+                     Arc::new(config),
+-                    rustls::pki_types::ServerName::try_from(host)?.to_owned(),
++                    rustls::pki_types::ServerName::try_from(verification_name)?.to_owned(),
+                 )?;
+                 let reader = match timeout {
+                     None => {
+@@ -1255,7 +1279,11 @@
+     let config = rustls::ClientConfig::builder();
+     let config = if let Some(tls_params) = tls_params {
+         let root_cert_store = tls_params.root_cert_store.unwrap_or(root_store);
+-        let config_builder = config.with_root_certificates(root_cert_store.clone());
++        let config_builder = if tls_params.go_certificate_policy {
++            config.with_go_root_certificates(root_cert_store.clone())
++        } else {
++            config.with_root_certificates(root_cert_store.clone())
++        };
+ 
+         let config_builder = if let Some(ClientTlsParams {
+             client_cert_chain: client_cert,
+--- a/src/tls.rs
++++ b/src/tls.rs
+@@ -146,6 +146,10 @@
+     };
+ 
+     Ok(TlsConnParams {
++        #[cfg(feature = "tls-rustls")]
++        server_name: None,
++        #[cfg(feature = "tls-rustls")]
++        go_certificate_policy: false,
+         client_tls_params,
+         root_cert_store,
+         // Populated as well as the rustls fields, for a build in which another runtime selects
+@@ -166,6 +170,10 @@
+     certificates: &TlsCertificates,
+ ) -> RedisResult<TlsConnParams> {
+     Ok(TlsConnParams {
++        #[cfg(feature = "tls-rustls")]
++        server_name: None,
++        #[cfg(feature = "tls-rustls")]
++        go_certificate_policy: false,
+         native_tls_params: parse_native_tls_params(certificates)?,
+         danger_accept_invalid_hostnames: false,
+     })
+--- a/src/aio/multiplexed_connection.rs
++++ b/src/aio/multiplexed_connection.rs
+@@ -1,3 +1,9 @@
++#[path = "write_deadline.rs"]
++mod write_deadline;
++#[cfg(feature = "cluster-async")]
++pub(crate) use write_deadline::is_socket_write_timeout;
++use write_deadline::{WriteDeadline, is_incomplete_write_timeout};
++
+ use super::{
+     AsyncPushSender, ConnectionLike, Runtime, SharedHandleContainer, SubscribeLikeCommand,
+     TaskHandle, send_subscribe_like_command,
+@@ -37,9 +43,10 @@
+ use std::fmt;
+ use std::fmt::Debug;
+ use std::pin::Pin;
++use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::{Arc, Mutex};
+ use std::task::{self, Poll};
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ use tokio_util::codec::Decoder;
+ 
+ // Senders which the result of a single request are sent through
+@@ -135,11 +142,18 @@
+     response_aggregate: ResponseAggregate,
+ }
+ 
++// Both observations belong to the one request waiting for this flush.
++struct PendingFlush {
++    observed_at: Option<oneshot::Sender<Instant>>,
++    incomplete_write_failed: Option<Arc<AtomicBool>>,
++}
++
+ // A single message sent through the pipeline
+ struct PipelineMessage {
+     input: Vec<u8>,
+     // If `output` is None, then the caller doesn't expect to receive an answer.
+     output: Option<PipelineOutput>,
++    flushed: Option<PendingFlush>,
+     // If `None`, this is a single request, not a pipeline of multiple requests.
+     // If `Some`, the first value is the number of responses to skip,
+     // the second is the number of responses to keep, and the third is whether the pipeline is a transaction.
+@@ -153,6 +167,7 @@
+ #[derive(Clone)]
+ struct Pipeline {
+     sender: mpsc::Sender<PipelineMessage>,
++    read_after_flush: bool,
+ }
+ 
+ impl Debug for Pipeline {
+@@ -167,6 +182,7 @@
+         #[pin]
+         sink_stream: T,
+         in_flight: VecDeque<InFlight>,
++        pending_flush: Option<PendingFlush>,
+         error: Option<RedisError>,
+         push_sender: Option<Arc<dyn AsyncPushSender>>,
+         cache_manager: Option<CacheManager>,
+@@ -184,6 +200,7 @@
+         #[pin]
+         sink_stream: T,
+         in_flight: VecDeque<InFlight>,
++        pending_flush: Option<PendingFlush>,
+         error: Option<RedisError>,
+         push_sender: Option<Arc<dyn AsyncPushSender>>,
+         // The subscriptions the connection has confirmed so far, used to determine how many
+@@ -222,6 +239,7 @@
+         Self {
+             sink_stream,
+             in_flight: VecDeque::new(),
++            pending_flush: None,
+             error: None,
+             push_sender,
+             #[cfg(feature = "cache-aio")]
+@@ -426,6 +444,24 @@
+         }
+     }
+ 
++    fn fail_write(self: Pin<&mut Self>, err: RedisError) {
++        let this = self.project();
++        send_disconnect(this.push_sender);
++        if let Some(flush) = this.pending_flush.take()
++            && let Some(failed) = flush.incomplete_write_failed
++            && is_incomplete_write_timeout(&err)
++        {
++            // Earlier in-flight replies receive the same transport error
++            // below, but cannot inherit this request's incomplete-write proof.
++            failed.store(true, Ordering::Release);
++        }
++        for pending in this.in_flight.drain(..) {
++            if let Some(output) = pending.output {
++                let _ = output.send(Err(err.clone()));
++            }
++        }
++    }
++
+     fn send_disconnect_if_needed(self: Pin<&mut Self>, err: &RedisError) {
+         if err.is_unrecoverable_error() {
+             let self_ = self.project();
+@@ -445,6 +481,11 @@
+         mut self: Pin<&mut Self>,
+         cx: &mut task::Context,
+     ) -> Poll<Result<(), Self::Error>> {
++        // Give each tracked request its own flush boundary. A later
++        // backpressured write cannot postpone an earlier request's read clock.
++        if self.pending_flush.is_some() {
++            ready!(self.as_mut().poll_flush(cx))?;
++        }
+         // It is crucial that we always try to advance both the read and the write side together.
+         // If we do not, we are susceptible to TCP deadlock.
+         // Here, we do this by advancing reads and then moving on to advance writes regardless of
+@@ -456,6 +497,10 @@
+         }
+         match ready!(self.as_mut().project().sink_stream.poll_ready(cx)) {
+             Ok(()) => Ok(()).into(),
++            Err(err) if err.is_timeout() => {
++                self.fail_write(err);
++                Err(()).into()
++            }
+             Err(err) => {
+                 self.as_mut().send_disconnect_if_needed(&err);
+                 *self.project().error = Some(err);
+@@ -469,6 +514,7 @@
+         PipelineMessage {
+             input,
+             mut output,
++            flushed,
+             expectation,
+         }: PipelineMessage,
+     ) -> Result<(), Self::Error> {
+@@ -497,6 +543,7 @@
+                 };
+ 
+                 self_.in_flight.push_back(entry);
++                *self_.pending_flush = flushed;
+                 Ok(())
+             }
+             Err(err) => {
+@@ -521,14 +568,25 @@
+         if matches!(self.as_mut().poll_read(cx), Poll::Ready(Err(()))) {
+             return Poll::Ready(Err(()));
+         }
+-        self.as_mut()
+-            .project()
+-            .sink_stream
+-            .poll_flush(cx)
+-            .map_err(|err| {
+-                self.as_mut().send_disconnect_if_needed(&err);
+-                self.send_result(Err(err));
+-            })
++        match ready!(self.as_mut().project().sink_stream.poll_flush(cx)) {
++            Ok(()) => {
++                if let Some(flush) = self.project().pending_flush.take()
++                    && let Some(receipt) = flush.observed_at
++                {
++                    let _ = receipt.send(Instant::now());
++                }
++                Poll::Ready(Ok(()))
++            }
++            Err(err) => {
++                if err.is_timeout() {
++                    self.fail_write(err);
++                } else {
++                    self.as_mut().send_disconnect_if_needed(&err);
++                    self.send_result(Err(err));
++                }
++                Poll::Ready(Err(()))
++            }
++        }
+     }
+ 
+     fn poll_close(
+@@ -537,7 +595,7 @@
+     ) -> Poll<Result<(), Self::Error>> {
+         // No new requests will come in after the first call to `close` but we need to complete any
+         // in progress requests before closing
+-        if !self.in_flight.is_empty() {
++        if !self.in_flight.is_empty() || self.pending_flush.is_some() {
+             ready!(self.as_mut().poll_flush(cx))?;
+         }
+         let this = self.as_mut().project();
+@@ -560,6 +618,7 @@
+         subscriptions: Arc<Mutex<SubscriptionTracker>>,
+         #[cfg(feature = "cache-aio")] cache_manager: Option<CacheManager>,
+         buffer_size: usize,
++        read_after_flush: bool,
+     ) -> (Self, impl Future<Output = ()>)
+     where
+         T: Sink<Vec<u8>, Error = RedisError>,
+@@ -579,7 +638,13 @@
+             .map(Ok)
+             .forward(sink)
+             .map(|_| ());
+-        (Self { sender }, f)
++        (
++            Self {
++                sender,
++                read_after_flush,
++            },
++            f,
++        )
+     }
+ 
+     async fn send_recv(
+@@ -591,10 +656,23 @@
+         timeout: Option<Duration>,
+         skip_response: bool,
+     ) -> Result<Value, RedisError> {
++        self.send_recv_with_incomplete_write_state(input, expectation, timeout, skip_response, None)
++            .await
++    }
++
++    async fn send_recv_with_incomplete_write_state(
++        &mut self,
++        input: Vec<u8>,
++        expectation: Option<PipelineResponseExpectation>,
++        timeout: Option<Duration>,
++        skip_response: bool,
++        incomplete_write_failed: Option<Arc<AtomicBool>>,
++    ) -> Result<Value, RedisError> {
+         if input.is_empty() {
+             return Err(RedisError::make_empty_command());
+         }
+ 
++        let phase_timeout = timeout.filter(|_| self.read_after_flush && !skip_response);
+         let request = async {
+             if skip_response {
+                 self.sender
+@@ -602,6 +680,7 @@
+                         input,
+                         expectation,
+                         output: None,
++                        flushed: None,
+                     })
+                     .await
+                     .map_err(|_| None)?;
+@@ -609,26 +688,51 @@
+                 return Ok(Value::Nil);
+             }
+ 
+-            let (sender, receiver) = oneshot::channel();
++            let (sender, mut receiver) = oneshot::channel();
++            let (observed_at, receipt) = if phase_timeout.is_some() {
++                let (tx, rx) = oneshot::channel();
++                (Some(tx), Some(rx))
++            } else {
++                (None, None)
++            };
++            let flushed = (observed_at.is_some() || incomplete_write_failed.is_some()).then_some(
++                PendingFlush {
++                    observed_at,
++                    incomplete_write_failed,
++                },
++            );
+ 
+             self.sender
+                 .send(PipelineMessage {
+                     input,
+                     expectation,
+                     output: Some(sender),
++                    flushed,
+                 })
+                 .await
+                 .map_err(|_| None)?;
+ 
+-            receiver
+-                .await
+-                // The `sender` was dropped which likely means that the stream part
+-                // failed for one reason or another
+-                .map_err(|_| None)
+-                .and_then(|res| res.map_err(Some))
++            let result = if let (Some(timeout), Some(receipt)) = (phase_timeout, receipt) {
++                match futures_util::future::select(&mut receiver, receipt).await {
++                    futures_util::future::Either::Left((result, _)) => result,
++                    futures_util::future::Either::Right((Ok(flushed_at), response)) => {
++                        let remaining = timeout.saturating_sub(flushed_at.elapsed());
++                        Runtime::locate()
++                            .timeout(remaining, response)
++                            .await
++                            .map_err(|elapsed| Some(elapsed.into()))?
++                    }
++                    // A dropped receipt is not a successful flush. The writer
++                    // retires the request with its actual error or closes it.
++                    futures_util::future::Either::Right((Err(_), response)) => response.await,
++                }
++            } else {
++                receiver.await
++            };
++            result.map_err(|_| None).and_then(|res| res.map_err(Some))
+         };
+ 
+-        match timeout {
++        match timeout.filter(|_| phase_timeout.is_none()) {
+             Some(timeout) => match Runtime::locate().timeout(timeout, request).await {
+                 Ok(res) => res,
+                 Err(elapsed) => Err(Some(elapsed.into())),
+@@ -745,7 +849,8 @@
+     where
+         C: Unpin + AsyncRead + AsyncWrite + Send + 'static,
+     {
+-        let mut codec = ValueCodec::default().framed(stream);
++        let mut codec =
++            ValueCodec::default().framed(WriteDeadline::new(stream, config.write_timeout));
+         if let Some(boundary) = config.write_backpressure_boundary {
+             codec.set_backpressure_boundary(boundary);
+         }
+@@ -808,9 +913,11 @@
+             }
+         }
+ 
++        let read_after_flush = config.transport_connection_timeout.is_some();
+         setup_connection(
+             &mut codec,
+             &connection_info,
++            config.response_timeout.filter(|_| read_after_flush),
+             #[cfg(feature = "cache-aio")]
+             cache_config,
+         )
+@@ -830,6 +937,7 @@
+             #[cfg(feature = "cache-aio")]
+             cache_manager_opt.clone(),
+             Pipeline::resolve_buffer_size(config.pipeline_buffer_size),
++            read_after_flush,
+         );
+ 
+         let concurrency_limiter = build_concurrency_limiter(config.concurrency_limit)?;
+@@ -961,6 +1069,36 @@
+         offset: usize,
+         count: usize,
+     ) -> RedisResult<Vec<Value>> {
++        self.send_packed_commands_impl(cmd, offset, count, None)
++            .await
++    }
++
++    /// Send a transaction and report whether this request's write deadline
++    /// expired with bytes still pending. A missing reply or failure flushing
++    /// already submitted bytes never produces this proof.
++    pub async fn send_transaction_with_incomplete_write_state(
++        &mut self,
++        cmd: &crate::Pipeline,
++        offset: usize,
++        count: usize,
++    ) -> (RedisResult<Vec<Value>>, bool) {
++        if !cmd.is_transaction() {
++            return (self.send_packed_commands(cmd, offset, count).await, false);
++        }
++        let failed = Arc::new(AtomicBool::new(false));
++        let reply = self
++            .send_packed_commands_impl(cmd, offset, count, Some(failed.clone()))
++            .await;
++        (reply, failed.load(Ordering::Acquire))
++    }
++
++    async fn send_packed_commands_impl(
++        &mut self,
++        cmd: &crate::Pipeline,
++        offset: usize,
++        count: usize,
++        incomplete_write_failed: Option<Arc<AtomicBool>>,
++    ) -> RedisResult<Vec<Value>> {
+         // A pipeline that holds a single subscription command is a single server command, so it
+         // holds a single concurrency limit permit regardless of the number of confirmations that
+         // it will be answered with.
+@@ -992,6 +1130,7 @@
+         #[cfg(feature = "cache-aio")]
+         if let Some(cache_manager) = &self.cache_manager
+             && subscription_confirmations.is_none()
++            && incomplete_write_failed.is_none()
+         {
+             let (cacheable_pipeline, pipeline, (skipped_response_count, expected_response_count)) =
+                 cache_manager.get_cached_pipeline(cmd);
+@@ -1020,11 +1159,12 @@
+         };
+         let value = self
+             .pipeline
+-            .send_recv(
++            .send_recv_with_incomplete_write_state(
+                 cmd.get_packed_pipeline(),
+                 Some(expectation),
+                 self.response_timeout,
+                 false,
++                incomplete_write_failed,
+             )
+             .await?;
+         match value {
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -191,6 +191,8 @@
+     pub(crate) response_timeout: Option<Duration>,
+     /// Maximum time to wait for a connection to be established
+     pub(crate) connection_timeout: Option<Duration>,
++    /// Optional DNS/TCP/TLS-only budget, independent of Redis protocol setup.
++    pub(crate) transport_connection_timeout: Option<Duration>,
+     pub(crate) push_sender: Option<std::sync::Arc<dyn AsyncPushSender>>,
+     #[cfg(feature = "cache-aio")]
+     pub(crate) cache: Option<Cache>,
+@@ -213,6 +215,7 @@
+         let Self {
+             response_timeout,
+             connection_timeout,
++            transport_connection_timeout,
+             push_sender,
+             #[cfg(feature = "cache-aio")]
+             cache,
+@@ -228,6 +231,7 @@
+         let mut str = f.debug_struct("AsyncConnectionConfig");
+         str.field("response_timeout", response_timeout)
+             .field("connection_timeout", connection_timeout)
++            .field("transport_connection_timeout", transport_connection_timeout)
+             .field("pipeline_buffer_size", pipeline_buffer_size)
+             .field("concurrency_limit", concurrency_limit)
+             .field("write_backpressure_boundary", write_backpressure_boundary)
+@@ -251,6 +255,7 @@
+         Self {
+             response_timeout: DEFAULT_RESPONSE_TIMEOUT,
+             connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
++            transport_connection_timeout: None,
+             push_sender: Default::default(),
+             #[cfg(feature = "cache-aio")]
+             cache: Default::default(),
+@@ -278,6 +283,18 @@
+     pub fn set_connection_timeout(mut self, connection_timeout: Option<Duration>) -> Self {
+         self.connection_timeout = connection_timeout;
+         self
++    }
++
++    /// Sets a DNS/TCP/TLS-only budget. With this budget active, Redis setup
++    /// uses the separate response timeout.
++    pub fn set_transport_connection_timeout(mut self, timeout: Option<Duration>) -> Self {
++        self.transport_connection_timeout = timeout;
++        self
++    }
++
++    /// Returns the transport-only budget for callers that provide a connected stream.
++    pub fn transport_connection_timeout(&self) -> Option<Duration> {
++        self.transport_connection_timeout
+     }
+ 
+     /// The new connection will time out operations after `response_timeout` has passed.
+@@ -628,7 +645,14 @@
+             .dns_resolver
+             .as_deref()
+             .unwrap_or(&DefaultAsyncDNSResolver);
+-        let con = self.get_simple_async_connection::<T>(resolver).await?;
++        let transport = self.get_simple_async_connection::<T>(resolver);
++        let con = match config.transport_connection_timeout {
++            Some(timeout) if timeout.is_zero() => {
++                return Err(std::io::Error::from(std::io::ErrorKind::TimedOut).into());
++            }
++            Some(timeout) => Runtime::locate().timeout(timeout, transport).await??,
++            None => transport.await?,
++        };
+         crate::aio::MultiplexedConnection::new_with_config(
+             &self.connection_info.redis,
+             con,
+--- a/src/connection.rs
++++ b/src/connection.rs
+@@ -1267,12 +1267,19 @@
+         not(feature = "tls-rustls-webpki-roots")
+     ))]
+     {
+-        let mut certificate_result = load_native_certs();
+-        if let Some(error) = certificate_result.errors.pop() {
+-            return Err(error.into());
+-        }
+-        for cert in certificate_result.certs {
+-            root_store.add(cert)?;
++        // A supplied CA pool replaces native trust below. Avoid doing a
++        // blocking platform trust lookup for a pool that cannot be used.
++        if tls_params
++            .as_ref()
++            .is_none_or(|params| params.root_cert_store.is_none())
++        {
++            let mut certificate_result = load_native_certs();
++            if let Some(error) = certificate_result.errors.pop() {
++                return Err(error.into());
++            }
++            for cert in certificate_result.certs {
++                root_store.add(cert)?;
++            }
+         }
+     }
+ 
+--- /dev/null
++++ b/src/aio/write_deadline.rs
+@@ -0,0 +1,149 @@
++use super::Runtime;
++use std::future::{Future, pending};
++use std::io;
++use std::pin::Pin;
++use std::task::{Context, Poll};
++use std::time::{Duration, Instant};
++use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
++
++/// Marks a failed flush whose connection must be replaced before a retry.
++#[derive(Clone, Copy, Debug)]
++enum SocketWriteTimeout {
++    IncompleteWrite,
++    Flush,
++}
++
++impl std::fmt::Display for SocketWriteTimeout {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.write_str("Redis socket write timed out")
++    }
++}
++
++impl std::error::Error for SocketWriteTimeout {}
++
++#[cfg(feature = "cluster-async")]
++pub(crate) fn is_socket_write_timeout(error: &crate::RedisError) -> bool {
++    error
++        .as_io_error()
++        .and_then(io::Error::get_ref)
++        .is_some_and(|source| source.is::<SocketWriteTimeout>())
++}
++
++/// Whether the deadline expired with bytes still pending in poll_write.
++pub(super) fn is_incomplete_write_timeout(error: &crate::RedisError) -> bool {
++    error
++        .as_io_error()
++        .and_then(io::Error::get_ref)
++        .and_then(|source| source.downcast_ref::<SocketWriteTimeout>())
++        .is_some_and(|stage| matches!(stage, SocketWriteTimeout::IncompleteWrite))
++}
++
++/// Times a transport write across partial progress and its flush. No timer is
++/// allocated unless the socket actually returns Pending.
++pub(super) struct WriteDeadline<S> {
++    stream: S,
++    timeout: Option<Duration>,
++    started: Option<Instant>,
++    wake: Option<Pin<Box<dyn Future<Output = ()> + Send>>>,
++}
++
++impl<S> WriteDeadline<S> {
++    pub(super) fn new(stream: S, timeout: Option<Duration>) -> Self {
++        Self {
++            stream,
++            timeout,
++            started: None,
++            wake: None,
++        }
++    }
++
++    fn remaining(&self) -> Option<Duration> {
++        Some(self.timeout?.saturating_sub(self.started?.elapsed()))
++    }
++
++    fn on_pending<T>(
++        &mut self,
++        cx: &mut Context<'_>,
++        stage: SocketWriteTimeout,
++    ) -> Poll<io::Result<T>> {
++        if let Some(remaining) = self.remaining() {
++            if remaining.is_zero() {
++                return Poll::Ready(Err(Self::expired(stage)));
++            }
++            let timer = self.wake.get_or_insert_with(|| {
++                Box::pin(async move {
++                    let _ = Runtime::locate().timeout(remaining, pending::<()>()).await;
++                })
++            });
++            if timer.as_mut().poll(cx).is_ready() {
++                return Poll::Ready(Err(Self::expired(stage)));
++            }
++        }
++        Poll::Pending
++    }
++
++    fn expired(stage: SocketWriteTimeout) -> io::Error {
++        io::Error::new(io::ErrorKind::TimedOut, stage)
++    }
++}
++
++impl<S: AsyncRead + Unpin> AsyncRead for WriteDeadline<S> {
++    fn poll_read(
++        self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &mut ReadBuf<'_>,
++    ) -> Poll<io::Result<()>> {
++        Pin::new(&mut self.get_mut().stream).poll_read(cx, buf)
++    }
++}
++
++impl<S: AsyncWrite + Unpin> AsyncWrite for WriteDeadline<S> {
++    fn poll_write(
++        self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &[u8],
++    ) -> Poll<io::Result<usize>> {
++        let this = self.get_mut();
++        let stage = if buf.is_empty() {
++            SocketWriteTimeout::Flush
++        } else {
++            SocketWriteTimeout::IncompleteWrite
++        };
++        if this.timeout.is_some() {
++            this.started.get_or_insert_with(Instant::now);
++            if this
++                .remaining()
++                .is_some_and(|remaining| remaining.is_zero())
++            {
++                return Poll::Ready(Err(Self::expired(stage)));
++            }
++        }
++        match Pin::new(&mut this.stream).poll_write(cx, buf) {
++            Poll::Pending => this.on_pending(cx, stage),
++            ready => ready,
++        }
++    }
++
++    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        let this = self.get_mut();
++        let stage = SocketWriteTimeout::Flush;
++        if this
++            .remaining()
++            .is_some_and(|remaining| remaining.is_zero())
++        {
++            return Poll::Ready(Err(Self::expired(stage)));
++        }
++        match Pin::new(&mut this.stream).poll_flush(cx) {
++            Poll::Pending => this.on_pending(cx, stage),
++            ready => {
++                this.started = None;
++                this.wake = None;
++                ready
++            }
++        }
++    }
++
++    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        Pin::new(&mut self.get_mut().stream).poll_shutdown(cx)
++    }
++}
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -189,6 +189,7 @@
+ pub struct AsyncConnectionConfig {
+     /// Maximum time to wait for a response from the server
+     pub(crate) response_timeout: Option<Duration>,
++    pub(crate) write_timeout: Option<Duration>,
+     /// Maximum time to wait for a connection to be established
+     pub(crate) connection_timeout: Option<Duration>,
+     /// Optional DNS/TCP/TLS-only budget, independent of Redis protocol setup.
+@@ -214,6 +215,7 @@
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         let Self {
+             response_timeout,
++            write_timeout,
+             connection_timeout,
+             transport_connection_timeout,
+             push_sender,
+@@ -230,6 +232,7 @@
+ 
+         let mut str = f.debug_struct("AsyncConnectionConfig");
+         str.field("response_timeout", response_timeout)
++            .field("write_timeout", write_timeout)
+             .field("connection_timeout", connection_timeout)
+             .field("transport_connection_timeout", transport_connection_timeout)
+             .field("pipeline_buffer_size", pipeline_buffer_size)
+@@ -254,6 +257,7 @@
+     fn default() -> Self {
+         Self {
+             response_timeout: DEFAULT_RESPONSE_TIMEOUT,
++            write_timeout: None,
+             connection_timeout: DEFAULT_CONNECTION_TIMEOUT,
+             transport_connection_timeout: None,
+             push_sender: Default::default(),
+@@ -302,6 +306,13 @@
+     /// Set `None` if you don't want requests to time out.
+     pub fn set_response_timeout(mut self, response_timeout: Option<Duration>) -> Self {
+         self.response_timeout = response_timeout;
++        self
++    }
++
++    /// Bounds an in-progress socket write through flush, independently of
++    /// the request's response timeout. The stream is discarded on expiry.
++    pub fn set_write_timeout(mut self, timeout: Option<Duration>) -> Self {
++        self.write_timeout = timeout;
+         self
+     }
+ 
+--- a/src/aio/mod.rs
++++ b/src/aio/mod.rs
+@@ -173,6 +173,7 @@
+ async fn execute_connection_pipeline<T>(
+     codec: &mut T,
+     (pipeline, instructions): (crate::Pipeline, ConnectionSetupComponents),
++    response_timeout: Option<std::time::Duration>,
+ ) -> RedisResult<AuthResult>
+ where
+     T: Sink<Vec<u8>, Error = RedisError>,
+@@ -185,18 +186,25 @@
+     }
+     codec.send(pipeline.get_packed_pipeline()).await?;
+ 
+-    let mut results = Vec::with_capacity(count);
+-    for _ in 0..count {
+-        let value = codec.next().await.ok_or_else(closed_connection_error)??;
+-        results.push(value);
+-    }
+-
+-    check_connection_setup(results, instructions)
++    let read = async {
++        let mut results = Vec::with_capacity(count);
++        for _ in 0..count {
++            let value = codec.next().await.ok_or_else(closed_connection_error)??;
++            results.push(value);
++        }
++        check_connection_setup(results, instructions)
++    };
++    if let Some(timeout) = response_timeout {
++        Runtime::locate().timeout(timeout, read).await?
++    } else {
++        read.await
++    }
+ }
+ 
+ pub(super) async fn setup_connection<T>(
+     codec: &mut T,
+     connection_info: &RedisConnectionInfo,
++    response_timeout: Option<std::time::Duration>,
+     #[cfg(feature = "cache-aio")] cache_config: Option<crate::caching::CacheConfig>,
+ ) -> RedisResult<()>
+ where
+@@ -212,6 +220,7 @@
+             #[cfg(feature = "cache-aio")]
+             cache_config,
+         ),
++        response_timeout,
+     )
+     .await?
+         == AuthResult::ShouldRetryWithoutUsername
+@@ -224,6 +233,7 @@
+                 #[cfg(feature = "cache-aio")]
+                 cache_config,
+             ),
++            response_timeout,
+         )
+         .await?;
+     }
+--- a/src/aio/monitor.rs
++++ b/src/aio/monitor.rs
+@@ -31,6 +31,7 @@
+         setup_connection(
+             &mut codec,
+             connection_info,
++            None,
+             #[cfg(feature = "cache-aio")]
+             None,
+         )
+--- a/src/aio/pubsub.rs
++++ b/src/aio/pubsub.rs
+@@ -486,6 +486,7 @@
+         setup_connection(
+             &mut codec,
+             connection_info,
++            None,
+             #[cfg(feature = "cache-aio")]
+             None,
+         )
+--- a/src/cluster_handling/async_connection/mod.rs
++++ b/src/cluster_handling/async_connection/mod.rs
+@@ -1839,6 +1839,13 @@
+     let mut config =
+         AsyncConnectionConfig::default().set_connection_timeout(Some(params.connection_timeout));
+     config = config.set_response_timeout(params.response_timeout);
++    if let Some(timeouts) = params.node_timeouts {
++        config = config
++            .set_connection_timeout(None)
++            .set_transport_connection_timeout(Some(timeouts.dial))
++            .set_response_timeout(timeouts.read)
++            .set_write_timeout(timeouts.write);
++    }
+ 
+     if let Some(subscription_tracker) = subscription_tracker {
+         config = config.set_subscription_tracker_internal(subscription_tracker);
+--- a/src/cluster_handling/async_connection/request.rs
++++ b/src/cluster_handling/async_connection/request.rs
+@@ -299,7 +299,9 @@
+         }
+ 
+         (_, RetryMethod::RetryImmediately) => (
+-            retry_or_send!(|request: PendingRequest<C>| { Retry::MoveToPending { request } }),
++            // No recovery future or incoming message will wake the pending
++            // queue. Reinsert the request into the polled in-flight set.
++            retry_or_send!(|request: PendingRequest<C>| { Retry::Immediately { request } }),
+             PollFlushAction::None,
+         ),
+     }
+--- a/src/cluster_handling/client.rs
++++ b/src/cluster_handling/client.rs
+@@ -34,6 +34,14 @@
+     Explicit(Option<Duration>),
+ }
+ 
++#[cfg(feature = "cluster-async")]
++#[derive(Clone, Copy, Debug)]
++pub(crate) struct ClusterNodeTimeouts {
++    pub(crate) dial: Duration,
++    pub(crate) read: Option<Duration>,
++    pub(crate) write: Option<Duration>,
++}
++
+ use crate::connection::TlsConnParams;
+ 
+ #[cfg(feature = "cluster-async")]
+@@ -62,6 +70,8 @@
+     retries_configuration: RetryParams,
+     connection_timeout: Option<Duration>,
+     response_timeout: Option<Duration>,
++    #[cfg(feature = "cluster-async")]
++    node_timeouts: Option<ClusterNodeTimeouts>,
+     protocol: Option<ProtocolVersion>,
+     database_id: Option<i64>,
+     #[cfg(feature = "cluster-async")]
+@@ -102,6 +112,8 @@
+             retries_configuration,
+             connection_timeout,
+             response_timeout,
++            #[cfg(feature = "cluster-async")]
++            node_timeouts,
+             protocol,
+             database_id,
+             #[cfg(feature = "cluster-async")]
+@@ -154,7 +166,8 @@
+         str.field("cache_config", cache_config);
+ 
+         #[cfg(feature = "cluster-async")]
+-        str.field("overall_response_timeout", overall_response_timeout)
++        str.field("node_timeouts", node_timeouts)
++            .field("overall_response_timeout", overall_response_timeout)
+             .field("connection_concurrency_limit", connection_concurrency_limit)
+             .field("write_backpressure_boundary", write_backpressure_boundary)
+             .field("max_connection_attempts", max_connection_attempts)
+@@ -231,6 +244,8 @@
+     pub(crate) tls_params: Option<TlsConnParams>,
+     pub(crate) connection_timeout: Duration,
+     pub(crate) response_timeout: Option<Duration>,
++    #[cfg(feature = "cluster-async")]
++    pub(crate) node_timeouts: Option<ClusterNodeTimeouts>,
+     pub(crate) protocol: Option<ProtocolVersion>,
+     /// Index of the logical database each cluster connection should `SELECT`.
+     ///
+@@ -270,6 +285,8 @@
+             tls_params,
+             connection_timeout,
+             response_timeout,
++            #[cfg(feature = "cluster-async")]
++            node_timeouts,
+             protocol,
+             database_id,
+             #[cfg(feature = "cluster-async")]
+@@ -307,7 +324,8 @@
+             .field("read_routing_factory", &set_or_unset(read_routing_factory));
+ 
+         #[cfg(feature = "cluster-async")]
+-        str.field("overall_response_timeout", overall_response_timeout)
++        str.field("node_timeouts", node_timeouts)
++            .field("overall_response_timeout", overall_response_timeout)
+             .field("connection_concurrency_limit", connection_concurrency_limit)
+             .field("write_backpressure_boundary", write_backpressure_boundary)
+             .field("max_connection_attempts", max_connection_attempts)
+@@ -399,6 +417,8 @@
+                 .connection_timeout
+                 .unwrap_or(DEFAULT_CONNECTION_TIMEOUT.unwrap()),
+             response_timeout: value.response_timeout,
++            #[cfg(feature = "cluster-async")]
++            node_timeouts: value.node_timeouts,
+             protocol: value.protocol,
+             database_id: value.database_id,
+             #[cfg(feature = "cluster-async")]
+@@ -784,6 +804,19 @@
+     /// overridden with [`Self::overall_response_timeout`].
+     pub fn response_timeout(mut self, response_timeout: Duration) -> Self {
+         self.builder_params.response_timeout = Some(response_timeout);
++        self
++    }
++
++    /// Sets independent async transport, response and writer budgets for every
++    /// node, including connections opened after refresh or redirection.
++    #[cfg(feature = "cluster-async")]
++    pub fn node_io_timeouts(
++        mut self,
++        dial: Duration,
++        read: Option<Duration>,
++        write: Option<Duration>,
++    ) -> Self {
++        self.builder_params.node_timeouts = Some(ClusterNodeTimeouts { dial, read, write });
+         self
+     }
+ 
+--- a/src/cluster_handling/async_connection/mod.rs
++++ b/src/cluster_handling/async_connection/mod.rs
+@@ -900,6 +900,46 @@
+             return Ok((addr.clone(), conn));
+         }
+ 
++        // The empty-master alias opts into go-redis's per-node timeouts.
++        // A known slot owner stays the target after a transport failure; using
++        // an unrelated seed can hide that failure behind a redirect or reset.
++        if let Some(addr) = preferred
++            && self.cluster_params.node_timeouts.is_some()
++        {
++            drop(read_guard);
++            let opened = connect_and_check::<C>(
++                &addr,
++                &self.cluster_params,
++                &self.push_sender,
++                self.subscription_tracker.clone(),
++            )
++            .await?;
++
++            let mut guard = self.conn_lock.write().await;
++            if guard
++                .1
++                .slot_addr_for_route(route, self.routing_strategy.as_deref())
++                != Some(&addr)
++            {
++                return Err((
++                    ErrorKind::ClusterConnectionNotFound,
++                    "Redis Cluster slot owner changed during reconnect",
++                )
++                    .into());
++            }
++            // A concurrent request or repair may already own the fresh
++            // connection. Only the installer needs to restore subscriptions.
++            if let Some(conn) = guard.0.get(&addr).and_then(ConnState::connected) {
++                return Ok((addr, conn));
++            }
++            guard
++                .0
++                .insert(addr.clone(), ConnState::Connected(opened.clone()));
++            drop(guard);
++            self.resubscribe_node(&addr).await;
++            return Ok((addr, opened));
++        }
++
+         // The preferred node is not connected (e.g. it is being repaired by the `reconnect_loop` future).
+         // Instead of erroring or waiting we try a fallback (within the same shard).
+         let fallback = read_guard
+--- a/src/cluster_handling/async_connection/request.rs
++++ b/src/cluster_handling/async_connection/request.rs
+@@ -216,7 +216,14 @@
+ 
+     let sleep_duration = retry_params.wait_time_for_retry(request.retry);
+ 
+-    match (target, err.retry_method()) {
++    // A socket write timeout invalidates the RESP stream, unlike a timeout
++    // while waiting for a reply to an already-flushed request.
++    let retry_method = if crate::aio::is_socket_write_timeout(&err) {
++        RetryMethod::Reconnect
++    } else {
++        err.retry_method()
++    };
++    match (target, retry_method) {
+         (_, RetryMethod::ReconnectFromInitialConnections) => {
+             let retry = retry_or_send!(|mut request: PendingRequest<C>| {
+                 request.cmd.reset_routing();
+--- a/src/cluster_handling/async_connection/mod.rs
++++ b/src/cluster_handling/async_connection/mod.rs
+@@ -822,6 +822,18 @@
+         route: InternalSingleNodeRouting<C>,
+     ) -> OperationResult {
+         match self.get_connection(route).await {
++            Ok((addr, mut conn)) if pipeline.is_transaction() => {
++                let (result, incomplete_write) =
++                    conn.req_transaction_with_write_state(&pipeline, offset, count).await;
++                (
++                    if incomplete_write {
++                        OperationTarget::Node { address: addr }
++                    } else {
++                        OperationTarget::TransactionNode { address: addr }
++                    },
++                    result.map(Response::Multiple),
++                )
++            }
+             Ok((addr, mut conn)) => (
+                 OperationTarget::Node { address: addr },
+                 conn.req_packed_commands(&pipeline, offset, count)
+@@ -1296,6 +1308,8 @@
+ #[derive(Debug)]
+ enum OperationTarget {
+     Node { address: NodeAddress },
++    /// A transaction whose complete submission cannot be ruled out.
++    TransactionNode { address: NodeAddress },
+     NotFound,
+     FanOut,
+ }
+@@ -1848,6 +1862,20 @@
+     fn connect_with_config<'a, T>(info: T, config: AsyncConnectionConfig) -> RedisFuture<'a, Self>
+     where
+         T: IntoConnectionInfo + Send + 'a;
++
++    /// Report whether this exact transaction is known not to have finished writing.
++    #[doc(hidden)]
++    fn req_transaction_with_write_state<'a>(
++        &'a mut self,
++        pipeline: &'a crate::Pipeline,
++        offset: usize,
++        count: usize,
++    ) -> BoxFuture<'a, (RedisResult<Vec<Value>>, bool)>
++    where
++        Self: ConnectionLike + Send,
++    {
++        async move { (self.req_packed_commands(pipeline, offset, count).await, false) }.boxed()
++    }
+ }
+ 
+ impl Connect for MultiplexedConnection {
+@@ -1863,6 +1891,16 @@
+                 .await
+         }
+         .boxed()
++    }
++
++    fn req_transaction_with_write_state<'a>(
++        &'a mut self,
++        pipeline: &'a crate::Pipeline,
++        offset: usize,
++        count: usize,
++    ) -> BoxFuture<'a, (RedisResult<Vec<Value>>, bool)> {
++        self.send_transaction_with_incomplete_write_state(pipeline, offset, count)
++            .boxed()
+     }
+ }
+ 
+--- a/src/cluster_handling/async_connection/request.rs
++++ b/src/cluster_handling/async_connection/request.rs
+@@ -9,7 +9,7 @@
+ 
+ use crate::errors::RetryMethod;
+ use crate::{
+-    Cmd, RedisResult, cluster_async::OperationTarget, cluster_handling::NodeAddress,
++    Cmd, ErrorKind, RedisResult, cluster_async::OperationTarget, cluster_handling::NodeAddress,
+     cluster_handling::client::RetryParams, cluster_routing::Redirect,
+ };
+ 
+@@ -199,6 +199,18 @@
+         Err(err) => err,
+     };
+ 
++    let target = match target {
++        OperationTarget::TransactionNode { address }
++            if err.is_io_error() || err.kind() == ErrorKind::Parse =>
++        {
++            // The batch may have committed. Restore the node connection for
++            // subsequent operations without repeating this transaction.
++            request.sender.send(Err(err));
++            return (None, PollFlushAction::Reconnect(HashSet::from([address])));
++        }
++        target => target,
++    };
++
+     let has_retries_remaining = request.retry < retry_params.number_of_retries;
+ 
+     macro_rules! retry_or_send {
+@@ -232,7 +244,10 @@
+             (retry, PollFlushAction::ReconnectFromInitialConnections)
+         }
+ 
+-        (OperationTarget::Node { address }, RetryMethod::Reconnect) => (
++        (
++            OperationTarget::Node { address } | OperationTarget::TransactionNode { address },
++            RetryMethod::Reconnect,
++        ) => (
+             retry_or_send!(|mut request: PendingRequest<C>| {
+                 request.cmd.reset_routing();
+                 Retry::MoveToPending { request }

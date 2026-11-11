@@ -1,0 +1,21 @@
+# Go-compatible typed binary decoder draft
+
+NOT COMPILED / NOT RUN by implementing agent. Integrated at coordinator authorization; no compiler/oracle/service has been run by implementing agent. Source ownership: lk-protocol/src/wire.rs; root exports `pub mod wire`; callers Twirp/agent decoder and SIP preserved/catalog adapter are separate owners.
+
+API exactly `lk_protocol::wire::{filter_known(name,bytes)->Result<Vec<u8>,WireError>,decode<T:Message+Name+Default>(bytes)->Result<T,WireError>}`. Error categories DescriptorMissing, Framing and KnownValue; no legacy error string inspection, no deprecated prost DecodeError construction. Reuse locked descriptor pool, prost and prost-reflect; no new dependencies. The actual Go oracle test uses existing dev base64/serde_json only.
+
+The filter walks actual wire fields in original order. For a descriptor-known field with accepted kind it keeps original scalar/packed/string bytes and recursively filters known message/map/group payloads. Other legal fields are discarded from typed semantics, but framing (including unknown nested groups) is validated. Unknown length-delimited payloads remain opaque; an unknown byte string does not inherit any UTF8 contract. Generated `T::decode` handles retained scalar validity, UTF8, packed payload, presence, sequential oneof switches and singular/repeated merge, not hand-written value reconstruction. Bounds retain the old prost100 nested-message limit; arbitrary deeper Go recursion parity is not claimed. SIP raw byte sidecar must parse original bytes independently: this is a typed projection, not unknown retention.
+
+## Independent actual execution inputs
+
+`oracle/main.go` uses pinned generated Go protobuf Unmarshal first and preserves its actual accepted/error result. It emits actual full Go wire, then clones no alternative parser: reflection only clears all unknown sets recursively to emit `known_wire_base64` and known ProtoJSON. Clearing unknown sets is necessary because the expected typed Rust projection deliberately discards them; it does not hide known fields or presence. The24 JSONL inputs cover wrong kind before/after known values, nested codecs, map keys/values/defaults, packed/unpacked enum, malformed packed payload, optional0, unknown group, invalid framing and actual WorkerMessage.
+
+Coordinator command in oracle directory: `GOMAXPROCS=2 go run . < cases.jsonl > /tmp/livekit-rs-f05-wire-go-results.jsonl`. Go module/sum reuse fixed server graph and reviewed relative ../../../../references/protocol-stable replacement. Actual results remain NOT_RUN until executed. Then the draft ignored `fixed_go_generated_binary_decoder_vectors` must be run explicitly with both WIRE_GO_ORACLE_CASES and WIRE_GO_ORACLE_RESULTS. It routes each type through actual generated T, compares acceptance, then field/value/presence against true Go known wire through the same descriptor, with no float/JSON equality tolerance.
+
+`http-cases.json` supplies unauthenticated real binary Twirp requests for SIP DeleteSIPTrunk and RoomService CreateRoom with legal known-number/wrong-kind field1. Actual official HTTP should be run first: decode must succeed before auth, whereas old prost rejects as malformed. Do not hard-code backend success or assume arbitrary authorized response codes. Agent codec has a separate library-level worker binary vector; real WS transcript remains its own check.
+
+Integration requirements: SIP PreservedMessage DynamicMessage and generated projection must both operate on filtered known wire while RawTree parses original; raw map entry key decoding needs the same helper. Preserve all original HTTP/CLI/source tests. Do not weaken UTF8, malformed framing, ordinary duplicate JSON or any present-oneof contract. Extension decoding beyond the fixed descriptor pool and error-precedence across arbitrary double-malformed fields remains OPEN.
+
+## Actual F05 execution
+
+Coordinator executed24 actual generated-Go vectors and the explicit ignored Rust comparison, plus2 real HTTP decoder-before-auth comparisons against both servers. Source/hash/results are frozen in F05 delivery and validation/f05-oracles. This certifies the declared projection corpus, not unknown DataPacket forwarding or all arbitrary protobuf extension/recursion behavior.

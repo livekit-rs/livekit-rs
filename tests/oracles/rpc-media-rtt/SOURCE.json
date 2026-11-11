@@ -1,0 +1,16 @@
+{
+  "upstream": "LiveKit v1.13.10",
+  "commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "license": "Apache-2.0",
+  "original_inputs": {
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "pkg/sfu/rtpstats/rtpstats_sender.go": "bc5244e1f16f13a8a8d89369659e1d6070f03b5a36dfd5516dcd52fa39b5400f",
+    "pkg/sfu/downtrack.go": "8fe93a5a773de34408be61d3b8917e1da60f766f2c13c61bd774aab14321fc8d",
+    "pkg/rtc/subscribedtrack.go": "ab2a4c69b754c81fc01bc1e7e87d3c6982247f5a31220ccd633dbd851b511627",
+    "pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8"
+  },
+  "helper": "mediatransportutil-f234b534b095/helpers.go",
+  "helper_sha256": "2884654330933e3b117f544e36dda75e9caed05f5ecf7a3b45c0a6721926a145",
+  "status": "FIXTURE_NOT_RUN"
+}

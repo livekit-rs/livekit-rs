@@ -1,0 +1,176 @@
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -1468,8 +1468,10 @@
+ 
+         // TWCC might not be enabled for this m-line. Firefox do use TWCC, but not
+         // for audio. This is indiciated via the SDP.
+-        let twcc_enabled =
+-            self.send_transport_cc && exts.id_of(Extension::TransportSequenceNumber).is_some();
++        let bwe_participating = stream.bwe_participating();
++        let twcc_enabled = self.send_transport_cc
++            && bwe_participating
++            && exts.id_of(Extension::TransportSequenceNumber).is_some();
+         let twcc = twcc_enabled.then_some(&mut self.twcc);
+ 
+         let receipt = if independent_padding {
+@@ -1604,7 +1606,7 @@
+         }
+ 
+         // Update BWE subsystem
+-        if let Some(bwe) = self.bwe.as_mut() {
++        if bwe_participating && let Some(bwe) = self.bwe.as_mut() {
+             bwe.on_media_sent(payload_size.into(), is_padding, now);
+         }
+ 
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -86,6 +86,9 @@
+ /// This is RTP level API. For frame level API see [`Rtc::writer`][crate::Rtc::writer].
+ #[derive(Debug)]
+ pub struct StreamTx {
++    /// Per-downtrack estimator participation. Header extensions and TWCC
++    /// send registration are suppressed for configured unmanaged tracks only.
++    bwe_participating: bool,
+     /// Unique identifier of the remote encoded stream.
+     ssrc: Ssrc,
+ 
+@@ -314,6 +317,7 @@
+         debug!("Create StreamTx for SSRC: {}", ssrc);
+ 
+         StreamTx {
++            bwe_participating: true,
+             ssrc,
+             rtx,
+             midrid,
+@@ -350,6 +354,18 @@
+         }
+     }
+ 
++    /// Select whether this outgoing SSRC participates in bandwidth estimation.
++    /// This does not change SDP negotiation, payload/RTX forwarding, SRTP,
++    /// receive feedback, or other streams sharing this transport.
++    pub fn set_bwe_participating(&mut self, enabled: bool) {
++        self.bwe_participating = enabled;
++    }
++
++    /// Current per-stream estimator gate. True until an owner changes it.
++    pub fn bwe_participating(&self) -> bool {
++        self.bwe_participating
++    }
++
+     pub(crate) fn new_probe(mtu_warn: usize) -> Self {
+         let mut stream = Self::new(
+             0.into(),
+@@ -603,6 +619,9 @@
+         buf: &mut Vec<u8>,
+         independent_padding: bool,
+     ) -> Option<PacketReceipt> {
++        // Polling returns a packet borrowing this stream. Copy the policy
++        // before that borrow, just like the existing MID/SSRC policy fields.
++        let bwe_participating = self.bwe_participating;
+         let mid = self.midrid.mid();
+         let rid = self.midrid.rid();
+         let is_probe = self.ssrc.is_probe();
+@@ -762,12 +781,15 @@
+         // declaring we support.
+ 
+         // Absolute Send Time might not be enabled for this m-line.
+-        if exts.id_of(Extension::AbsoluteSendTime).is_some() {
++        if bwe_participating && exts.id_of(Extension::AbsoluteSendTime).is_some() {
+             header.ext_vals.abs_send_time = Some(now);
++        } else {
++            // Do not leak an upstream/cache extension onto an unmanaged SSRC.
++            header.ext_vals.abs_send_time = None;
+         }
+ 
+         // TWCC might not be enabled for this m-line.
+-        if let Some(twcc) = twcc {
++        if let Some(twcc) = twcc.filter(|_| bwe_participating) {
+             header.ext_vals.transport_cc = Some(*twcc as u16);
+             *twcc += 1;
+         } else {
+@@ -1526,6 +1548,84 @@
+ #[cfg(test)]
+ mod test {
+     use super::*;
++
++    #[test]
++    fn per_stream_estimation_gate_removes_wire_extensions_and_preserves_payload_sequence_and_restore()
++     {
++        let now = Instant::now();
++        let mut codecs = CodecConfig::empty();
++        codecs.enable_opus(true, false);
++        let mut exts = ExtensionMap::empty();
++        exts.set(1, Extension::RtpMid);
++        exts.set(2, Extension::AbsoluteSendTime);
++        exts.set(3, Extension::TransportSequenceNumber);
++        let mut unmanaged = StreamTx::new(
++            42.into(),
++            None,
++            MidRid("unmanaged".into(), None),
++            false,
++            1200,
++        );
++        let mut managed =
++            StreamTx::new(43.into(), None, MidRid("managed".into(), None), false, 1200);
++        let mut sequence = 100u64;
++        for (index, (enabled, managed_stream)) in [(false, false), (true, true), (true, false)]
++            .into_iter()
++            .enumerate()
++        {
++            let stream = if managed_stream {
++                &mut managed
++            } else {
++                &mut unmanaged
++            };
++            stream.set_bwe_participating(enabled);
++            let mut upstream = crate::rtp_::ExtensionValues::default();
++            upstream.abs_send_time = Some(now);
++            upstream.transport_cc = Some(999);
++            let payload = vec![0xf8, 0xff, 0xfe];
++            stream.write_rtp(
++                RtpWrite::new(
++                    111.into(),
++                    ((index + 1) as u64).into(),
++                    48_000,
++                    now,
++                    payload.clone(),
++                )
++                .ext_vals(upstream),
++            );
++            let media = Media::from_direct_api(
++                stream.mid(),
++                0,
++                crate::media::MediaKind::Audio,
++                exts.clone(),
++            );
++            // Actual StreamTx lifecycle initializes negotiated media and stamps queued RTP.
++            stream.handle_timeout(now, || (&media, &codecs));
++            let before = sequence;
++            let mut bytes = Vec::new();
++            let receipt = stream
++                .poll_packet(now, &exts, Some(&mut sequence), codecs.params(), &mut bytes)
++                .unwrap();
++            let header = RtpHeader::parse(&bytes, &exts).unwrap();
++            assert_eq!(header.sequence_number, (index + 1) as u16);
++            assert_eq!(&bytes[receipt.header.header_len..], payload);
++            assert_eq!(
++                receipt.header.ext_vals.abs_send_time,
++                enabled.then_some(now)
++            );
++            assert_eq!(header.ext_vals.abs_send_time.is_some(), enabled);
++            assert_eq!(
++                header.ext_vals.transport_cc,
++                enabled.then_some(before as u16)
++            );
++            assert_eq!(
++                sequence,
++                before + u64::from(enabled),
++                "unmanaged packet never consumes another stream's transport sequence"
++            );
++            assert_eq!(stream.bwe_participating(), enabled);
++        }
++    }
+ 
+     #[test]
+     fn opus_nack_retransmits_original_packet_without_rtx_header_or_sequence() {

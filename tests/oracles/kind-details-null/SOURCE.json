@@ -1,0 +1,63 @@
+{
+  "status": "FROZEN_TEST_ONLY_EXISTING_CONSUMER_CORRECTION_NOT_RUN",
+  "production_admission_bytes_unchanged": true,
+  "targets": [
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/auth/claims.rs",
+      "base_sha256": "889efa51f8ea54fe62ce11f6066f2a0441b74a96f4e7e1b9fcd1f37b500c584b",
+      "payload_sha256": "f4e29f9ff03c757691b9a834200edc181c554a2a0cd689d264a5302bcb339e8e"
+    },
+    {
+      "path": "livekit-rs-server/crates/lk-compat/src/auth/kind_details_null_tests.rs",
+      "base_sha256": null,
+      "payload_sha256": "aaadd236331feb786e79dcce492d39d20cbc61f1f947c19d419ce8ec13f1b592"
+    }
+  ],
+  "hunks": {
+    "livekit-rs-server/crates/lk-compat/src/auth/claims.rs": [
+      {
+        "start": 561,
+        "old": [],
+        "new": [
+          "\n",
+          "#[cfg(test)]\n",
+          "#[path = \"kind_details_null_tests.rs\"]\n",
+          "mod kind_details_null_tests;\n"
+        ]
+      }
+    ]
+  },
+  "fixed_source_sha256": {
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "references/protocol-stable/auth/grants.go": "eff12c293de465c4e95185de96b8d5510f5f97f1f10e48c93d63fa0540bbe9d7",
+    "references/protocol-stable/auth/verifier.go": "299ba44f325824d51458fa950caa7c71f4bb8b573d4f75cf6c63c5bdc7c07280"
+  },
+  "context_sha256": {
+    "livekit-rs-server/Cargo.lock": "3294a4493aa1b5150051d2f34153097c5c6f6dc7a6ee1fd59d9725315ab5f748",
+    "livekit-rs-server/crates/lk-compat/src/auth/gojson.rs": "6993d6b93d9086b44b026b63dbb79b5a3f4235e002771852b627e7f30bee2bae",
+    "livekit-rs-server/crates/lk-compat/src/auth/mod.rs": "050ca6d3a18e6067e86de8b09c2f99fbd4e146c86ede47812736a4ddff95d334",
+    "livekit-rs-server/crates/lk-compat/src/auth/jwt.rs": "82f9c775760c344979e86fdc39d175817713850992a0eef38c8afb6cd4df2dc6"
+  },
+  "assets_sha256": {
+    "CONTRACT.md": "491eb46777362a1e38e0e2825575feb0abc623da698333308ffd23e793a50135",
+    "apply.py": "56e2b2090156a0a21a0629d1015699f9dc267924cee2658db05131355bc96194",
+    "base.rs": "889efa51f8ea54fe62ce11f6066f2a0441b74a96f4e7e1b9fcd1f37b500c584b",
+    "baseline-test-only.patch": "5f02e4342b444a0d9e0dc74d2d35d2a83980027dea957ba8019e81ef448db04f",
+    "changes.patch": "5f02e4342b444a0d9e0dc74d2d35d2a83980027dea957ba8019e81ef448db04f",
+    "correction.json": "1cf4bea201189bd007c24bb63848e48bc842d78e22c165f0321663df2560ee97",
+    "historical-unapplied-noop/CONTRACT.md": "6b61dca073f76c17c406aa80afa0f8427cc73826f63a6b6aafe1d4ceb94b18c7",
+    "historical-unapplied-noop/changes.patch": "7a392bd2ee37608df5bdd54ebcbb96c647a680e20fe2f71af404e880ae4e27b9",
+    "historical-unapplied-noop/proposed-claims.rs": "10278e0a89c3fc2e2034be34a1c5c5f723bb971eb7df8161bcd793c1a21964cf",
+    "oracle/cases.json": "3ef0519d50aac0fb418aff4bfc60859fcda854853b6de6981083578eebf271aa",
+    "oracle/main.go": "ce7b042c379970f7de109078a66ddc59d6b793234eff01edf4f988d6ba2786bb",
+    "oracle/prepare.py": "9011194f1ddcd80162b07ecd2a40cba0a72ea5ce29e82be6bd7685af85068e15",
+    "payload/livekit-rs-server/crates/lk-compat/src/auth/claims.rs": "f4e29f9ff03c757691b9a834200edc181c554a2a0cd689d264a5302bcb339e8e",
+    "payload/livekit-rs-server/crates/lk-compat/src/auth/kind_details_null_tests.rs": "aaadd236331feb786e79dcce492d39d20cbc61f1f947c19d419ce8ec13f1b592",
+    "seal.py": "02d321de84963b029d2be1d09cbf68a298c28237469c3a9f4a56ecb62a66e4c8",
+    "tests.rs": "aaadd236331feb786e79dcce492d39d20cbc61f1f947c19d419ce8ec13f1b592"
+  },
+  "source_cases": 8,
+  "actual_expected_results_prefilled": false,
+  "not_a_RED_GREEN_fix": true
+}
