@@ -188,6 +188,12 @@ def main():
             "Go can expose a direction with value 0 after a zero-byte stats flush "
             "(prometheus/packets.go IncrementBytes is unconditional). Rust's process "
             "stats cannot distinguish that case, so it omits the direction instead.",
+            "Adjacent families in the same scrapes still differ and are OUT of this "
+            "task's scope (the Agent reads only livekit_packet_bytes). Measured across "
+            "every phase: Go exposes labelled livekit_packet_total and "
+            "livekit_node_packet_total; Rust exposes neither, and instead keeps the "
+            "unlabelled livekit_packet_bytes_in/_out and livekit_packet_total_in/_out "
+            "alongside the new family. OPEN, not counted as a pass.",
         ],
     }
     a.report.parent.mkdir(parents=True, exist_ok=True)
