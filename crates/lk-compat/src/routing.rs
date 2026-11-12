@@ -139,14 +139,15 @@ impl LocalNode {
         lock(&self.node).state = state;
     }
 
-    /// `UpdateNodeStats` (`node.go:142-153`). Upstream replaces the whole
-    /// `Stats` from `prometheus.GetNodeStats` (gopsutil CPU/memory plus the
-    /// rate-measurement ring); the counter port is
-    /// `RUNTIME:Redis.NodeStatsSampling` and stays open. This advances the one
-    /// field every documented consumer actually reads — `UpdatedAt`, which
-    /// `selector.IsAvailable` (`selector/utils.go:30-41`), the startup sweep and
-    /// the 4 s health check (`server.go:451-464`) all compare — and preserves
-    /// `StartedAt` and whatever counters the record already carries.
+    /// `UpdateNodeStats` (`node.go:142-153`). With a `NodeStatsProvider`
+    /// installed (the livecloud `Sampler`), this replaces the whole `Stats` from
+    /// `provider.sample`, matching upstream `prometheus.GetNodeStats` (real
+    /// counters plus the rate-measurement ring); the sampling-architecture port
+    /// is `RUNTIME:Redis.NodeStatsSampling`. Without a provider it falls back to
+    /// advancing `UpdatedAt` — the one field `selector.IsAvailable`
+    /// (`selector/utils.go:30-41`), the startup sweep and the 4 s health check
+    /// (`server.go:451-464`) compare — while preserving `StartedAt` and whatever
+    /// counters the record already carries.
     pub fn update_stats(&self, now_unix: i64) -> bool {
         let mut node = lock(&self.node);
         let started_at = node

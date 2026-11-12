@@ -5,7 +5,7 @@ use crate::{
     service_bus::{
         redis_transport::RedisTransport,
         rpc::{CallOptions, Cancellation, MethodSpec, RpcError},
-        stream::{self, RpcStream, StreamConfig, StreamSender},
+        stream::{self, ClientStreams, RpcStream, StreamConfig, StreamSender},
     },
     sip::wire::PreservedMessage,
     state::AppState,
@@ -77,6 +77,7 @@ pub struct ClusterSignal {
     task: Mutex<Option<JoinHandle<()>>>,
     clients: StdMutex<Vec<watch::Receiver<bool>>>,
     admission: RwLock<()>,
+    client: Arc<ClientStreams>,
 }
 impl ClusterSignal {
     pub async fn start(
@@ -101,6 +102,7 @@ impl ClusterSignal {
             rpc::RelaySignalRequest,
         >(bus.clone(), method(&node), config.stream(&bus), None)
         .await?;
+        let client = Arc::new(ClientStreams::new(bus.clone(), "Signal", &node).await?);
         let stop = Cancellation::default();
         let stopping = stop.clone();
         let owner_state = state.clone();
@@ -122,6 +124,7 @@ impl ClusterSignal {
             task: Mutex::new(Some(task)),
             clients: StdMutex::new(Vec::new()),
             admission: RwLock::new(()),
+            client,
         }))
     }
     pub async fn shutdown(&self) {
@@ -138,6 +141,7 @@ impl ClusterSignal {
                 }
             }
         }
+        self.client.close().await;
     }
     pub async fn connect(
         &self,
@@ -221,6 +225,7 @@ impl ClusterSignal {
             }
             let mut options = CallOptions::new(Duration::from_secs(3));
             options.cancel = self.stop.clone();
+            options.client = Some(self.client.clone());
             match stream::open_stream::<rpc::RelaySignalRequest, rpc::RelaySignalResponse>(
                 self.bus.clone(),
                 &method(&owner),

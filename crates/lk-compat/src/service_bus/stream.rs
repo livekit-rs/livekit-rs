@@ -9,7 +9,7 @@
 use super::{
     channels::{self, Channel},
     rpc::{CallOptions, Cancellation, MethodSpec, RpcError, RpcErrorOrigin, SelectionState},
-    rpc_transport::RpcBus,
+    rpc_transport::{RpcBus, RpcSubscription},
 };
 use lk_protocol::psrpc::internal as pb;
 use pb::stream::Body;
@@ -481,6 +481,179 @@ fn claim_channel(spec: &MethodSpec) -> Channel {
     )
 }
 
+/// Long-lived PSRPC client identity, ported from the official typed client's
+/// `WithClientID(nodeID)` (protocol-stable/rpc/typed_api.go NewTypedSignalClient).
+/// One shared `service|client_id|STR` subscription demultiplexes incoming stream
+/// frames to per-session channels by stream_id, exactly as the server's
+/// register_stream demux does. The CLAIM/RES subscriptions are held for the
+/// identity's whole lifetime so the idle channel surface matches the official
+/// client even before any stream is opened.
+#[derive(Clone)]
+pub struct ClientStreams {
+    inner: Arc<ClientStreamsInner>,
+}
+struct ClientStreamsInner {
+    bus: RpcBus,
+    service: String,
+    client_id: String,
+    sessions: Mutex<HashMap<String, mpsc::Sender<pb::Stream>>>,
+    terminal: Mutex<Option<RpcError>>,
+    stop: Cancellation,
+    task: Mutex<Option<JoinHandle<()>>>,
+}
+impl std::fmt::Debug for ClientStreams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientStreams")
+            .field("service", &self.inner.service)
+            .field("client_id", &self.inner.client_id)
+            .finish()
+    }
+}
+impl ClientStreams {
+    pub async fn new(
+        bus: impl Into<RpcBus>,
+        service: &str,
+        client_id: &str,
+    ) -> Result<Self, RpcError> {
+        let bus = bus.into();
+        let stream_target = channels::stream_client(service, client_id);
+        let claim_target = channels::claim_request(service, client_id);
+        let response_target = channels::response(service, client_id);
+        let mut streams = bus.subscribe::<pb::Stream>(&stream_target, false).await?;
+        let claims = bus.subscribe::<pb::ClaimRequest>(&claim_target, false).await?;
+        let responses = bus.subscribe::<pb::Response>(&response_target, false).await?;
+        let inner = Arc::new(ClientStreamsInner {
+            bus: bus.clone(),
+            service: service.to_owned(),
+            client_id: client_id.to_owned(),
+            sessions: Mutex::new(HashMap::new()),
+            terminal: Mutex::new(None),
+            stop: Cancellation::default(),
+            task: Mutex::new(None),
+        });
+        let dispatch = inner.clone();
+        let stopping = inner.stop.clone();
+        let task = tokio::spawn(async move {
+            let mut claims = Some(claims);
+            let mut responses = Some(responses);
+            loop {
+                tokio::select! {
+                    biased;
+                    _=stopping.cancelled()=>break,
+                    value=streams.recv()=>{
+                        let bytes=match value{Ok(bytes)=>bytes,Err(error)=>{dispatch.retire(error.into());break;}};
+                        if let Ok(value)=dispatch.bus.decode::<pb::Stream>(&bytes)
+                            && value.message.expiry>now()
+                        {
+                            let sender=lock(&dispatch.sessions).get(&value.message.stream_id).cloned();
+                            if let Some(sender)=sender{
+                                // Source streamBase.Recv uses a nonblocking write;
+                                // a full session channel means no ACK, not delivery.
+                                let _=sender.try_send(value.message);
+                            }
+                        }
+                    }
+                    value=async{match claims.as_mut(){Some(sub)=>sub.recv().await,None=>std::future::pending().await}}=>{
+                        if value.is_err(){claims=None;}
+                    }
+                    value=async{match responses.as_mut(){Some(sub)=>sub.recv().await,None=>std::future::pending().await}}=>{
+                        if value.is_err(){responses=None;}
+                    }
+                }
+            }
+            let _ = streams.unsubscribe(&stream_target).await;
+            if let Some(sub) = claims {
+                let _ = sub.unsubscribe(&claim_target).await;
+            }
+            if let Some(sub) = responses {
+                let _ = sub.unsubscribe(&response_target).await;
+            }
+            lock(&dispatch.sessions).clear();
+        });
+        *lock(&inner.task) = Some(task);
+        Ok(Self { inner })
+    }
+    pub fn client_id(&self) -> &str {
+        &self.inner.client_id
+    }
+    fn register(&self, stream_id: &str, sender: mpsc::Sender<pb::Stream>) {
+        lock(&self.inner.sessions).insert(stream_id.to_owned(), sender);
+    }
+    fn unregister(&self, stream_id: &str) {
+        lock(&self.inner.sessions).remove(stream_id);
+    }
+    fn terminal_error(&self) -> Option<RpcError> {
+        lock(&self.inner.terminal).clone()
+    }
+    pub async fn close(&self) {
+        self.inner.stop.cancel();
+        let task = lock(&self.inner.task).take();
+        if let Some(task) = task {
+            let _ = task.await;
+        }
+        lock(&self.inner.sessions).clear();
+    }
+}
+impl ClientStreamsInner {
+    fn retire(&self, error: RpcError) {
+        *lock(&self.terminal) = Some(error);
+        lock(&self.sessions).clear();
+    }
+}
+
+/// Incoming frame source for one client stream. Shared reads the nodeID-keyed
+/// identity demux (already decoded and expiry-checked by its dispatcher);
+/// Dedicated owns a random per-call subscription and decodes here. Both preserve
+/// runClientStream's single-reader lifetime and terminal-cause semantics.
+enum ClientSource {
+    Shared {
+        rx: mpsc::Receiver<pb::Stream>,
+        identity: Arc<ClientStreams>,
+        stream_id: String,
+    },
+    Dedicated {
+        subscription: RpcSubscription,
+        incoming: Channel,
+        bus: RpcBus,
+    },
+}
+impl ClientSource {
+    async fn next(&mut self) -> Result<Option<pb::Stream>, RpcError> {
+        match self {
+            Self::Shared { rx, identity, .. } => match rx.recv().await {
+                Some(frame) => Ok(Some(frame)),
+                None => Err(identity.terminal_error().unwrap_or_else(closed)),
+            },
+            Self::Dedicated {
+                subscription, bus, ..
+            } => loop {
+                let bytes = subscription.recv().await.map_err(RpcError::from)?;
+                if let Ok(value) = bus.decode::<pb::Stream>(&bytes)
+                    && value.message.expiry > now()
+                {
+                    return Ok(Some(value.message));
+                }
+            },
+        }
+    }
+    async fn cleanup(self) {
+        match self {
+            Self::Shared {
+                identity,
+                stream_id,
+                ..
+            } => identity.unregister(&stream_id),
+            Self::Dedicated {
+                subscription,
+                incoming,
+                ..
+            } => {
+                let _ = subscription.unsubscribe(&incoming).await;
+            }
+        }
+    }
+}
+
 /// Open/claim/ACK completes before a session is returned. Dropping this future
 /// closes its partially opened stream rather than leaking a registered receiver.
 pub async fn open_stream<
@@ -494,9 +667,19 @@ pub async fn open_stream<
 ) -> Result<RpcStream<S, R>, RpcError> {
     let config = config.validate()?;
     let bus = bus.into();
-    let client = id("");
+    let identity = options.client.clone();
+    let client = identity
+        .as_ref()
+        .map(|identity| identity.client_id().to_owned())
+        .unwrap_or_else(|| id(""));
     let incoming = channels::stream_client(&spec.service, &client);
-    let mut subscription = bus.subscribe::<pb::Stream>(&incoming, false).await?;
+    // A shared nodeID-keyed identity already owns the STR subscription; only a
+    // random per-call client opens its own dedicated one.
+    let subscription = if identity.is_none() {
+        Some(bus.subscribe::<pb::Stream>(&incoming, false).await?)
+    } else {
+        None
+    };
     let claim_target = channels::claim_request(&spec.service, &client);
     let mut claims = if spec.require_claim {
         Some(
@@ -550,6 +733,25 @@ pub async fn open_stream<
     let session = stream.session.clone();
     let lifetime_cancel = options.cancel.clone();
     let lifetime_deadline = options.deadline;
+    let mut source = match identity {
+        Some(identity) => {
+            let (sender, rx) = mpsc::channel(config.channel_size);
+            let stream_id = stream.id().to_owned();
+            // Register before publishing Open so the server's ACK cannot race
+            // the demux registration.
+            identity.register(&stream_id, sender);
+            ClientSource::Shared {
+                rx,
+                identity,
+                stream_id,
+            }
+        }
+        None => ClientSource::Dedicated {
+            subscription: subscription.expect("dedicated client owns its STR subscription"),
+            incoming,
+            bus: bus.clone(),
+        },
+    };
     stream.reader = Some(tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -557,15 +759,16 @@ pub async fn open_stream<
                 _=session.stop.cancelled()=>break,
                 _=lifetime_cancel.cancelled()=>{session.cancel_peer(canceled()).await;break;},
                 _=async{match lifetime_deadline{Some(until)=>tokio::time::sleep_until(until.into()).await,None=>std::future::pending().await}}=>{session.cancel_peer(timeout()).await;break;},
-                value=subscription.recv()=>{
-                    let bytes=match value{Ok(bytes)=>bytes,Err(error)=>{session.finish(error.into());break;}};
-                    if let Ok(value)=session.bus.decode::<pb::Stream>(&bytes){if value.message.expiry>now(){
-                        tokio::select!{biased;_=session.stop.cancelled()=>break,_=lifetime_cancel.cancelled()=>{session.cancel_peer(canceled()).await;break;},_=session.handle(value.message)=>{}}
-                    }}
+                value=source.next()=>match value{
+                    Ok(Some(value))=>{
+                        tokio::select!{biased;_=session.stop.cancelled()=>break,_=lifetime_cancel.cancelled()=>{session.cancel_peer(canceled()).await;break;},_=session.handle(value)=>{}}
+                    }
+                    Ok(None)=>break,
+                    Err(error)=>{session.finish(error);break;}
                 }
             }
         }
-        let _ = subscription.unsubscribe(&incoming).await;
+        source.cleanup().await;
     }));
     let operation = async {
         bus.publish(&stream.session.target, &request).await?;

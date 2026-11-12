@@ -237,6 +237,10 @@ pub struct CallOptions {
     pub cancel: Cancellation,
     pub metadata: BTreeMap<String, String>,
     pub selection: SelectionOptions,
+    /// Long-lived nodeID-keyed client identity (official `WithClientID(nodeID)`).
+    /// When set, a stream reuses the identity's shared `Signal|<nodeID>|STR`
+    /// subscription instead of opening a random per-call client channel.
+    pub client: Option<std::sync::Arc<super::stream::ClientStreams>>,
 }
 impl CallOptions {
     pub fn new(timeout: Duration) -> Self {
@@ -247,6 +251,7 @@ impl CallOptions {
             cancel: Cancellation::default(),
             metadata: BTreeMap::new(),
             selection: SelectionOptions::default(),
+            client: None,
         }
     }
 }

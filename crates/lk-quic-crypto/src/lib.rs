@@ -4,10 +4,12 @@
 //! (SPEC-0074 C15). It is intentionally free of `ring` / `aws-lc-rs` /
 //! `openssl` — every primitive is a RustCrypto crate already vendored in the
 //! workspace (`aes`, `aes-gcm`, `hmac`, `sha2`, `subtle`), so `cargo deny`
-//! stays green with no exception. It currently covers the mandatory-to-implement
-//! `AEAD_AES_128_GCM` suite; the ChaCha20-Poly1305 suite and the quinn
-//! `crypto::{Session,PacketKey,HeaderKey,...}` trait glue are tracked as remaining
-//! work (see SPEC-0074 C15).
+//! stays green with no exception. This core covers the mandatory-to-implement
+//! `AEAD_AES_128_GCM` suite. The ChaCha20-Poly1305 suite and the quinn
+//! `crypto::{Session,PacketKey,HeaderKey,...}` trait glue are implemented in
+//! `rtc-tls` (`quic::ExpandedQuicAlgorithm`, verified by the RFC 9001 A.5 ChaCha
+//! known-answer test, and `quinn::TlsSession`), which the live `lk-webtransport`
+//! client/server configs use (SPEC-0074 C15).
 //!
 //! Test coverage: the primitives (key schedule, AEAD packet protection, AES-ECB
 //! header mask, Retry, key update) and the *complete* Appendix A.2 Client Initial
@@ -15,9 +17,10 @@
 //! published RFC 9001 bytes (unprotected header + CRYPTO/PADDING payload + full
 //! protected output). Those whole-packet vectors pin the `pn_offset + 4`
 //! header-protection sample offset for both 4-byte (A.2) and 2-byte (A.3)
-//! packet-number encodings; the remaining scope is the quinn `crypto::Session`
-//! glue (TLS 1.3 handshake + transport parameters + key handoff) and the
-//! ChaCha20-Poly1305 suite, tracked in SPEC-0074 C15.
+//! packet-number encodings. The quinn `crypto::Session` glue (TLS 1.3 handshake +
+//! transport parameters + key handoff) and the ChaCha20-Poly1305 suite are
+//! implemented in `rtc-tls` and reach the live WebTransport endpoint; this core
+//! remains the AES-128-GCM primitive layer they wrap (SPEC-0074 C15).
 
 use aes::Aes128;
 use aes::cipher::{BlockEncrypt, KeyInit as CipherKeyInit, generic_array::GenericArray};

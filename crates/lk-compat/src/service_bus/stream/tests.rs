@@ -540,3 +540,170 @@ async fn business_payload_accepts_fixed_go_wrong_kind_unknown_without_losing_raw
     client.close(None).await.unwrap();
     listener.close().await;
 }
+
+fn signal_spec() -> MethodSpec {
+    MethodSpec {
+        service: "Signal".into(),
+        method: "RelaySignal".into(),
+        topics: vec!["owner".into()],
+        require_claim: false,
+        queue: false,
+    }
+}
+fn ack_frame(stream_id: &str) -> pb::Stream {
+    frame(stream_id, Duration::from_secs(1), Body::Ack(pb::StreamAck {}))
+}
+
+/// G04: the official typed Signal client subscribes CLAIM/RES/STR for its whole
+/// lifetime under WithClientID(nodeID). Prove the identity really owns all three
+/// client channels (positive control: absent before, present after, retired on
+/// close) rather than only opening a per-call STR channel.
+#[tokio::test]
+async fn shared_client_identity_holds_claim_res_str_surface_until_close() {
+    let bus: RpcBus = LocalTransport::new(limits()).unwrap().into();
+    let str_channel = channels::stream_client("Signal", "nodeX");
+    let claim_channel = channels::claim_request("Signal", "nodeX");
+    let res_channel = channels::response("Signal", "nodeX");
+    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 0);
+    let identity = ClientStreams::new(bus.clone(), "Signal", "nodeX").await.unwrap();
+    assert_eq!(identity.client_id(), "nodeX");
+    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 1);
+    assert_eq!(
+        bus.publish(
+            &claim_channel,
+            &pb::ClaimRequest {
+                request_id: "none".into(),
+                ..Default::default()
+            }
+        )
+        .await
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        bus.publish(
+            &res_channel,
+            &pb::Response {
+                request_id: "none".into(),
+                ..Default::default()
+            }
+        )
+        .await
+        .unwrap(),
+        1
+    );
+    identity.close().await;
+    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 0);
+    assert_eq!(
+        bus.publish(
+            &claim_channel,
+            &pb::ClaimRequest {
+                request_id: "none".into(),
+                ..Default::default()
+            }
+        )
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        bus.publish(
+            &res_channel,
+            &pb::Response {
+                request_id: "none".into(),
+                ..Default::default()
+            }
+        )
+        .await
+        .unwrap(),
+        0
+    );
+}
+
+/// G04: two concurrent streams share one nodeID identity, so both servers reply
+/// on the same Signal|nodeX|STR channel. The client must demultiplex by stream_id
+/// exactly as the server's register_stream does; a misroute hangs the wrong recv.
+#[tokio::test]
+async fn shared_client_identity_demultiplexes_concurrent_streams() {
+    let bus: RpcBus = LocalTransport::new(limits()).unwrap().into();
+    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", "nodeX").await.unwrap());
+    let method = signal_spec();
+    let mut listener =
+        register_stream::<lk::Room, lk::Room>(bus.clone(), method.clone(), config(), None)
+            .await
+            .unwrap();
+    let mut opts = options();
+    opts.client = Some(identity.clone());
+    let mut c1 =
+        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts.clone())
+            .await
+            .unwrap();
+    let mut s1 = listener.accept().await.unwrap();
+    let mut c2 = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
+        .await
+        .unwrap();
+    let mut s2 = listener.accept().await.unwrap();
+    assert_eq!(s1.header.as_ref().unwrap().remote_id, "nodeX");
+    assert_eq!(s2.header.as_ref().unwrap().remote_id, "nodeX");
+    assert_ne!(c1.id(), c2.id());
+    s1.send(&request("reply-one")).await.unwrap();
+    s2.send(&request("reply-two")).await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), c1.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .message
+            .name,
+        "reply-one"
+    );
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), c2.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .message
+            .name,
+        "reply-two"
+    );
+    c1.send(&request("one")).await.unwrap();
+    assert_eq!(s1.recv().await.unwrap().message.name, "one");
+    c2.send(&request("two")).await.unwrap();
+    assert_eq!(s2.recv().await.unwrap().message.name, "two");
+    c1.close(None).await.unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), s1.recv())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(s1.error().unwrap().origin, RpcErrorOrigin::Remote);
+    // Retiring c1's demux registration must not disturb the still-open c2.
+    s2.send(&request("still-two")).await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), c2.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .message
+            .name,
+        "still-two"
+    );
+    c2.close(None).await.unwrap();
+    listener.close().await;
+    identity.close().await;
+}
+
+/// G04 negative control: the shared identity must not fabricate an Open ACK when
+/// no server owns the target topic; it times out exactly like the dedicated path.
+#[tokio::test]
+async fn shared_client_identity_without_listener_times_out() {
+    let bus: RpcBus = LocalTransport::new(limits()).unwrap().into();
+    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", "nodeX").await.unwrap());
+    let mut opts = options();
+    opts.timeout = Duration::from_millis(30);
+    opts.client = Some(identity.clone());
+    let result = open_stream::<lk::Room, lk::Room>(bus, &signal_spec(), config(), opts).await;
+    assert!(matches!(result, Err(error) if error.origin == RpcErrorOrigin::Deadline));
+    identity.close().await;
+}
