@@ -492,14 +492,27 @@ fn claim_channel(spec: &MethodSpec) -> Channel {
 pub struct ClientStreams {
     inner: Arc<ClientStreamsInner>,
 }
+/// Sessions and the terminal cause share one lock so retirement and registration
+/// cannot interleave: a stream either registers before retirement (and is then
+/// dropped with the real cause) or is rejected after it with that same cause.
+struct ClientState {
+    sessions: HashMap<String, mpsc::Sender<pb::Stream>>,
+    terminal: Option<RpcError>,
+}
 struct ClientStreamsInner {
     bus: RpcBus,
     service: String,
     client_id: String,
-    sessions: Mutex<HashMap<String, mpsc::Sender<pb::Stream>>>,
-    terminal: Mutex<Option<RpcError>>,
+    state: Mutex<ClientState>,
     stop: Cancellation,
     task: Mutex<Option<JoinHandle<()>>>,
+}
+impl Drop for ClientStreamsInner {
+    fn drop(&mut self) {
+        // The dispatcher holds only a Weak, so the last external handle dropping
+        // reaches here and signals it to unsubscribe STR/CLAIM/RES.
+        self.stop.cancel();
+    }
 }
 impl std::fmt::Debug for ClientStreams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -520,18 +533,37 @@ impl ClientStreams {
         let claim_target = channels::claim_request(service, client_id);
         let response_target = channels::response(service, client_id);
         let mut streams = bus.subscribe::<pb::Stream>(&stream_target, false).await?;
-        let claims = bus.subscribe::<pb::ClaimRequest>(&claim_target, false).await?;
-        let responses = bus.subscribe::<pb::Response>(&response_target, false).await?;
+        // Release already-acquired channels if a later subscribe fails; a Redis
+        // Subscription has no Drop unsubscribe, so partial init must not leak it.
+        let claims = match bus.subscribe::<pb::ClaimRequest>(&claim_target, false).await {
+            Ok(sub) => sub,
+            Err(error) => {
+                let _ = streams.unsubscribe(&stream_target).await;
+                return Err(error.into());
+            }
+        };
+        let responses = match bus.subscribe::<pb::Response>(&response_target, false).await {
+            Ok(sub) => sub,
+            Err(error) => {
+                let _ = streams.unsubscribe(&stream_target).await;
+                let _ = claims.unsubscribe(&claim_target).await;
+                return Err(error.into());
+            }
+        };
         let inner = Arc::new(ClientStreamsInner {
             bus: bus.clone(),
             service: service.to_owned(),
             client_id: client_id.to_owned(),
-            sessions: Mutex::new(HashMap::new()),
-            terminal: Mutex::new(None),
+            state: Mutex::new(ClientState {
+                sessions: HashMap::new(),
+                terminal: None,
+            }),
             stop: Cancellation::default(),
             task: Mutex::new(None),
         });
-        let dispatch = inner.clone();
+        // Weak, not strong: a strong handle here would cycle with inner.task and
+        // keep the dispatcher (and its subscriptions) alive after the client drops.
+        let dispatch = Arc::downgrade(&inner);
         let stopping = inner.stop.clone();
         let task = tokio::spawn(async move {
             let mut claims = Some(claims);
@@ -541,11 +573,14 @@ impl ClientStreams {
                     biased;
                     _=stopping.cancelled()=>break,
                     value=streams.recv()=>{
-                        let bytes=match value{Ok(bytes)=>bytes,Err(error)=>{dispatch.retire(error.into());break;}};
-                        if let Ok(value)=dispatch.bus.decode::<pb::Stream>(&bytes)
+                        let bytes=match value{Ok(bytes)=>bytes,Err(error)=>{if let Some(d)=dispatch.upgrade(){d.retire(error.into());}break;}};
+                        // Upgrade only inside the arm; no strong handle is held
+                        // across the select await, so Drop can still cancel us.
+                        let Some(d)=dispatch.upgrade() else{break};
+                        if let Ok(value)=d.bus.decode::<pb::Stream>(&bytes)
                             && value.message.expiry>now()
                         {
-                            let sender=lock(&dispatch.sessions).get(&value.message.stream_id).cloned();
+                            let sender=lock(&d.state).sessions.get(&value.message.stream_id).cloned();
                             if let Some(sender)=sender{
                                 // Source streamBase.Recv uses a nonblocking write;
                                 // a full session channel means no ACK, not delivery.
@@ -568,7 +603,9 @@ impl ClientStreams {
             if let Some(sub) = responses {
                 let _ = sub.unsubscribe(&response_target).await;
             }
-            lock(&dispatch.sessions).clear();
+            if let Some(d) = dispatch.upgrade() {
+                lock(&d.state).sessions.clear();
+            }
         });
         *lock(&inner.task) = Some(task);
         Ok(Self { inner })
@@ -576,14 +613,28 @@ impl ClientStreams {
     pub fn client_id(&self) -> &str {
         &self.inner.client_id
     }
-    fn register(&self, stream_id: &str, sender: mpsc::Sender<pb::Stream>) {
-        lock(&self.inner.sessions).insert(stream_id.to_owned(), sender);
+    fn register(
+        &self,
+        stream_id: &str,
+        sender: mpsc::Sender<pb::Stream>,
+    ) -> Result<(), RpcError> {
+        let mut state = lock(&self.inner.state);
+        if let Some(error) = &state.terminal {
+            return Err(error.clone());
+        }
+        state.sessions.insert(stream_id.to_owned(), sender);
+        Ok(())
     }
     fn unregister(&self, stream_id: &str) {
-        lock(&self.inner.sessions).remove(stream_id);
+        lock(&self.inner.state).sessions.remove(stream_id);
     }
     fn terminal_error(&self) -> Option<RpcError> {
-        lock(&self.inner.terminal).clone()
+        lock(&self.inner.state).terminal.clone()
+    }
+    /// Signal the dispatcher to stop without awaiting it; used by owner Drop
+    /// paths that cannot run async cleanup but must not leave the identity live.
+    pub fn cancel(&self) {
+        self.inner.stop.cancel();
     }
     pub async fn close(&self) {
         self.inner.stop.cancel();
@@ -591,13 +642,16 @@ impl ClientStreams {
         if let Some(task) = task {
             let _ = task.await;
         }
-        lock(&self.inner.sessions).clear();
+        self.inner.retire(closed());
     }
 }
 impl ClientStreamsInner {
     fn retire(&self, error: RpcError) {
-        *lock(&self.terminal) = Some(error);
-        lock(&self.sessions).clear();
+        let mut state = lock(&self.state);
+        if state.terminal.is_none() {
+            state.terminal = Some(error);
+        }
+        state.sessions.clear();
     }
 }
 
@@ -738,8 +792,9 @@ pub async fn open_stream<
             let (sender, rx) = mpsc::channel(config.channel_size);
             let stream_id = stream.id().to_owned();
             // Register before publishing Open so the server's ACK cannot race
-            // the demux registration.
-            identity.register(&stream_id, sender);
+            // the demux registration. A retired identity rejects with its real
+            // terminal cause instead of leaving a session that never receives.
+            identity.register(&stream_id, sender)?;
             ClientSource::Shared {
                 rx,
                 identity,

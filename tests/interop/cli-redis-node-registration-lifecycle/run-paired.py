@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
 import hashlib
 import json
 import os
@@ -89,6 +90,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -462,6 +464,70 @@ class Subscriber:
         self.resp.close()
 
 
+class Monitor:
+    """A Redis MONITOR tap capturing the command stream while a server starts and
+    cleans up a failed start. The post-exit keyspace alone cannot distinguish "the
+    server registered and then undid it" from "the server failed before it ever
+    registered" — both leave an empty `nodes` hash. This tap is the positive control
+    that a registration/subscription phase really happened before the process exited,
+    and it records the actual per-side startup order rather than inferring it."""
+
+    def __init__(self, port: int):
+        self.resp = Resp("127.0.0.1", port)
+        # The stream can go quiet between startup commands; do not let the default 5 s
+        # socket timeout end the tap mid-startup. close() interrupts a blocked read.
+        self.resp.sock.settimeout(30)
+        assert self.resp.call(b"MONITOR") == b"OK", "MONITOR was not acknowledged"
+        self._lines: list[str] = []
+        self._lock = threading.Lock()
+        self._stopped = False
+        self._thread = threading.Thread(target=self._drain, daemon=True)
+        self._thread.start()
+
+    def _drain(self):
+        # MONITOR pushes raw text lines, not RESP frames, so read them directly.
+        while not self._stopped:
+            try:
+                raw = self.resp.file.readline(1 << 20)
+            except OSError:
+                break
+            if not raw:
+                break
+            with self._lock:
+                self._lines.append(raw.decode(errors="replace").rstrip("\r\n"))
+
+    def snapshot(self) -> list[str]:
+        with self._lock:
+            return list(self._lines)
+
+    def close(self):
+        self._stopped = True
+        try:
+            self.resp.close()
+        except OSError:
+            pass
+        self._thread.join(timeout=3)
+
+
+def monitor_node_sequence(lines: list[str]) -> list[tuple[str, str, str]]:
+    """The ordered (command, key, detail) triples touching the `nodes` hash or a
+    `Keepalive|Ping|*` channel, as MONITOR observed them. The node id is kept in
+    `detail` for HSET/HDEL so the registered id is recoverable even though a failed
+    start never prints the readiness line that normally carries it."""
+    seq: list[tuple[str, str, str]] = []
+    for line in lines:
+        tokens = re.findall(r'"((?:[^"\\]|\\.)*)"', line)
+        if len(tokens) < 2:
+            continue
+        cmd, args = tokens[0].upper(), tokens[1:]
+        if args[0] == "nodes" and cmd in ("HSET", "HMSET", "HDEL", "HGET", "HGETALL", "HKEYS"):
+            detail = args[1] if cmd in ("HSET", "HMSET", "HDEL", "HGET") and len(args) >= 2 else ""
+            seq.append((cmd, "nodes", detail))
+        elif args[0].startswith("Keepalive|Ping|") and cmd in ("SUBSCRIBE", "UNSUBSCRIBE", "PUBLISH"):
+            seq.append((cmd, args[0], ""))
+    return seq
+
+
 # ------------------------------------------------------------------------ processes
 
 
@@ -469,6 +535,20 @@ def free(port: int) -> bool:
     with socket.socket() as probe:
         probe.settimeout(0.2)
         return probe.connect_ex(("127.0.0.1", port)) != 0
+
+
+def udp_occupied(port: int) -> bool:
+    """Positive control that a UDP port is genuinely held: a second bind must fail
+    with EADDRINUSE. A TCP probe cannot see a UDP listener, so occupancy is proven by
+    attempting the bind, not by assuming the holder succeeded."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.bind(("127.0.0.1", port))
+        return False
+    except OSError as exc:
+        return exc.errno == errno.EADDRINUSE
+    finally:
+        probe.close()
 
 
 def wait_port(port: int, timeout: float = 25.0) -> bool:
@@ -1614,23 +1694,55 @@ def vector_wt_bind_failure(official, rust, name, ctx):
         p = ctx["side_ports"](side)
         hold = UdpHold(p["wt"])
         ctx["holds"].append(hold)
+        # Positive control 1: the UDP port is genuinely occupied (a second bind fails
+        # with EADDRINUSE), so a non-zero exit cannot be attributed to a free port.
+        occupied_while_held = udp_occupied(p["wt"])
         body = config_body(p["http"], p["tcp"], p["udp"], p["wt"], ctx["redis_addr"],
                            node_stats="{stats_update_interval: 1s}", level="debug")
         store.clear()
+        # Positive control 2: tap the command stream so the registration/subscription
+        # phase before the failed-start cleanup is observed, not inferred from an empty
+        # post-exit keyspace (which a pre-registration failure would also leave).
+        monitor = Monitor(store.port)
         run = Run(side, binary, name, p, body, ctx["staging"], ctx["output"],
                   store, ctx["procs"])
         if not run.wait_exit():
             run.force_stop()
+        # Drain until the undo (HDEL) is captured, or 3 s, then stop the tap before the
+        # post-exit keyspace checks so the harness's own commands do not pollute it.
+        deadline = time.monotonic() + 3.0
+        seq = []
+        while time.monotonic() < deadline:
+            seq = monitor_node_sequence(monitor.snapshot())
+            if any(c == "HDEL" and k == "nodes" for c, k, _ in seq):
+                break
+            time.sleep(0.05)
+        monitor.close()
+        order = [f"{c} {k}" + (f" {d}" if d else "") for c, k, d in seq]
+        shape = [[c, "keepalive" if k.startswith("Keepalive|Ping|") else k] for c, k, _ in seq]
+        hset = [i for i, (c, k, _) in enumerate(seq) if c == "HSET" and k == "nodes"]
+        hdel = [i for i, (c, k, _) in enumerate(seq) if c == "HDEL" and k == "nodes"]
+        subs = [i for i, (c, k, _) in enumerate(seq)
+                if c == "SUBSCRIBE" and k.startswith("Keepalive|Ping|")]
         immediate = run.own_names()
         channels = store.pubsub_channels("Keepalive|Ping|*")
         subscribers = sum(store.publish(ch, ping_envelope(int(time.time())))
                           for ch in channels)
         time.sleep(3.0)
         text = run.text()
+        hold.close()
         out[side] = {"normalized_config": run.normalized_config,
                      "config_sha256": run.config_sha256,
                      "exit": run.exit_code, "sigkilled": run.sigkilled,
                      "http_port_free_after_exit": free(p["http"]),
+                     "udp_occupied_while_held": occupied_while_held,
+                     "udp_occupied_after_release": udp_occupied(p["wt"]),
+                     "registration_hset_observed": bool(hset),
+                     "keepalive_subscribe_observed": bool(subs),
+                     "unregister_hdel_observed": bool(hset) and bool(hdel) and max(hdel) > min(hset),
+                     "registered_node_id": seq[hset[0]][2] if hset else None,
+                     "startup_command_order": order,
+                     "startup_command_shape": shape,
                      "own_immediately_after_exit": immediate,
                      "own_after_3s": run.own_names(),
                      "keepalive_channels_after_exit": channels,
@@ -1640,10 +1752,11 @@ def vector_wt_bind_failure(official, rust, name, ctx):
                      "stopping_router_debug_line": bool(log_lines(
                          text, "stopping RedisRouter")),
                      "unregister_error_lines": log_lines(text, "could not unregister node"),
+                     "address_in_use_lines": [line[:300] for line in text.splitlines()
+                                              if "address already in use" in line.lower()][:4],
                      "webtransport_lines": [line[:300] for line in text.splitlines()
                                              if "webtransport" in line.lower()][:4],
                      "error_lines": error_lines(text)[:4]}
-        hold.close()
     go, rs = out["official"], out["rust"]
 
     assert go["exit"] not in (None, 0), ("official started despite an occupied "
@@ -1661,8 +1774,34 @@ def vector_wt_bind_failure(official, rust, name, ctx):
                                                   "failed start", go["ping_receivers_after_exit"])
     assert go["dev_cert_warning"], ("official lost the dev-mode cert warning", go)
 
+    # Positive controls (both sides): the occupied port is real, and the failed start
+    # verifiably registered (HSET) and subscribed (Keepalive SUBSCRIBE) before it undid
+    # the registration (HDEL). Without these, "no residue after exit" would also hold
+    # for a server that failed before registering, making the cleanup contract vacuous.
+    for side in ("official", "rust"):
+        o = out[side]
+        assert o["udp_occupied_while_held"], \
+            (side, "the WebTransport UDP port was not actually occupied", o)
+        assert not o["udp_occupied_after_release"], \
+            (side, "the UDP port stayed occupied after the hold was released", o)
+        assert o["registration_hset_observed"], \
+            (side, "no HSET nodes observed before exit: the failed start never registered, "
+             "so the no-residue contract would be vacuous", o["startup_command_order"])
+        assert o["keepalive_subscribe_observed"], \
+            (side, "no Keepalive SUBSCRIBE observed before exit", o["startup_command_order"])
+        assert o["unregister_hdel_observed"], \
+            (side, "no HDEL nodes after the HSET: the failed start did not undo its "
+             "registration", o["startup_command_order"])
+
     comparisons = (
         ("nonzero-exit", go["exit"] not in (None, 0), rs["exit"] not in (None, 0)),
+        ("udp-occupied-while-held", go["udp_occupied_while_held"], rs["udp_occupied_while_held"]),
+        ("registration-hset-observed", go["registration_hset_observed"],
+         rs["registration_hset_observed"]),
+        ("keepalive-subscribe-observed", go["keepalive_subscribe_observed"],
+         rs["keepalive_subscribe_observed"]),
+        ("unregister-hdel-observed", go["unregister_hdel_observed"],
+         rs["unregister_hdel_observed"]),
         ("sigkilled", go["sigkilled"], rs["sigkilled"]),
         ("own-immediately-after-exit", go["own_immediately_after_exit"],
          rs["own_immediately_after_exit"]),

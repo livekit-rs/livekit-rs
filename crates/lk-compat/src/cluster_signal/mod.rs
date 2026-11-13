@@ -263,6 +263,7 @@ impl ClusterSignal {
 impl Drop for ClusterSignal {
     fn drop(&mut self) {
         self.stop.cancel();
+        self.client.cancel();
     }
 }
 
