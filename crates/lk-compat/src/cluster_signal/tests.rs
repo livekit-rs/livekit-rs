@@ -180,6 +180,9 @@ async fn two_node_remote_join_case(
         let (template, net) = crate::test_support::state().await;
         let mut config = (*template.config).clone();
         config.node_id = rtc_core::ids::new_sid("ND_");
+        // The owner room must admit participant Blob stores so the cross-node
+        // provenance round-trip below exercises the real relay, not NotAllowed.
+        config.enable_participant_data_blob = true;
         let mut state = crate::state::CompatServices::new(Arc::new(config))
             .assemble(net.clone(), Arc::new(NullSink));
         let node = Arc::new(
@@ -396,6 +399,115 @@ async fn two_node_remote_join_case(
         .await
         .expect("RTC metadata ACK must follow healthy initial participant store");
     assert_eq!(stored.sid, participant.sid.0);
+    // Cross-node participant Blob provenance through BOTH real PSRPC stream
+    // directions. The entry node is not the owner: the raw unknown subtrees in
+    // the key and blob must survive the relay to the owner room and back, not be
+    // erased by a typed decode/re-encode at either hop.
+    {
+        let mut key_raw = pb::DataBlobKey {
+            key: Some(pb::data_blob_key::Key::Generic("cross-node-blob".into())),
+        }
+        .encode_to_vec();
+        key_raw.extend_from_slice(&[0xa0, 0x06, 7]); // unknown field 100, varint 7
+        let key = PreservedMessage::decode("livekit.DataBlobKey", &key_raw).unwrap();
+        let mut blob = PreservedMessage::from_message(&pb::DataBlob {
+            contents: vec![0, 255, 1],
+            ..Default::default()
+        });
+        blob.replace_nested("key", Some(&key));
+        let mut blob_raw = blob.encode_to_vec();
+        blob_raw.extend_from_slice(&[0xa8, 0x06, 9]); // unknown field 101, varint 9
+        let blob = PreservedMessage::decode("livekit.DataBlob", &blob_raw).unwrap();
+
+        let mut store = PreservedMessage::from_message(&pb::StoreDataBlobRequest {
+            request_id: 91,
+            ..Default::default()
+        });
+        store.replace_nested("blob", Some(&blob));
+        let mut root = PreservedMessage::from_message(&pb::SignalRequest {
+            message: Some(pb::signal_request::Message::StoreDataBlobRequest(
+                Default::default(),
+            )),
+        });
+        root.replace_nested("store_data_blob_request", Some(&store));
+        assert!(remote.send(root.encode_to_vec()).await);
+        let store_resp = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let raw = remote.incoming.recv().await.expect("store blob response");
+                let resp = PreservedMessage::decode("livekit.SignalResponse", &raw).unwrap();
+                if resp.nested("store_data_blob_response").is_some() {
+                    break resp;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let typed: pb::SignalResponse = store_resp.project();
+        let Some(pb::signal_response::Message::StoreDataBlobResponse(sr)) = typed.message else {
+            panic!("cross-node Blob store must succeed, got {typed:?}");
+        };
+        assert_eq!(sr.request_id, 91);
+        let resp_key = store_resp
+            .nested("store_data_blob_response")
+            .unwrap()
+            .nested("key")
+            .unwrap();
+        assert_eq!(
+            resp_key.unknown_wire(),
+            &[0xa0, 0x06, 7],
+            "store response key unknown cohort must survive the relay"
+        );
+        assert_eq!(
+            resp_key.project::<pb::DataBlobKey>().key,
+            Some(pb::data_blob_key::Key::Generic("cross-node-blob".into()))
+        );
+
+        let mut get = PreservedMessage::from_message(&pb::GetDataBlobRequest {
+            request_id: 92,
+            participant_identity: identity.clone(),
+            ..Default::default()
+        });
+        get.replace_nested("key", Some(&key));
+        let mut root = PreservedMessage::from_message(&pb::SignalRequest {
+            message: Some(pb::signal_request::Message::GetDataBlobRequest(
+                Default::default(),
+            )),
+        });
+        root.replace_nested("get_data_blob_request", Some(&get));
+        assert!(remote.send(root.encode_to_vec()).await);
+        let get_resp = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let raw = remote.incoming.recv().await.expect("get blob response");
+                let resp = PreservedMessage::decode("livekit.SignalResponse", &raw).unwrap();
+                if resp.nested("get_data_blob_response").is_some() {
+                    break resp;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let typed: pb::SignalResponse = get_resp.project();
+        let Some(pb::signal_response::Message::GetDataBlobResponse(gr)) = typed.message else {
+            panic!("cross-node Blob get must succeed, got {typed:?}");
+        };
+        assert_eq!(gr.request_id, 92);
+        let resp_blob = get_resp
+            .nested("get_data_blob_response")
+            .unwrap()
+            .nested("blob")
+            .unwrap();
+        assert_eq!(
+            resp_blob.unknown_wire(),
+            &[0xa8, 0x06, 9],
+            "get response blob unknown cohort must survive the relay"
+        );
+        assert_eq!(resp_blob.project::<pb::DataBlob>().contents, vec![0, 255, 1]);
+        assert_eq!(
+            resp_blob.nested("key").unwrap().unknown_wire(),
+            &[0xa0, 0x06, 7],
+            "get response nested key unknown cohort must survive the relay"
+        );
+    }
     // These live signal observations precede the helper's genuine public
     // RemoveParticipant, which intentionally retires this exact owner.
     super::signal_activity_tests::remote_owner_activity(
