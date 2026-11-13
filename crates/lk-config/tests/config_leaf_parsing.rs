@@ -792,6 +792,83 @@ fn limit_name_lengths_yaml_cli_parse() {
 }
 
 // ---------------------------------------------------------------------------
+// logging sample leaves: YAML and ENV projection (CLI is covered separately)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn logging_sample_yaml_env_projection() {
+    // Defaults: sampling off, every window zero. No input may fabricate a sampler.
+    let config = parse(&[], &Env::default());
+    assert!(!config.official.logging.sample);
+    assert_eq!(config.official.logging.sample_initial, 0);
+    assert_eq!(config.official.logging.sample_interval, 0);
+    assert_eq!(config.official.logging.item_sample_seconds, 0);
+    assert_eq!(config.official.logging.item_sample_initial, 0);
+    assert_eq!(config.official.logging.item_sample_interval, 0);
+    assert!(!config.server.logging.sample);
+    assert_eq!(config.server.logging.item_sample_seconds, 0);
+
+    // YAML: each leaf must reach the official tree AND survive normalization.
+    let config = parse(
+        &[
+            "--config-body",
+            "logging:\n  sample: true\n  sample_initial: 50\n  sample_interval: 30\n  item_sample_initial: 10\n  item_sample_interval: 60\n  item_sample_seconds: 120\n",
+        ],
+        &Env::default(),
+    );
+    assert!(config.official.logging.sample);
+    assert_eq!(config.official.logging.sample_initial, 50);
+    assert_eq!(config.official.logging.sample_interval, 30);
+    assert_eq!(config.official.logging.item_sample_initial, 10);
+    assert_eq!(config.official.logging.item_sample_interval, 60);
+    assert_eq!(config.official.logging.item_sample_seconds, 120);
+    let effective = &config.server.logging;
+    assert!(effective.sample);
+    assert_eq!(effective.sample_initial, 50);
+    assert_eq!(effective.sample_interval, 30);
+    assert_eq!(effective.item_sample_initial, 10);
+    assert_eq!(effective.item_sample_interval, 60);
+    assert_eq!(effective.item_sample_seconds, 120);
+
+    // ENV: the same leaves via LIVEKIT_LOGGING_* must project identically.
+    let env = Env::from_pairs([
+        ("LIVEKIT_LOGGING_SAMPLE", "true"),
+        ("LIVEKIT_LOGGING_SAMPLE_INITIAL", "50"),
+        ("LIVEKIT_LOGGING_SAMPLE_INTERVAL", "30"),
+        ("LIVEKIT_LOGGING_ITEM_SAMPLE_INITIAL", "10"),
+        ("LIVEKIT_LOGGING_ITEM_SAMPLE_INTERVAL", "60"),
+        ("LIVEKIT_LOGGING_ITEM_SAMPLE_SECONDS", "120"),
+    ]);
+    let config = parse(&[], &env);
+    assert!(config.official.logging.sample);
+    assert_eq!(config.official.logging.sample_initial, 50);
+    assert_eq!(config.official.logging.sample_interval, 30);
+    assert_eq!(config.official.logging.item_sample_initial, 10);
+    assert_eq!(config.official.logging.item_sample_interval, 60);
+    assert_eq!(config.official.logging.item_sample_seconds, 120);
+    let effective = &config.server.logging;
+    assert!(effective.sample);
+    assert_eq!(effective.sample_initial, 50);
+    assert_eq!(effective.sample_interval, 30);
+    assert_eq!(effective.item_sample_initial, 10);
+    assert_eq!(effective.item_sample_interval, 60);
+    assert_eq!(effective.item_sample_seconds, 120);
+
+    // Signed windows are preserved, not clamped: the fixed Go sampler accepts
+    // negative item_sample_initial and the room opt-in is independent of sample.
+    let config = parse(
+        &[
+            "--config-body",
+            "logging:\n  sample: false\n  item_sample_seconds: -1\n  item_sample_initial: -3\n",
+        ],
+        &Env::default(),
+    );
+    assert!(!config.server.logging.sample);
+    assert_eq!(config.server.logging.item_sample_seconds, -1);
+    assert_eq!(config.server.logging.item_sample_initial, -3);
+}
+
+// ---------------------------------------------------------------------------
 // generated_flags CLI input path coverage for flags matching VERIFIED YAML
 // ---------------------------------------------------------------------------
 
