@@ -2430,6 +2430,124 @@ mod tests {
         }
     }
 
+    /// A malformed `WT_CLOSE_SESSION` capsule (payload shorter than the 4-byte
+    /// application code) must drive the read-error teardown, the
+    /// `close_from_peer_read_error` branch distinct from the valid-capsule
+    /// `close_from_peer` branch above. webtransport-go `readFromConnectStream`
+    /// rejects the capsule and calls `closeWithError(&http3.Error{
+    /// ErrCodeDatagramError}, nil)`: the CONNECT stream is reset with
+    /// H3_DATAGRAM_ERROR (RFC 9114 §8.1) while every owned stream still sees
+    /// WT_SESSION_GONE (`SendStream.closeWithSession` always uses that code), no
+    /// reply capsule is sent, and the QUIC connection stays up. The worker is
+    /// unregistered and emits its normal disconnect event, exactly like a valid
+    /// peer close — only the CONNECT reset code differs.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn malformed_peer_capsule_resets_connect_with_datagram_error_and_unregisters_worker() {
+        // Fixed wire identity, independent of the producer: RFC 9114 §8.1
+        // H3_DATAGRAM_ERROR == quic-go http3.ErrCodeDatagramError == 0x33, which
+        // the pinned h3 `Code` Display renders by name. The valid-close code
+        // WT_SESSION_GONE (0x170d7b68) renders as hex, so this assertion fails
+        // if the read-error branch wrongly reused `close_from_peer`.
+        const CONNECT_RESET_NAME: &str = "H3_DATAGRAM_ERROR";
+        let keys = key_store();
+        let token = format!("Bearer {}", mint_agent_token(&keys, true));
+        let mut worker = worker_state(keys);
+        let (events, mut event_rx) = mpsc::channel(1);
+        worker.events = events.clone();
+        let registry = worker.registry.clone();
+        let tls = build_server_tls("", "", true).unwrap();
+        let listener = bind(&tls, &["127.0.0.1".to_owned()], 0).await.unwrap();
+        let addr = listener.bound_addrs()[0];
+        let (stop, shutdown) = watch::channel(false);
+        let handles = listener.spawn(worker, Duration::from_secs(30), shutdown);
+        let (mut client, ep) = dial_insecure(addr, "/agent", &[("authorization", &token)])
+            .await
+            .unwrap();
+        let mut control = client.session().open_bi().await.unwrap();
+        let request = pb::WorkerMessage {
+            message: Some(pb::worker_message::Message::Register(
+                pb::RegisterWorkerRequest {
+                    r#type: 0,
+                    version: "1.0.0".into(),
+                    agent_name: "malformed-capsule-close".into(),
+                    ..Default::default()
+                },
+            )),
+        };
+        let body = request.encode_to_vec();
+        let mut frame = (body.len() as u32).to_be_bytes().to_vec();
+        frame.extend_from_slice(&body);
+        control.send_data(Bytes::from(frame)).await.unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), read_one_frame(&mut control))
+            .await
+            .unwrap()
+            .unwrap();
+        let id = match pb::ServerMessage::decode(&reply[..]).unwrap().message {
+            Some(pb::server_message::Message::Register(response)) => response.worker_id,
+            other => panic!("expected register, got {other:?}"),
+        };
+        assert!(registry.registration(&id).is_some());
+        assert!(matches!(event_rx.recv().await,
+            Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+        // WT_CLOSE_SESSION (0x2843) declaring a 2-byte payload: shorter than the
+        // 4-byte application close code, so the capsule parser rejects it. Keep
+        // the CONNECT and control send halves open (no FIN) so teardown is driven
+        // purely by the malformed capsule, not by stream EOF.
+        client
+            .session_mut()
+            .send(Bytes::from_static(&[0x68, 0x43, 0x02, 0x00, 0x00]))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while registry.registration(&id).is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("malformed peer capsule must release the worker registration");
+        // The CONNECT stream is reset with H3_DATAGRAM_ERROR — not a reply close
+        // capsule and not the WT_SESSION_GONE code a valid peer close uses.
+        let connect_err = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.session_mut().read_close_capsule(),
+        )
+        .await
+        .expect("CONNECT reset deadline")
+        .expect_err("malformed capsule must reset CONNECT, not yield a close capsule");
+        assert!(
+            connect_err.to_string().contains(CONNECT_RESET_NAME),
+            "read-error teardown must reset CONNECT with H3_DATAGRAM_ERROR: {connect_err}"
+        );
+        // The owned control stream still sees WT_SESSION_GONE.
+        let control_err = tokio::time::timeout(Duration::from_secs(5), control.recv_data())
+            .await
+            .expect("control stream reset deadline")
+            .expect_err("owned control stream must reset");
+        assert!(
+            matches!(control_err, lk_webtransport::WtError::StreamTerminated(code)
+                if code == lk_webtransport::WT_SESSION_GONE_ERROR_CODE),
+            "{control_err:?}"
+        );
+        // Normal disconnect event (released jobs), not just a registry guard drop.
+        let event = tokio::time::timeout(Duration::from_secs(5), event_rx.recv())
+            .await
+            .expect("normal disconnect event deadline");
+        assert!(matches!(event,
+            Some(lk_compat::agent::websocket::WorkerEvent::Disconnected { worker_id, jobs })
+                if worker_id == id && jobs.is_empty()));
+        // The session teardown keeps the shared QUIC connection alive.
+        let conn = client.session().connection().clone();
+        assert!(
+            conn.close_reason().is_none(),
+            "read-error session close must keep QUIC alive"
+        );
+        stop.send(true).unwrap();
+        ep.close(quinn::VarInt::from_u32(0), b"test complete");
+        for handle in handles {
+            handle.await.unwrap();
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn connect_agent_with_valid_grant_upgrades() {
         let keys = key_store();
