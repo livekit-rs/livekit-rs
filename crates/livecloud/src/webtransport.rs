@@ -2126,6 +2126,24 @@ mod tests {
         Some(buf[4..4 + len].to_vec())
     }
 
+    /// A length-prefixed `Register` control frame for `agent_name` (JT_ROOM).
+    fn register_frame(agent_name: &str) -> Bytes {
+        let request = pb::WorkerMessage {
+            message: Some(pb::worker_message::Message::Register(
+                pb::RegisterWorkerRequest {
+                    r#type: 0,
+                    version: "1.0.0".into(),
+                    agent_name: agent_name.into(),
+                    ..Default::default()
+                },
+            )),
+        };
+        let body = request.encode_to_vec();
+        let mut frame = (body.len() as u32).to_be_bytes().to_vec();
+        frame.extend_from_slice(&body);
+        Bytes::from(frame)
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn agent_control_stream_register_round_trip() {
         // End-to-end over real UDP/QUIC/h3: once the control stream is accepted
@@ -2742,5 +2760,274 @@ mod tests {
 
         let _ = std::fs::remove_file(&cert_path);
         let _ = std::fs::remove_file(&key_path);
+    }
+
+    /// W02: the fixed official Go v1.13.10 Agent WebTransport data plane consumes
+    /// ONLY bidirectional streams (`endpoint/session.go` `OpenStream`; the node
+    /// opens one bidi stream per HTTP exchange, the worker `AcceptStream`s them).
+    /// There is no application `ReceiveDatagram`/`AcceptUniStream` call anywhere
+    /// in the fixed server. quic-go's `rawConn.receiveDatagrams` still validates
+    /// every inbound QUIC datagram's RFC 9297 quarter-stream-ID prefix and closes
+    /// the connection with `H3_DATAGRAM_ERROR` (0x33) when it cannot be parsed.
+    /// The production Rust pump (`handle_connection` -> `accept_datagram`) mirrors
+    /// that: a malformed datagram must close the QUIC connection with
+    /// `H3_DATAGRAM_ERROR`, unregister the worker and emit its normal disconnect.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn malformed_datagram_closes_the_quic_connection_with_h3_datagram_error() {
+        // RFC 9114 §8.1 H3_DATAGRAM_ERROR == quic-go http3.ErrCodeDatagramError.
+        const H3_DATAGRAM_ERROR: u32 = 0x33;
+        let keys = key_store();
+        let token = format!("Bearer {}", mint_agent_token(&keys, true));
+        let mut worker = worker_state(keys);
+        let (events, mut event_rx) = mpsc::channel(8);
+        worker.events = events.clone();
+        let registry = worker.registry.clone();
+        let tls = build_server_tls("", "", true).unwrap();
+        let listener = bind(&tls, &["127.0.0.1".to_owned()], 0).await.unwrap();
+        let addr = listener.bound_addrs()[0];
+        let (stop, shutdown) = watch::channel(false);
+        let handles = listener.spawn(worker, Duration::from_secs(30), shutdown);
+        let (mut client, ep) = dial_insecure(addr, "/agent", &[("authorization", &token)])
+            .await
+            .unwrap();
+        let mut control = client.session().open_bi().await.unwrap();
+        control
+            .send_data(register_frame("malformed-datagram"))
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), read_one_frame(&mut control))
+            .await
+            .unwrap()
+            .unwrap();
+        let id = match pb::ServerMessage::decode(&reply[..]).unwrap().message {
+            Some(pb::server_message::Message::Register(response)) => response.worker_id,
+            other => panic!("expected register, got {other:?}"),
+        };
+        assert!(registry.registration(&id).is_some());
+        assert!(matches!(event_rx.recv().await,
+            Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+
+        // A single 0xc0 byte advertises an 8-byte QUIC varint but carries only
+        // one: the quarter-stream-ID prefix cannot be parsed. Send it as a raw
+        // QUIC datagram, bypassing the session's own correct prefix.
+        let conn = client.session().connection().clone();
+        conn.send_datagram(Bytes::from_static(&[0xc0])).unwrap();
+
+        // The pump must close the connection with H3_DATAGRAM_ERROR.
+        let close = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(reason) = conn.close_reason() {
+                    return reason;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("malformed datagram must close the QUIC connection");
+        match close {
+            quinn::ConnectionError::ApplicationClosed(c) => assert_eq!(
+                c.error_code,
+                quinn::VarInt::from_u32(H3_DATAGRAM_ERROR),
+                "malformed datagram must close with H3_DATAGRAM_ERROR"
+            ),
+            other => panic!("expected an application close, got {other:?}"),
+        }
+        // The worker is unregistered and emits its normal disconnect.
+        let event = tokio::time::timeout(Duration::from_secs(5), event_rx.recv())
+            .await
+            .expect("disconnect event deadline");
+        assert!(matches!(event,
+            Some(lk_compat::agent::websocket::WorkerEvent::Disconnected { worker_id, .. })
+                if worker_id == id));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while registry.registration(&id).is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("worker must unregister on connection close");
+        stop.send(true).unwrap();
+        ep.close(quinn::VarInt::from_u32(0), b"test complete");
+        for handle in handles {
+            handle.await.unwrap();
+        }
+    }
+
+    /// W02: a well-formed WT datagram and a client uni stream are NOT consumed by
+    /// the fixed Go Agent data plane (bidi-only). The Rust production pump drops
+    /// the well-formed datagram (`Ok(Some(_)) => continue`, "exactly like quic-go's
+    /// receiveDatagrams") and owns the uni stream (`with_session_uni_routing`)
+    /// without surfacing it to the application. Neither may disturb the bidi-only
+    /// session: the worker stays registered, QUIC stays up, and the accept pump
+    /// keeps serving new CONNECTs. `send_datagram` returning `Ok` also proves the
+    /// listener advertised `max_datagram_frame_size` (Go `quicConf.EnableDatagrams`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn well_formed_datagram_and_uni_stream_leave_the_bidi_only_session_intact() {
+        let keys = key_store();
+        let token = format!("Bearer {}", mint_agent_token(&keys, true));
+        let mut worker = worker_state(keys);
+        let (events, mut event_rx) = mpsc::channel(8);
+        worker.events = events.clone();
+        let registry = worker.registry.clone();
+        let tls = build_server_tls("", "", true).unwrap();
+        let listener = bind(&tls, &["127.0.0.1".to_owned()], 0).await.unwrap();
+        let addr = listener.bound_addrs()[0];
+        let (stop, shutdown) = watch::channel(false);
+        let handles = listener.spawn(worker, Duration::from_secs(30), shutdown);
+        let (mut client, ep) = dial_insecure(addr, "/agent", &[("authorization", &token)])
+            .await
+            .unwrap();
+        let mut control = client.session().open_bi().await.unwrap();
+        control
+            .send_data(register_frame("datagram-uni-intact"))
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), read_one_frame(&mut control))
+            .await
+            .unwrap()
+            .unwrap();
+        let id = match pb::ServerMessage::decode(&reply[..]).unwrap().message {
+            Some(pb::server_message::Message::Register(response)) => response.worker_id,
+            other => panic!("expected register, got {other:?}"),
+        };
+        assert!(registry.registration(&id).is_some());
+        assert!(matches!(event_rx.recv().await,
+            Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+
+        // A well-formed datagram (correct quarter-stream-ID prefix) must be
+        // accepted at the QUIC layer and dropped by the application.
+        client
+            .session()
+            .send_datagram(Bytes::from_static(b"app-datagram"))
+            .unwrap();
+        // A client uni stream: owned by the connection, never surfaced to the app.
+        let mut uni = client.session().open_uni().await.unwrap();
+        uni.send_data(Bytes::from_static(b"app-uni")).await.unwrap();
+        uni.finish().await.unwrap();
+        // Let the pump process both before probing liveness.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // The accept pump must still serve a NEW CONNECT on the same QUIC.
+        let mut second = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.open_session("localhost", "/agent", &[("authorization", &token)]),
+        )
+        .await
+        .expect("a dropped datagram/owned uni must not stop the accept pump")
+        .unwrap();
+        let mut second_control = second.open_bi().await.unwrap();
+        second_control
+            .send_data(register_frame("datagram-uni-second"))
+            .await
+            .unwrap();
+        let reply =
+            tokio::time::timeout(Duration::from_secs(5), read_one_frame(&mut second_control))
+                .await
+                .unwrap()
+                .unwrap();
+        let second_id = match pb::ServerMessage::decode(&reply[..]).unwrap().message {
+            Some(pb::server_message::Message::Register(response)) => response.worker_id,
+            other => panic!("expected second register, got {other:?}"),
+        };
+        assert_ne!(id, second_id);
+        // Original worker intact, QUIC alive.
+        assert!(registry.registration(&id).is_some());
+        assert!(client.session().connection().close_reason().is_none());
+        second.close_with_error(0, "").await.unwrap();
+        client.session_mut().close_with_error(0, "").await.unwrap();
+        stop.send(true).unwrap();
+        ep.close(quinn::VarInt::from_u32(0), b"test complete");
+        for handle in handles {
+            handle.await.unwrap();
+        }
+    }
+
+    /// W02: the production pump owns client uni streams (`with_session_uni_routing`)
+    /// for an Agent service that has no uni consumer, mirroring Go's
+    /// non-consumption. When the session ends, every owned uni stream is stopped
+    /// with `WT_SESSION_GONE` (`server.rs` `drop_session`), exactly like
+    /// webtransport-go cancels the streams of a session it closes. The client
+    /// observes that STOP_SENDING on its still-open uni send side.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn owned_uni_stream_is_stopped_with_session_gone_when_the_session_closes() {
+        let keys = key_store();
+        let token = format!("Bearer {}", mint_agent_token(&keys, true));
+        let mut worker = worker_state(keys);
+        let (events, mut event_rx) = mpsc::channel(8);
+        worker.events = events.clone();
+        let registry = worker.registry.clone();
+        let tls = build_server_tls("", "", true).unwrap();
+        let listener = bind(&tls, &["127.0.0.1".to_owned()], 0).await.unwrap();
+        let addr = listener.bound_addrs()[0];
+        let (stop, shutdown) = watch::channel(false);
+        let handles = listener.spawn(worker, Duration::from_secs(30), shutdown);
+        let (mut client, ep) = dial_insecure(addr, "/agent", &[("authorization", &token)])
+            .await
+            .unwrap();
+        let mut control = client.session().open_bi().await.unwrap();
+        control
+            .send_data(register_frame("owned-uni-cleanup"))
+            .await
+            .unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(5), read_one_frame(&mut control))
+            .await
+            .unwrap()
+            .unwrap();
+        let id = match pb::ServerMessage::decode(&reply[..]).unwrap().message {
+            Some(pb::server_message::Message::Register(response)) => response.worker_id,
+            other => panic!("expected register, got {other:?}"),
+        };
+        assert!(registry.registration(&id).is_some());
+        assert!(matches!(event_rx.recv().await,
+            Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+
+        // Open a uni stream and keep its send side OPEN (no FIN) so the server
+        // owns it and a later STOP_SENDING is observable on the client writer.
+        let mut uni = client.session().open_uni().await.unwrap();
+        uni.send_data(Bytes::from_static(b"owned-uni-payload"))
+            .await
+            .unwrap();
+        // Let the pump route the uni into owned_uni before closing the session.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // End the session with a valid WT_CLOSE_SESSION capsule (code 7). The
+        // capsule type 0x2843 is a 2-byte QUIC varint (0x68, 0x43), then the
+        // 4-byte payload length and the big-endian application close code. The
+        // peer-close path drops the session and stops every owned uni stream.
+        client
+            .session_mut()
+            .send(Bytes::from_static(&[0x68, 0x43, 4, 0, 0, 0, 7]))
+            .await
+            .unwrap();
+
+        // The client's still-open uni send side must observe STOP_SENDING with
+        // WT_SESSION_GONE (not BUFFERED_REJECTED, which is the late-stream code).
+        let error = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match uni.send_data(Bytes::from_static(b"still-writing")).await {
+                    Ok(()) => tokio::time::sleep(Duration::from_millis(2)).await,
+                    Err(e) => return e,
+                }
+            }
+        })
+        .await
+        .expect("owned uni must be stopped when the session closes");
+        assert!(
+            matches!(error, lk_webtransport::WtError::StreamTerminated(code)
+                if code == lk_webtransport::WT_SESSION_GONE_ERROR_CODE),
+            "owned uni cleanup must use WT_SESSION_GONE: {error:?}"
+        );
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while registry.registration(&id).is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("worker must unregister on session close");
+        stop.send(true).unwrap();
+        ep.close(quinn::VarInt::from_u32(0), b"test complete");
+        for handle in handles {
+            handle.await.unwrap();
+        }
     }
 }
