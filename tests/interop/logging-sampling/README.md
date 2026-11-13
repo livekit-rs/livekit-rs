@@ -15,7 +15,7 @@ Then from `livekit-rs-server`:
 LOGGING_SAMPLING_GO_RESULTS=/absolute/owned-output/go-sampling.jsonl cargo test -p livecloud --lib logging::tests::actual_fixed_go_sampling_rows -- --ignored --exact
 cargo test -p livecloud --lib log_sampling::tests
 cargo test -p livecloud --lib logging::tests
-cargo test -p lk-config --test config_leaf_parsing generated_flags_cli_coverage_audio_logging_redis_room_rtc
+cargo test -p lk-config --test config_leaf_parsing -- logging_sample_yaml_env_projection generated_flags_cli_coverage_audio_logging_redis_room_rtc
 ```
 
 The probe calls the real fixed public logger with a private output sink. No server,
@@ -33,4 +33,13 @@ Scope limitation: the production room task explicitly owns a room logger scope;
 logs inside it share that generation's sampler. This does not establish mapping
 of every upstream room logger callsite, asynchronously spawned worker scope,
 WithoutSampler, runtime config updates, or final server regression. Keep those
-claims open until mapped and exercised. Probe evidence has not yet been run.
+claims open until mapped and exercised.
+
+Executed 2026-11-14 on Rust commit 012b002472bfc94e863e7785818b3467032e4ae0: the
+`go run` module oracle produced 8 rows and `actual_fixed_go_sampling_rows`
+matched all 8 (1 passed), 9 component tests passed, and the YAML/ENV + CLI
+projection tests passed (2). This is a sampler-policy differential at module
+scope, not a paired-binary full-server lifecycle. Raw identities, commands, exit
+codes and per-row results: livekit-docs
+`server/evidence/2026-11-14/spec0077-c11-logging-sampling/`. The residuals above
+remain open; no full-server acceptance is claimed.
