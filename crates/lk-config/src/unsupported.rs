@@ -257,4 +257,47 @@ mod tests {
         }];
         assert!(check_selector(&c).is_ok(), "matching region must start");
     }
+
+    #[test]
+    fn c10_rtc_network_keys_are_accepted_and_the_rejection_gate_is_alive() {
+        // SPEC-0077 C10: the f62 "reject config" anchors (unsupported.rs:62
+        // use_mdns, :67 force_tcp) are stale. The UNSUPPORTED table is empty, so
+        // these four RTC ICE/network keys are accepted at config load and consumed
+        // downstream (force_tcp: server.rs:333 + interfaces.rs:343; use_mdns:
+        // room_task.rs:347; batch_io: server.rs:360 + net/batch_tx.rs;
+        // external_ip_only: nat1to1.rs:244), matching the fixed Go contract
+        // (webrtc_config.go UseMDNS:85, ForceTCP:123, BatchIO:146, ExternalIPOnly:402)
+        // which consumes rather than rejects them.
+        let mut c = Config::default();
+        c.rtc.force_tcp = true;
+        assert!(check(&c).is_ok(), "force_tcp must be accepted, not rejected");
+        c.rtc.force_tcp = false;
+        c.rtc.use_mdns = true;
+        assert!(check(&c).is_ok(), "use_mdns must be accepted, not rejected");
+        c.rtc.use_mdns = false;
+        c.rtc.external_ip_only = true;
+        assert!(
+            check(&c).is_ok(),
+            "external_ip_only must be accepted, not rejected"
+        );
+        c.rtc.external_ip_only = false;
+        c.rtc.batch_io.batch_size = 64;
+        c.rtc.batch_io.max_flush_interval = crate::GoDuration::from_millis(1);
+        assert!(
+            check(&c).is_ok(),
+            "nonzero batch_io must be accepted, not rejected"
+        );
+
+        // Failability / positive control: `check` is not a constant-Ok stub. The
+        // prometheus half-auth rule still rejects, so the acceptances above are
+        // meaningful — a gutted checker would fail this arm. This is the same gate
+        // the stale f62 anchors claimed rejected the RTC keys.
+        let mut bad = Config::default();
+        bad.prometheus.port = 9100;
+        bad.prometheus.username = "u".into();
+        assert!(
+            check(&bad).is_err(),
+            "the rejection gate must still fire for a genuinely unsupported config"
+        );
+    }
 }
