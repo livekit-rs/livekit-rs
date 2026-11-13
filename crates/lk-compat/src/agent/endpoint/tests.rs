@@ -189,6 +189,95 @@ async fn max_streams_is_soft_and_disconnect_closes_epoch_releasing_exactly_once(
     assert_eq!(fresh.spare_streams(), 1);
 }
 #[tokio::test]
+async fn pick_routes_to_least_inflight_and_filters_draining_closed_and_attempted() {
+    use super::front::{Candidate, pick};
+    let s = fixture();
+    s.registry.endpoints.configure(false, 8);
+    let mut rx_a = install(&s, "AW_a", &request(true, "/"));
+    let a = s.registry.endpoints.scope("key", "worker", "")[0].clone();
+    let mut rx_b = install(&s, "AW_b", &request(true, "/"));
+    let b = s
+        .registry
+        .endpoints
+        .scope("key", "worker", "")
+        .into_iter()
+        .find(|r| !Arc::ptr_eq(r, &a))
+        .unwrap();
+    let cand = |reg: Arc<Registration>| Candidate {
+        reg,
+        raw: String::new(),
+        public: true,
+    };
+    async fn load(
+        reg: &Arc<Registration>,
+        rx: &mut mpsc::UnboundedReceiver<DuplexStream>,
+        n: usize,
+    ) -> Vec<StreamLease> {
+        let mut held = Vec::new();
+        for _ in 0..n {
+            let (_io, lease) = reg.open().await.unwrap();
+            let _peer = rx.recv().await.unwrap();
+            held.push(lease);
+        }
+        held
+    }
+
+    // With exactly two eligible workers, power-of-two-choices compares both on
+    // every draw, so a strict load imbalance must deterministically pick the
+    // least-inflight worker. This is the W05 local selection consumer.
+    let held_b = load(&b, &mut rx_b, 3).await;
+    assert_eq!(a.inflight(), 0);
+    assert_eq!(b.inflight(), 3);
+    for _ in 0..64 {
+        let chosen = pick(vec![cand(a.clone()), cand(b.clone())]).unwrap();
+        assert!(
+            Arc::ptr_eq(&chosen.reg, &a),
+            "p2c must pick the least-inflight worker on every draw"
+        );
+    }
+
+    // Equal load must reach both workers across draws, not a hardcoded choice.
+    drop(held_b);
+    settled(&b).await;
+    let mut saw_a = false;
+    let mut saw_b = false;
+    for _ in 0..256 {
+        let chosen = pick(vec![cand(a.clone()), cand(b.clone())]).unwrap();
+        saw_a |= Arc::ptr_eq(&chosen.reg, &a);
+        saw_b |= Arc::ptr_eq(&chosen.reg, &b);
+    }
+    assert!(saw_a && saw_b, "equal load must reach both workers");
+
+    // A draining worker is ineligible even when it is the only low-load option:
+    // load the other worker and confirm selection never lands on the drainer.
+    s.registry.endpoints.drain("AW_b", true);
+    let held_a = load(&a, &mut rx_a, 3).await;
+    assert_eq!(b.inflight(), 0);
+    for _ in 0..32 {
+        let chosen = pick(vec![cand(a.clone()), cand(b.clone())]).unwrap();
+        assert!(
+            Arc::ptr_eq(&chosen.reg, &a),
+            "draining worker must be excluded regardless of load"
+        );
+    }
+    s.registry.endpoints.drain("AW_b", false);
+    drop(held_a);
+    settled(&a).await;
+
+    // A worker without a live session is ineligible; a single eligible worker is
+    // returned directly; no eligible worker yields None.
+    let single = pick(vec![cand(a.clone())]).unwrap();
+    assert!(Arc::ptr_eq(&single.reg, &a));
+    b.close();
+    assert!(!b.has_session());
+    for _ in 0..16 {
+        let chosen = pick(vec![cand(a.clone()), cand(b.clone())]).unwrap();
+        assert!(Arc::ptr_eq(&chosen.reg, &a));
+    }
+    a.close();
+    assert!(pick(vec![cand(a.clone()), cand(b.clone())]).is_none());
+}
+#[tokio::test]
 async fn private_routes_require_exact_endpoint_grant_and_never_video_agent() {
     let s = fixture();
     let mut rx = install(&s, "AW_private", &request(false, "/secret"));

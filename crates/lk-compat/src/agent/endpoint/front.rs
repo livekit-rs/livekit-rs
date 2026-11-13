@@ -136,10 +136,10 @@ fn reserved(headers: &mut HeaderMap) {
     }
 }
 #[derive(Clone)]
-struct Candidate {
-    reg: Arc<Registration>,
-    raw: String,
-    public: bool,
+pub(super) struct Candidate {
+    pub(super) reg: Arc<Registration>,
+    pub(super) raw: String,
+    pub(super) public: bool,
 }
 fn match_route(
     regs: &[Arc<Registration>],
@@ -203,7 +203,7 @@ fn match_route(
         (vec![], partial, false)
     }
 }
-fn pick(mut workers: Vec<Candidate>) -> Option<Candidate> {
+pub(super) fn pick(mut workers: Vec<Candidate>) -> Option<Candidate> {
     workers.retain(|w| {
         w.reg.has_session() && !w.reg.draining.load(std::sync::atomic::Ordering::Acquire)
     });
