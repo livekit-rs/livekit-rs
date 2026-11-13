@@ -789,6 +789,126 @@ mod http_integration_tests {
         net.shutdown();
     }
 
+    /// A08: without Redis the public Ingress gateway splits exactly like the fixed
+    /// Go service. Create/List hit the `store == nil` guard (`ingress.go:126/364`)
+    /// and return a normal twirp 500 on a reusable keepalive connection;
+    /// Update/Delete pass the `psrpcClient == nil` guard (the local bus yields a
+    /// non-nil client) and dereference the nil store, so twirp's
+    /// `ensurePanicResponses` flushes `Internal service panic` and re-panics, and
+    /// Go's net/http retires the connection WITHOUT a `Connection: close` header.
+    /// The Rust gateway mirrors both halves: `backend!` returns the guard error,
+    /// `stored_backend!` returns `panic_response()` carrying
+    /// `hyper::ext::CloseAfterResponse` (vendored hyper: "does not add a Connection
+    /// header"). This drives the real production `axum::serve` path over a raw TCP
+    /// socket to prove the wire-level reuse, not just the response object.
+    async fn post_ingress_raw(stream: &mut tokio::net::TcpStream, method: &str, jwt: &str) {
+        use tokio::io::AsyncWriteExt;
+        let body = b"{}";
+        let req = format!(
+            "POST /twirp/livekit.Ingress/{method} HTTP/1.1\r\nhost: localhost\r\nauthorization: Bearer {jwt}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(req.as_bytes()).await.unwrap();
+        stream.write_all(body).await.unwrap();
+    }
+
+    async fn read_http_response(stream: &mut tokio::net::TcpStream) -> (u16, String, String) {
+        use tokio::io::AsyncReadExt;
+        let mut buf: Vec<u8> = Vec::new();
+        let mut tmp = [0u8; 4096];
+        let header_end = loop {
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+            let n = stream.read(&mut tmp).await.unwrap();
+            assert!(n > 0, "peer closed before a complete response header");
+            buf.extend_from_slice(&tmp[..n]);
+        };
+        let head = String::from_utf8_lossy(&buf[..header_end]).into_owned();
+        let status = head.split_whitespace().nth(1).unwrap().parse::<u16>().unwrap();
+        let lower = head.to_lowercase();
+        let content_length: usize = lower
+            .lines()
+            .find_map(|l| l.strip_prefix("content-length:"))
+            .map(|v| v.trim().parse().unwrap())
+            .unwrap_or(0);
+        while buf.len() < header_end + content_length {
+            let n = stream.read(&mut tmp).await.unwrap();
+            assert!(n > 0, "peer closed before the response body completed");
+            buf.extend_from_slice(&tmp[..n]);
+        }
+        let body =
+            String::from_utf8_lossy(&buf[header_end..header_end + content_length]).into_owned();
+        (status, lower, body)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ingress_no_redis_wire_reuse_matches_go_silent_panic_close() {
+        use tokio::io::AsyncReadExt;
+        use tokio::net::{TcpListener, TcpStream};
+        let (state, net) = test_state().await;
+        let jwt = make_ingress_jwt();
+        let router = crate::http::router(state.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+
+        // Create/List: store==nil guard -> normal twirp 500, keepalive reuse. Two
+        // complete responses on one socket prove the connection stays reusable,
+        // exactly like Go's normal error return (no panic, no close).
+        let mut guard = TcpStream::connect(addr).await.unwrap();
+        for method in ["CreateIngress", "ListIngress"] {
+            post_ingress_raw(&mut guard, method, &jwt).await;
+            let (status, head, body) = read_http_response(&mut guard).await;
+            assert_eq!(status, 500, "{method}");
+            assert_eq!(
+                body,
+                r#"{"code":"internal","msg":"ingress not connected (redis required)"}"#,
+                "{method}"
+            );
+            assert!(
+                !head.contains("connection: close"),
+                "{method} must not send Connection: close"
+            );
+        }
+        drop(guard);
+
+        // Update/Delete: nil-store deref panic -> twirp recovery 500, silent close.
+        for method in ["UpdateIngress", "DeleteIngress"] {
+            let mut panic = TcpStream::connect(addr).await.unwrap();
+            post_ingress_raw(&mut panic, method, &jwt).await;
+            let (status, head, body) = read_http_response(&mut panic).await;
+            assert_eq!(status, 500, "{method}");
+            assert_eq!(
+                body,
+                r#"{"code":"internal","msg":"Internal service panic"}"#,
+                "{method}"
+            );
+            assert!(
+                !head.contains("connection: close"),
+                "{method} must retire silently without a Connection header (Go net/http re-panic parity)"
+            );
+            // The server closes after flushing: the next read is EOF, not reuse.
+            let mut tmp = [0u8; 64];
+            let n = tokio::time::timeout(std::time::Duration::from_secs(5), panic.read(&mut tmp))
+                .await
+                .expect("server must close the connection after the panic response")
+                .unwrap();
+            assert_eq!(n, 0, "{method}: connection must be closed (EOF), not reusable");
+        }
+
+        server.abort();
+        state.manager().close_all().await;
+        net.shutdown();
+    }
+
     #[tokio::test]
     async fn all_sip_admin_routes_reachable_via_http() {
         let (state, net) = test_state().await;
