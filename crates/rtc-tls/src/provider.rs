@@ -226,8 +226,10 @@ const AES128_GCM: SupportedCipherSuite = SupportedCipherSuite::Tls13(&rustls::Tl
     aead_alg: &Aes128,
     // QUIC packet/header protection delegates to the RFC 9001-verified
     // lk-quic-crypto core (see `crate::quic`); this also makes the provider
-    // advertise `Protocol::Quic` support. Only the AES-128-GCM TLS 1.3 suite
-    // carries a QUIC algorithm, and it is listed first, so it is negotiated.
+    // advertise `Protocol::Quic` support. AES-128-GCM is listed first so it is
+    // preferred, but the expanded AES-256-GCM and ChaCha20-Poly1305 suites also
+    // carry QUIC algorithms, so a peer that only offers ChaCha still negotiates
+    // ChaCha QUIC (see tests/quic.rs).
     quic: Some(&crate::quic::QuicAlgorithm),
 });
 struct Aes128;

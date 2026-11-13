@@ -414,3 +414,174 @@ fn all_quic_suites_forced_handshake_packet_header_and_key_update() {
         }
     }
 }
+
+// --- W03 reachability: the forced-suite tests above restrict BOTH ends to one
+// suite. These keep the server's full, unmodified live provider (AES-128-GCM
+// listed first) and prove a peer that only offers ChaCha20-Poly1305 — e.g.
+// quic-go on a host without AES hardware — still negotiates ChaCha QUIC. This
+// refutes the historical "only AES-128-GCM is negotiated" claim.
+
+fn full_provider_server_config() -> Arc<ServerConfig> {
+    Arc::new(
+        ServerConfig::builder_with_provider(Arc::new(rtc_tls::crypto_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![
+                    CertificateDer::from_pem_slice(LEAF).unwrap(),
+                    CertificateDer::from_pem_slice(INTERMEDIATE).unwrap(),
+                ],
+                PrivateKeyDer::from_pem_slice(LEAF_KEY).unwrap(),
+            )
+            .unwrap(),
+    )
+}
+
+fn client_config_retaining(suite: CipherSuite) -> Arc<ClientConfig> {
+    let mut provider = rtc_tls::crypto_provider();
+    provider.cipher_suites.retain(|cs| cs.suite() == suite);
+    provider
+        .kx_groups
+        .retain(|g| g.name() == rustls::NamedGroup::X25519);
+    let mut roots = RootCertStore::empty();
+    roots
+        .add(CertificateDer::from_pem_slice(ROOT).unwrap())
+        .unwrap();
+    Arc::new(
+        ClientConfig::builder_with_provider(Arc::new(provider))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )
+}
+
+/// Drive a QUIC handshake, propagating rustls errors so a rejected negotiation
+/// can be asserted rather than panicking. Returns the 1-RTT keys and the suite
+/// both ends agreed on.
+fn pump_quic(
+    client_cfg: Arc<ClientConfig>,
+    server_cfg: Arc<ServerConfig>,
+) -> Result<(Keys, Keys, CipherSuite), rustls::Error> {
+    let params = b"quic-transport-parameters-under-test".to_vec();
+    let mut client = ClientConnection::new(
+        client_cfg,
+        Version::V1,
+        ServerName::try_from("localhost").unwrap().to_owned(),
+        params.clone(),
+    )?;
+    let mut server = ServerConnection::new(server_cfg, Version::V1, params.clone())?;
+    let mut client_keys: Option<Keys> = None;
+    let mut server_keys: Option<Keys> = None;
+    let mut buf = Vec::new();
+    loop {
+        let mut progressed = false;
+        buf.clear();
+        if let Some(change) = client.write_hs(&mut buf) {
+            client_keys = Some(take_change(change).0);
+        }
+        if !buf.is_empty() {
+            server.read_hs(&buf)?;
+            progressed = true;
+        }
+        buf.clear();
+        if let Some(change) = server.write_hs(&mut buf) {
+            server_keys = Some(take_change(change).0);
+        }
+        if !buf.is_empty() {
+            client.read_hs(&buf)?;
+            progressed = true;
+        }
+        if !progressed {
+            break;
+        }
+    }
+    if client.is_handshaking() || server.is_handshaking() {
+        return Err(rustls::Error::General("handshake did not complete".into()));
+    }
+    let negotiated = client.negotiated_cipher_suite().unwrap().suite();
+    assert_eq!(
+        server.negotiated_cipher_suite().unwrap().suite(),
+        negotiated
+    );
+    Ok((
+        client_keys.expect("client 1-RTT keys"),
+        server_keys.expect("server 1-RTT keys"),
+        negotiated,
+    ))
+}
+
+#[test]
+fn live_full_provider_negotiates_chacha_quic_for_a_chacha_only_peer() {
+    let (client_keys, server_keys, negotiated) = pump_quic(
+        client_config_retaining(CipherSuite::TLS13_CHACHA20_POLY1305_SHA256),
+        full_provider_server_config(),
+    )
+    .expect("a ChaCha-only peer must negotiate ChaCha QUIC against the live provider");
+    assert_eq!(negotiated, CipherSuite::TLS13_CHACHA20_POLY1305_SHA256);
+
+    // The negotiated ChaCha QUIC path must actually protect traffic across ends.
+    let mut payload = b"chacha 1-rtt over the live provider".to_vec();
+    let plain = payload.clone();
+    let tag = client_keys
+        .local
+        .packet
+        .encrypt_in_place(13, b"h", &mut payload)
+        .unwrap();
+    payload.extend_from_slice(tag.as_ref());
+    assert_eq!(
+        server_keys
+            .remote
+            .packet
+            .decrypt_in_place(13, b"h", &mut payload)
+            .unwrap(),
+        plain
+    );
+    let mut first = 0xc3u8;
+    let mut pn = [0x00u8, 0x00, 0x12, 0x34];
+    client_keys
+        .local
+        .header
+        .encrypt_in_place(&[0xa5; 16], &mut first, &mut pn)
+        .unwrap();
+    server_keys
+        .remote
+        .header
+        .decrypt_in_place(&[0xa5; 16], &mut first, &mut pn)
+        .unwrap();
+    assert_eq!((first, pn), (0xc3, [0x00, 0x00, 0x12, 0x34]));
+}
+
+#[test]
+fn chacha_only_peer_fails_when_the_server_drops_chacha() {
+    // Positive control: the negotiation above is real, not a silent fallback. A
+    // server keeping only AES-128-GCM shares no QUIC suite with a ChaCha-only
+    // client, so the handshake must fail rather than complete on another suite.
+    let mut provider = rtc_tls::crypto_provider();
+    provider
+        .cipher_suites
+        .retain(|cs| cs.suite() == CipherSuite::TLS13_AES_128_GCM_SHA256);
+    let server = Arc::new(
+        ServerConfig::builder_with_provider(Arc::new(provider))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![
+                    CertificateDer::from_pem_slice(LEAF).unwrap(),
+                    CertificateDer::from_pem_slice(INTERMEDIATE).unwrap(),
+                ],
+                PrivateKeyDer::from_pem_slice(LEAF_KEY).unwrap(),
+            )
+            .unwrap(),
+    );
+    assert!(
+        pump_quic(
+            client_config_retaining(CipherSuite::TLS13_CHACHA20_POLY1305_SHA256),
+            server,
+        )
+        .is_err(),
+        "a ChaCha-only peer must not fall back to a server without ChaCha"
+    );
+}
