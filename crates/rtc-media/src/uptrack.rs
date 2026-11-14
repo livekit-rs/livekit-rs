@@ -200,6 +200,19 @@ impl UpTrack {
             l = layers::synthesize_layers(&self.sdp_rids);
         }
         layers::rewrite_layers(&mut l, &self.sdp_rids);
+        // The observed RTP SSRC binding is sticky metadata (first-SSRC-wins, like
+        // upstream SetLayerSsrcsForRid); synthesized layers carry ssrc=0, so carry
+        // the bound SSRC/RTX across a rebuild instead of dropping it.
+        for new in l.iter_mut() {
+            if let Some(old) = self.layers.iter().find(|o| o.quality == new.quality) {
+                if new.ssrc == 0 {
+                    new.ssrc = old.ssrc;
+                }
+                if new.repair_ssrc == 0 {
+                    new.repair_ssrc = old.repair_ssrc;
+                }
+            }
+        }
         // Bitrate/dimension metadata can change without changing the encoding
         // identity. Only actual RID/spatial/SSRC bindings invalidate history.
         let same_mapping = self.layers.len() == l.len()
@@ -306,6 +319,27 @@ impl UpTrack {
             None => 0,
             Some(r) => layers::spatial_for_rid(&self.layers, &r),
         }
+    }
+
+    /// Bind the observed RTP SSRC/RTX to its spatial layer, first-SSRC-wins like
+    /// upstream `MediaTrackReceiver.SetLayerSsrcsForRid`: a layer already bound to
+    /// a nonzero SSRC is never overridden. Returns true when a binding changed so
+    /// the room can refresh `TrackInfo.layers`/`codecs[].layers`.
+    pub(crate) fn observe_layer_ssrc(&mut self, spatial: i32, ssrc: u32, repair_ssrc: u32) -> bool {
+        if self.kind != TrackKind::Video || ssrc == 0 {
+            return false;
+        }
+        let Some(layer) = self.layers.iter_mut().find(|l| l.spatial_layer == spatial) else {
+            return false;
+        };
+        if layer.ssrc != 0 {
+            return false;
+        }
+        layer.ssrc = ssrc;
+        if repair_ssrc != 0 {
+            layer.repair_ssrc = repair_ssrc;
+        }
+        true
     }
 
     /// Record frame availability and its cost when no packet path owns the cost.
@@ -1151,6 +1185,58 @@ mod svc_tests {
             Duration::from_secs(5),
             now,
         )
+    }
+
+    #[test]
+    fn observed_rtp_ssrc_binds_first_wins_and_survives_rebuild() {
+        let now = Instant::now();
+        let mut up = track(now);
+        // Single-layer (non-simulcast) video: one spatial-0 layer, SSRC unbound.
+        assert_eq!(up.layers.len(), 1);
+        assert_eq!(up.layers[0].spatial_layer, 0);
+        assert_eq!(up.layers[0].ssrc, 0);
+
+        // First RTP observation binds the layer SSRC + RTX (SetLayerSsrcsForRid).
+        assert!(up.observe_layer_ssrc(0, 3_369_745_197, 12_345));
+        assert_eq!(up.layers[0].ssrc, 3_369_745_197);
+        assert_eq!(up.layers[0].repair_ssrc, 12_345);
+
+        // Sticky: a later different SSRC must NOT override the first binding.
+        assert!(!up.observe_layer_ssrc(0, 999, 777));
+        assert_eq!(up.layers[0].ssrc, 3_369_745_197);
+        assert_eq!(up.layers[0].repair_ssrc, 12_345);
+
+        // A zero SSRC is never bound.
+        assert!(!up.observe_layer_ssrc(0, 0, 0));
+        assert_eq!(up.layers[0].ssrc, 3_369_745_197);
+
+        // A mime-triggered rebuild preserves the bound SSRC (carry-over).
+        up.set_mime("video/VP8", now + Duration::from_secs(1));
+        assert_eq!(up.layers[0].ssrc, 3_369_745_197);
+        assert_eq!(up.layers[0].repair_ssrc, 12_345);
+    }
+
+    #[test]
+    fn simulcast_layers_bind_independent_ssrcs_by_spatial() {
+        let now = Instant::now();
+        let mut up = track(now);
+        up.sdp_rids = vec!["q".into(), "h".into(), "f".into()];
+        up.rebuild_layers(now);
+        assert_eq!(up.layers.len(), 3);
+        assert!(up.observe_layer_ssrc(0, 100, 0));
+        assert!(up.observe_layer_ssrc(1, 200, 21));
+        assert!(up.observe_layer_ssrc(2, 300, 0));
+        for (spatial, ssrc, repair) in [(0, 100, 0), (1, 200, 21), (2, 300, 0)] {
+            let layer = up
+                .layers
+                .iter()
+                .find(|l| l.spatial_layer == spatial)
+                .unwrap();
+            assert_eq!(layer.ssrc, ssrc);
+            assert_eq!(layer.repair_ssrc, repair);
+        }
+        // An unknown spatial layer binds nothing.
+        assert!(!up.observe_layer_ssrc(5, 400, 0));
     }
 
     #[test]

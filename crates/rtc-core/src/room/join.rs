@@ -108,6 +108,7 @@ impl Room {
             kind: params.grants.kind,
             disconnect_reason: DisconnectReason::Unknown,
             client_protocol: params.client.client_protocol,
+            capabilities: params.client.capabilities.clone(),
         };
 
         let participant = Participant {
@@ -307,6 +308,7 @@ impl Room {
             let closed_at = p.signal_closed_at.take();
             p.transport_failed_at = None;
             p.client = params.client.clone();
+            p.info.capabilities = params.client.capabilities.clone();
             p.capabilities = params.capabilities;
             let drop_signal = std::mem::take(&mut p.disconnect_on_resume);
             (old, closed_at, p.capabilities, drop_signal)

@@ -436,6 +436,9 @@ pub struct ParticipantInfo {
     pub disconnect_reason: DisconnectReason,
     /// Protocol version the client announced; adapters gate behavior on it.
     pub client_protocol: i32,
+    /// Raw `ClientInfo.Capability` enum values the client declared at connect,
+    /// echoed back like upstream `ParticipantImpl.ToProtoWithVersion`.
+    pub capabilities: Vec<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

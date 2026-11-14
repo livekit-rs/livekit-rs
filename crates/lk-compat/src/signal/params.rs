@@ -181,9 +181,13 @@ pub fn parse_join(
         client.browser_version = get("browser_version");
         client.device_model = get("device_model");
         client.network = get("network");
-        client.packet_trailer = query
+        client.capabilities = query
             .get("capabilities")
-            .is_some_and(|c| c.split(',').any(|c| c.trim() == "CAP_PACKET_TRAILER"));
+            .map(|c| convert::capabilities_from_query(c))
+            .unwrap_or_default();
+        client.packet_trailer = client
+            .capabilities
+            .contains(&(pb::client_info::Capability::CapPacketTrailer as i32));
         if let Some(enc) = query.get("attributes").filter(|s| !s.is_empty()) {
             match decode_attributes(enc) {
                 Some(a) => attributes = a,

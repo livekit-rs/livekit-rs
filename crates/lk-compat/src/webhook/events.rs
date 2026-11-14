@@ -158,6 +158,7 @@ mod tests {
             kind: ParticipantKind::Standard,
             disconnect_reason: DisconnectReason::Unknown,
             client_protocol: 0,
+            capabilities: vec![],
         }
     }
 

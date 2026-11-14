@@ -421,7 +421,29 @@ impl MediaEngine {
                 let spatial = up.tracker_spatial(data.rid);
                 up.observe_layer_count(spatial, count, now);
             }
-            if !up.started {
+            let spatial = if is_video {
+                up.spatial_for_rid(data.rid)
+            } else {
+                0
+            };
+            // Bind the observed RTP SSRC to its layer (first-SSRC-wins) so the
+            // RoomService TrackInfo projection carries it like upstream Go.
+            let observed_ssrc = if is_video {
+                transports.get_mut(&tid).and_then(|t| {
+                    t.rtc
+                        .direct_api()
+                        .stream_rx_by_mid(data.mid, data.rid)
+                        .map(|s| (*s.ssrc(), s.rtx().map(|r| *r).unwrap_or(0)))
+                })
+            } else {
+                None
+            };
+            let ssrc_changed = match observed_ssrc {
+                Some((ssrc, repair)) => up.observe_layer_ssrc(spatial, ssrc, repair),
+                None => false,
+            };
+            let first_start = !up.started;
+            if first_start {
                 up.started = true;
                 if data.params.spec().codec == str0m::format::Codec::Vp9 {
                     if let Some(flags) = data
@@ -448,17 +470,14 @@ impl MediaEngine {
                 if !mime.is_empty() {
                     up.set_mime(mime, now);
                 }
+            }
+            if first_start || ssrc_changed {
                 events.push(MediaEvent::TrackMediaStarted {
                     track_sid: up.sid.clone(),
                     mime_type: up.mime.clone(),
                     layers: up.layers.clone(),
                 });
             }
-            let spatial = if is_video {
-                up.spatial_for_rid(data.rid)
-            } else {
-                0
-            };
             let svc = if is_video && data.rid.is_none() && !up.spec.encrypted {
                 crate::svc::Vp9Layers::parse_with_dependencies(
                     data.codec_extra,

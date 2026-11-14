@@ -175,8 +175,13 @@ impl MediaEngine {
         let spatial = layer as i32;
         let temporal = parsed.as_ref().map_or(0, PacketParsed::temporal);
         if !blank {
-            if !up.started {
+            let ssrc_spatial = up.spatial_for_rid(data.rid);
+            let ssrc_changed = up.observe_layer_ssrc(ssrc_spatial, *data.packet.header.ssrc, 0);
+            let first_start = !up.started;
+            if first_start {
                 up.started = true;
+            }
+            if first_start || ssrc_changed {
                 self.events.push(MediaEvent::TrackMediaStarted {
                     track_sid: up.sid.clone(),
                     mime_type: up.mime.clone(),

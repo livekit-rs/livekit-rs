@@ -2,8 +2,8 @@
 //!
 //! Every engine field has a protobuf counterpart, so engine → proto → engine is
 //! lossless. The reverse direction drops protobuf-only fields the engine does not
-//! model (`ParticipantInfo.kind_details/capabilities`,
-//! `TrackInfo.packet_trailer_features`, `Room.turn_password`, ...).
+//! model (`ParticipantInfo.kind_details`, `TrackInfo.packet_trailer_features`,
+//! `Room.turn_password`, ...).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -228,6 +228,7 @@ pub fn participant_info_to_proto(p: &ParticipantInfo) -> pb::ParticipantInfo {
         attributes: attributes_to_proto(&p.attributes),
         disconnect_reason: disconnect_reason_to_proto(p.disconnect_reason),
         client_protocol: p.client_protocol,
+        capabilities: p.capabilities.clone(),
         ..Default::default()
     }
 }
@@ -263,6 +264,7 @@ pub fn participant_info_from_proto(p: &pb::ParticipantInfo) -> ParticipantInfo {
         kind: participant_kind_from_proto(p.kind),
         disconnect_reason: disconnect_reason_from_proto(p.disconnect_reason),
         client_protocol: p.client_protocol,
+        capabilities: p.capabilities.clone(),
     }
 }
 
@@ -469,6 +471,17 @@ pub fn subscription_permission_from_proto(
 
 const CAP_PACKET_TRAILER: i32 = pb::client_info::Capability::CapPacketTrailer as i32;
 
+/// Parse the connect `capabilities` query list exactly like upstream
+/// `service/utils.go`: split on comma, trim, skip empty, keep known enum names
+/// in declaration order (no dedup), drop unknown names.
+pub fn capabilities_from_query(raw: &str) -> Vec<i32> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .filter_map(|name| pb::client_info::Capability::from_str_name(name).map(|c| c as i32))
+        .collect()
+}
+
 pub fn client_info_to_meta(ci: &pb::ClientInfo) -> ClientMeta {
     ClientMeta {
         sdk: sdk_from_proto(ci.sdk),
@@ -483,6 +496,7 @@ pub fn client_info_to_meta(ci: &pb::ClientInfo) -> ClientMeta {
         address: ci.address.clone(),
         network: ci.network.clone(),
         packet_trailer: ci.capabilities.contains(&CAP_PACKET_TRAILER),
+        capabilities: ci.capabilities.clone(),
     }
 }
 
@@ -499,11 +513,7 @@ pub fn meta_to_client_info(m: &ClientMeta) -> pb::ClientInfo {
         address: m.address.clone(),
         network: m.network.clone(),
         client_protocol: m.client_protocol,
-        capabilities: if m.packet_trailer {
-            vec![CAP_PACKET_TRAILER]
-        } else {
-            Vec::new()
-        },
+        capabilities: m.capabilities.clone(),
         ..Default::default()
     }
 }
@@ -734,9 +744,11 @@ mod tests {
             kind: ParticipantKind::Agent,
             disconnect_reason: DisconnectReason::RoomDeleted,
             client_protocol: 1,
+            capabilities: vec![pb::client_info::Capability::CapCompressionDeflateRaw as i32],
         };
         let pb = participant_info_to_proto(&p);
         assert_eq!(pb.joined_at, 1_700_000_000);
+        assert_eq!(pb.capabilities, p.capabilities);
         assert_eq!(participant_info_from_proto(&pb), p);
     }
 
@@ -809,8 +821,51 @@ mod tests {
             os: "macOS".into(),
             browser: "Chrome".into(),
             packet_trailer: true,
+            capabilities: vec![
+                CAP_PACKET_TRAILER,
+                pb::client_info::Capability::CapCompressionDeflateRaw as i32,
+            ],
             ..Default::default()
         };
         assert_eq!(client_info_to_meta(&meta_to_client_info(&m)), m);
+    }
+
+    #[test]
+    fn capabilities_from_query_matches_upstream_name_list() {
+        let deflate = pb::client_info::Capability::CapCompressionDeflateRaw as i32;
+        // Declaration order preserved, unknown names dropped, empties skipped.
+        assert_eq!(
+            capabilities_from_query("CAP_COMPRESSION_DEFLATE_RAW, CAP_UNKNOWN_NAME ,CAP_PACKET_TRAILER,"),
+            vec![deflate, CAP_PACKET_TRAILER]
+        );
+        assert_eq!(capabilities_from_query(""), Vec::<i32>::new());
+        assert_eq!(capabilities_from_query("CAP_BOGLING"), Vec::<i32>::new());
+    }
+
+    #[test]
+    fn participant_info_echoes_declared_capabilities() {
+        let deflate = pb::client_info::Capability::CapCompressionDeflateRaw as i32;
+        let mut info = ParticipantInfo {
+            sid: ParticipantSid("PA_test".into()),
+            identity: Identity("alice".into()),
+            name: String::new(),
+            state: ParticipantState::Active,
+            tracks: Vec::new(),
+            data_tracks: Vec::new(),
+            metadata: String::new(),
+            attributes: Default::default(),
+            joined_at_ms: 0,
+            version: 0,
+            permission: Default::default(),
+            region: String::new(),
+            is_publisher: false,
+            kind: ParticipantKind::Standard,
+            disconnect_reason: DisconnectReason::Unknown,
+            client_protocol: 0,
+            capabilities: vec![deflate],
+        };
+        assert_eq!(participant_info_to_proto(&info).capabilities, vec![deflate]);
+        info.capabilities.clear();
+        assert!(participant_info_to_proto(&info).capabilities.is_empty());
     }
 }

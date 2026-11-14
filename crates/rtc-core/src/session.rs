@@ -69,6 +69,11 @@ pub struct ClientMeta {
     pub address: String,
     pub network: String,
     pub packet_trailer: bool,
+    /// Raw `ClientInfo.Capability` enum values the client declared at connect,
+    /// in declaration order. Echoed into `ParticipantInfo.capabilities` like
+    /// upstream `ClientInfo.GetCapabilities()`; `packet_trailer` is the derived
+    /// `CAP_PACKET_TRAILER` bit kept for the media path.
+    pub capabilities: Vec<i32>,
 }
 
 /// Neutral behavior projection supplied by the signaling adapter. Metadata is
