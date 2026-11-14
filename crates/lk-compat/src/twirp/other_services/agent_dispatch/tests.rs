@@ -513,6 +513,163 @@ async fn create_room_projects_explicit_and_preset_agents_and_skips_invalid_deplo
 }
 
 #[tokio::test]
+async fn nil_named_preset_returns_clean_internal_error_instead_of_crashing() {
+    use rtc_core::permission::RoomConfig;
+    // CONFIG:NilNamedPresetPointer. A present preset key whose value is nil
+    // (`room_configurations: {nil-preset: ~}`) makes Go roomallocator.go:211-219
+    // dereference conf.EmptyTimeout on a nil *RoomConfiguration: observed SIGSEGV,
+    // process exit 2 (the psrpc CreateRoom chain has no recovery middleware). Rust
+    // stores the nil entry as None and returns a clean structured internal error
+    // (manager.rs:670-672, the standalone local-owner path MAIN uses) instead of
+    // crashing.
+    let mut config = crate::test_support::config();
+    config.room.auto_create = true;
+    config.room.presets.insert("nil-preset".into(), None);
+    config.room.presets.insert(
+        "valid-preset".into(),
+        Some(RoomConfig {
+            empty_timeout_s: Some(30),
+            metadata: Some("valid-preset-md".into()),
+            ..Default::default()
+        }),
+    );
+    let (state, net) = state_with_config(config).await;
+    let mut token = admin("nil-preset-room");
+    token.grants.video.room_create = true;
+    let nil = crate::twirp::room_service::call(
+        &state,
+        Some(&token),
+        "CreateRoom",
+        Codec::Protobuf,
+        &pb::CreateRoomRequest {
+            name: "nil-preset-room".into(),
+            room_preset: "nil-preset".into(),
+            ..Default::default()
+        }
+        .encode_to_vec(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(nil.code, Code::Internal);
+    assert_eq!(nil.msg, "Internal service panic");
+    // The process survived the nil dereference path: an absent key is still a clean
+    // invalid_argument with the upstream message (parity control).
+    token.grants.video.room = "absent-preset-room".into();
+    let absent = crate::twirp::room_service::call(
+        &state,
+        Some(&token),
+        "CreateRoom",
+        Codec::Protobuf,
+        &pb::CreateRoomRequest {
+            name: "absent-preset-room".into(),
+            room_preset: "absent".into(),
+            ..Default::default()
+        }
+        .encode_to_vec(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(absent.code, Code::InvalidArgument);
+    assert_eq!(absent.msg, "unknown room configuration in create room request");
+    // A valid preset still applies after the nil case (parity control, server alive).
+    token.grants.video.room = "valid-preset-room".into();
+    let room: pb::Room = response(
+        crate::twirp::room_service::call(
+            &state,
+            Some(&token),
+            "CreateRoom",
+            Codec::Protobuf,
+            &pb::CreateRoomRequest {
+                name: "valid-preset-room".into(),
+                room_preset: "valid-preset".into(),
+                ..Default::default()
+            }
+            .encode_to_vec(),
+        )
+        .await
+        .unwrap(),
+        Codec::Protobuf,
+    )
+    .await;
+    assert_eq!(room.empty_timeout, 30);
+    assert_eq!(room.metadata, "valid-preset-md");
+    state.manager.close_all().await;
+    net.shutdown();
+}
+
+#[tokio::test]
+async fn create_room_enforces_configured_max_attributes_size_at_public_boundary() {
+    // generated_flags:--limit.max_attributes_size. The configured leaf must reach
+    // the real CreateRoom agent-attribute preflight (room_service.rs:334
+    // check_attributes -> within), not merely parse. Over-limit rejects before
+    // allocation; the identical payload is accepted when the limit is None,
+    // proving the rejection is config-driven rather than a fixed response.
+    let over_limit_agent = || pb::RoomAgentDispatch {
+        agent_name: "a".into(),
+        // "ab" + "cdef" = 6 UTF-8 bytes.
+        attributes: [("ab".into(), "cdef".into())].into_iter().collect(),
+        ..Default::default()
+    };
+    let mut config = crate::test_support::config();
+    config.room.auto_create = true;
+    config.limits.max_attributes_size = Some(5);
+    let (state, net) = state_with_config(config).await;
+    let token = {
+        let mut t = admin("attr-limit");
+        t.grants.video.room_create = true;
+        t
+    };
+    let over = crate::twirp::room_service::call(
+        &state,
+        Some(&token),
+        "CreateRoom",
+        Codec::Protobuf,
+        &pb::CreateRoomRequest {
+            name: "attr-limit".into(),
+            agents: vec![over_limit_agent()],
+            ..Default::default()
+        }
+        .encode_to_vec(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(over.code, Code::InvalidArgument);
+    // Go roomservice.go:96 twirp.InvalidArgumentError(ErrAttributeExceedsLimits,
+    // strconv.Itoa(MaxAttributesSize)) renders "<msg> <limit>"; Rust mirrors it.
+    assert_eq!(over.msg, "attribute size exceeds limits 5");
+    assert!(!state.manager.room_exists(&state.room_key("attr-limit")));
+    state.manager.close_all().await;
+    net.shutdown();
+
+    // Positive control: identical payload, unlimited config -> room created.
+    let mut config = crate::test_support::config();
+    config.room.auto_create = true;
+    config.limits.max_attributes_size = None;
+    let (state, net) = state_with_config(config).await;
+    let room: pb::Room = response(
+        crate::twirp::room_service::call(
+            &state,
+            Some(&token),
+            "CreateRoom",
+            Codec::Protobuf,
+            &pb::CreateRoomRequest {
+                name: "attr-limit".into(),
+                agents: vec![over_limit_agent()],
+                ..Default::default()
+            }
+            .encode_to_vec(),
+        )
+        .await
+        .unwrap(),
+        Codec::Protobuf,
+    )
+    .await;
+    assert_eq!(room.name, "attr-limit");
+    state.manager.close_all().await;
+    net.shutdown();
+}
+
+#[tokio::test]
 async fn standalone_auto_create_rejects_closed_owner_request_before_dispatch_mutation() {
     let (state, net) = state(true).await;
     let token = admin("accepted-owner-policy");

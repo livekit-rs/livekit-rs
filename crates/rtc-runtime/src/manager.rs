@@ -665,8 +665,10 @@ impl RoomManager {
                     "unknown room configuration in create room request".into(),
                 )
             })?;
-            // applyNamedRoomConfiguration dereferences a nil preset: the
-            // handler panics, which Twirp reports as an internal error.
+            // applyNamedRoomConfiguration dereferences a nil preset and the Go
+            // handler panics. Its psrpc CreateRoom chain installs no recovery
+            // middleware, so Go crashes (observed SIGSEGV, exit 2). Rust instead
+            // returns a clean structured internal error and stays alive (R03).
             let preset = preset
                 .as_ref()
                 .ok_or_else(|| ApiError::Internal("Internal service panic".into()))?;

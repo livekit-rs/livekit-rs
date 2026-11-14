@@ -791,6 +791,46 @@ fn limit_name_lengths_yaml_cli_parse() {
     assert_eq!(config.official.limit.max_participant_name_length, 100);
 }
 
+#[test]
+fn limit_max_attributes_size_yaml_cli_env_parse_and_project() {
+    // Default 64*1024 (Go DefaultConfig.Limit.MaxAttributesSize). The generated
+    // integer flag --limit.max_attributes_size projects into this same typed leaf.
+    let config = parse(&[], &Env::default());
+    assert_eq!(config.official.limit.max_attributes_size, 65536);
+    assert_eq!(config.server.limits.max_attributes_size, Some(65536));
+
+    // YAML
+    let config = parse(
+        &["--config-body", "limit:\n  max_attributes_size: 10\n"],
+        &Env::default(),
+    );
+    assert_eq!(config.official.limit.max_attributes_size, 10);
+    assert_eq!(config.server.limits.max_attributes_size, Some(10));
+
+    // CLI: the generated integer flag input path.
+    let config = parse(&["--limit.max_attributes_size=10"], &Env::default());
+    assert_eq!(config.official.limit.max_attributes_size, 10);
+    assert_eq!(config.server.limits.max_attributes_size, Some(10));
+
+    // ENV
+    let env = Env::from_pairs([("LIVEKIT_LIMIT_MAX_ATTRIBUTES_SIZE", "256")]);
+    let config = parse(&[], &env);
+    assert_eq!(config.official.limit.max_attributes_size, 256);
+    assert_eq!(config.server.limits.max_attributes_size, Some(256));
+
+    // CLI overrides YAML; zero means unlimited (None), matching Go CheckAttributesSize.
+    let config = parse(
+        &[
+            "--config-body",
+            "limit:\n  max_attributes_size: 10\n",
+            "--limit.max_attributes_size=0",
+        ],
+        &Env::default(),
+    );
+    assert_eq!(config.official.limit.max_attributes_size, 0);
+    assert_eq!(config.server.limits.max_attributes_size, None);
+}
+
 // ---------------------------------------------------------------------------
 // logging sample leaves: YAML and ENV projection (CLI is covered separately)
 // ---------------------------------------------------------------------------
