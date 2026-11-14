@@ -1,0 +1,45 @@
+{
+  "host": {
+    "os": "macOS 27.0.0 (darwin arm64)",
+    "en0_ipv4": "192.168.1.177",
+    "route_get_en0": "interface lo0 (192.168.1.177 -> 12:b5:6d:8d:a8:40 UHLWI lo0)",
+    "utun_interfaces_present": ["utun0", "utun1", "utun2", "utun3", "utun4"],
+    "note": "Clash-style TUN interfaces present; no network mutation performed (read-only diagnosis only)."
+  },
+  "rust_std_socket2_reproducer": {
+    "binary": "platform-residual/reproducer.rs (bare std::net blocking accept, no tokio/axum/livekit code)",
+    "probe": "python socket.create_connection((en0, port)) + GET / HTTP/1.0, 4s recv timeout",
+    "results_on_en0": {
+      "en0_plain": "TIMEOUT (connect succeeds, accept() never fires, no bytes)",
+      "en0_reuseaddr": "TIMEOUT",
+      "en0_reuseport": "TIMEOUT",
+      "v4wild_reuseaddr": "TIMEOUT",
+      "v6dual_reuseaddr": "TIMEOUT"
+    },
+    "results_on_loopback": {
+      "v4wild_reuseaddr_via_127.0.0.1": "200 OK (SAME socket that hangs on en0)",
+      "v6dual_reuseaddr_via_::1": "200 OK",
+      "v6dual_reuseaddr_via_127.0.0.1": "200 OK (::ffff:127.0.0.1)"
+    },
+    "accept_log": "No ACCEPT line for any en0-destined flow; ACCEPT lines present for 127.0.0.1 and ::1 on the same dual socket."
+  },
+  "rust_tokio_reproducer": {
+    "binary": "bare tokio 1.54.1 TcpListener (net/rt-multi-thread), no livekit code",
+    "results_on_en0": {"concrete_en0": "TIMEOUT, no ACCEPT", "dual_stack_en0": "TIMEOUT, no ACCEPT"},
+    "results_on_loopback": {"concrete_127.0.0.1": "200 OK, ACCEPT", "dual_127.0.0.1": "200 OK, ACCEPT", "dual_::1": "200 OK, ACCEPT"}
+  },
+  "cross_checks_same_host_simultaneous": {
+    "python_asyncio_en0_server": "200 OK (kqueue, reuse_address=True) while Rust en0 server hangs",
+    "go_net_listen_en0_server": "200 OK (locked v1.13.10 oracle 4bc2378e) while Rust en0 server hangs",
+    "rust_vs_go_en0_only_different_ports": "Rust TIMEOUT, Go 200 OK at the same moment"
+  },
+  "livecloud_main_observation": {
+    "profiles": ["wildcard-v4", "wildcard-v6", "absent", "multi", "cli-multi"],
+    "tcp_reach_en0": {"go": {"http": true, "prom": true, "debug": true}, "rust": {"http": true, "prom": true, "debug": true}},
+    "http_liveness_en0": {"go": 200, "rust": null},
+    "http_liveness_loopback": {"go_v4": 200, "rust_v4": 200, "go_v6": 200, "rust_v6": 200},
+    "all_three_rust_listeners_en0": "http, prometheus and debug all hang on en0; all three serve 127.0.0.1",
+    "rust_log": "clean startup, bindAddresses includes en0, no bind error, no panic, clean SIGINT shutdown"
+  },
+  "conclusion": "Host-specific anomaly below Rust std::net: accept() never fires for an en0-destined connection on this macOS host for every socket option, while loopback works on the same socket and Go/Python serve en0. The en0 listener binds correctly (TCP reach matches Go exactly). Independent of bind_addresses semantics and of the C20 changes; not fixable in livekit-rs application code; local network mutation is prohibited. Recorded as an OPEN platform residual, split from the C20 bind contract."
+}

@@ -1,0 +1,9 @@
+[package]
+name = "tokio-en0"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+socket2 = { version = "=0.6.5", features = ["all"] }
+
+[workspace]

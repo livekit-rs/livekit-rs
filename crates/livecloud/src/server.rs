@@ -754,6 +754,22 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         &[("topic", crate::zap::ZapValue::Str(cfg.node_id.clone()))],
         None,
     );
+    // Go pkg/service/server.go:333-338: with no HTTP listeners httpGroup.Wait()
+    // returns nil, so the watchdog logs "could not start server" (Errorw with a
+    // nil error carries no field) and calls Stop(true). Stop returns early
+    // because `running` is still false, so the process stays alive. Go builds
+    // its listeners purely from BindAddresses, so the condition is an empty
+    // bind list — not the Rust-only livecloud.https http_enabled toggle.
+    if bind_hosts.is_empty() {
+        logging::notify(
+            crate::zap::ERROR,
+            "livekit",
+            "pkg/service/server.go:335",
+            "could not start server",
+            &[],
+            None,
+        );
+    }
     for listener in http_sockets {
         let app = lk_compat::http::router(state.clone());
         let shutdown = Shutdown(stop_rx.clone());
@@ -1078,26 +1094,31 @@ fn bind_hosts(cfg: &ServerConfig) -> Vec<String> {
         .unwrap_or_else(|| vec![String::new()])
 }
 
-/// `net.Listen("tcp", JoinHostPort(host, port))`. The "" host is Go's
-/// dual-stack wildcard: `[::]`, or `0.0.0.0` where IPv6 is unavailable.
+/// `net.Listen("tcp", JoinHostPort(host, port))`. Go `favoriteAddrFamily`
+/// (net/ipsock_posix.go:142) makes a "tcp" listen on any wildcard laddr — "" /
+/// 0.0.0.0 / :: — dual-stack AF_INET6 (V6ONLY=0) wherever IPv4-mapping is
+/// supported, falling back to IPv4-only. A concrete address keeps its family.
 async fn listen(host: &str, port: u16) -> Result<tokio::net::TcpListener, ServerError> {
-    let text = format!(":{port}");
-    match crate::bind_host::resolve(host, port)
+    // `text` preserves the original laddr spelling for the bind error (Go's
+    // OpError.Addr): "" reports ":port", "0.0.0.0" reports "0.0.0.0:port".
+    let text = match crate::bind_host::resolve(host, port)
         .await
         .map_err(ServerError::ListenResolve)?
     {
-        Some(address) => tokio::net::TcpListener::bind(address)
-            .await
-            .map_err(|e| ServerError::Listen(address.to_string(), e)),
-        None => match tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await {
-            Ok(l) => Ok(l),
-            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
-                Err(ServerError::Listen(text, e))
-            }
-            Err(_) => tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port))
+        Some(address) if !address.ip().is_unspecified() => {
+            return tokio::net::TcpListener::bind(address)
                 .await
-                .map_err(|e| ServerError::Listen(text, e)),
-        },
+                .map_err(|e| ServerError::Listen(address.to_string(), e));
+        }
+        Some(address) => address.to_string(),
+        None => format!(":{port}"),
+    };
+    match tokio::net::TcpListener::bind((Ipv6Addr::UNSPECIFIED, port)).await {
+        Ok(l) => Ok(l),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => Err(ServerError::Listen(text, e)),
+        Err(_) => tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port))
+            .await
+            .map_err(|e| ServerError::Listen(text, e)),
     }
 }
 
@@ -1335,6 +1356,138 @@ mod https_startup_tests {
             tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port))
                 .await
                 .is_ok()
+        );
+    }
+}
+
+#[cfg(test)]
+mod bind_address_tests {
+    use super::*;
+    use crate::COMPAT_VERSION;
+    use lk_config::{netdetect::NetProbe, EntryAction, Env, ProgramInfo};
+    use std::ffi::OsString;
+    use std::net::IpAddr;
+
+    struct NoNetwork;
+    impl NetProbe for NoNetwork {
+        fn local_addresses(&self) -> Vec<IpAddr> {
+            vec![Ipv4Addr::LOCALHOST.into()]
+        }
+        fn external_ip(&self, _: &[String], _: bool) -> Result<IpAddr, String> {
+            panic!("bind fixture must not discover external IP")
+        }
+        fn sleep(&self, _: Duration) {
+            panic!("bind fixture must not retry networking")
+        }
+    }
+
+    // Production mode (no --dev): the dev-only nil→[127.0.0.1,::1] override must
+    // not mask the nil-vs-empty distinction the launched MAIN consumes.
+    fn server_config(extra_args: &[&str], body: &str) -> ServerConfig {
+        let info = ProgramInfo {
+            binary_name: "livecloud".into(),
+            product_version: "fixture".into(),
+            compat_version: COMPAT_VERSION,
+        };
+        let mut argv: Vec<OsString> = ["livecloud", "--config-body", body]
+            .into_iter()
+            .map(OsString::from)
+            .collect();
+        argv.extend(extra_args.iter().map(OsString::from));
+        match lk_config::parse_with_probe(argv, &Env::default(), &info, &NoNetwork).unwrap() {
+            EntryAction::RunServer(cfg) => cfg.server,
+            _ => panic!("expected RunServer"),
+        }
+    }
+
+    const BODY: &str = "port: 7880\nkeys:\n  devkey: secret\nrtc:\n  node_ip: 127.0.0.1\n  use_external_ip: false\n";
+
+    async fn reachable(addr: SocketAddr) -> bool {
+        tokio::time::timeout(Duration::from_millis(800), tokio::net::TcpStream::connect(addr))
+            .await
+            .map(|r| r.is_ok())
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn bind_hosts_maps_nil_to_wildcard_and_preserves_empty_and_explicit() {
+        let mut cfg = server_config(&[], BODY);
+        cfg.http.bind_addresses = None;
+        assert_eq!(bind_hosts(&cfg), vec![String::new()]);
+        cfg.http.bind_addresses = Some(vec![]);
+        assert!(bind_hosts(&cfg).is_empty());
+        cfg.http.bind_addresses = Some(vec!["127.0.0.1".into(), "0.0.0.0".into()]);
+        assert_eq!(
+            bind_hosts(&cfg),
+            vec!["127.0.0.1".to_string(), "0.0.0.0".to_string()]
+        );
+    }
+
+    #[test]
+    fn cli_bind_overrides_the_config_bind_addresses() {
+        let body = "port: 7880\nbind_addresses: [0.0.0.0]\nkeys:\n  devkey: secret\nrtc:\n  node_ip: 127.0.0.1\n  use_external_ip: false\n";
+        let cfg = server_config(&["--bind=127.0.0.1"], body);
+        assert_eq!(bind_hosts(&cfg), vec!["127.0.0.1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn wildcard_laddr_binds_dual_stack_like_the_empty_host() {
+        // Go favoriteAddrFamily (net/ipsock_posix.go:142): "" / 0.0.0.0 / :: are
+        // all wildcard → dual-stack AF_INET6. Pre-fix Rust bound 0.0.0.0 as
+        // IPv4-only, so ::1 was refused while the "" host accepted it.
+        let mut shapes = Vec::new();
+        for host in ["", "0.0.0.0", "::"] {
+            let listener = listen(host, 0).await.unwrap();
+            let local = listener.local_addr().unwrap();
+            let v4 = reachable(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), local.port())).await;
+            let v6 = reachable(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), local.port())).await;
+            shapes.push((local.is_ipv6(), v4, v6));
+            drop(listener);
+        }
+        assert_eq!(shapes[0], shapes[1], "0.0.0.0 must match the empty-host wildcard");
+        assert_eq!(shapes[0], shapes[2], ":: must match the empty-host wildcard");
+        if shapes[0].0 {
+            assert!(
+                shapes[0].1 && shapes[0].2,
+                "dual-stack wildcard must accept IPv4 and IPv6: {shapes:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn concrete_ipv4_laddr_stays_ipv4_only() {
+        let listener = listen("127.0.0.1", 0).await.unwrap();
+        let local = listener.local_addr().unwrap();
+        let port = local.port();
+        assert!(local.is_ipv4(), "concrete 127.0.0.1 must bind IPv4, got {local}");
+        assert_eq!(local.ip(), IpAddr::from(Ipv4Addr::LOCALHOST));
+        assert!(reachable(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)).await);
+        assert!(
+            !reachable(SocketAddr::new(Ipv6Addr::LOCALHOST.into(), port)).await,
+            "a concrete IPv4 listener must not accept IPv6"
+        );
+    }
+
+    #[tokio::test]
+    async fn wildcard_bind_error_preserves_the_original_laddr_spelling() {
+        // Bind the holder on port 0 so the OS assigns a port it already owns;
+        // a free-port probe would race the parallel wildcard tests.
+        let hold = listen("", 0).await.unwrap();
+        let port = hold.local_addr().unwrap().port();
+        let e = listen("0.0.0.0", port).await.unwrap_err();
+        assert!(
+            matches!(&e, ServerError::Listen(a, _) if a == &format!("0.0.0.0:{port}")),
+            "{e:?}"
+        );
+        let e2 = listen("", port).await.unwrap_err();
+        assert!(
+            matches!(&e2, ServerError::Listen(a, _) if a == &format!(":{port}")),
+            "{e2:?}"
+        );
+        let e3 = listen("::", port).await.unwrap_err();
+        assert!(
+            matches!(&e3, ServerError::Listen(a, _) if a == &format!("[::]:{port}")),
+            "{e3:?}"
         );
     }
 }
