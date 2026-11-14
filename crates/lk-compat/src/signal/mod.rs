@@ -19,7 +19,7 @@ use axum::extract::ws::{CloseFrame, Message, Utf8Bytes, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::any;
 use futures_util::SinkExt;
 use lk_protocol::livekit as pb;
 use prost::Message as _;
@@ -32,11 +32,14 @@ pub use ice::{COMPAT_SERVER_VERSION, PROTOCOL_VERSION};
 use params::{HttpFailure, parse_join};
 
 pub fn routes(state: AppState) -> Router {
+    // rtcservice.go SetupRoutes uses mux.HandleFunc, which accepts ANY method:
+    // connect answers non-WebSocket with a bare 404 and validate runs regardless
+    // of method. GET-only routing would 405 on POST/PUT/DELETE/OPTIONS/PATCH.
     Router::new()
-        .route("/rtc", get(rtc_v0))
-        .route("/rtc/validate", get(validate_v0))
-        .route("/rtc/v1", get(rtc_v1))
-        .route("/rtc/v1/validate", get(validate_v1))
+        .route("/rtc", any(rtc_v0))
+        .route("/rtc/validate", any(validate_v0))
+        .route("/rtc/v1", any(rtc_v1))
+        .route("/rtc/v1/validate", any(validate_v1))
         .with_state(state)
 }
 
@@ -572,6 +575,44 @@ mod signal_http_integration_tests {
         let (state, net) = crate::test_support::state().await;
         let status = get_rtc_no_ws(&state, "/rtc/v1").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        state.manager().close_all().await;
+        net.shutdown();
+    }
+
+    async fn method_response(state: &AppState, method: &str, uri: &str) -> (StatusCode, bool) {
+        let resp = crate::http::router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .extension(remote_addr())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let status = resp.status();
+        let cors = resp.headers().get("access-control-allow-origin").is_some();
+        (status, cors)
+    }
+
+    /// rtcservice.go SetupRoutes uses mux.HandleFunc (ANY method). GET-only
+    /// routing would 405 on these; connect must answer non-WebSocket with a bare
+    /// 404 and validate must run its auth gate (401 + CORS) for every method.
+    #[tokio::test]
+    async fn rtc_routes_accept_any_http_method_like_go_mux() {
+        let (state, net) = crate::test_support::state().await;
+        for method in ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"] {
+            for uri in ["/rtc?room=r", "/rtc/v1?room=r"] {
+                let (status, _cors) = method_response(&state, method, uri).await;
+                assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri} must 404 (non-WS)");
+            }
+            for uri in ["/rtc/validate?room=r", "/rtc/v1/validate?room=r"] {
+                let (status, cors) = method_response(&state, method, uri).await;
+                assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri} must run auth (401)");
+                assert!(cors, "{method} {uri} validate must include CORS");
+            }
+        }
         state.manager().close_all().await;
         net.shutdown();
     }
