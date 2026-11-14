@@ -1100,6 +1100,37 @@ mod tests {
     }
 
     #[test]
+    fn port_range_takes_precedence_over_udp_port_mux() {
+        // Upstream checks ICEPortRangeStart/End first (webrtc_config.go:127-130)
+        // and only falls back to the udp_port mux (:131-171) when no range is
+        // set, so with both configured the range must win.
+        let mut c = Config::default();
+        c.rtc.port_range_start = 40000;
+        c.rtc.port_range_end = 40009;
+        c.rtc.udp_port = crate::ports::PortRange {
+            start: 40010,
+            end: 40020,
+        };
+        let (s, _) = to_server_config(
+            &c,
+            Extras {
+                node_ip_auto_generated: false,
+                node_id: String::new(),
+                extension: None,
+                cpus: 4,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            s.rtc.udp,
+            UdpMode::Range {
+                start: 40000,
+                end: 40009
+            }
+        );
+    }
+
+    #[test]
     fn typed_room_agent_preset_projects_to_neutral_options_without_losing_null_entries() {
         let mut config = Config::default();
         crate::official::decode_yaml("room:\n  room_configurations:\n    p:\n      agents:\n        - {agent_name: assistant, metadata: context, restart_policy: 1, deployment: prod, attributes: {k: v}}\n        - null\n", true, &mut config).unwrap();
