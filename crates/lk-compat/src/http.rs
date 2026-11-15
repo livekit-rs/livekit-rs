@@ -94,6 +94,10 @@ pub fn with_middleware(routes: Router, keys: Arc<KeyStore>, max_request_body: u6
 fn middleware_chain(routes: Router, keys: Arc<KeyStore>, max_request_body: u64) -> Router {
     Router::new()
         .fallback_service(routes)
+        // Innermost layer: the ServeMux cleanPath redirect sits at the mux boundary,
+        // after recovery/CORS/body-limit/auth and before route dispatch, exactly where
+        // Go's mux sits inside NewHTTPHandler (server.go:503 api = middlewares(mux)).
+        .layer(middleware::from_fn(serve_mux_redirect_layer))
         .layer(middleware::from_fn_with_state(keys, auth_layer))
         .layer(middleware::from_fn_with_state(
             max_request_body,
@@ -161,6 +165,162 @@ pub fn strip_double_slash(uri: &Uri) -> Option<Uri> {
     let mut parts = uri.clone().into_parts();
     parts.path_and_query = Some(PathAndQuery::try_from(&pq.as_str()[1..]).ok()?);
     Uri::from_parts(parts).ok()
+}
+
+/// Go `http.ServeMux.findHandler` (server.go:2676-2697): for every non-CONNECT
+/// request the escaped path is cleaned, and when the cleaned path differs from the
+/// request's escaped path ServeMux answers a 307 redirect to the cleaned path BEFORE
+/// dispatching to any route. This is the downstream router cleaner that the
+/// strip-one-leading-slash middleware (`normalize_path_layer`) deliberately leaves in
+/// place: `///twirp` -> middleware strips one -> `//twirp` -> cleanPath -> `/twirp` ->
+/// 307. Wired as the innermost API layer so auth/CORS/body-limit run first, matching
+/// Go's `api = configureMiddlewares(mux, recovery, cors, bodyLimiter, auth)`.
+async fn serve_mux_redirect_layer(req: Request, next: Next) -> Response {
+    // CONNECT paths are authority-form and are not canonicalized (server.go:2665).
+    if req.method() == Method::CONNECT {
+        return next.run(req).await;
+    }
+    let escaped = req.uri().path();
+    let cleaned = clean_path(escaped);
+    if cleaned == escaped {
+        return next.run(req).await;
+    }
+    let url = redirect_url(&cleaned, req.uri().query());
+    let method = req.method().clone();
+    serve_mux_redirect(&method, &url)
+}
+
+/// Go `http.ServeMux.cleanPath` (server.go:2593-2612) over the ESCAPED path: prepend a
+/// root if missing, `path.Clean`, then restore a trailing slash that `path.Clean`
+/// removed (except for root). Percent-encoded bytes stay literal — `%2F` is not a
+/// separator — because Go cleans `r.URL.EscapedPath()`, not the decoded path.
+fn clean_path(p: &str) -> String {
+    if p.is_empty() {
+        return "/".to_string();
+    }
+    let rooted;
+    let p = if p.as_bytes()[0] != b'/' {
+        rooted = format!("/{p}");
+        rooted.as_str()
+    } else {
+        p
+    };
+    let np = path_clean_rooted(p);
+    if p.as_bytes()[p.len() - 1] == b'/' && np != "/" {
+        // Fast path: p is already exactly np with one trailing slash.
+        if p.len() == np.len() + 1 && p.starts_with(&np) {
+            return p.to_string();
+        }
+        return format!("{np}/");
+    }
+    np
+}
+
+/// Go `path.Clean` for a rooted path (the only input `clean_path` produces): collapse
+/// repeated separators, drop `.` elements, resolve `..` against the preceding element
+/// without escaping the root. A segment stack reproduces the stdlib lazybuf backtracking
+/// exactly for rooted input; `pop` on an empty stack keeps the path at `/`.
+fn path_clean_rooted(path: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            s => segments.push(s),
+        }
+    }
+    let mut out = String::with_capacity(path.len());
+    out.push('/');
+    out.push_str(&segments.join("/"));
+    out
+}
+
+/// The redirect target: cleaned path plus the raw query verbatim (Go builds
+/// `url.URL{Path: cleaned, RawQuery: r.URL.RawQuery}`; an empty-but-present query keeps
+/// its `?`). The `url.URL.String()` encodePath re-escape of `%`/space/non-ASCII is the
+/// RawPath edge left residual; for the cleaned ASCII path it is identity.
+fn redirect_url(cleaned: &str, query: Option<&str>) -> String {
+    let mut url = cleaned.to_string();
+    if let Some(q) = query {
+        url.push('?');
+        url.push_str(q);
+    }
+    url
+}
+
+/// Go `http.Redirect` (server.go:2367-2419) at 307: Location is `hexEscapeNonASCII(url)`;
+/// GET/HEAD with no prior Content-Type get `text/html; charset=utf-8`; only GET writes the
+/// short HTML body `<a href="htmlEscape(url)">Temporary Redirect</a>.\n` plus Fprintln's
+/// trailing newline. POST/other methods get Location alone (no Content-Type, no body).
+fn serve_mux_redirect(method: &Method, url: &str) -> Response {
+    let location = HeaderValue::from_str(&hex_escape_non_ascii(url))
+        .expect("cleaned redirect URL is visible ASCII");
+    let mut headers = HeaderMap::new();
+    headers.insert(header::LOCATION, location);
+    // Build the body as `Body`, not `String`: axum's `String: IntoResponse` would
+    // inject `text/plain; charset=utf-8`, but Go's Redirect leaves POST/other with no
+    // Content-Type at all. Assigning the header map directly keeps exact control.
+    let body = if method == Method::GET {
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        axum::body::Body::from(format!(
+            "<a href=\"{}\">Temporary Redirect</a>.\n\n",
+            html_escape(url)
+        ))
+    } else if method == Method::HEAD {
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        axum::body::Body::empty()
+    } else {
+        axum::body::Body::empty()
+    };
+    let mut resp = Response::new(body);
+    *resp.status_mut() = StatusCode::TEMPORARY_REDIRECT;
+    *resp.headers_mut() = headers;
+    resp
+}
+
+/// Go `hexEscapeNonASCII`: percent-encode every byte >= 0x80 as uppercase %XX, leaving
+/// ASCII untouched.
+fn hex_escape_non_ascii(s: &str) -> String {
+    if s.is_ascii() {
+        return s.to_string();
+    }
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b >= 0x80 {
+            out.push('%');
+            out.push(HEX[(b >> 4) as usize] as char);
+            out.push(HEX[(b & 0xF) as usize] as char);
+        } else {
+            out.push(b as char);
+        }
+    }
+    out
+}
+
+/// Go `htmlEscape` (server.go:2422-2434): a single simultaneous pass, so the `&` of an
+/// emitted entity is not re-escaped.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&#34;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// negroni Recovery: a panic anywhere below becomes a bare 500.
@@ -690,5 +850,167 @@ mod tests {
         assert_eq!(strip_double_slash(&u).unwrap().to_string(), "/rtc?x=1");
         let u: Uri = "/rtc".parse().unwrap();
         assert!(strip_double_slash(&u).is_none());
+    }
+
+    /// Go http.ServeMux.cleanPath over the escaped path: collapse separators, resolve
+    /// dot segments, restore a trailing slash, keep percent-encoded bytes literal.
+    #[test]
+    fn clean_path_matches_go_serve_mux() {
+        for (input, want) in [
+            ("", "/"),
+            ("/", "/"),
+            ("//", "/"),
+            ("///twirp/livekit.RoomService/ListRooms", "/twirp/livekit.RoomService/ListRooms"),
+            ("//twirp/x", "/twirp/x"),
+            ("/twirp//x", "/twirp/x"),
+            ("/a/./b", "/a/b"),
+            ("/a/../b", "/b"),
+            ("/a/b/../../c", "/c"),
+            ("/../a", "/a"),
+            ("/a/..", "/"),
+            ("/a/", "/a/"),
+            ("/a//", "/a/"),
+            ("/a/./", "/a/"),
+            ("//a//b//", "/a/b/"),
+            ("/%2F/a", "/%2F/a"),
+            ("/a/%2E%2E/b", "/a/%2E%2E/b"),
+            ("a/b", "/a/b"),
+        ] {
+            assert_eq!(clean_path(input), want, "clean_path({input:?})");
+        }
+    }
+
+    #[test]
+    fn redirect_url_preserves_query() {
+        assert_eq!(redirect_url("/boom", Some("x=1&y=2")), "/boom?x=1&y=2");
+        assert_eq!(redirect_url("/boom", Some("")), "/boom?");
+        assert_eq!(redirect_url("/boom", None), "/boom");
+    }
+
+    #[test]
+    fn redirect_escapes_match_go() {
+        assert_eq!(hex_escape_non_ascii("/boom"), "/boom");
+        assert_eq!(hex_escape_non_ascii("/café"), "/caf%C3%A9");
+        assert_eq!(html_escape("/a?x=1&y=2"), "/a?x=1&amp;y=2");
+        assert_eq!(html_escape("<>\"'"), "&lt;&gt;&#34;&#39;");
+        // Single simultaneous pass: the '&' of an emitted entity is not re-escaped.
+        assert_eq!(html_escape("&amp;"), "&amp;amp;");
+    }
+
+    /// The confirmed C36 residual: ///twirp -> middleware strips one -> //twirp ->
+    /// ServeMux cleanPath 307 to the cleaned path. POST gets Location alone; GET gets
+    /// text/html plus the exact Go body; HEAD gets the Content-Type but no body.
+    #[test]
+    fn serve_mux_clean_path_redirects_307() {
+        let (s, h, b) = run(axum::http::Request::post("///whoami")
+            .body(Body::empty())
+            .unwrap());
+        assert_eq!(s, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(h.get(header::LOCATION).unwrap(), "/whoami");
+        assert!(h.get(header::CONTENT_TYPE).is_none());
+        assert_eq!(b, "");
+
+        let (s, h, b) = run(get("/whoami/../boom").body(Body::empty()).unwrap());
+        assert_eq!(s, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(h.get(header::LOCATION).unwrap(), "/boom");
+        assert_eq!(
+            h.get(header::CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(b, "<a href=\"/boom\">Temporary Redirect</a>.\n\n");
+
+        let (s, h, b) = run(axum::http::Request::head("/a/./b")
+            .body(Body::empty())
+            .unwrap());
+        assert_eq!(s, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(h.get(header::LOCATION).unwrap(), "/a/b");
+        assert_eq!(
+            h.get(header::CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(b, "");
+
+        // Internal double slash and dot segments clean to the canonical path.
+        let (s, h, _) = run(get("/twirp//livekit.RoomService/ListRooms")
+            .body(Body::empty())
+            .unwrap());
+        assert_eq!(s, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            h.get(header::LOCATION).unwrap(),
+            "/twirp/livekit.RoomService/ListRooms"
+        );
+    }
+
+    #[test]
+    fn serve_mux_redirect_preserves_query() {
+        let (s, h, _) = run(get("/whoami/../boom?x=1&y=2")
+            .body(Body::empty())
+            .unwrap());
+        assert_eq!(s, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(h.get(header::LOCATION).unwrap(), "/boom?x=1&y=2");
+    }
+
+    /// An already-clean path is not redirected: it reaches the route. //whoami is the
+    /// C36 middleware behavior (strip one -> /whoami -> cleanPath identity -> route).
+    #[test]
+    fn clean_path_passthrough_does_not_redirect() {
+        let (s, _, b) = run(get("/whoami").body(Body::empty()).unwrap());
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "anonymous"));
+        let (s, _, b) = run(get("//whoami").body(Body::empty()).unwrap());
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "anonymous"));
+        // Trailing slash is preserved by cleanPath -> identity -> no redirect.
+        let (s, h, _) = run(get("/whoami/").body(Body::empty()).unwrap());
+        assert_eq!(s, StatusCode::NOT_FOUND);
+        assert!(h.get(header::LOCATION).is_none());
+    }
+
+    /// CONNECT is authority-form and Go does not canonicalize it (server.go:2665).
+    #[test]
+    fn connect_path_is_not_cleaned() {
+        let (s, h, _) = run(axum::http::Request::builder()
+            .method("CONNECT")
+            .uri("/a/../b")
+            .body(Body::empty())
+            .unwrap());
+        assert_ne!(s, StatusCode::TEMPORARY_REDIRECT);
+        assert!(h.get(header::LOCATION).is_none());
+    }
+
+    /// The agent endpoint chain has no ServeMux (Go's agentMiddlewares wrap agentFront,
+    /// not the mux), so it must not cleanPath-redirect; the API branch still does.
+    #[tokio::test]
+    async fn agent_endpoint_chain_has_no_clean_path_redirect() {
+        use tower::ServiceExt;
+        async fn ok(_req: Request) -> Response {
+            StatusCode::OK.into_response()
+        }
+        let keys = Arc::new(KeyStore::default());
+        let api = middleware_chain(Router::new().fallback(any(ok)), keys.clone(), 0);
+        let agents = Router::new().fallback(any(ok));
+        let app = dispatch_agent_chain(api, agents);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                axum::http::Request::get("/foo/../bar")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(resp.headers().get(header::LOCATION).unwrap(), "/bar");
+
+        let resp = app
+            .clone()
+            .oneshot(
+                axum::http::Request::get("/agents/../bar")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get(header::LOCATION).is_none());
     }
 }
