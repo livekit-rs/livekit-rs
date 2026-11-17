@@ -1,18 +1,21 @@
-//! Real Redis >=6 RESP3 Pub/Sub transport. Each subscription owns one bounded
-//! push queue and connection. Long-lived RPC owners can explicitly recover
-//! failed subscriptions; raw callers retain failure-closed receive semantics.
+//! Real Redis >=6 RESP3 Pub/Sub transport. One shared multiplexed pub/sub
+//! connection per transport carries every subscription (the locked reference's
+//! `redisbus` shape); each subscription still owns one bounded push inbox and a
+//! fail-closed fault watch. Long-lived RPC owners can explicitly recover failed
+//! subscriptions; raw callers retain failure-closed receive semantics.
 
 use super::channels::Channel;
 use super::wire::{self, BusMessage, CompressionPolicy, WireLimits};
 use crate::redis_endpoint::{RedisEndpoint, SharedConnection};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use redis::aio::MultiplexedConnection;
-use redis::cluster_async::ClusterConnection;
-use redis::{AsyncConnectionConfig, PushInfo, PushKind, Value};
+use redis::AsyncConnectionConfig;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
+
+mod shared_sub;
+use shared_sub::{SharedSubscriptions, SubHandle};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TransportError {
@@ -47,6 +50,7 @@ pub struct TransportLimits {
 pub struct RedisTransport {
     endpoint: RedisEndpoint,
     command: SharedConnection,
+    shared: Arc<SharedSubscriptions>,
     limits: TransportLimits,
     subscriptions: Arc<Semaphore>,
     commands: Arc<Semaphore>,
@@ -74,6 +78,7 @@ impl RedisTransport {
         Ok(Arc::new(Self {
             endpoint: self.endpoint.clone(),
             command: self.command.clone(),
+            shared: self.shared.clone(),
             limits: TransportLimits {
                 inbox_messages: size,
                 ..self.limits
@@ -117,12 +122,83 @@ impl RedisTransport {
             .connect(&config(limits))
             .await
             .map_err(|_| TransportError::Redis)?;
+        let shared = Arc::new(SharedSubscriptions::new(endpoint.clone(), limits));
         Ok(Arc::new(Self {
             endpoint,
             command,
+            shared,
             limits,
             subscriptions: Arc::new(Semaphore::new(limits.subscriptions)),
             commands: Arc::new(Semaphore::new(limits.commands)),
+        }))
+    }
+
+    /// The shared command connection identity. Server assembly clones this into
+    /// the node registry, IO store and SIP catalog so the whole process rides one
+    /// pooled command connection, mirroring upstream's single borrowed
+    /// `redis.UniversalClient` rather than one eager dial per consumer.
+    pub fn command_connection(&self) -> SharedConnection {
+        self.command.clone()
+    }
+
+    pub fn endpoint(&self) -> &RedisEndpoint {
+        &self.endpoint
+    }
+
+    /// Build a transport that reuses an already-dialled shared command connection
+    /// (the one the startup Ping and SIP catalog used) and owns a fresh shared
+    /// pub/sub multiplexer for this endpoint. The command connection must already
+    /// negotiate RESP3; the subscription multiplexer dials its own RESP3 connection
+    /// lazily on first subscribe, exactly like `redisbus.New`'s `rc.Subscribe`.
+    pub async fn from_command(
+        endpoint: RedisEndpoint,
+        limits: TransportLimits,
+        command: SharedConnection,
+    ) -> Result<Arc<Self>, TransportError> {
+        if limits.inbox_messages == 0
+            || limits.subscriptions == 0
+            || limits.commands == 0
+            || limits.subscriptions > Semaphore::MAX_PERMITS
+            || limits.commands > Semaphore::MAX_PERMITS
+            || limits.io_timeout.is_zero()
+            || limits.wire.encoded_bytes == 0
+        {
+            return Err(TransportError::Configuration);
+        }
+        let endpoint = endpoint.with_resp3();
+        let shared = Arc::new(SharedSubscriptions::new(endpoint.clone(), limits));
+        Ok(Arc::new(Self {
+            endpoint,
+            command,
+            shared,
+            limits,
+            subscriptions: Arc::new(Semaphore::new(limits.subscriptions)),
+            commands: Arc::new(Semaphore::new(limits.commands)),
+        }))
+    }
+
+    /// A second transport identity sharing the exact same endpoint, command
+    /// connection, pub/sub multiplexer and admission semaphores, but with its own
+    /// wire/inbox limits. The keepalive/cluster bus rides the worker transport's
+    /// single command + subscription connection instead of redialling a pair.
+    pub fn with_limits(&self, limits: TransportLimits) -> Result<Arc<Self>, TransportError> {
+        if limits.inbox_messages == 0
+            || limits.subscriptions == 0
+            || limits.commands == 0
+            || limits.subscriptions > Semaphore::MAX_PERMITS
+            || limits.commands > Semaphore::MAX_PERMITS
+            || limits.io_timeout.is_zero()
+            || limits.wire.encoded_bytes == 0
+        {
+            return Err(TransportError::Configuration);
+        }
+        Ok(Arc::new(Self {
+            endpoint: self.endpoint.clone(),
+            command: self.command.clone(),
+            shared: self.shared.clone(),
+            limits,
+            subscriptions: self.subscriptions.clone(),
+            commands: self.commands.clone(),
         }))
     }
 
@@ -166,82 +242,13 @@ impl RedisTransport {
             .clone()
             .try_acquire_owned()
             .map_err(|_| TransportError::Capacity)?;
-        let (sender, receiver) = mpsc::channel(self.limits.inbox_messages);
-        let (fault, failure) = watch::channel(None);
-        let expected = channel.legacy.as_bytes().to_vec();
         let cap = self.limits.wire.encoded_bytes;
-        let push = move |mut info: PushInfo| -> Result<(), ()> {
-            match info.kind {
-                PushKind::Disconnection => {
-                    fault.send_replace(Some(TransportError::Disconnected));
-                }
-                PushKind::Message => {
-                    if info.data.len() != 2 {
-                        fault.send_replace(Some(TransportError::Disconnected));
-                        return Err(());
-                    }
-                    let payload = info.data.pop().unwrap();
-                    let actual_channel = info.data.pop().unwrap();
-                    if !matches!(actual_channel, Value::BulkString(bytes) if bytes == expected) {
-                        return Ok(());
-                    }
-                    let Value::BulkString(bytes) = payload else {
-                        fault.send_replace(Some(TransportError::Disconnected));
-                        return Err(());
-                    };
-                    if bytes.len() > cap {
-                        fault.send_replace(Some(TransportError::Oversized));
-                        return Err(());
-                    }
-                    if sender.try_send(bytes).is_err() {
-                        fault.send_replace(Some(TransportError::Overflow));
-                        return Err(());
-                    }
-                }
-                _ => {}
-            }
-            Ok(())
-        };
-        let connection = if self.endpoint.is_cluster() {
-            // Cluster: build ClusterClient with push_sender bound to our queue.
-            let builder = self
-                .endpoint
-                .cluster_builder()
-                .ok_or(TransportError::Configuration)?;
-            let client = builder
-                .push_sender(push)
-                .build()
-                .map_err(|_| TransportError::Redis)?;
-            let mut conn = client
-                .get_async_connection()
-                .await
-                .map_err(|_| TransportError::Redis)?;
-            tokio::time::timeout(self.limits.io_timeout, conn.subscribe(&channel.legacy))
-                .await
-                .map_err(|_| TransportError::Timeout)?
-                .map_err(|_| TransportError::Redis)?;
-            SubscriptionConnection::Cluster(conn)
-        } else {
-            // Simple/Sentinel: existing MultiplexedConnection path.
-            let mut connection = self
-                .endpoint
-                .dial(&config(self.limits).set_push_sender(push))
-                .await
-                .map_err(|_| TransportError::Redis)?;
-            tokio::time::timeout(
-                self.limits.io_timeout,
-                connection.subscribe(&channel.legacy),
-            )
-            .await
-            .map_err(|_| TransportError::Timeout)?
-            .map_err(|_| TransportError::Redis)?;
-            SubscriptionConnection::Simple(connection)
-        };
-        // For cluster, we still need the fault channel reference — but the push
-        // closure already captured `fault`. For simple/sentinel it was consumed by
-        // set_push_sender. The watch below only reads.
+        let (handle, receiver, failure, _epoch) = self
+            .shared
+            .subscribe(channel.legacy.as_bytes(), self.limits.inbox_messages, cap)
+            .await?;
         Ok(Subscription {
-            connection: Some(connection),
+            handle: Some(handle),
             channel: channel.clone(),
             master_epoch,
             subscribed_master_epoch,
@@ -325,10 +332,11 @@ impl RedisTransport {
     }
 }
 
-/// Dropping this object drops its dedicated subscription connection and permit.
+/// Dropping this object releases its route on the shared pub/sub connection and
+/// its permit; the shared socket closes once the last registration is gone.
 /// Overflow/disconnect fails closed; no invisible reconnect/replay is attempted.
 pub struct Subscription {
-    connection: Option<SubscriptionConnection>,
+    handle: Option<SubHandle>,
     channel: Channel,
     master_epoch: Option<watch::Receiver<u64>>,
     subscribed_master_epoch: u64,
@@ -368,11 +376,6 @@ pub(crate) enum SubscriptionEvent {
     Message(Vec<u8>),
     Disconnected,
     Restored,
-}
-
-enum SubscriptionConnection {
-    Simple(MultiplexedConnection),
-    Cluster(ClusterConnection),
 }
 
 impl Subscription {
@@ -448,7 +451,7 @@ impl Subscription {
     /// Recover inside the owner's receive future; dropping it cancels retries.
     /// No message replay or business acknowledgement is synthesized.
     pub(crate) async fn recv_recovering(&mut self) -> Result<SubscriptionEvent, TransportError> {
-        if self.connection.is_none() {
+        if self.handle.is_none() {
             loop {
                 tokio::time::sleep(self.recovery_delay).await;
                 let bus = self.bus.clone();
@@ -476,9 +479,11 @@ impl Subscription {
         match self.recv().await {
             Ok(bytes) => Ok(SubscriptionEvent::Message(bytes)),
             Err(TransportError::Disconnected | TransportError::Redis | TransportError::Timeout) => {
-                // The old socket and its admission permit must be gone before
+                // The old route and its admission permit must be gone before
                 // attempting replacement, even when subscription capacity is 1.
-                self.connection.take();
+                if let Some(handle) = self.handle.take() {
+                    self.bus.shared.release(&handle);
+                }
                 self.admission.pending = None;
                 self._permit.take();
                 self.receiver.close();
@@ -489,22 +494,18 @@ impl Subscription {
         }
     }
 
-    pub async fn unsubscribe(self, channel: &Channel) -> Result<(), TransportError> {
-        let io_timeout = self.bus.limits.io_timeout;
-        match self.connection {
+    pub async fn unsubscribe(mut self, _channel: &Channel) -> Result<(), TransportError> {
+        match self.handle.take() {
             None => Ok(()),
-            Some(SubscriptionConnection::Simple(mut conn)) => {
-                tokio::time::timeout(io_timeout, conn.unsubscribe(&channel.legacy))
-                    .await
-                    .map_err(|_| TransportError::Timeout)?
-                    .map_err(|_| TransportError::Redis)
-            }
-            Some(SubscriptionConnection::Cluster(mut conn)) => {
-                tokio::time::timeout(io_timeout, conn.unsubscribe(&channel.legacy))
-                    .await
-                    .map_err(|_| TransportError::Timeout)?
-                    .map_err(|_| TransportError::Redis)
-            }
+            Some(handle) => self.bus.shared.unsubscribe(&handle).await,
+        }
+    }
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            self.bus.shared.release(&handle);
         }
     }
 }
@@ -530,29 +531,7 @@ impl RedisTransport {
 #[cfg(test)]
 impl Subscription {
     pub(crate) async fn test_receive_barrier(&mut self) -> Result<Vec<Vec<u8>>, TransportError> {
-        let pong = match self
-            .connection
-            .as_mut()
-            .ok_or(TransportError::Disconnected)?
-        {
-            SubscriptionConnection::Simple(conn) => tokio::time::timeout(
-                self.bus.limits.io_timeout,
-                redis::cmd("PING").query_async::<String>(conn),
-            )
-            .await
-            .map_err(|_| TransportError::Timeout)?
-            .map_err(|_| TransportError::Redis)?,
-            SubscriptionConnection::Cluster(conn) => tokio::time::timeout(
-                self.bus.limits.io_timeout,
-                redis::cmd("PING").query_async::<String>(conn),
-            )
-            .await
-            .map_err(|_| TransportError::Timeout)?
-            .map_err(|_| TransportError::Redis)?,
-        };
-        if pong != "PONG" {
-            return Err(TransportError::Redis);
-        }
+        self.bus.shared.test_barrier().await?;
         if let Some(error) = self.failure() {
             return Err(error);
         }
@@ -573,3 +552,7 @@ impl Subscription {
 #[cfg(test)]
 #[path = "redis_transport/cancellation_tests.rs"]
 mod cancellation_tests;
+
+#[cfg(test)]
+#[path = "redis_transport/shared_sub_tests.rs"]
+mod shared_sub_tests;

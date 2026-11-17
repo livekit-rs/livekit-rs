@@ -146,6 +146,24 @@ impl SipCatalog {
         })
     }
 
+    /// Ride the server's single shared command connection (one pooled
+    /// `UniversalClient`) while keeping the catalog's own concurrency ceiling and
+    /// timeout. The supplied connection retains its driver policy.
+    pub fn from_shared(
+        connection: SharedConnection,
+        timeout: Duration,
+        max_commands: usize,
+    ) -> Result<Self, CatalogError> {
+        if timeout.is_zero() || max_commands == 0 || max_commands > Semaphore::MAX_PERMITS {
+            return Err(CatalogError::Configuration);
+        }
+        Ok(Self {
+            connection: Arc::new(connection),
+            commands: Arc::new(Semaphore::new(max_commands)),
+            timeout,
+        })
+    }
+
     async fn query<T: redis::FromRedisValue>(
         &self,
         command: &mut redis::Cmd,

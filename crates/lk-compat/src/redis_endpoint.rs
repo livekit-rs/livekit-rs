@@ -1005,7 +1005,23 @@ impl SharedConnection {
     /// Shared-command sites keep their existing `&self` connection handles;
     /// this mirrors `MultiplexedConnection::clone` for the managed variants.
     pub fn begin(&self) -> ManagedLease<'_> {
-        ManagedLease { inner: self }
+        ManagedLease {
+            inner: self,
+            timeout: None,
+        }
+    }
+
+    /// A lease that bounds every command by `timeout`. Components riding the
+    /// process-wide pooled connection (the registry/catalog sharing upstream's
+    /// single `UniversalClient`) cannot set a per-connection `response_timeout`,
+    /// so they impose their own configured deadline per command instead. The
+    /// underlying pooled connection keeps its own longer I/O budget; a dropped
+    /// timed-out request is matched FIFO by redis-rs and discarded on reply.
+    pub fn begin_with_timeout(&self, timeout: Duration) -> ManagedLease<'_> {
+        ManagedLease {
+            inner: self,
+            timeout: Some(timeout),
+        }
     }
 
     /// Go ClusterClient routes ordinary pipeline commands by their own keys.
@@ -1015,7 +1031,17 @@ impl SharedConnection {
         &self,
         pipeline: &redis::Pipeline,
     ) -> redis::RedisResult<()> {
-        let mut connection = self.begin();
+        self.ordinary_pipeline_with_timeout(pipeline, None).await
+    }
+    pub(crate) async fn ordinary_pipeline_with_timeout(
+        &self,
+        pipeline: &redis::Pipeline,
+        timeout: Option<Duration>,
+    ) -> redis::RedisResult<()> {
+        let mut connection = match timeout {
+            Some(timeout) => self.begin_with_timeout(timeout),
+            None => self.begin(),
+        };
         if !matches!(self, Self::Cluster(_)) {
             return pipeline
                 .query_async::<Vec<Value>>(&mut connection)
@@ -1037,19 +1063,36 @@ impl SharedConnection {
 /// cloned handle) keep their shape while Sentinel failover stays transparent.
 pub struct ManagedLease<'a> {
     inner: &'a SharedConnection,
+    timeout: Option<Duration>,
+}
+
+impl ManagedLease<'_> {
+    fn timed_out() -> RedisError {
+        RedisError::from(std::io::Error::from(std::io::ErrorKind::TimedOut))
+    }
 }
 
 impl AsyncConnectionLike for ManagedLease<'_> {
     fn req_packed_command<'a>(&'a mut self, cmd: &'a redis::Cmd) -> redis::RedisFuture<'a, Value> {
+        let timeout = self.timeout;
+        let inner = self.inner;
         Box::pin(async move {
-            match self.inner {
-                SharedConnection::Pooled(commands) => {
-                    let mut lease = LeasedConnection::Pooled(commands);
-                    lease.req_packed_command(cmd).await
+            let command = async move {
+                match inner {
+                    SharedConnection::Pooled(commands) => {
+                        let mut lease = LeasedConnection::Pooled(commands);
+                        lease.req_packed_command(cmd).await
+                    }
+                    SharedConnection::Cluster(connection) => {
+                        ClusterConnection::req_packed_command(&mut { connection.clone() }, cmd).await
+                    }
                 }
-                SharedConnection::Cluster(connection) => {
-                    ClusterConnection::req_packed_command(&mut { connection.clone() }, cmd).await
-                }
+            };
+            match timeout {
+                Some(timeout) => tokio::time::timeout(timeout, command)
+                    .await
+                    .unwrap_or_else(|_| Err(Self::timed_out())),
+                None => command.await,
             }
         })
     }
@@ -1060,21 +1103,31 @@ impl AsyncConnectionLike for ManagedLease<'_> {
         offset: usize,
         count: usize,
     ) -> redis::RedisFuture<'a, Vec<Value>> {
+        let timeout = self.timeout;
+        let inner = self.inner;
         Box::pin(async move {
-            match self.inner {
-                SharedConnection::Pooled(commands) => {
-                    let mut lease = LeasedConnection::Pooled(commands);
-                    lease.req_packed_commands(pipeline, offset, count).await
+            let command = async move {
+                match inner {
+                    SharedConnection::Pooled(commands) => {
+                        let mut lease = LeasedConnection::Pooled(commands);
+                        lease.req_packed_commands(pipeline, offset, count).await
+                    }
+                    SharedConnection::Cluster(connection) => {
+                        ClusterConnection::req_packed_commands(
+                            &mut { connection.clone() },
+                            pipeline,
+                            offset,
+                            count,
+                        )
+                        .await
+                    }
                 }
-                SharedConnection::Cluster(connection) => {
-                    ClusterConnection::req_packed_commands(
-                        &mut { connection.clone() },
-                        pipeline,
-                        offset,
-                        count,
-                    )
+            };
+            match timeout {
+                Some(timeout) => tokio::time::timeout(timeout, command)
                     .await
-                }
+                    .unwrap_or_else(|_| Err(Self::timed_out())),
+                None => command.await,
             }
         })
     }

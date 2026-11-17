@@ -271,6 +271,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     let redis_enabled = !redis.address.is_empty()
         || !redis.sentinel_addresses.is_empty()
         || !redis.cluster_addresses.is_empty();
+    let mut redis_base: Option<Arc<lk_compat::service_bus::redis_transport::RedisTransport>> = None;
     let redis_endpoint = if redis_enabled {
         // Upstream `GetRedisClient` builds the `tls.Config` (`redis.go:88-98`, whose
         // failure is `xtls.ClientTLSConfig`'s own `could not load client key pair`)
@@ -280,21 +281,72 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         // ends startup with its bare message and no "connecting to redis" line at all.
         let endpoint =
             crate::redis_tls::redis_endpoint(redis).map_err(ServerError::RedisConnect)?;
-        // SPEC-0074 C10/C11/C12: the Ping of `GetRedisClient` (`redis.go:158-161`)
-        // runs on the client that was just built — never a second one, which is why
-        // the mode log above and the dial below share `endpoint`.
-        crate::cli_nodes::cli_redis_retry::ping_with(&endpoint, redis)
+        // One pooled command connection + one pub/sub multiplexer for the whole
+        // process, mirroring upstream's single borrowed `redis.UniversalClient`
+        // (`redisbus.New`): the SIP catalog, worker buses, IO store, node registry
+        // and keepalive/cluster bus all ride this one identity instead of each
+        // eagerly dialling its own pool. The base is dialled here because the SIP
+        // catalog is assembled before the worker policy exists; every real bus
+        // later derives its configured wire/inbox limits through `with_limits`,
+        // so no compression or decompression setting is ignored.
+        let limits = lk_compat::service_bus::redis_transport::TransportLimits {
+            wire: lk_compat::service_bus::wire::WireLimits {
+                encoded_bytes: isize::MAX as usize - 1,
+                decompressed_bytes: isize::MAX as usize - 1,
+            },
+            compression: lk_compat::service_bus::wire::CompressionPolicy {
+                quality: 0,
+                threshold: 0,
+            },
+            inbox_messages: 100,
+            subscriptions: 4096,
+            commands: 1000,
+            io_timeout: Duration::from_secs(5),
+        };
+        let topology =
+            !redis.sentinel_addresses.is_empty() || !redis.cluster_addresses.is_empty();
+        let base = if topology {
+            // SPEC-0074 C10/C11/C12: the Sentinel/Cluster `GetRedisClient` Ping
+            // (`redis.go:158-161`) runs on the discovery client `redis_endpoint`
+            // built, with that branch's own dial/read budget — never a second mode
+            // log. Its discovery diagnostics and short budget are certified
+            // (C08/C12), so the bus pool is dialled separately afterwards.
+            crate::cli_nodes::cli_redis_retry::ping_with(&endpoint, redis)
+                .await
+                .map_err(|e| ServerError::RedisConnect(e.to_string()))?;
+            lk_compat::service_bus::redis_transport::RedisTransport::connect_endpoint(
+                endpoint.clone(),
+                limits,
+            )
             .await
-            .map_err(|e| ServerError::RedisConnect(e.to_string()))?;
-        // One connection source (Simple, Sentinel or Cluster) feeds every downstream
-        // consumer: SIP catalog, worker service bus and IO store.
-        let catalog = lk_compat::sip::catalog::SipCatalog::connect_endpoint(
-            endpoint.clone(),
+            .map_err(|e| ServerError::RedisConnect(e.to_string()))?
+        } else {
+            // Simple/plaintext: upstream's `GetRedisClient` returns the ONE
+            // `redis.UniversalClient` that `redisbus.New` then borrows, so the
+            // startup Ping and every bus command ride a single pooled connection
+            // (`redis.go:156-161`). Build that pool first and run the Ping on it,
+            // so a successful start opens one command connection + one pub/sub
+            // multiplexer — Go's two-connection shape — instead of a throwaway
+            // Ping dial plus a separate bus pool.
+            let base =
+                lk_compat::service_bus::redis_transport::RedisTransport::connect_endpoint(
+                    endpoint.clone(),
+                    limits,
+                )
+                .await
+                .map_err(|e| ServerError::RedisConnect(e.to_string()))?;
+            crate::cli_nodes::cli_redis_retry::ping_base(base.command_connection(), redis)
+                .await
+                .map_err(|e| ServerError::RedisConnect(e.to_string()))?;
+            base
+        };
+        let catalog = lk_compat::sip::catalog::SipCatalog::from_shared(
+            base.command_connection(),
             Duration::from_secs(5),
             128,
-        )
-        .await?;
+        )?;
         services = services.with_sip_catalog(catalog);
+        redis_base = Some(base);
         Some(endpoint)
     } else {
         None
@@ -434,7 +486,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         // endpoint re-resolves the current master for each new dial, so worker
         // subscriptions and WATCH transactions follow `+switch-master`.
         state
-            .enable_workers(
+            .enable_workers_shared(
                 lk_compat::worker_services::WorkerConfig {
                     redis: endpoint,
                     rpc: worker_policy.rpc,
@@ -443,6 +495,9 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
                     ingress: worker_policy.ingress,
                     ingress_legacy_psrpc: worker_policy.ingress_legacy_psrpc,
                 },
+                redis_base
+                    .clone()
+                    .expect("redis base identity is built whenever redis is enabled"),
                 notifier
                     .as_deref()
                     .expect("Redis worker events have an owned notifier")
@@ -527,18 +582,18 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         max_delay: loaded.official.node_stats.stats_max_delay.to_std(),
     };
     let cluster_endpoint = prune_endpoint.clone();
-    let (node_registry, keepalive_bus, cluster_bus) = match prune_endpoint {
-        Some(endpoint) => {
+    let (node_registry, keepalive_bus, cluster_bus) = match (prune_endpoint, redis_base.as_ref()) {
+        (Some(_endpoint), Some(base)) => {
             // `ListNodes` (`redisrouter.go:137-151`) puts no size ceiling on the
             // stored node protobuf, so the startup sweep must not invent one either.
+            // The sweep rides the same pooled command connection as the rest of the
+            // process (upstream's single `RedisRouter` client), not a second pool.
             let registry = Arc::new(
-                lk_compat::room_control::registry::RedisRegistry::connect_endpoint(
-                    endpoint.clone(),
+                lk_compat::room_control::registry::RedisRegistry::from_connection(
+                    base.command_connection(),
                     Duration::from_secs(5),
                     usize::MAX,
-                )
-                .await
-                .map_err(ServerError::NodePrune)?,
+                ),
             );
             registry
                 .remove_dead_nodes()
@@ -546,23 +601,21 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
                 .map_err(ServerError::NodePrune)?;
             // psrpc's own bus options apply to the keepalive client and server
             // (`getPSRPCClientParams`), so the transport limits match the worker
-            // buses above; the inbox is the server-side handler channel.
-            let transport =
-                lk_compat::service_bus::redis_transport::RedisTransport::connect_endpoint(
-                    endpoint,
-                    lk_compat::service_bus::redis_transport::TransportLimits {
-                        wire: lk_compat::service_bus::wire::WireLimits {
-                            encoded_bytes: isize::MAX as usize - 1,
-                            decompressed_bytes: max_decompressed_size,
-                        },
-                        compression: keepalive_compression,
-                        inbox_messages: 100,
-                        subscriptions: 4096,
-                        commands: 1000,
-                        io_timeout: Duration::from_secs(5),
+            // buses above; the inbox is the server-side handler channel. The
+            // keepalive/cluster bus shares the worker transport's single command +
+            // pub/sub connection identity instead of redialling a pair.
+            let transport = base
+                .with_limits(lk_compat::service_bus::redis_transport::TransportLimits {
+                    wire: lk_compat::service_bus::wire::WireLimits {
+                        encoded_bytes: isize::MAX as usize - 1,
+                        decompressed_bytes: max_decompressed_size,
                     },
-                )
-                .await
+                    compression: keepalive_compression,
+                    inbox_messages: 100,
+                    subscriptions: 4096,
+                    commands: 1000,
+                    io_timeout: Duration::from_secs(5),
+                })
                 .map_err(|e| ServerError::KeepaliveTransport(e.to_string()))?;
             let bus = Arc::new(lk_compat::routing::KeepaliveBus::new(
                 transport.clone(),
@@ -570,7 +623,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
             ));
             (Some(registry), Some(bus), Some(transport))
         }
-        None => (None, None, None),
+        _ => (None, None, None),
     };
     let node_router = Arc::new(crate::node::NodeRouter::new(
         current_node.clone(),

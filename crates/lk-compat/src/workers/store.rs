@@ -35,6 +35,21 @@ impl IoStore {
             started: Mutex::new(false),
         })
     }
+    /// Ride the server's single shared command connection. WATCH transactions
+    /// still dial their own fresh connection per call (`transaction_connection`),
+    /// so cancelling one never leaks WATCH state into the shared pool.
+    pub fn from_connection(
+        connection: SharedConnection,
+        endpoint: RedisEndpoint,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            connection: Mutex::new(connection),
+            endpoint,
+            timeout,
+            started: Mutex::new(false),
+        }
+    }
     // Each WATCH transaction owns a fresh connection. Cancelling its future
     // drops that connection rather than leaking WATCH state into another call.
     // A Sentinel endpoint resolves the current master for every transaction.

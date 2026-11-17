@@ -14,13 +14,20 @@ the client actually wrote:
 
 The fixed Go contract (`references/psrpc/pkg/bus/redisbus/redisbus.go:63-83,262`)
 multiplexes **all** subscriptions over one `ps` PubSub connection and shares one
-`rc` pool for commands. The Rust transport
-(`crates/lk-compat/src/service_bus/redis_transport.rs:205-238`) dials a **dedicated**
-connection per subscription and each consumer owns its own command connection
-(`redis_endpoint.rs:478-483,958-983`). This witness binds that attribution to the
-current candidate with per-connection traces, and asserts the qualitative difference
-so the recording is a check, not a note. It does **not** claim connection-count parity:
-the count is a resource shape, and the functional startup (HTTP 200) is the gate.
+`rc` pool for commands. C40 brought the Rust transport to the same shape: one shared
+pub/sub multiplexer per transport
+(`crates/lk-compat/src/service_bus/redis_transport/shared_sub.rs`) and one pooled
+command connection shared by every consumer (`crates/livecloud/src/server.rs` single
+base; `redis_endpoint.rs` `SharedConnection`), with the simple/plaintext GetRedisClient
+Ping riding that same pool (`cli_redis_retry::ping_base`). This witness binds the
+resolved **connection-count parity** to the current candidate with per-connection
+traces: both sides open 1 command + 1 multiplexed subscription = 2 and reach HTTP 200.
+It asserts the parity shape falsifiably (each side multiplexes all its channels onto one
+subscription connection, shares one command pool, and matches the total count). The
+channel-set *size* differs (Go 63 vs Rust 35) because the two psrpc stacks register
+different service channels — a separate surface, not connection churn, and not claimed
+here. Sentinel/Cluster startup keeps its certified discovery Ping client (C08/C12), so
+this witness measures the simple/plaintext topology.
 
 Usage:
   python3 run-attribution.py --official /abs/livekit-server --rust /abs/livekit-server \
@@ -262,35 +269,60 @@ def stop_server(proc: subprocess.Popen) -> int | None:
 
 
 def evaluate(official: dict, rust: dict) -> dict:
-    """The attribution this witness exists to bind. Each assertion is falsifiable:
-    if the candidate ever multiplexed like Go, or Go dedicated like Rust, it fails.
-    Raised AssertionError carries the item id so a failure names the gap it guards."""
-    assert rust["connections"] > official["connections"], \
-        (ITEM, "candidate no longer opens more connections", rust["connections"], official["connections"])
-    assert rust["subscription_connections"] > official["subscription_connections"], \
-        (ITEM, "candidate no longer dedicates more subscription connections",
-         rust["subscription_connections"], official["subscription_connections"])
-    assert official["distinct_channel_count"] > official["subscription_connections"], \
-        (ITEM, "reference no longer multiplexes multiple channels onto fewer connections",
-         official["distinct_channel_count"], official["subscription_connections"])
-    assert rust["subscription_connections"] >= rust["distinct_channel_count"], \
-        (ITEM, "candidate no longer dedicates one connection per subscribed channel",
-         rust["subscription_connections"], rust["distinct_channel_count"])
+    """The resolved parity this witness now binds (C40). Each assertion is falsifiable:
+    if either side ever dedicated a connection per subscription, dialled a second command
+    pool, or inflated the startup count with an idle dial, it fails. Raised AssertionError
+    carries the item id so a failure names the regression it guards.
+
+    The claim is connection-COUNT parity, not channel-set equality: Go registers 63 psrpc
+    subscription channels and Rust 35 (a different RPC service-registration surface, out of
+    scope here). What must match is the resource shape — every channel multiplexed onto ONE
+    pub/sub connection, ONE shared pooled command connection, and the same total startup
+    connection count (1 command + 1 subscription = 2)."""
+    assert official["subscription_connections"] == 1, \
+        (ITEM, "reference no longer multiplexes all subscriptions onto one connection",
+         official["subscription_connections"])
+    assert rust["subscription_connections"] == 1, \
+        (ITEM, "candidate no longer multiplexes all subscriptions onto one connection",
+         rust["subscription_connections"])
+    assert official["by_category"].get("command", 0) == 1, \
+        (ITEM, "reference no longer shares one pooled command connection",
+         official["by_category"].get("command", 0))
+    assert rust["by_category"].get("command", 0) == 1, \
+        (ITEM, "candidate no longer shares one pooled command connection",
+         rust["by_category"].get("command", 0))
+    assert official["max_channels_per_subscription_connection"] == official["distinct_channel_count"], \
+        (ITEM, "reference spreads its channels over more than one subscription connection",
+         official["max_channels_per_subscription_connection"], official["distinct_channel_count"])
+    assert rust["max_channels_per_subscription_connection"] == rust["distinct_channel_count"], \
+        (ITEM, "candidate spreads its channels over more than one subscription connection",
+         rust["max_channels_per_subscription_connection"], rust["distinct_channel_count"])
+    assert rust["connections"] == official["connections"], \
+        (ITEM, "candidate startup connection count diverges from the reference",
+         rust["connections"], official["connections"])
     return {
         "reference": (f"{official['connections']} connections: "
-                      f"{official['subscription_connections']} multiplexed subscription connection(s) "
+                      f"{official['subscription_connections']} multiplexed subscription connection "
                       f"carrying {official['distinct_channel_count']} channels, "
                       f"{official['by_category'].get('command', 0)} command, "
                       f"{official['by_category'].get('hello-only', 0)} hello-only"),
         "candidate": (f"{rust['connections']} connections: "
-                      f"{rust['subscription_connections']} dedicated subscription connections "
-                      f"for {rust['distinct_channel_count']} channels, "
+                      f"{rust['subscription_connections']} multiplexed subscription connection "
+                      f"carrying {rust['distinct_channel_count']} channels, "
                       f"{rust['by_category'].get('command', 0)} command, "
                       f"{rust['by_category'].get('hello-only', 0)} hello-only"),
-        "cause": ("Rust dials one dedicated connection per psrpc subscription and one command "
-                  "connection per consumer; Go multiplexes all subscriptions over one PubSub "
-                  "connection and shares one on-demand pool. Resource shape, not a functional "
-                  "startup difference: both reach HTTP 200."),
+        "cause": ("Resolved (C40): Rust now multiplexes every psrpc subscription over one shared "
+                  "pub/sub connection (shared_sub.rs) and shares one pooled command connection "
+                  "across the SIP catalog, worker buses, IO store, node registry and keepalive bus "
+                  "(server.rs single base + redis_endpoint.rs SharedConnection); the simple/plaintext "
+                  "GetRedisClient Ping rides that same pool (cli_redis_retry::ping_base) instead of a "
+                  "throwaway dial. Both sides open 1 command + 1 subscription = 2 and reach HTTP 200. "
+                  "The channel-set size differs (Go 63 vs Rust 35) because the two psrpc stacks register "
+                  "different service channels — a separate surface, not connection churn."),
+        "scoped_residual": ("Sentinel/Cluster startup keeps the certified GetRedisClient discovery Ping "
+                            "on its own client (C08/C12 discovery diagnostics + branch dial/read budget), "
+                            "so those topologies open a discovery command connection plus the bus pool; "
+                            "this witness measures the simple/plaintext topology where parity is 2 == 2."),
     }
 
 
@@ -303,7 +335,7 @@ def resp_array(*tokens: str) -> str:
 
 
 def synth_run(connections: int, sub_conns: int, channels: int,
-              command: int = 0, hello: int = 0) -> dict:
+              command: int = 0, hello: int = 0, max_per_sub: int | None = None) -> dict:
     by_cat = {}
     if sub_conns:
         by_cat["subscription"] = sub_conns
@@ -311,8 +343,11 @@ def synth_run(connections: int, sub_conns: int, channels: int,
         by_cat["command"] = command
     if hello:
         by_cat["hello-only"] = hello
+    if max_per_sub is None:
+        max_per_sub = channels if sub_conns else 0
     return {"connections": connections, "subscription_connections": sub_conns,
-            "distinct_channel_count": channels, "by_category": by_cat}
+            "distinct_channel_count": channels, "by_category": by_cat,
+            "max_channels_per_subscription_connection": max_per_sub}
 
 
 def self_test() -> int:
@@ -341,29 +376,36 @@ def self_test() -> int:
     record("categorize_subscribe_wins_over_command", mixed["category"] == "subscription",
            f"category={mixed['category']}")
 
-    # Positive control: the real observed shape (Go multiplex 63->1, Rust dedicate 35->35).
+    # Positive control: the resolved parity shape (both 1 command + 1 multiplexed
+    # subscription = 2; Go carries 63 channels, Rust 35, each all on its one connection).
     official = synth_run(2, 1, 63, command=1)
-    rust = synth_run(45, 35, 35, command=4, hello=6)
+    rust = synth_run(2, 1, 35, command=1)
     try:
         evaluate(official, rust)
-        record("positive_observed_shape", True, "evaluate accepted the multiplex-vs-dedicate shape")
+        record("positive_resolved_parity", True, "evaluate accepted the 2 == 2 multiplexed parity shape")
     except AssertionError as exc:
-        record("positive_observed_shape", False, f"evaluate wrongly rejected: {exc}")
+        record("positive_resolved_parity", False, f"evaluate wrongly rejected: {exc}")
 
-    # Negative controls — each must raise. One per assertion, plus inverted/equal/zero.
+    # Negative controls — each must raise, isolating one assertion (the first that fires).
     negatives = [
-        ("inverted_shape", synth_run(45, 35, 35, command=4), synth_run(2, 1, 63, command=1),
-         "candidate multiplexes, reference dedicates"),
-        ("equal_no_divergence", synth_run(2, 1, 63, command=1), synth_run(2, 1, 63, command=1),
-         "both sides identical"),
-        ("zero_subscriptions", synth_run(2, 0, 0, command=2), synth_run(45, 0, 0, command=45),
-         "neither side subscribed (the broken-tap shape)"),
-        ("candidate_multiplexes_like_go", synth_run(2, 1, 63, command=1), synth_run(3, 1, 63, command=2),
-         "candidate opens more connections but still one subscription"),
-        ("reference_does_not_multiplex", synth_run(64, 63, 63, command=1), synth_run(100, 70, 70, command=30),
-         "reference dedicates one connection per channel too"),
-        ("candidate_channels_exceed_connections", synth_run(2, 1, 63, command=1), synth_run(45, 35, 40, command=4),
-         "candidate claims more channels than subscription connections"),
+        ("reference_dedicates_subscriptions", synth_run(64, 63, 63, command=1, max_per_sub=1),
+         synth_run(2, 1, 35, command=1), "reference dials one subscription connection per channel"),
+        ("candidate_dedicates_subscriptions", synth_run(2, 1, 63, command=1),
+         synth_run(36, 35, 35, command=1, max_per_sub=1), "candidate dials one subscription connection per channel"),
+        ("reference_second_command_pool", synth_run(3, 1, 63, command=2),
+         synth_run(2, 1, 35, command=1), "reference opens a second command connection"),
+        ("candidate_second_command_pool", synth_run(2, 1, 63, command=1),
+         synth_run(3, 1, 35, command=2), "candidate opens a second command connection (the pre-C40 Ping dial)"),
+        ("reference_channels_spread", synth_run(2, 1, 63, command=1, max_per_sub=30),
+         synth_run(2, 1, 35, command=1), "reference splits its channels across subscription connections"),
+        ("candidate_channels_spread", synth_run(2, 1, 63, command=1),
+         synth_run(2, 1, 35, command=1, max_per_sub=20), "candidate splits its channels across subscription connections"),
+        ("candidate_idle_dial_inflates_count", synth_run(2, 1, 63, command=1),
+         synth_run(3, 1, 35, command=1, hello=1), "candidate adds an idle hello-only dial (3 != 2)"),
+        ("reference_idle_dial_inflates_count", synth_run(3, 1, 63, command=1, hello=1),
+         synth_run(2, 1, 35, command=1), "reference adds an idle hello-only dial (2 != 3)"),
+        ("inverted_pre_c40_shape", synth_run(45, 35, 35, command=4, hello=6, max_per_sub=1),
+         synth_run(2, 1, 63, command=1), "the old divergence: candidate dedicates, reference multiplexes"),
     ]
     for name, off, rs, why in negatives:
         try:
@@ -400,21 +442,16 @@ def main() -> int:
     for port in (plain, tap_port, *http.values(), *tcp.values(), *udp.values()):
         assert free(port), f"fixture port {port} is already in use"
     staging = pathlib.Path(tempfile.mkdtemp(prefix="conn-attribution-"))
-    redis_proc = None
-    tap = None
     report = {"status": "RUNNING", "item": ITEM, "tap_port": tap_port, "upstream": plain,
               "binaries": {}, "runs": {},
               "contract": {
                   "go_multiplex": "references/psrpc/pkg/bus/redisbus/redisbus.go:63-83 (one ps), :262 (ps.Subscribe batches all channels)",
                   "go_pool": "references/protocol-stable/redis/redis.go:156-161 (one UniversalClient + Ping); go-redis options.go:497 PoolSize=10*GOMAXPROCS, MinIdleConns=0 (on demand)",
-                  "rust_dedicated": "crates/lk-compat/src/service_bus/redis_transport.rs:205-238 (endpoint.dial per subscription)",
-                  "rust_per_consumer_command": "crates/lk-compat/src/redis_endpoint.rs:478-483,958-983 (SharedConnection::connect eager per consumer)",
+                  "rust_multiplex": "crates/lk-compat/src/service_bus/redis_transport/shared_sub.rs (one shared pub/sub connection per transport; push_sender fans out by channel; ensure() batches SUBSCRIBE)",
+                  "rust_shared_command": "crates/livecloud/src/server.rs (one base RedisTransport; every consumer rides base.command_connection()); crates/lk-compat/src/worker_services.rs (with_limits/with_inbox_size share command+sub); crates/lk-compat/src/redis_endpoint.rs (SharedConnection pooled command lease; begin_with_timeout imposes the consumer's configured deadline per command)",
               },
               "normalization": "none: every connection's client writes recorded verbatim, \\r\\n escaped; categories parsed from those bytes"}
     try:
-        redis_proc = start_redis(plain, staging)
-        tap = Tap(tap_port, ("127.0.0.1", plain))
-        time.sleep(0.3)
         for label, binary in (("official", args.official.resolve()),
                               ("rust", args.rust.resolve())):
             config = staging / f"{label}.yaml"
@@ -427,17 +464,37 @@ def main() -> int:
                 "turn: {enabled: false}\n"
                 f'redis:\n  address: "127.0.0.1:{tap_port}"\n')
             config.chmod(0o600)
-            tap.reset()
-            time.sleep(0.2)
-            proc, reached, early = start_server(binary, config, http[label],
-                                                args.output / f"{label}.server.log")
-            # Snapshot the startup window before draining; the drain adds UNSUBSCRIBE.
-            # Let the asynchronous psrpc writeWorker / per-consumer subscriptions
-            # settle so their SUBSCRIBE writes are on the wire before the snapshot.
-            time.sleep(3.0)
-            seen = tap.snapshot()
-            cats = [categorize(c) for c in seen]
-            exit_code = stop_server(proc)
+            # Per-run isolation: a fresh upstream Redis and a fresh tap for each side.
+            # Sharing one Redis/tap across runs let the reference's go-redis command
+            # connection (re-dialled during its SIGINT shutdown) land in the candidate's
+            # capture window after tap.reset(), inflating the candidate's command count
+            # with a connection the candidate never opened. Tearing down the reference's
+            # Redis before the candidate starts makes cross-run leakage impossible.
+            run_staging = staging / label
+            run_staging.mkdir(parents=True, exist_ok=True)
+            redis_proc = start_redis(plain, run_staging)
+            tap = Tap(tap_port, ("127.0.0.1", plain))
+            time.sleep(0.3)
+            try:
+                proc, reached, early = start_server(binary, config, http[label],
+                                                    args.output / f"{label}.server.log")
+                # Snapshot the startup window before draining; the drain adds UNSUBSCRIBE.
+                # Let the asynchronous psrpc writeWorker / per-consumer subscriptions
+                # settle so their SUBSCRIBE writes are on the wire before the snapshot.
+                time.sleep(3.0)
+                seen = tap.snapshot()
+                cats = [categorize(c) for c in seen]
+                exit_code = stop_server(proc)
+            finally:
+                tap.close()
+                if redis_proc.poll() is None:
+                    redis_proc.terminate()
+                    try:
+                        redis_proc.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        redis_proc.kill()
+                # let the OS release the ports before the next run rebinds them
+                time.sleep(0.3)
             report["binaries"][label] = {"path": str(binary), "sha256": sha(binary.read_bytes())}
             by_cat: dict[str, int] = {}
             for c in cats:
@@ -465,14 +522,6 @@ def main() -> int:
         report["failure"] = f"{type(exc).__name__}: {exc}"
         return 1
     finally:
-        if tap is not None:
-            tap.close()
-        if redis_proc is not None and redis_proc.poll() is None:
-            redis_proc.terminate()
-            try:
-                redis_proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                redis_proc.kill()
         shutil.rmtree(staging, ignore_errors=True)
         (args.output / "attribution.json").write_text(json.dumps(report, indent=2) + "\n")
         print(json.dumps({"status": report["status"], "failure": report.get("failure"),

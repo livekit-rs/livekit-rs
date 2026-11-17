@@ -1,7 +1,7 @@
 //! Fixed routing/redisrouter.go node/room assignment storage and RedisStore room
 //! creation lock. A mapping is not an ownership lease and a lock is not a room.
 //! No runtime room is created and no SDK signal is rerouted by this foundation.
-use crate::redis_endpoint::{RedisEndpoint, SharedConnection};
+use crate::redis_endpoint::{ManagedLease, RedisEndpoint, SharedConnection};
 use crate::workers::preserved::WireValue;
 use lk_protocol::livekit as pb;
 use std::time::Duration;
@@ -60,6 +60,7 @@ pub struct RoomLock {
 pub struct RedisRegistry {
     connection: SharedConnection,
     max_node_bytes: usize,
+    command_timeout: Option<Duration>,
 }
 impl RedisRegistry {
     /// Simple-address constructor. Every other topology has to go through
@@ -98,7 +99,30 @@ impl RedisRegistry {
         Ok(Self {
             connection,
             max_node_bytes,
+            command_timeout: None,
         })
+    }
+    /// Ride an already-dialled shared command connection (the server's single
+    /// pooled `UniversalClient`) instead of opening a second pool. Upstream's
+    /// `RedisRouter` keeps one client for the sweep, `RegisterNode`,
+    /// `UnregisterNode` and the ping-driven re-HSET. The shared pool keeps its
+    /// own I/O budget, so the caller's configured deadline is imposed per command.
+    pub fn from_connection(
+        connection: SharedConnection,
+        timeout: Duration,
+        max_node_bytes: usize,
+    ) -> Self {
+        Self {
+            connection,
+            max_node_bytes,
+            command_timeout: Some(timeout),
+        }
+    }
+    fn lease(&self) -> ManagedLease<'_> {
+        match self.command_timeout {
+            Some(timeout) => self.connection.begin_with_timeout(timeout),
+            None => self.connection.begin(),
+        }
     }
     async fn query<T: redis::FromRedisValue + Send>(
         &self,
@@ -106,7 +130,7 @@ impl RedisRegistry {
         context: &'static str,
     ) -> Result<T, RegistryError> {
         command
-            .query_async(&mut self.connection.begin())
+            .query_async(&mut self.lease())
             .await
             .map_err(|source| RegistryError::Redis { context, source })
     }

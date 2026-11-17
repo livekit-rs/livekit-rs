@@ -105,7 +105,7 @@ impl WorkerServices {
         catalog: Option<SipCatalog>,
         events: Arc<dyn IoEvents>,
     ) -> Result<Arc<WorkerServices>, RpcError> {
-        Self::build(None, policy, manager, catalog, events).await
+        Self::build(None, None, policy, manager, catalog, events).await
     }
     /// Broker-backed shape; same graph, real subscriptions.
     pub async fn connect(
@@ -115,10 +115,26 @@ impl WorkerServices {
         events: Arc<dyn IoEvents>,
     ) -> Result<Arc<WorkerServices>, RpcError> {
         let policy = config.policy();
-        Self::build(Some(config.redis), policy, manager, catalog, events).await
+        Self::build(Some(config.redis), None, policy, manager, catalog, events).await
+    }
+    /// Broker-backed shape riding the server's single shared transport identity:
+    /// the worker buses and IO store reuse the same pooled command connection and
+    /// pub/sub multiplexer the keepalive/cluster bus and node registry use, so the
+    /// whole process opens one command + one subscription connection like upstream's
+    /// single borrowed `redis.UniversalClient`.
+    pub async fn connect_shared(
+        config: WorkerConfig,
+        base: Arc<RedisTransport>,
+        manager: RoomManager,
+        catalog: Option<SipCatalog>,
+        events: Arc<dyn IoEvents>,
+    ) -> Result<Arc<WorkerServices>, RpcError> {
+        let policy = config.policy();
+        Self::build(Some(config.redis), Some(base), policy, manager, catalog, events).await
     }
     async fn build(
         redis: Option<RedisEndpoint>,
+        base: Option<Arc<RedisTransport>>,
         policy: WorkerPolicy,
         manager: RoomManager,
         catalog: Option<SipCatalog>,
@@ -143,13 +159,22 @@ impl WorkerServices {
         // `getEgressStore`/`getIngressStore`/`getSIPStore` only accept the Redis
         // store; with a local bus the handle is nil, which every gateway turns
         // into its own "not connected" error.
-        let store = match redis.as_ref() {
-            Some(endpoint) => {
+        let store = match (base.as_ref(), redis.as_ref()) {
+            (Some(base), _) => {
+                let store = Arc::new(IoStore::from_connection(
+                    base.command_connection(),
+                    base.endpoint().clone(),
+                    timeout,
+                ));
+                store.start("1.13.10").await?;
+                Some(store)
+            }
+            (None, Some(endpoint)) => {
                 let store = Arc::new(IoStore::connect(endpoint.clone(), timeout).await?);
                 store.start("1.13.10").await?;
                 Some(store)
             }
-            None => None,
+            (None, None) => None,
         };
         let limits = |inbox_messages| TransportLimits {
             wire: WireLimits {
@@ -184,12 +209,20 @@ impl WorkerServices {
         } else {
             None
         };
+        // Redis 侧同样只构造一个传输身份：一条共享命令连接 + 一个共享 pub/sub
+        // 多路复用连接（对标 redisbus 的单一 rc.Subscribe 与 borrowed UniversalClient），
+        // 三个 inbox 视图通过 with_inbox_size 复用，不再各自红 dial 命令池。
+        let redis_base = match (base, redis.as_ref()) {
+            (Some(base), _) => Some(base),
+            (None, Some(endpoint)) => {
+                Some(RedisTransport::connect_endpoint(endpoint.clone(), limits(100)).await?)
+            }
+            (None, None) => None,
+        };
         macro_rules! bus {
             ($inbox:expr) => {{
-                match redis.as_ref() {
-                    Some(endpoint) => RpcBus::from(
-                        RedisTransport::connect_endpoint(endpoint.clone(), limits($inbox)).await?,
-                    ),
+                match redis_base.as_ref() {
+                    Some(base) => RpcBus::from(base.with_limits(limits($inbox))?),
                     None => RpcBus::from(
                         local
                             .as_ref()

@@ -353,6 +353,38 @@ impl AppState {
         Ok(())
     }
 
+    /// Broker-backed activation riding the server's single shared transport
+    /// identity (one pooled command connection + one pub/sub multiplexer). The
+    /// worker graph and IO store reuse `base` instead of redialling their own.
+    pub async fn enable_workers_shared(
+        &mut self,
+        config: crate::worker_services::WorkerConfig,
+        base: std::sync::Arc<crate::service_bus::redis_transport::RedisTransport>,
+        notifier: crate::webhook::WebhookNotifier,
+    ) -> Result<(), crate::service_bus::rpc::RpcError> {
+        if self.worker_services.is_some() {
+            return Err(crate::service_bus::rpc::RpcError::new(
+                "already_exists",
+                "worker services already started",
+            ));
+        }
+        let events = Arc::new(crate::worker_notifications::WorkerNotifications::new(
+            notifier,
+        ));
+        let workers = crate::worker_services::WorkerServices::connect_shared(
+            config,
+            base,
+            self.manager.clone(),
+            self.sip_catalog.as_deref().cloned(),
+            events,
+        )
+        .await?;
+        if let Some(control) = &self.room_control {
+            workers.bind_room_control(control)?;
+        }
+        self.worker_services = Some(workers);
+        Ok(())
+    }
     /// Single-node activation: the same worker graph without a broker. Upstream
     /// still builds its message bus (`psrpc.NewLocalMessageBus`) and its egress
     /// launcher in this mode; only the stores are nil.

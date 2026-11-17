@@ -205,8 +205,7 @@ impl RoomControl {
         bus: Arc<RedisTransport>,
         config: Config,
     ) -> Result<Arc<Self>, RpcError> {
-        let endpoint = crate::redis_endpoint::RedisEndpoint::simple(config.redis.clone());
-        Self::start_inner(state, bus, config, endpoint, None).await
+        Self::start_inner(state, bus, config, None).await
     }
     /// Production assembly uses the NodeRouter-owned record. RoomControl owns
     /// room routing/topics only; it cannot independently register/delete nodes.
@@ -214,7 +213,7 @@ impl RoomControl {
         state: AppState,
         bus: Arc<RedisTransport>,
         config: ManagedConfig,
-        endpoint: crate::redis_endpoint::RedisEndpoint,
+        _endpoint: crate::redis_endpoint::RedisEndpoint,
         node: Arc<crate::routing::LocalNode>,
     ) -> Result<Arc<Self>, RpcError> {
         // A credential-free inert compatibility field for start_inner's shared
@@ -231,13 +230,12 @@ impl RoomControl {
             selector: config.selector,
             limits: config.limits,
         };
-        Self::start_inner(state, bus, legacy, endpoint, Some(node)).await
+        Self::start_inner(state, bus, legacy, Some(node)).await
     }
     async fn start_inner(
         state: AppState,
         bus: Arc<RedisTransport>,
         config: Config,
-        endpoint: crate::redis_endpoint::RedisEndpoint,
         managed_node: Option<Arc<crate::routing::LocalNode>>,
     ) -> Result<Arc<Self>, RpcError> {
         if !state
@@ -261,19 +259,18 @@ impl RoomControl {
         }
         // Reject a closed/quarantined shared authority before any new Redis command.
         state.routing_events.ensure_attachable()?;
-        let registry = Arc::new(
-            RedisRegistry::connect_endpoint(
-                endpoint.clone(),
+        let registry = Arc::new(RedisRegistry::from_connection(
+            bus.command_connection(),
+            config.timeout,
+            config.max_protobuf_bytes,
+        ));
+        let catalog = Arc::new(
+            RoomCatalog::from_connection(
+                bus.command_connection(),
                 config.timeout,
                 config.max_protobuf_bytes,
             )
-            .await
             .map_err(error)?,
-        );
-        let catalog = Arc::new(
-            RoomCatalog::connect_endpoint(endpoint, config.timeout, config.max_protobuf_bytes)
-                .await
-                .map_err(error)?,
         );
         let selector = Arc::new(selector::ConfiguredSelector::new(config.selector).map_err(error)?);
         let allocator = Arc::new(RoomAllocator {

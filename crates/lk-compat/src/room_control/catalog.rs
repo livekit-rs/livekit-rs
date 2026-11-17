@@ -44,6 +44,7 @@ pub struct SharedRoom {
 pub struct RoomCatalog {
     connection: SharedConnection,
     max_bytes: usize,
+    command_timeout: Option<Duration>,
 }
 impl RoomCatalog {
     pub async fn connect(
@@ -67,7 +68,33 @@ impl RoomCatalog {
         Ok(Self {
             connection: endpoint.connect(&config).await?,
             max_bytes,
+            command_timeout: None,
         })
+    }
+    /// Ride the shared bus command connection (the server's single pooled
+    /// `UniversalClient`) instead of dialling a second pool. Room routing reads
+    /// and writes share the same client as the node registry and keepalive bus.
+    /// The shared pool keeps its own I/O budget, so the caller's configured
+    /// deadline is imposed per command.
+    pub fn from_connection(
+        connection: SharedConnection,
+        timeout: Duration,
+        max_bytes: usize,
+    ) -> Result<Self, CatalogError> {
+        if max_bytes == 0 {
+            return Err(CatalogError::Size(0));
+        }
+        Ok(Self {
+            connection,
+            max_bytes,
+            command_timeout: Some(timeout),
+        })
+    }
+    fn lease(&self) -> ManagedLease<'_> {
+        match self.command_timeout {
+            Some(timeout) => self.connection.begin_with_timeout(timeout),
+            None => self.lease(),
+        }
     }
     fn decode<T: prost::Message + prost::Name + Default>(
         &self,
@@ -79,7 +106,7 @@ impl RoomCatalog {
         WireValue::decode(raw).map_err(|e| CatalogError::Invalid(e.to_string()))
     }
     pub async fn load(&self, name: &str) -> Result<SharedRoom, CatalogError> {
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         // Ordinary independent key commands, matching Go RedisStore's non-TX
         // pipeline. A Cluster executor must route each original key separately.
         let room: Option<Vec<u8>> = redis::cmd("HGET")
@@ -98,7 +125,7 @@ impl RoomCatalog {
         })
     }
     pub async fn public_room_exists(&self, name: &str) -> Result<bool, CatalogError> {
-        let mut connection = self.connection.begin();
+        let mut connection = self.lease();
         let raw: Option<Vec<u8>> = redis::cmd("HGET")
             .arg("rooms")
             .arg(name)
@@ -139,7 +166,7 @@ impl RoomCatalog {
             }
         }
         self.connection
-            .ordinary_pipeline(&pipeline)
+            .ordinary_pipeline_with_timeout(&pipeline, self.command_timeout)
             .await
             .map_err(|source| CatalogError::RedisContext {
                 context: "could not create room",
@@ -162,7 +189,7 @@ impl RoomCatalog {
             }
             command.arg(names);
         }
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         let values: Vec<Option<Vec<u8>>> =
             command
                 .query_async(&mut c)
@@ -190,7 +217,7 @@ impl RoomCatalog {
         if raw.len() > self.max_bytes {
             return Err(CatalogError::Size(self.max_bytes));
         }
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         let _: usize = redis::cmd("HSET")
             .arg(format!("room_participants:{name}"))
             .arg(&participant.message.identity)
@@ -204,7 +231,7 @@ impl RoomCatalog {
         name: &str,
         identity: &str,
     ) -> Result<bool, crate::service_bus::rpc::RpcError> {
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         redis::cmd("HEXISTS")
             .arg(format!("room_participants:{name}"))
             .arg(identity)
@@ -217,7 +244,7 @@ impl RoomCatalog {
         name: &str,
         identity: &str,
     ) -> Result<WireValue<pb::ParticipantInfo>, CatalogError> {
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         let raw: Option<Vec<u8>> = redis::cmd("HGET")
             .arg(format!("room_participants:{name}"))
             .arg(identity)
@@ -229,7 +256,7 @@ impl RoomCatalog {
         &self,
         name: &str,
     ) -> Result<Vec<WireValue<pb::ParticipantInfo>>, CatalogError> {
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         let values: Vec<Vec<u8>> = redis::cmd("HVALS")
             .arg(format!("room_participants:{name}"))
             .query_async(&mut c)
@@ -237,7 +264,7 @@ impl RoomCatalog {
         values.into_iter().map(|v| self.decode(&v)).collect()
     }
     pub async fn delete_participant(&self, name: &str, identity: &str) -> Result<(), CatalogError> {
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         let _: usize = redis::cmd("HDEL")
             .arg(format!("room_participants:{name}"))
             .arg(identity)
@@ -258,7 +285,7 @@ impl RoomCatalog {
         if stored.room.message.sid != sid {
             return Ok(false);
         }
-        let mut connection = self.connection.begin();
+        let mut connection = self.lease();
         let assigned: Option<String> = redis::cmd("HGET")
             .arg("room_node_map")
             .arg(name)
@@ -278,7 +305,7 @@ impl RoomCatalog {
         prepare_cache: impl FnOnce(&CachedParticipantIds) -> Option<Vec<String>>,
     ) -> Result<bool, CatalogError> {
         let name = &projection.room.name.0;
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         let raw: Option<Vec<u8>> = redis::cmd("HGET")
             .arg("rooms")
             .arg(name)
@@ -415,7 +442,7 @@ impl RoomCatalog {
         Ok(assigned.as_deref() == Some(owner))
     }
     async fn clear_participant_cache(&self, name: &str) -> Result<(), CatalogError> {
-        let mut connection = self.connection.begin();
+        let mut connection = self.lease();
         let _: usize = redis::cmd("DEL")
             .arg(format!("room_participants:{name}"))
             .query_async(&mut connection)
@@ -463,7 +490,7 @@ impl RoomCatalog {
         metadata_only: bool,
     ) -> Result<(), crate::service_bus::rpc::RpcError> {
         use crate::service_bus::rpc::RpcError;
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         for _attempt in 0..32 {
             let raw: Option<Vec<u8>> = redis::cmd("HGET")
                 .arg("rooms")
@@ -536,7 +563,7 @@ impl RoomCatalog {
         sid: &str,
         owner: &str,
     ) -> Result<bool, CatalogError> {
-        let mut c = self.connection.begin();
+        let mut c = self.lease();
         let raw: Option<Vec<u8>> = redis::cmd("HGET")
             .arg("rooms")
             .arg(name)

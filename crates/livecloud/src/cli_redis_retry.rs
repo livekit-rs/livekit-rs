@@ -87,6 +87,28 @@ fn bare_failure(reason: String) -> NodeListError {
     NodeListError::OrdinaryBytes(reason.into_bytes())
 }
 
+/// Server start, simple/plaintext branch: the `GetRedisClient` Ping (`redis.go:158-161`)
+/// rides the SAME pooled command connection the bus borrows — upstream returns one
+/// `redis.UniversalClient` that `redisbus.New` shares, so the Ping does not dial a
+/// throwaway second connection. The pool was already dialled with the bus's 5s
+/// `io_timeout`; the simple branch's go-redis default read budget (5s) is imposed
+/// per-command so a slow Ping still fails on the branch budget without constraining
+/// the shared pool. A dial that reached the wire is wrapped in `unable to connect to
+/// redis:` with go-redis' own error rendering, exactly as the Sentinel/Cluster branch.
+pub(crate) async fn ping_base(
+    connection: lk_compat::redis_endpoint::SharedConnection,
+    _settings: &RedisConfig,
+) -> Result<(), NodeListError> {
+    let fail = |reason: String| {
+        NodeListError::OrdinaryBytes(format!("unable to connect to redis: {reason}").into_bytes())
+    };
+    wire::command("ping", &[])
+        .query_async::<()>(&mut connection.begin_with_timeout(Duration::from_secs(5)))
+        .await
+        .map_err(|e| fail(lk_compat::redis_endpoint::go_error_text(&e)))?;
+    Ok(())
+}
+
 /// The `Ping` of `GetRedisClient` over an endpoint the caller already built: the
 /// Sentinel failover client, the Cluster client or the simple client chosen by
 /// `redis_endpoint` (SPEC-0074 C11/C12).
