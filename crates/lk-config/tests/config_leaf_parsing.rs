@@ -132,6 +132,99 @@ fn audio_config_yaml_cli_env_parse_and_project() {
 }
 
 // ---------------------------------------------------------------------------
+// audio.active_red_encoding (C49): YAML / ENV / CLI -> effective projection
+// + precedence. The projected ServerConfig.audio.active_red_encoding is the
+// field signaling.rs configure_red (:1055) and attach_down (:1625) read to
+// decide active RED encoding of plain Opus and the sticky Opus-NACK removal.
+// normalize.rs:675 copies official.audio.active_red_encoding into it; a
+// parse-only assertion on official.audio would miss that copy being dropped,
+// so every input path asserts the production value the consumer actually reads.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn audio_active_red_encoding_yaml_env_cli_projection_and_precedence() {
+    // Go sfu.AudioConfig.ActiveRedEncoding defaults to false: plain Opus is
+    // not actively RED-encoded unless an origin explicitly enables it.
+    let base = parse(&[], &Env::default());
+    assert!(!base.official.audio.active_red_encoding);
+    assert!(!base.server.audio.active_red_encoding);
+
+    // YAML true -> official AND effective. assert_ne vs the false default
+    // proves the normalized production gate actually flipped, not just parse.
+    let cfg = parse(
+        &["--config-body", "audio:\n  active_red_encoding: true\n"],
+        &Env::default(),
+    );
+    assert!(cfg.official.audio.active_red_encoding);
+    assert!(cfg.server.audio.active_red_encoding);
+    assert_ne!(
+        cfg.server.audio.active_red_encoding,
+        base.server.audio.active_red_encoding
+    );
+
+    // YAML false stays false on both (explicit off, not merely the default).
+    let cfg = parse(
+        &["--config-body", "audio:\n  active_red_encoding: false\n"],
+        &Env::default(),
+    );
+    assert!(!cfg.official.audio.active_red_encoding);
+    assert!(!cfg.server.audio.active_red_encoding);
+
+    // ENV: generated env_name -> LIVEKIT_AUDIO_ACTIVE_RED_ENCODING.
+    let env = Env::from_pairs([("LIVEKIT_AUDIO_ACTIVE_RED_ENCODING", "true")]);
+    let cfg = parse(&[], &env);
+    assert!(cfg.official.audio.active_red_encoding);
+    assert!(cfg.server.audio.active_red_encoding);
+    assert_ne!(
+        cfg.server.audio.active_red_encoding,
+        base.server.audio.active_red_encoding
+    );
+
+    // ENV false.
+    let env_off = Env::from_pairs([("LIVEKIT_AUDIO_ACTIVE_RED_ENCODING", "false")]);
+    let cfg = parse(&[], &env_off);
+    assert!(!cfg.official.audio.active_red_encoding);
+    assert!(!cfg.server.audio.active_red_encoding);
+
+    // CLI flag alone, both directions; the effective gate follows.
+    let cfg = parse(&["--audio.active_red_encoding=true"], &Env::default());
+    assert!(cfg.official.audio.active_red_encoding);
+    assert!(cfg.server.audio.active_red_encoding);
+    let cfg = parse(&["--audio.active_red_encoding=false"], &Env::default());
+    assert!(!cfg.official.audio.active_red_encoding);
+    assert!(!cfg.server.audio.active_red_encoding);
+
+    // CLI beats ENV in both directions; the normalized production gate
+    // follows the CLI verdict, not the ENV value.
+    let cfg = parse(&["--audio.active_red_encoding=false"], &env);
+    assert!(!cfg.official.audio.active_red_encoding);
+    assert!(!cfg.server.audio.active_red_encoding);
+    let cfg = parse(&["--audio.active_red_encoding=true"], &env_off);
+    assert!(cfg.official.audio.active_red_encoding);
+    assert!(cfg.server.audio.active_red_encoding);
+
+    // CLI beats YAML: a YAML true is overridden by CLI false on both fields.
+    let cfg = parse(
+        &[
+            "--config-body",
+            "audio:\n  active_red_encoding: true\n",
+            "--audio.active_red_encoding=false",
+        ],
+        &Env::default(),
+    );
+    assert!(!cfg.official.audio.active_red_encoding);
+    assert!(!cfg.server.audio.active_red_encoding);
+
+    // ENV beats YAML: a YAML false is overridden by ENV true on both fields.
+    let cfg = parse(
+        &["--config-body", "audio:\n  active_red_encoding: false\n"],
+        &env,
+    );
+    assert!(cfg.official.audio.active_red_encoding);
+    assert!(cfg.server.audio.active_red_encoding);
+}
+
+// ---------------------------------------------------------------------------
 // room.playout_delay.enabled
 // ---------------------------------------------------------------------------
 
