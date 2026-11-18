@@ -621,7 +621,9 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
                 .with_limits(lk_compat::service_bus::redis_transport::TransportLimits {
                     wire: lk_compat::service_bus::wire::WireLimits {
                         encoded_bytes: isize::MAX as usize - 1,
-                        decompressed_bytes: max_decompressed_size,
+                        // Plain bound stays unlimited; the source GZIP-only receive
+                        // cap rides with_gzip_limit below (Go redisbus maxSize).
+                        decompressed_bytes: isize::MAX as usize - 1,
                     },
                     compression: keepalive_compression,
                     inbox_messages: 100,
@@ -629,6 +631,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
                     commands: 1000,
                     io_timeout: Duration::from_secs(5),
                 })
+                .and_then(|t| t.with_gzip_limit(max_decompressed_size))
                 .map_err(|e| ServerError::KeepaliveTransport(e.to_string()))?;
             let bus = Arc::new(lk_compat::routing::KeepaliveBus::new(
                 transport.clone(),

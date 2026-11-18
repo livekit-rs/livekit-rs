@@ -179,7 +179,10 @@ impl WorkerServices {
         let limits = |inbox_messages| TransportLimits {
             wire: WireLimits {
                 encoded_bytes: isize::MAX as usize - 1,
-                decompressed_bytes: config.max_decompressed_size,
+                // Plain/practical bound stays independent and unlimited; the source
+                // GZIP-only receive cap is applied via with_gzip_limit below, exactly
+                // like the local bus (Go redisbus maxSize never caps NONE or publish).
+                decompressed_bytes: isize::MAX as usize - 1,
             },
             compression: config.compression,
             inbox_messages,
@@ -222,7 +225,10 @@ impl WorkerServices {
         macro_rules! bus {
             ($inbox:expr) => {{
                 match redis_base.as_ref() {
-                    Some(base) => RpcBus::from(base.with_limits(limits($inbox))?),
+                    Some(base) => RpcBus::from(
+                        base.with_limits(limits($inbox))?
+                            .with_gzip_limit(config.max_decompressed_size)?,
+                    ),
                     None => RpcBus::from(
                         local
                             .as_ref()

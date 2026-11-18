@@ -1494,11 +1494,15 @@ impl ServerRun {
     }
 }
 fn received_response_for_bus(bus: &RpcBus, bytes: &[u8]) -> Result<ReceivedResponse, RpcError> {
+    let raw = wire::decode_raw_with_gzip_limit::<pb::Response>(
+        bytes,
+        bus.limits().wire,
+        bus.gzip_limit(),
+    )
+    .map_err(|_| RpcError::malformed_response("invalid response envelope"))?;
     if !bus.is_local() {
-        return received_response(bytes, bus.limits().wire);
+        return response_provenance::decode_response_body(&raw.payload);
     }
-    let raw = wire::decode_raw::<pb::Response>(bytes, bus.limits().wire)
-        .map_err(|_| RpcError::malformed_response("invalid response envelope"))?;
     let root = lk_protocol::wire::filter_known_psrpc_root("internal.Response", &raw.payload)
         .map_err(|_| RpcError::malformed_response("invalid response envelope"))?;
     response_provenance::decode_response_body(&root)

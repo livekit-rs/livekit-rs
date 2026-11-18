@@ -677,6 +677,98 @@ fn psrpc_yaml_cli_env_parse() {
     );
 }
 
+#[test]
+fn psrpc_and_signal_relay_env_projection_and_cli_precedence() {
+    // The sibling test above only exercises YAML + CLI despite its name. This one
+    // proves every psrpc / signal_relay leaf is also consumed from its generated
+    // LIVEKIT_<PATH_UPPER_UNDERSCORE> environment variable (generated.rs env_name),
+    // and that CLI flags win over ENV (cli.rs generated_values: CLI first, then env).
+    let base = parse(&[], &Env::default());
+
+    let env = Env::from_pairs([
+        ("LIVEKIT_PSRPC_MAX_ATTEMPTS", "7"),
+        ("LIVEKIT_PSRPC_BUFFER_SIZE", "3000"),
+        ("LIVEKIT_PSRPC_COMPRESSION_QUALITY", "4"),
+        ("LIVEKIT_PSRPC_COMPRESSION_THRESHOLD", "2048"),
+        ("LIVEKIT_PSRPC_COMPRESSION_MAX_DECOMPRESSED_SIZE", "1048576"),
+        ("LIVEKIT_SIGNAL_RELAY_RETRY_TIMEOUT", "12s"),
+        ("LIVEKIT_SIGNAL_RELAY_MIN_RETRY_INTERVAL", "2s"),
+        ("LIVEKIT_SIGNAL_RELAY_MAX_RETRY_INTERVAL", "9s"),
+        ("LIVEKIT_SIGNAL_RELAY_STREAM_BUFFER_SIZE", "2500"),
+        ("LIVEKIT_SIGNAL_RELAY_CONNECT_ATTEMPTS", "6"),
+    ]);
+    let cfg = parse(&[], &env);
+    assert_eq!(cfg.official.psrpc.max_attempts, 7);
+    assert_eq!(cfg.official.psrpc.buffer_size, 3000);
+    assert_eq!(cfg.official.psrpc.compression.quality, 4);
+    assert_eq!(cfg.official.psrpc.compression.threshold, 2048);
+    assert_eq!(cfg.official.psrpc.compression.max_decompressed_size, 1048576);
+    assert_eq!(
+        cfg.official.signal_relay.retry_timeout,
+        GoDuration::from_secs(12)
+    );
+    assert_eq!(
+        cfg.official.signal_relay.min_retry_interval,
+        GoDuration::from_secs(2)
+    );
+    assert_eq!(
+        cfg.official.signal_relay.max_retry_interval,
+        GoDuration::from_secs(9)
+    );
+    assert_eq!(cfg.official.signal_relay.stream_buffer_size, 2500);
+    assert_eq!(cfg.official.signal_relay.connect_attempts, 6);
+
+    // Falsifiability: ENV must actually move each leaf off its Go default, so an
+    // ignored/unprojected ENV path fails here rather than passing vacuously.
+    assert_ne!(cfg.official.psrpc.max_attempts, base.official.psrpc.max_attempts);
+    assert_ne!(cfg.official.psrpc.buffer_size, base.official.psrpc.buffer_size);
+    assert_ne!(
+        cfg.official.psrpc.compression.quality,
+        base.official.psrpc.compression.quality
+    );
+    assert_ne!(
+        cfg.official.psrpc.compression.threshold,
+        base.official.psrpc.compression.threshold
+    );
+    assert_ne!(
+        cfg.official.psrpc.compression.max_decompressed_size,
+        base.official.psrpc.compression.max_decompressed_size
+    );
+    assert_ne!(
+        cfg.official.signal_relay.retry_timeout,
+        base.official.signal_relay.retry_timeout
+    );
+    assert_ne!(
+        cfg.official.signal_relay.stream_buffer_size,
+        base.official.signal_relay.stream_buffer_size
+    );
+    assert_ne!(
+        cfg.official.signal_relay.connect_attempts,
+        base.official.signal_relay.connect_attempts
+    );
+
+    // CLI beats ENV on the overlapping leaves; the rest still come from ENV.
+    let cli = parse(
+        &[
+            "--psrpc.max_attempts=11",
+            "--psrpc.compression.quality=2",
+            "--signal_relay.connect_attempts=9",
+            "--signal_relay.retry_timeout=20s",
+        ],
+        &env,
+    );
+    assert_eq!(cli.official.psrpc.max_attempts, 11);
+    assert_eq!(cli.official.psrpc.compression.quality, 2);
+    assert_eq!(cli.official.signal_relay.connect_attempts, 9);
+    assert_eq!(
+        cli.official.signal_relay.retry_timeout,
+        GoDuration::from_secs(20)
+    );
+    assert_eq!(cli.official.psrpc.buffer_size, 3000);
+    assert_eq!(cli.official.psrpc.compression.threshold, 2048);
+    assert_eq!(cli.official.signal_relay.stream_buffer_size, 2500);
+}
+
 // ---------------------------------------------------------------------------
 // rtc.reconnect_on_* and rtc.datachannel_data_track_target_latency
 // ---------------------------------------------------------------------------

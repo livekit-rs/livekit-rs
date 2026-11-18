@@ -37,13 +37,23 @@ impl RpcBus {
             Self::Local(bus) => bus.limits(),
         }
     }
+    pub(crate) fn gzip_limit(&self) -> usize {
+        match self {
+            Self::Redis(bus) => bus.gzip_limit(),
+            Self::Local(bus) => bus.gzip_limit(),
+        }
+    }
     pub(crate) fn decode<T: BusMessage>(
         &self,
         bytes: &[u8],
     ) -> Result<wire::Decoded<T>, wire::WireError> {
         match self {
-            Self::Redis(_) => wire::decode(bytes, self.limits().wire),
-            Self::Local(_) => wire::decode_psrpc(bytes, self.limits().wire),
+            Self::Redis(bus) => {
+                wire::decode_with_gzip_limit(bytes, bus.limits().wire, bus.gzip_limit())
+            }
+            Self::Local(bus) => {
+                wire::decode_psrpc_with_gzip_limit(bytes, bus.limits().wire, bus.gzip_limit())
+            }
         }
     }
     pub async fn subscribe<T: BusMessage + Send + 'static>(
@@ -467,5 +477,104 @@ mod tests {
         assert_eq!(client.pending_count(), 0);
         requests.unsubscribe(&spec.request_channel()).await.unwrap();
         client.close();
+    }
+
+    /// Real-Redis proof of the source `psrpc.max_decompressed_size` contract on the
+    /// distributed bus: the cap bounds ONLY expanded GZIP on receive. A plain (NONE)
+    /// body larger than the cap still publishes and decodes, and an over-cap GZIP
+    /// body is dropped at the typed receive decode without corrupting the next NONE
+    /// message. Mirrors `single_node_gzip_limit_is_consumed_by_real_io_subscriptions`
+    /// for the Redis transport, and is sensitive to both regressions: conflating the
+    /// cap into the plain `decompressed_bytes` bound (plain publish would fail) and
+    /// ignoring the separate `gzip_limit` on decode (over-cap GZIP would decode).
+    #[tokio::test]
+    #[ignore = "requires dedicated coordinator-owned IO_RPC_TEST_REDIS_URL broker"]
+    async fn redis_gzip_cap_bounds_only_expanded_gzip_not_plain_or_publish() {
+        let url = std::env::var("IO_RPC_TEST_REDIS_URL").expect("dedicated Redis broker");
+        let base = RedisTransport::connect(
+            &url,
+            TransportLimits {
+                wire: WireLimits {
+                    encoded_bytes: isize::MAX as usize - 1,
+                    decompressed_bytes: isize::MAX as usize - 1,
+                },
+                compression: CompressionPolicy::default(),
+                inbox_messages: 16,
+                subscriptions: 64,
+                commands: 16,
+                io_timeout: Duration::from_secs(3),
+            },
+        )
+        .await
+        .unwrap();
+        let bus = RpcBus::from(base.with_gzip_limit(64).unwrap());
+        assert_eq!(bus.gzip_limit(), 64, "the GZIP-only receive cap is set");
+        assert_eq!(
+            bus.limits().wire.decompressed_bytes,
+            isize::MAX as usize - 1,
+            "the plain bound stays independent and unlimited"
+        );
+        let spec = MethodSpec {
+            service: "RedisGzipCap".into(),
+            method: "Message".into(),
+            topics: vec![rtc_core::ids::new_sid("redis_gzip_cap_")],
+            require_claim: false,
+            queue: false,
+        };
+        let ch = spec.request_channel();
+        let mut subscription = bus.subscribe::<pb::Request>(&ch, false).await.unwrap();
+
+        // Plain body far larger than the 64-byte GZIP cap: publish and receive decode
+        // must both succeed because NONE is never bounded by max_decompressed_size.
+        let plain = pb::Request {
+            request_id: "x".repeat(1024),
+            ..Default::default()
+        };
+        bus.publish(&ch, &plain).await.unwrap();
+        let raw = subscription.recv().await.unwrap();
+        assert_eq!(
+            bus.decode::<pb::Request>(&raw).unwrap().message,
+            plain,
+            "plain NONE body larger than the GZIP cap must publish and decode"
+        );
+
+        // GZIP body whose expansion exceeds the cap: it arrives on the wire but the
+        // typed receive decode drops it (the owner silently discards, like Go).
+        let compressed = wire::encode(
+            &pb::Request {
+                request_id: "x".repeat(4096),
+                ..Default::default()
+            },
+            &ch.local,
+            CompressionPolicy {
+                quality: 6,
+                threshold: 1,
+            },
+            bus.limits().wire,
+        )
+        .unwrap();
+        assert_eq!(
+            wire::decode_raw::<pb::Request>(&compressed, bus.limits().wire)
+                .unwrap()
+                .compression,
+            1,
+            "the fixture must actually be GZIP"
+        );
+        bus.publish_encoded(&ch, &compressed).await.unwrap();
+        let raw = subscription.recv().await.unwrap();
+        assert!(
+            bus.decode::<pb::Request>(&raw).is_err(),
+            "over-cap expanded GZIP must be dropped at the typed receive decode"
+        );
+
+        // The following NONE message is unaffected by the dropped GZIP.
+        bus.publish(&ch, &plain).await.unwrap();
+        let raw = subscription.recv().await.unwrap();
+        assert_eq!(
+            bus.decode::<pb::Request>(&raw).unwrap().message,
+            plain,
+            "a dropped over-cap GZIP must not corrupt the following NONE message"
+        );
+        subscription.unsubscribe(&ch).await.unwrap();
     }
 }

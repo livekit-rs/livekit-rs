@@ -137,13 +137,14 @@ pub(crate) fn filter_bus_known(
     }
 }
 
-/// Local typed consumer projection uses the same fixed schema rule as the
-/// forwarder. Original bytes stay owned by the subscription/response sidecar.
-pub(crate) fn decode_psrpc<T: BusMessage>(
+/// Local typed projection with the source GZIP-only receive cap kept separate
+/// from the independent plain `decompressed_bytes` bound (Go localbus maxSize).
+pub(crate) fn decode_psrpc_with_gzip_limit<T: BusMessage>(
     bytes: &[u8],
     limits: WireLimits,
+    gzip_limit: usize,
 ) -> Result<Decoded<T>, WireError> {
-    let raw = decode_raw::<T>(bytes, limits)?;
+    let raw = decode_raw_with_gzip_limit::<T>(bytes, limits, gzip_limit)?;
     let known = filter_bus_known(T::FULL_NAME, &raw.payload)
         .map_err(|error| WireError::Payload(prost::DecodeError::new(error.to_string())))?;
     let message = T::decode(known.as_slice()).map_err(WireError::Payload)?;
@@ -164,7 +165,17 @@ pub struct RawDecoded {
     pub compression: i32,
 }
 pub fn decode<T: BusMessage>(bytes: &[u8], limits: WireLimits) -> Result<Decoded<T>, WireError> {
-    let raw = decode_raw::<T>(bytes, limits)?;
+    decode_with_gzip_limit::<T>(bytes, limits, limits.decompressed_bytes)
+}
+
+/// Typed decode with the source GZIP-only receive cap separate from the plain
+/// `decompressed_bytes` bound. NONE payloads and publish are never capped by it.
+pub fn decode_with_gzip_limit<T: BusMessage>(
+    bytes: &[u8],
+    limits: WireLimits,
+    gzip_limit: usize,
+) -> Result<Decoded<T>, WireError> {
+    let raw = decode_raw_with_gzip_limit::<T>(bytes, limits, gzip_limit)?;
     let message = T::decode(raw.payload.as_slice()).map_err(WireError::Payload)?;
     Ok(Decoded {
         message,

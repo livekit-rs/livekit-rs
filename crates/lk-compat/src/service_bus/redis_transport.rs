@@ -62,6 +62,10 @@ pub struct RedisTransport {
     command: SharedConnection,
     shared: Arc<SharedSubscriptions>,
     limits: TransportLimits,
+    /// Source GZIP-only receive cap (`psrpc.max_decompressed_size`), kept separate
+    /// from the independent plain `limits.wire.decompressed_bytes` bound. NONE
+    /// payloads and publish are never capped by it (Go redisbus maxSize contract).
+    gzip_limit: usize,
     subscriptions: Arc<Semaphore>,
     commands: Arc<Semaphore>,
 }
@@ -93,6 +97,7 @@ impl RedisTransport {
                 inbox_messages: size,
                 ..self.limits
             },
+            gzip_limit: self.gzip_limit,
             subscriptions: self.subscriptions.clone(),
             commands: self.commands.clone(),
         }))
@@ -146,6 +151,7 @@ impl RedisTransport {
             command,
             shared,
             limits,
+            gzip_limit: limits.wire.decompressed_bytes,
             subscriptions: Arc::new(Semaphore::new(limits.subscriptions)),
             commands: Arc::new(Semaphore::new(limits.commands)),
         }))
@@ -190,6 +196,7 @@ impl RedisTransport {
             command,
             shared,
             limits,
+            gzip_limit: limits.wire.decompressed_bytes,
             subscriptions: Arc::new(Semaphore::new(limits.subscriptions)),
             commands: Arc::new(Semaphore::new(limits.commands)),
         }))
@@ -215,6 +222,7 @@ impl RedisTransport {
             command: self.command.clone(),
             shared: self.shared.clone(),
             limits,
+            gzip_limit: self.gzip_limit,
             subscriptions: self.subscriptions.clone(),
             commands: self.commands.clone(),
         }))
@@ -222,6 +230,29 @@ impl RedisTransport {
 
     pub fn limits(&self) -> TransportLimits {
         self.limits
+    }
+    pub(crate) fn gzip_limit(&self) -> usize {
+        self.gzip_limit
+    }
+    /// A second transport identity sharing the same endpoint, command connection,
+    /// pub/sub multiplexer and admission semaphores, but with the source GZIP-only
+    /// receive cap set independently of the plain wire bound. `0` means "no separate
+    /// cap" and falls back to `limits.wire.decompressed_bytes`, exactly like the
+    /// local bus. NONE payloads and publish are never capped by it.
+    pub fn with_gzip_limit(&self, gzip_limit: usize) -> Result<Arc<Self>, TransportError> {
+        Ok(Arc::new(Self {
+            endpoint: self.endpoint.clone(),
+            command: self.command.clone(),
+            shared: self.shared.clone(),
+            limits: self.limits,
+            gzip_limit: if gzip_limit == 0 {
+                self.limits.wire.decompressed_bytes
+            } else {
+                gzip_limit
+            },
+            subscriptions: self.subscriptions.clone(),
+            commands: self.commands.clone(),
+        }))
     }
     pub fn active_subscriptions(&self) -> usize {
         self.limits.subscriptions - self.subscriptions.available_permits()
