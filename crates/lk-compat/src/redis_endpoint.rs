@@ -775,7 +775,16 @@ async fn resolve_master_info(
     let mut attempts: Vec<String> = Vec::new();
     while let Some((index, address, outcome)) = probes.next().await {
         let reason = match outcome {
-            Ok(Some(master)) => return accept(master, Some((index, address))),
+            Ok(Some(master)) => {
+                // Upstream discovers peers inside `setSentinel` before logging
+                // the selected address, so the discovery diagnostics precede
+                // `select`'s `sentinel.go:1032`/`1194` lines.
+                shared
+                    .events
+                    .discover(&shared.target, address, discovery, tls_override)
+                    .await;
+                return accept(master, Some((index, address)));
+            }
             // go-redis joins redis.Nil with the other failed discoveries.
             Ok(None) => "redis: nil".into(),
             Err(error) => go_attempt_text(&error, address),

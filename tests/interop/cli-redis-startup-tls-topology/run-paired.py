@@ -1039,8 +1039,10 @@ def main() -> int:
             for surface in ("failure_lines", "bare_pair_lines", "diagnostics", "startup_lines"):
                 if res_go[surface] != res_rs[surface]:
                     if surface == "diagnostics":
+                        # C42 closed the Sentinel discovery-diagnostic gap: the Rust port now
+                        # emits the matching redis: lines (1032/1194/1215/1230/1250), so a
+                        # diagnostics diff is a real regression, not a diverted known-difference.
                         diag_vectors.append(name)
-                        continue
                     mismatches.append((name, surface + " differ", res_go[surface], res_rs[surface]))
             if res_go["startup_masked"] != res_rs["startup_masked"]:
                 mismatches.append((name, "startup log lines differ (clock value masked)",
@@ -1194,27 +1196,39 @@ def main() -> int:
                 "start-client-pair-switched", "start-client-pair-non-pem",
                 "start-client-cert-without-key", "start-client-pair-missing-key-file"],
             "observed_in_this_run": mismatch_vectors,
-        }]
-        report["known_differences"] = [{
+        }, {
             "id": DIAG_ITEM,
+            "status": (
+                "CLOSED BY C42 (spec0077-c42-sentinel-discovery-diagnostics): the Rust port's "
+                "Sentinel path now emits the matching go-redis discovery diagnostics, so the "
+                "diagnostics surface is compared un-diverted like every other one and a diff "
+                "fails this harness. The reason this was ever a difference is kept below."),
             "scope_of_this_item": (
                 "go-redis' own `redis:`-prefixed Sentinel discovery diagnostics "
-                "(sentinel.go: `sentinel: selected addr=<sentinel> masterAddr=<master>`, "
-                "`sentinel: new master=\"<name>\" addr=\"<addr>\"), printed by the official "
-                "binary while it resolves the master through the Sentinel quorum."),
-            "difference": (
-                "the reference prints them; the Rust port's Sentinel path uses redis-rs' "
-                "connection layer, which emits no equivalent line, so its `redis:` diagnostic "
-                "set is empty on the Sentinel vectors. The dial *decision* and the resulting "
-                "startup outcome are compared on every other surface."),
+                "(sentinel.go:1032 selected addr, :1194 new master, :1230 discovered new "
+                "sentinel, :1215 Sentinels failed, :1250 ignore addr for foreign master), "
+                "printed by the official binary while it resolves the master through the "
+                "Sentinel quorum."),
+            "history": (
+                "it was declared because the Rust port's Sentinel path used redis-rs' "
+                "connection layer, which emitted no equivalent line, so its `redis:` "
+                "diagnostic set was empty on the Sentinel vectors and the diagnostics diff "
+                "was diverted to sentinel_diagnostics_vectors rather than compared."),
+            "closure": (
+                "sentinel_watch.rs now owns peer discovery in the cold resolver "
+                "(SentinelEvents::discover -> 1230 per new peer / 1215 on a failed SENTINELS "
+                "list, ahead of the 1032 selected-addr log) and the event worker emits the "
+                "1250 foreign-master ignore; 1032/1194 were already matching. The dedicated "
+                "C42 paired harness certifies all five callers byte-exact and in order on "
+                "candidate 14ec4084 vs official 4bc2378e across 4 vectors with a specific "
+                "accept-but-ignore mutant FAIL. This harness now compares diagnostics "
+                "un-diverted; sentinel_diagnostics_vectors records any residual diff "
+                "(expected empty). The library-internal retry/pool/short-budget stderr and "
+                "the not-observable Replicas lines remain a scoped residual on the ledger "
+                "leaf, not waived here."),
             "observed_in_this_run": diag_vectors,
-            "handling": (
-                "the diagnostics surface is compared like every other one, so any future "
-                "change there shows up; skipping this vector's comparison would be deleting a "
-                "comparison field. It stays open as a library-diagnostic text item rather "
-                "than being closed by wrapping the discovery in a go-redis-shaped logger "
-                "without a consumer."),
-        }, {
+        }]
+        report["known_differences"] = [{
             "id": RACE_LEAF,
             "scope_of_this_item": (
                 "SIGINT landing while `Start()` is still inside the 100ms sleep it takes "

@@ -102,6 +102,59 @@ impl SentinelEvents {
     pub(super) fn addresses(&self, configured: &[String]) -> Vec<String> {
         lock(&self.state).addresses(configured)
     }
+    /// `sentinel.go:1212-1236` (`discoverSentinels`): list the peers monitoring
+    /// the same master and report each newly discovered Sentinel. Upstream runs
+    /// this synchronously inside `setSentinel`, ahead of the `selected addr` log
+    /// (`sentinel.go:1032`), so the cold resolver calls it before `select`. The
+    /// append-only peer list is shared with the event worker, so a peer is
+    /// reported once; a failed list is logged (`sentinel.go:1215`) and does not
+    /// invalidate the already-resolved master.
+    pub(super) async fn discover(
+        &self,
+        target: &SentinelTarget,
+        address: &str,
+        config: &AsyncConnectionConfig,
+        tls: Option<&TlsSniOverride>,
+    ) {
+        let name = go_quote(&target.master_name);
+        let listed = async {
+            let info = (target.sentinel_info)(address).map_err(|reason| {
+                RedisError::from((ErrorKind::Client, "sentinel configuration", reason))
+            })?;
+            let mut connection = dial_with(resp3(info), config, tls).await?;
+            redis::cmd("SENTINEL")
+                .arg("SENTINELS")
+                .arg(&target.master_name)
+                .query_async::<Vec<std::collections::HashMap<String, String>>>(&mut connection)
+                .await
+        }
+        .await;
+        let rows = match listed {
+            Ok(rows) => rows,
+            Err(error) => {
+                write_redis_diagnostic(
+                    "sentinel.go:1215",
+                    format!("sentinel: Sentinels master={name} failed: {}", go_error_text(&error))
+                        .as_bytes(),
+                );
+                return;
+            }
+        };
+        let mut guard = lock_mut(&self.state);
+        for row in rows {
+            if let Some(address) = discovered_peer(&row, &target.addresses, &guard.discovered) {
+                write_redis_diagnostic(
+                    "sentinel.go:1230",
+                    format!(
+                        "sentinel: discovered new sentinel={} for master={name}",
+                        go_quote(&address)
+                    )
+                    .as_bytes(),
+                );
+                guard.discovered.push(address);
+            }
+        }
+    }
     pub(super) fn start(&self, target: SentinelTarget, tls: Option<Arc<TlsSniOverride>>) {
         let mut worker = lock_mut(&self.worker);
         if worker.as_ref().is_some_and(|task| !task.is_finished()) {
@@ -195,6 +248,39 @@ fn switch_address(master: &str, payload: &[u8]) -> Option<String> {
     let port = parts[4].parse::<u16>().ok()?;
     Some(addr_string(&ip_addr(parts[3].to_owned(), port)))
 }
+/// `sentinel.go:1218-1234`: normalize one SENTINELS row with `net.JoinHostPort`
+/// (string port, IPv6 bracketed) and report it only when ip/port are present and
+/// non-empty and the address is neither configured nor already discovered.
+fn discovered_peer(
+    row: &std::collections::HashMap<String, String>,
+    configured: &[String],
+    discovered: &[String],
+) -> Option<String> {
+    let host = row.get("ip")?;
+    let port = row.get("port")?;
+    if host.is_empty() || port.is_empty() {
+        return None;
+    }
+    let address = if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    if configured.contains(&address) || discovered.contains(&address) {
+        return None;
+    }
+    Some(address)
+}
+/// `sentinel.go:1248-1250`: the master name a `+switch-master` payload names.
+/// Upstream splits on spaces and logs+ignores any event whose first token is not
+/// the configured master, before parsing the new address.
+fn switch_event_master(payload: &[u8]) -> &str {
+    std::str::from_utf8(payload)
+        .unwrap_or("")
+        .split(' ')
+        .next()
+        .unwrap_or("")
+}
 async fn consume(
     target: &SentinelTarget,
     address: &str,
@@ -223,27 +309,10 @@ async fn consume(
             install_master(&mut guard, epoch, addr_string(&master), &target.master_name);
         }
     }
-    // Preserve upstream's discovered Sentinel fallback list. Failure to list
-    // peers does not invalidate the already ACKed master event subscription.
-    if let Ok(discovered) = redis::cmd("SENTINEL")
-        .arg("SENTINELS")
-        .arg(&target.master_name)
-        .query_async::<Vec<std::collections::HashMap<String, String>>>(&mut connection)
-        .await
-    {
-        let mut guard = lock_mut(state);
-        for row in discovered {
-            if let (Some(host), Some(port)) = (row.get("ip"), row.get("port"))
-                && !host.is_empty()
-                && let Ok(port) = port.parse::<u16>()
-            {
-                let address = addr_string(&ip_addr(host.clone(), port));
-                if !target.addresses.contains(&address) && !guard.discovered.contains(&address) {
-                    guard.discovered.push(address);
-                }
-            }
-        }
-    }
+    // Peer discovery (`discoverSentinels`) is owned by the cold resolver, which
+    // runs it ahead of the `selected addr` log exactly like upstream's
+    // `setSentinel`. The event worker only listens; re-listing peers here would
+    // both duplicate the query and race the resolver's `discovered` emission.
     while let Some(message) = messages.recv().await {
         match message.kind {
             PushKind::Disconnection => break,
@@ -251,18 +320,31 @@ async fn consume(
                 if let [Value::BulkString(channel), Value::BulkString(payload)] =
                     message.data.as_slice()
                     && channel == b"+switch-master"
-                    && let Some(address) = switch_address(&target.master_name, payload)
                 {
-                    let mut guard = lock_mut(state);
-                    if !matches!(selection.has_changed(), Ok(false)) {
-                        break;
-                    }
-                    let first_event = guard.master.is_none();
-                    install_master(&mut guard, epoch, address, &target.master_name);
-                    if first_event {
-                        epoch.send_modify(|value| {
-                            *value = value.checked_add(1).expect("Sentinel generation exhausted")
-                        });
+                    // `sentinel.go:1247-1254`: a switch event naming another
+                    // master is logged and ignored before the address is parsed.
+                    let event_master = switch_event_master(payload);
+                    if event_master != target.master_name {
+                        write_redis_diagnostic(
+                            "sentinel.go:1250",
+                            format!(
+                                "sentinel: ignore addr for master={}",
+                                go_quote(event_master)
+                            )
+                            .as_bytes(),
+                        );
+                    } else if let Some(address) = switch_address(&target.master_name, payload) {
+                        let mut guard = lock_mut(state);
+                        if !matches!(selection.has_changed(), Ok(false)) {
+                            break;
+                        }
+                        let first_event = guard.master.is_none();
+                        install_master(&mut guard, epoch, address, &target.master_name);
+                        if first_event {
+                            epoch.send_modify(|value| {
+                                *value = value.checked_add(1).expect("Sentinel generation exhausted")
+                            });
+                        }
                     }
                 }
             }
@@ -305,6 +387,70 @@ mod tests {
         assert!(switch_address("main", b"other a 6379 b 6380").is_none());
         assert!(switch_address("main", b"main a 6379 b 999999").is_none());
         assert!(switch_address("main", b"main malformed").is_none());
+    }
+    fn peer_row(
+        ip: Option<&str>,
+        port: Option<&str>,
+    ) -> std::collections::HashMap<String, String> {
+        let mut row = std::collections::HashMap::new();
+        if let Some(ip) = ip {
+            row.insert("ip".to_string(), ip.to_string());
+        }
+        if let Some(port) = port {
+            row.insert("port".to_string(), port.to_string());
+        }
+        row
+    }
+    #[test]
+    fn discovered_peer_joins_dedups_and_skips_incomplete_rows() {
+        let configured = vec!["127.0.0.1:23401".to_string()];
+        // A new peer is reported with net.JoinHostPort formatting.
+        assert_eq!(
+            discovered_peer(&peer_row(Some("127.0.0.1"), Some("23402")), &configured, &[]),
+            Some("127.0.0.1:23402".to_string())
+        );
+        // A configured peer and an already-discovered peer are not re-reported.
+        assert_eq!(
+            discovered_peer(&peer_row(Some("127.0.0.1"), Some("23401")), &configured, &[]),
+            None
+        );
+        assert_eq!(
+            discovered_peer(
+                &peer_row(Some("127.0.0.1"), Some("23402")),
+                &configured,
+                &["127.0.0.1:23402".to_string()]
+            ),
+            None
+        );
+        // Missing or empty ip/port rows are skipped (sentinel.go:1219-1227).
+        assert_eq!(discovered_peer(&peer_row(None, Some("23402")), &[], &[]), None);
+        assert_eq!(discovered_peer(&peer_row(Some("127.0.0.1"), None), &[], &[]), None);
+        assert_eq!(discovered_peer(&peer_row(Some(""), Some("23402")), &[], &[]), None);
+        assert_eq!(discovered_peer(&peer_row(Some("127.0.0.1"), Some("")), &[], &[]), None);
+        // IPv6 hosts are bracketed; the port stays a string (no numeric parse),
+        // exactly like net.JoinHostPort.
+        assert_eq!(
+            discovered_peer(&peer_row(Some("::1"), Some("23402")), &[], &[]),
+            Some("[::1]:23402".to_string())
+        );
+        assert_eq!(
+            discovered_peer(&peer_row(Some("127.0.0.1"), Some("abc")), &[], &[]),
+            Some("127.0.0.1:abc".to_string())
+        );
+    }
+    #[test]
+    fn switch_event_master_reads_first_token_for_ignore_decision() {
+        assert_eq!(
+            switch_event_master(b"othermaster 127.0.0.1 6379 127.0.0.1 6380"),
+            "othermaster"
+        );
+        assert_eq!(
+            switch_event_master(b"mymaster 127.0.0.1 6379 127.0.0.1 6380"),
+            "mymaster"
+        );
+        assert_eq!(switch_event_master(b""), "");
+        assert_eq!(switch_event_master(b" leading"), "");
+        assert_eq!(switch_event_master(&[0xff, 0xfe]), "");
     }
 }
 
