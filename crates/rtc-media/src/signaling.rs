@@ -567,7 +567,10 @@ impl MediaEngine {
                 let Some(m) = t.rtc.media(s.mid) else {
                     continue;
                 };
-                let receiving = m.direction().is_receiving() && !m.disabled();
+                let direction = m.direction();
+                let disabled = m.disabled();
+                let kind = m.kind();
+                let receiving = direction.is_receiving() && !disabled;
                 if receiving {
                     let msid_track_id = s
                         .msid_track
@@ -603,24 +606,36 @@ impl MediaEngine {
                         },
                     };
                     if t.remote_mids.insert(s.mid) {
+                        let mime_type = if prefers_audio_red {
+                            "audio/red"
+                        } else {
+                            mime_of_media(&t.rtc, m)
+                        }
+                        .to_string();
+                        let receiver_ssrc = if s.sdp_registration {
+                            t.rtc
+                                .direct_api()
+                                .stream_rx_by_mid(s.mid, None)
+                                .map(|stream| {
+                                    (*stream.ssrc(), stream.rtx().map(|ssrc| *ssrc).unwrap_or(0))
+                                })
+                        } else {
+                            None
+                        };
                         added.push(RemoteMedia {
                             registration: if s.sdp_registration {
                                 rtc_core::media_api::PublicationRegistration::SdpReceiver
                             } else {
                                 rtc_core::media_api::PublicationRegistration::Pending
                             },
+                            receiver_ssrc,
                             participant: participant.clone(),
                             transport: tid,
                             mid: s.mid_str.clone(),
-                            kind: codecs::track_kind(m.kind()),
+                            kind: codecs::track_kind(kind),
                             msid_track_id: info.msid_track_id.clone(),
                             rids: info.rids.clone(),
-                            mime_type: if prefers_audio_red {
-                                "audio/red"
-                            } else {
-                                mime_of_media(&t.rtc, m)
-                            }
-                            .to_string(),
+                            mime_type,
                         });
                     }
                     if t.remote_info
@@ -636,10 +651,10 @@ impl MediaEngine {
                 }
                 // A native one-shot client can publish and receive on the same
                 // offered m-line. Keep ordinary SDK section allocation unchanged.
-                let send_slot = m.direction() == Direction::SendOnly
-                    || (t.spec.one_shot && m.direction() == Direction::SendRecv);
-                if send_slot && !m.disabled() {
-                    send_sections.push((s.mid, m.kind()));
+                let send_slot = direction == Direction::SendOnly
+                    || (t.spec.one_shot && direction == Direction::SendRecv);
+                if send_slot && !disabled {
+                    send_sections.push((s.mid, kind));
                 }
             }
             for mid in receive_epoch_resets {
@@ -1390,6 +1405,7 @@ impl MediaEngine {
         let ev = RemoteMedia {
             // Event::MediaAdded carries no raw SDP SSRC eligibility proof.
             registration: rtc_core::media_api::PublicationRegistration::Pending,
+            receiver_ssrc: None,
             participant: t.spec.participant.clone(),
             transport: tid,
             mid: mid.to_string(),

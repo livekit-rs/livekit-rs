@@ -1,0 +1,29 @@
+{
+  "kind": "C63-original-Go-public-video-publication-metadata-observer",
+  "reference_head": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "scope": "External observer_test calls original rtc.NewParticipant, SendJoinResponse, SetMigrateState, AddTrack and HandleOffer. Captures track.ToProto INSIDE public LocalParticipantListener.OnTrackPublished. Actual Pion peer, loopback ICE/DTLS and SRTP. No upstream modifications, private methods, linkname, copied production algorithms, SDK changes or Rust.",
+  "staging_origin": "prepare.py and cache isolation architecture adapted from tests/oracles/video-codec-selection; existing fixture remains untouched",
+  "cases": "Two declared-SSRC/no-SDP-RID VP8 base cases with FireOnTrackBySdp=true executed before expansion: signalled RID f and empty RID control. Then same two requests with FireOnTrackBySdp=false (four total cases). Single HIGH layer signalled spatial_layer=2, SSRC=0. Public sender.Send fixes actual SDP/media SSRC=424242. Exact request and media packet stimuli are in cases.json, generated only explicitly by fixtures.py.",
+  "boundaries": "participant.go 1113-1167 clears absent SDP RID; 3525-3542 rewrites top-level layers; 3571 AddReceiver before 3605 publication; 3787-3798 public listener before telemetry. mediatrackreceiver.go 213-227 negotiated MIME/MID and 675-725 SSRC assignment/top-level layer propagation; mediatrack.go 500-565 receiver setup/SSRC. Actual runtime determines outcome, not hypotheses.",
+  "expectations": "fixtures.py source-derived literal boundary expectations authored before execution; expected.json never learned from observed output. Validator exact recursive key/type/value comparisons reject unknown/missing fields and scalar corruption. Failures remain failures with original bytes/exits.",
+  "projection": "All protobuf fields via EmitUnpopulated, UseProtoNames, UseEnumNumbers. Deterministic TrackInfo projection excludes ONLY sid and version. No MIME renaming, layer sorting or value normalization. Raw event journal retains full TrackInfo including SID/version and all actual SDP, ICE, transport state and received RTPStats (runtime nondeterminism retained there, not used in deterministic equality).",
+  "network": "Only net.ListenPacket udp4 127.0.0.1:0; keep allocated sockets and install public ICE UDP mux. Include loopback plus IP filter equal127.0.0.1, UDP4 only. Explicit SetICEMulticastDNSMode(Disabled) on both endpoints: ICE defaults zero to query-only mDNS (ice/agent.go450-468, mdns.go42-95), which otherwise opens a multicast listener even under IP filtering. No STUN/TURN configuration, default listener constructor, wildcard socket or fixed port. Reject 7880/7881 and non-loopback SDP/candidates. All peers/participants/mux sockets close at subtest cleanup; journal verifies closure. No HTTP server.",
+  "rtp": "Wait for actual peer connected ICE/DTLS then actual early listener before any RTP for SDP cases, or a bounded 100ms no-publication window for RTP-deferred cases. Send ten declared exact RTP packet bytes through TrackLocalStaticRTP; capture actual listener snapshot and require public LocalMediaTrack.GetTrackStats.Packets >=10 before settled ToProto. Listener MediaTrack is checked against its public LocalMediaTrack extension for stats. No media-derived dimension claim or video decode; minimal synthetic VP8 delta payload is a transport stimulus.",
+  "execution": "Pinned Go1.26.0 darwin/arm64 binary; offline private APFS sources/module caches, readonly modules, race-enabled test executable. Two independent count1 executions plus exclusive-output rejection, literal validation and deterministic projection comparison. Full command argv/env/exits/raw stdout/stderr, source and executable SHA256 retained per attempt. Process-group timeout applies only to task-created children. No Cargo or shared cleanup.",
+  "outside_scope": ["Rust reader and production fix", "docs archive", "RID simulcast registration", "official SDK acceptance", "commit/push", "shared cleanup"],
+  "source_sha256": {
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/participant_sdp.go": "60b26a7cb58c1bb9cf0d57a0761eca99dca9370574f68abe62ed355d3e252c4e",
+    "references/livekit-stable/pkg/rtc/mediatrack.go": "aff702e5d97ff50456cc2815d38a21aa74497e92c1ba8e0eec679320af686678",
+    "references/livekit-stable/pkg/rtc/mediatrackreceiver.go": "cc6cc4f6b9686d0c3bfb48f080aea29afe6be626535745ce836b8aa94ac8e031",
+    "references/livekit-stable/pkg/rtc/transport.go": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d",
+    "references/livekit-stable/pkg/rtc/transportmanager.go": "b8d9ef2ef0bd2059a481ed93682141ee8514ec2d528e3394372324285bc80426",
+    "references/livekit-stable/pkg/rtc/config.go": "904b2d6a0245b1141ce5de9ea7987211d38aa91a986e79d5f3b09150de8074df",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "references/psrpc/go.mod": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0",
+    "references/psrpc/go.sum": "e73e69f3f68df7c646ddbb4c66feb2ca5bbce2c7afd9d615039a862ac30ec173"
+  }
+}

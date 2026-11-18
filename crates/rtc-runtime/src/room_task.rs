@@ -2988,6 +2988,7 @@ mod automatic_recording_owner_tests {
         );
         let media = MediaEvent::RemoteMediaAdded(rtc_core::media_api::RemoteMedia {
             registration: rtc_core::media_api::PublicationRegistration::SdpReceiver,
+            receiver_ssrc: None,
             participant: joined.participant_sid.clone(),
             transport,
             mid: "0".into(),
@@ -3519,6 +3520,7 @@ mod automatic_recording_owner_tests {
         }
         MediaEvent::RemoteMediaAdded(rtc_core::media_api::RemoteMedia {
             registration: rtc_core::media_api::PublicationRegistration::SdpReceiver,
+            receiver_ssrc: None,
             participant: joined.participant_sid.clone(),
             transport,
             mid: mid.into(),

@@ -271,6 +271,9 @@ pub enum PublicationRegistration {
 pub struct RemoteMedia {
     /// Explicit source registration proof. Plain m-line announcements are Pending.
     pub registration: PublicationRegistration,
+    /// Actual native primary and repair SSRCs of the SDP-registered receiver.
+    /// Repair is zero when absent; Pending/RID announcements carry no identity.
+    pub receiver_ssrc: Option<(u32, u32)>,
 
     pub participant: ParticipantSid,
     pub transport: TransportId,

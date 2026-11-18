@@ -3143,6 +3143,127 @@ fn one_shot_sendrecv_offer_binds_real_publication_and_subscription_on_same_mid()
     assert!(engine.transports[&receiver_tid].pending_single.is_empty());
 }
 
+/// Accepted native SDP exposes receiver identity without any ICE/DTLS/RTP input.
+#[test]
+fn publication_sdp_receiver_identity_is_available_before_rtp() {
+    use rtc_core::media_api::PublicationRegistration;
+    use str0m::media::{Rid, Simulcast, SimulcastLayer};
+
+    for case in ["declared", "primary-only", "rid", "simulcast", "undeclared"] {
+        let now = Instant::now();
+        let mut engine = engine(now);
+        engine.cfg.enabled_codecs.push(CodecSpec {
+            mime: "video/VP8".into(),
+            fmtp_line: String::new(),
+        });
+        let tid = transport(&mut engine, PcRole::Publisher, now);
+        let mut peer = client(now);
+        let mut change = peer.sdp_api();
+        let mid = change.add_media(
+            MediaKind::Video,
+            Direction::SendOnly,
+            Some("c63-stream".into()),
+            Some("c63-video".into()),
+            (case == "simulcast").then(|| {
+                let mut simulcast = Simulcast::new();
+                simulcast.add_send_layer(SimulcastLayer::new("f"));
+                simulcast
+            }),
+        );
+        let (offer, pending) = change.apply().unwrap();
+        let original = offer.to_sdp_string();
+        let fid: Vec<u32> = original
+            .lines()
+            .find_map(|line| line.strip_prefix("a=ssrc-group:FID "))
+            .expect("native video offer declares primary and repair SSRCs")
+            .split_whitespace()
+            .map(|value| value.parse().unwrap())
+            .collect();
+        assert_eq!(fid.len(), 2);
+        let (primary, repair) = (fid[0], fid[1]);
+        assert_ne!(primary, 0);
+        assert_ne!(repair, 0);
+        assert_ne!(primary, repair);
+        let repair_prefix = format!("a=ssrc:{repair} ");
+        let mut sdp = original
+            .lines()
+            .filter(|line| match case {
+                "primary-only" => {
+                    !line.starts_with("a=ssrc-group:") && !line.starts_with(&repair_prefix)
+                }
+                "undeclared" => !line.starts_with("a=ssrc-group:") && !line.starts_with("a=ssrc:"),
+                _ => true,
+            })
+            .map(|line| format!("{line}\r\n"))
+            .collect::<String>();
+        if case == "rid" {
+            // A RID attribute alone disqualifies SDP registration, even when
+            // native str0m still has a no-RID receiver from the declared SSRCs.
+            sdp.push_str("a=rid:f send\r\n");
+        }
+        engine.on_remote_description(tid, SdpType::Offer, sdp, 1, now);
+        let mut events = vec![];
+        engine.drain_events(&mut events);
+        let answer = events
+            .iter()
+            .find_map(|event| match event {
+                MediaEvent::LocalDescription {
+                    kind: SdpType::Answer,
+                    sdp,
+                    ..
+                } => Some(sdp),
+                _ => None,
+            })
+            .expect("native receiver accepts the real offer");
+        peer.sdp_api()
+            .accept_answer(pending, SdpAnswer::from_sdp_string(answer).unwrap())
+            .unwrap();
+        let mut direct = peer.direct_api();
+        let rid = (case == "simulcast").then(|| Rid::from("f"));
+        let sender = direct.stream_tx_by_mid(mid, rid).unwrap();
+        assert_eq!((*sender.ssrc(), *sender.rtx().unwrap()), (primary, repair));
+        let announced: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                MediaEvent::RemoteMediaAdded(media) => Some(media),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(announced.len(), 1, "{case}");
+        let media = announced[0];
+        assert_eq!(media.mid, mid.to_string());
+        assert_eq!(media.msid_track_id, "c63-video");
+        assert_eq!(media.mime_type, "video/VP8");
+        let native = engine
+            .transports
+            .get_mut(&tid)
+            .unwrap()
+            .rtc
+            .direct_api()
+            .stream_rx_by_mid(mid, None)
+            .map(|stream| (*stream.ssrc(), stream.rtx().map(|ssrc| *ssrc).unwrap_or(0)));
+        let expected_native = match case {
+            "simulcast" | "undeclared" => None,
+            "primary-only" => Some((primary, 0)),
+            _ => Some((primary, repair)),
+        };
+        assert_eq!(native, expected_native, "{case}");
+        if matches!(case, "declared" | "primary-only") {
+            assert_eq!(media.registration, PublicationRegistration::SdpReceiver);
+            assert_eq!(media.receiver_ssrc, expected_native, "{case}");
+            assert!(media.rids.is_empty());
+        } else {
+            assert_eq!(media.registration, PublicationRegistration::Pending);
+            assert_eq!(media.receiver_ssrc, None, "{case}");
+        }
+        assert!(engine.transports[&tid].publication_rtp.is_empty());
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            MediaEvent::PublicationRtpRegistered { .. } | MediaEvent::TrackMediaStarted { .. }
+        )));
+    }
+}
+
 /// Actual ICE/DTLS/SRTP first-packet producer: a video fragment with no marker
 /// cannot complete a MediaData frame, but must establish the negotiated codec.
 #[test]

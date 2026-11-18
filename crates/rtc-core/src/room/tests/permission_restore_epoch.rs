@@ -34,6 +34,7 @@ fn actual_permission_regrant_does_not_reuse_old_bound_subscription_deadline() {
         r.media_arrives(
             RemoteMedia {
                 registration: crate::media_api::PublicationRegistration::Pending,
+                receiver_ssrc: None,
                 participant: a.sid.clone(),
                 transport,
                 mid: "1".into(),
@@ -149,6 +150,7 @@ fn already_allowed_permission_update_does_not_renew_an_unbound_attempt() {
     r.media_arrives(
         RemoteMedia {
             registration: crate::media_api::PublicationRegistration::Pending,
+            receiver_ssrc: None,
             participant: a.sid.clone(),
             transport,
             mid: "1".into(),
@@ -219,6 +221,7 @@ fn publisher_denial_only_retires_the_denied_recipient_monitor() {
     r.media_arrives(
         RemoteMedia {
             registration: crate::media_api::PublicationRegistration::Pending,
+            receiver_ssrc: None,
             participant: a.sid.clone(),
             transport,
             mid: "1".into(),

@@ -221,19 +221,21 @@ impl Room {
                 mime_type,
                 layers,
             } => {
-                let deferred_owner = self
-                    .participants
-                    .iter()
-                    .find(|(_, p)| {
-                        p.deferred_publications
-                            .iter()
-                            .any(|d| d.info.sid == track_sid)
-                    })
-                    .map(|(sid, _)| sid.clone());
+                let deferred_owner = self.participants.iter_mut().find_map(|(sid, p)| {
+                    let deferred = p
+                        .deferred_publications
+                        .iter_mut()
+                        .find(|d| d.info.sid == track_sid)?;
+                    if update_receiver_metadata(&mut deferred.info, &mime_type, &layers) {
+                        deferred.info.version.advance();
+                    }
+                    Some(sid.clone())
+                });
                 if let Some(owner) = deferred_owner {
                     self.release_deferred_publications(&owner, Some(&track_sid), now);
+                } else {
+                    self.track_media_started(&track_sid, mime_type, layers, now);
                 }
-                self.track_media_started(&track_sid, mime_type, layers, now);
             }
             MediaEvent::RemoteMediaStopped {
                 participant,
@@ -352,32 +354,7 @@ impl Room {
             let Some(track) = p.published_mut(track_sid) else {
                 return;
             };
-            let mut changed = false;
-            let codec_index = track
-                .codecs
-                .iter()
-                .position(|codec| codec.mime_type.eq_ignore_ascii_case(&mime_type))
-                .unwrap_or(0);
-            // SetupReceiver retains primary TrackInfo MIME/MID when a backup
-            // receiver starts, including after codec regression.
-            if codec_index == 0 && !mime_type.is_empty() && track.mime_type != mime_type {
-                track.mime_type = mime_type.clone();
-                changed = true;
-            }
-            if let Some(codec) = track.codecs.get_mut(codec_index) {
-                if !mime_type.is_empty() && codec.mime_type != mime_type {
-                    codec.mime_type = mime_type.clone();
-                    changed = true;
-                }
-                if !layers.is_empty() && codec.layers != layers {
-                    codec.layers = layers.clone();
-                    changed = true;
-                }
-            }
-            if codec_index == 0 && !layers.is_empty() && track.layers != layers {
-                track.layers = layers;
-                changed = true;
-            }
+            let changed = update_receiver_metadata(track, &mime_type, &layers);
             if changed {
                 track.version.advance();
                 p.mark_dirty();
@@ -479,6 +456,35 @@ impl Room {
             self.effects.push(Effect::CloseSignal { to: sid.clone() });
         }
     }
+}
+
+fn update_receiver_metadata(track: &mut TrackInfo, mime_type: &str, layers: &[VideoLayer]) -> bool {
+    let mut changed = false;
+    let codec_index = track
+        .codecs
+        .iter()
+        .position(|codec| codec.mime_type.eq_ignore_ascii_case(mime_type))
+        .unwrap_or(0);
+    // A backup receiver must not replace the primary TrackInfo metadata.
+    if codec_index == 0 && !mime_type.is_empty() && track.mime_type != mime_type {
+        track.mime_type = mime_type.to_owned();
+        changed = true;
+    }
+    if let Some(codec) = track.codecs.get_mut(codec_index) {
+        if !mime_type.is_empty() && codec.mime_type != mime_type {
+            codec.mime_type = mime_type.to_owned();
+            changed = true;
+        }
+        if !layers.is_empty() && codec.layers != layers {
+            codec.layers = layers.to_vec();
+            changed = true;
+        }
+    }
+    if codec_index == 0 && !layers.is_empty() && track.layers != layers {
+        track.layers = layers.to_vec();
+        changed = true;
+    }
+    changed
 }
 
 impl Room {

@@ -1312,6 +1312,7 @@ mod c61_video_quality_publish {
             );
         }
     }
+    include!("tests/publication_metadata.rs");
 }
 
 #[test]
@@ -1398,6 +1399,7 @@ fn add_track_publishes_immediately_and_binds_on_media() {
 
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport: t,
@@ -1471,6 +1473,7 @@ fn first_subscription_reports_allowed_and_track_subscribed_once() {
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport: ta,
@@ -2094,6 +2097,7 @@ fn revoked_pending_publications_cannot_bind_late_media() {
         );
         room.take_effects();
         let media = |cid: &str| RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport,
@@ -2135,6 +2139,7 @@ fn actual_publication_rechecks_current_source_permission() {
     participant.info.permission.can_publish = false;
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport,
@@ -2185,6 +2190,7 @@ fn late_publication_checks_raw_source_instead_of_public_enum_projection() {
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport,
@@ -2244,6 +2250,7 @@ fn newly_authorized_request_can_reuse_a_cancelled_cid() {
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport,
@@ -2270,6 +2277,7 @@ fn explicit_subscription_survives_permission_revocation() {
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport,
@@ -2362,6 +2370,7 @@ fn removing_participant_does_not_restart_queued_publication() {
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport,
@@ -2757,6 +2766,7 @@ fn policy_subscription_limits_apply_to_real_audio_and_video_publications() {
                 );
                 room.media_arrives(
                     RemoteMedia {
+                        receiver_ssrc: None,
                         registration: crate::media_api::PublicationRegistration::Pending,
                         participant: alice.sid.clone(),
                         transport,
@@ -3350,6 +3360,7 @@ fn one_shot_named_subscription_waits_for_actual_prepared_media_not_just_request_
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: alice.sid.clone(),
             transport: ta,
@@ -3472,6 +3483,7 @@ fn one_shot_actual_video_sizes_update_real_track_codec_and_media_effect_without_
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: publisher.sid.clone(),
             transport,
@@ -3584,6 +3596,7 @@ fn stored_api_view_keeps_private_native_dimensions_until_real_participant_change
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: publisher.sid.clone(),
             transport,
@@ -3698,6 +3711,7 @@ fn hidden_publication_and_real_mute_are_stored_without_read_refresh() {
     );
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: publisher.sid.clone(),
             transport,
@@ -4165,6 +4179,7 @@ fn reconnect_subscription_flag_requires_actual_subscription_preparation_and_elap
         room.take_effects();
         room.media_arrives(
             RemoteMedia {
+                receiver_ssrc: None,
                 registration: crate::media_api::PublicationRegistration::Pending,
                 participant: publisher.sid.clone(),
                 transport: pubtid,
@@ -4247,6 +4262,7 @@ fn reconnect_registered_sdp_publication_silence_does_not_require_first_complete_
         // Actual accepted SDP receiver event, not a synthetic TrackMediaStarted.
         room.media_arrives(
             RemoteMedia {
+                receiver_ssrc: None,
                 registration: crate::media_api::PublicationRegistration::SdpReceiver,
                 participant: p.sid.clone(),
                 transport: tid,
@@ -4301,6 +4317,7 @@ fn reconnect_historical_failure_does_not_survive_actual_unpublish_or_permission_
             room.take_effects();
             room.media_arrives(
                 RemoteMedia {
+                    receiver_ssrc: None,
                     registration: crate::media_api::PublicationRegistration::Pending,
                     participant: publisher.sid.clone(),
                     transport: tid,
@@ -4411,6 +4428,7 @@ fn reconnect_rtp_fired_profiles_wait_for_real_registration_event_and_reject_old_
                 RemoteMedia {
                     // Go must still reject SDP-only completion, even if the SDP
                     // receiver itself was eligible. RID/SSRC0 never has that proof.
+                    receiver_ssrc: None,
                     registration: if profile == "go-video" {
                         PublicationRegistration::SdpReceiver
                     } else {
@@ -4948,6 +4966,7 @@ fn update_audio_owner_bind(
 ) {
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: owner.sid.clone(),
             transport,
@@ -5512,6 +5531,7 @@ fn video_owner_bind(
 ) {
     room.media_arrives(
         RemoteMedia {
+            receiver_ssrc: None,
             registration: crate::media_api::PublicationRegistration::Pending,
             participant: owner.sid.clone(),
             transport,
@@ -6254,6 +6274,12 @@ fn filtered_empty_participant_update_does_not_create_an_empty_signal_frame() {
 
 #[test]
 fn actual_owner_binds_backup_codec_cid_without_consuming_another_pending_publication() {
+    for announced_mime in ["video/VP8", "video/VP9"] {
+        check_backup_codec_announcement(announced_mime);
+    }
+}
+
+fn check_backup_codec_announcement(announced_mime: &str) {
     let now = Instant::now();
     let mut policy = test_policy();
     policy.enabled_codecs.push(CodecSpec {
@@ -6273,12 +6299,22 @@ fn actual_owner_binds_backup_codec_cid_without_consuming_another_pending_publica
         .unwrap();
     let transport = transport_of(&room.take_effects(), &owner.sid, PcRole::Single);
     let mut request = add_track("primary-cid", TrackKind::Video, TrackSource::Camera);
+    request.layers = vec![VideoLayer {
+        quality: VideoQuality::High,
+        width: 1280,
+        height: 720,
+        bitrate: 800_000,
+        ssrc: 0,
+        spatial_layer: 2,
+        rid: "f".into(),
+        repair_ssrc: 0,
+    }];
     request.simulcast_codecs = [("vp9", "primary-cid"), ("vp8", "")]
         .into_iter()
         .map(|(codec, cid)| SimulcastCodecRequest {
             codec: codec.into(),
             cid: cid.into(),
-            layers: vec![],
+            layers: request.layers.clone(),
             layer_mode: Default::default(),
         })
         .collect();
@@ -6291,6 +6327,7 @@ fn actual_owner_binds_backup_codec_cid_without_consuming_another_pending_publica
     room.take_effects();
     let event = |mid: &str, cid: &str, mime: &str, transport| {
         (RemoteMedia {
+            receiver_ssrc: Some(if cid == "primary-cid" { (23, 29) } else { (31, 37) }),
             registration: crate::media_api::PublicationRegistration::SdpReceiver,
             participant: owner.sid.clone(),
             transport,
@@ -6347,7 +6384,7 @@ fn actual_owner_binds_backup_codec_cid_without_consuming_another_pending_publica
             .iter()
             .all(|effect| !matches!(effect, Effect::Media(MediaCommand::BindTrack { .. })))
     );
-    room.media_arrives(event("1", "backup-cid", "video/vp8", transport), now);
+    room.media_arrives(event("1", "backup-cid", announced_mime, transport), now);
     let effects = room.take_effects();
     assert!(effects.iter().any(|effect|matches!(effect,Effect::Media(MediaCommand::BindTrack{transport:tid,mid,track_sid}) if *tid==transport && mid=="1" && track_sid==&track)));
     assert_eq!(room.participants[&owner.sid].pending.len(), 1);
@@ -6355,18 +6392,69 @@ fn actual_owner_binds_backup_codec_cid_without_consuming_another_pending_publica
     let info = &room.participants[&owner.sid].info.tracks[0];
     assert_eq!(info.codecs[0].mid, "0");
     assert_eq!(info.codecs[1].mid, "1");
+    let expected_mime = if announced_mime == "video/VP8" {
+        "video/VP8"
+    } else {
+        "video/vp8"
+    };
+    assert_eq!(info.codecs[0].mime_type, "video/vp9");
+    assert_eq!(info.codecs[1].mime_type, expected_mime);
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Media(MediaCommand::ExpectTrack { track, .. })
+            if track.codecs[0].mime_type == "video/vp9"
+                && track.codecs[1].mime_type == expected_mime
+    )));
+    assert_eq!(info.layers, info.codecs[0].layers);
+    assert_eq!(info.layers[0].ssrc, 23);
+    assert_eq!(info.layers[0].repair_ssrc, 29);
+    assert_eq!(info.codecs[1].layers[0].ssrc, 31);
+    assert_eq!(info.codecs[1].layers[0].repair_ssrc, 37);
+    let primary_layers = vec![VideoLayer {
+        quality: VideoQuality::High,
+        width: 1280,
+        height: 720,
+        bitrate: 800_000,
+        ssrc: 23,
+        spatial_layer: 0,
+        rid: String::new(),
+        repair_ssrc: 29,
+    }];
+    room.handle_media_event(
+        MediaEvent::TrackMediaStarted {
+            track_sid: track.clone(),
+            mime_type: "video/vp9".into(),
+            layers: primary_layers.clone(),
+        },
+        now,
+    );
+    let primary = room.participants[&owner.sid].info.tracks[0].codecs[0].clone();
+    let mut backup_layers = primary_layers.clone();
+    backup_layers[0].ssrc = 31;
+    backup_layers[0].repair_ssrc = 37;
+    backup_layers[0].width = 640;
+    backup_layers[0].height = 360;
+    room.take_effects();
     room.handle_media_event(
         MediaEvent::TrackMediaStarted {
             track_sid: track.clone(),
             mime_type: "video/vp8".into(),
-            layers: vec![],
+            layers: backup_layers.clone(),
         },
         now,
     );
     let info = &room.participants[&owner.sid].info.tracks[0];
     assert_eq!(info.mime_type, "video/vp9");
+    assert_eq!(info.layers, primary_layers);
+    assert_eq!(info.mid, "0");
+    assert_eq!(info.codecs[0], primary);
     assert_eq!(info.codecs[0].mime_type, "video/vp9");
     assert_eq!(info.codecs[1].mime_type, "video/vp8");
+    assert_eq!(info.codecs[1].layers, backup_layers);
+    assert!(!room.take_effects().iter().any(|effect| matches!(
+        effect,
+        Effect::Event(crate::events::EngineEvent::TrackPublished { .. })
+    )));
 }
 
 mod lifecycle_counters;

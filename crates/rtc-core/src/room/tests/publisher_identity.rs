@@ -41,6 +41,7 @@ fn publisher_identity_is_sticky_after_real_media_publication_and_last_unpublish(
     room.media_arrives(
         RemoteMedia {
             registration: crate::media_api::PublicationRegistration::SdpReceiver,
+            receiver_ssrc: None,
             participant: owner.sid.clone(),
             transport: tid,
             mid: "0".into(),

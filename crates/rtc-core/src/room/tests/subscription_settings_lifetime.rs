@@ -31,6 +31,7 @@ fn fixture() -> Fixture {
     r.media_arrives(
         RemoteMedia {
             registration: crate::media_api::PublicationRegistration::Pending,
+            receiver_ssrc: None,
             participant: a.sid.clone(),
             transport: t,
             mid: "a".into(),

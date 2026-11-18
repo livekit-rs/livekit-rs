@@ -374,6 +374,7 @@ async fn publication_before_deadline_resolves_real_subscribe_and_does_not_later_
     room.handle_media_event(
         MediaEvent::RemoteMediaAdded(RemoteMedia {
             registration: rtc_core::media_api::PublicationRegistration::Pending,
+            receiver_ssrc: None,
             participant: publisher.sid.clone(),
             transport,
             mid: "0".into(),

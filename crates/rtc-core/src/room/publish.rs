@@ -393,15 +393,18 @@ impl Room {
                 return None;
             }
             let track = &mut p.info.tracks[pos];
-            let codec = track.codecs.iter_mut().find(|codec| {
+            let codec_index = track.codecs.iter().position(|codec| {
                 codec.cid == media.msid_track_id || codec.sdp_cid == media.msid_track_id
             })?;
+            let codec = &mut track.codecs[codec_index];
             codec.mid = media.mid.clone();
             codec.sdp_cid = media.msid_track_id.clone();
-            if codec.mime_type.is_empty() {
+            if codec.mime_type.is_empty() || codec.mime_type.eq_ignore_ascii_case(&media.mime_type)
+            {
                 codec.mime_type = media.mime_type.clone();
             }
             apply_sdp_rids(&mut codec.layers, &media.rids);
+            apply_sdp_receiver_ssrc(track, codec_index, media.receiver_ssrc);
             track.version.advance();
             let info = track.clone();
             p.mark_dirty();
@@ -509,8 +512,9 @@ impl Room {
             .unwrap_or(0);
         if let Some(first) = info.codecs.get_mut(codec_index) {
             first.mid = media.mid.clone();
-            if first.mime_type.is_empty() {
-                first.mime_type = info.mime_type.clone();
+            if first.mime_type.is_empty() || first.mime_type.eq_ignore_ascii_case(&media.mime_type)
+            {
+                first.mime_type = media.mime_type.clone();
             }
             if media.msid_track_id != pending.request.cid {
                 first.sdp_cid = media.msid_track_id.clone();
@@ -520,6 +524,7 @@ impl Room {
         if let Some(first) = info.codecs.get_mut(codec_index) {
             apply_sdp_rids(&mut first.layers, &media.rids);
         }
+        apply_sdp_receiver_ssrc(&mut info, codec_index, media.receiver_ssrc);
         info.version.advance();
 
         self.media(MediaCommand::BindTrack {
@@ -1090,13 +1095,44 @@ fn is_svc(mime: &str) -> bool {
     m == "video/vp9" || m == "video/av1"
 }
 
-/// Assign rids from `a=simulcast` (low → high) to layers sorted by quality and set
-/// the spatial index with presence-aware mapping (sfu-media.md §1.3).
+fn apply_sdp_receiver_ssrc(
+    track: &mut TrackInfo,
+    codec_index: usize,
+    receiver_ssrc: Option<(u32, u32)>,
+) {
+    let Some((ssrc, repair_ssrc)) = receiver_ssrc else {
+        return;
+    };
+    if track.kind != TrackKind::Video {
+        return;
+    }
+    let Some(codec) = track.codecs.get_mut(codec_index) else {
+        return;
+    };
+    if let Some(layer) = codec
+        .layers
+        .iter_mut()
+        .find(|layer| layer.spatial_layer == 0)
+    {
+        if layer.ssrc == 0 {
+            layer.ssrc = ssrc;
+            if repair_ssrc != 0 {
+                layer.repair_ssrc = repair_ssrc;
+            }
+        }
+    }
+    if codec_index == 0 {
+        track.layers = codec.layers.clone();
+    }
+}
+
 fn apply_sdp_rids(layers: &mut [VideoLayer], rids: &[String]) {
     let n = layers.len();
     for (i, layer) in layers.iter_mut().enumerate() {
         layer.spatial_layer = if n <= 1 { 0 } else { i as i32 };
-        if let Some(rid) = rids.get(i) {
+        if rids.is_empty() {
+            layer.rid.clear();
+        } else if let Some(rid) = rids.get(i) {
             layer.rid = rid.clone();
         } else if layer.rid.is_empty() && n > 1 {
             layer.rid = ["q", "h", "f"]

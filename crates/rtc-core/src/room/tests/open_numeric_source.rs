@@ -29,6 +29,7 @@ fn actual_core_later_bind_keeps_numeric_source_identity_and_raw_authorization() 
     room.media_arrives(
         RemoteMedia {
             registration: crate::media_api::PublicationRegistration::Pending,
+            receiver_ssrc: None,
             participant: owner.sid.clone(),
             transport,
             mid: "0".into(),

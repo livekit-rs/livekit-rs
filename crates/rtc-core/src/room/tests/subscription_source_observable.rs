@@ -76,6 +76,7 @@ impl SourceFixture {
         self.r.media_arrives(
             RemoteMedia {
                 registration: crate::media_api::PublicationRegistration::Pending,
+                receiver_ssrc: None,
                 participant: self.publisher.sid.clone(),
                 transport: self.publisher_transport,
                 mid: "source-oracle-mid".into(),

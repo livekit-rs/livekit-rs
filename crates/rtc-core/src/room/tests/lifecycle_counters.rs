@@ -176,6 +176,7 @@ fn actual_publication_and_binding_increment_success_once_without_pending_gauge()
     room.media_arrives(
         RemoteMedia {
             registration: crate::media_api::PublicationRegistration::Pending,
+            receiver_ssrc: None,
             participant: publisher.sid.clone(),
             transport,
             mid: "0".into(),
