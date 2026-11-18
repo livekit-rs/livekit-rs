@@ -203,7 +203,8 @@ pub(crate) fn rid_space_from_sdp(sdp_rids: &[String]) -> [String; 3] {
                 .copied()
                 .filter(|k| out.iter().any(|r| r == k))
                 .collect();
-            let mut normalised: [String; 3] = Default::default();
+            // Go overwrites only the prefix, retaining the tail for gaps and duplicates.
+            let mut normalised = out.clone();
             for (i, k) in present.iter().enumerate() {
                 normalised[i] = (*k).to_string();
             }
@@ -406,6 +407,52 @@ mod tests {
     }
 
     #[test]
+    fn rid_normalization_preserves_original_tail_and_input() {
+        for (input, expected) in [
+            (["h", "", "f"], ["h", "f", "f"]),
+            (["", "h", "f"], ["h", "f", "f"]),
+            (["1", "", "0"], ["1", "0", "0"]),
+            (["q", "q", "f"], ["q", "f", "f"]),
+            (["f", "f", "f"], ["f", "f", "f"]),
+            (["", "", ""], ["", "", ""]),
+            (["q", "", "f"], ["q", "f", "f"]),
+            (["x", "", "f"], ["x", "", "f"]),
+            (["q", "1", "f"], ["q", "1", "f"]),
+            (["f", "h", "q"], ["q", "h", "f"]),
+        ] {
+            let original = rids(&input);
+            assert_eq!(rid_space_from_sdp(&original), expected, "{input:?}");
+            assert_eq!(original, input);
+        }
+        assert_eq!(
+            rid_space_from_sdp(&rids(&["~h", "", "~f", "x"])),
+            ["h", "f", "f"]
+        );
+        assert_eq!(rid_space_from_sdp(&rids(&["h", "f"])), ["h", "f", ""]);
+    }
+
+    #[test]
+    fn rewritten_layers_consume_normalized_tail_without_losing_metadata() {
+        let mut layers = vec![layer(High, 720), layer(Low, 180), layer(Medium, 360)];
+        for (i, layer) in layers.iter_mut().enumerate() {
+            layer.bitrate = 1000 + i as u32;
+            layer.ssrc = 2000 + i as u32;
+            layer.repair_ssrc = 3000 + i as u32;
+        }
+        let mut expected = layers.clone();
+        expected.sort_by_key(|l| l.quality);
+        for (i, layer) in expected.iter_mut().enumerate() {
+            layer.spatial_layer = i as i32;
+            layer.rid = ["h", "f", "f"][i].into();
+        }
+        rewrite_layers(&mut layers, &rids(&["h", "", "f"]));
+        assert_eq!(layers, expected);
+        assert_eq!(rid_for_spatial(&layers, 2), Some("f"));
+        assert_eq!(spatial_for_rid(&layers, "f"), 1);
+        assert_eq!(spatial_for_quality(&layers, High), 2);
+    }
+
+    #[test]
     fn spatial_for_quality_prefers_exact_layer() {
         let mut layers = vec![layer(Low, 180), layer(High, 720)];
         rewrite_layers(&mut layers, &rids(&["q", "h"]));
@@ -438,6 +485,91 @@ mod tests {
             s.iter().map(|l| l.quality).collect::<Vec<_>>(),
             vec![Low, Medium, High]
         );
+    }
+}
+
+#[cfg(test)]
+mod rid_normalization_source_differential {
+    use super::*;
+    use serde_json::{Value, json};
+    use std::io::Write;
+
+    #[test]
+    #[ignore = "requires original Go VIDEO_RID_GO_RESULTS and fresh VIDEO_RID_RUST_RESULTS"]
+    fn normalized_rid_matrix() {
+        let rows = std::fs::read_to_string(
+            std::env::var_os("VIDEO_RID_GO_RESULTS").expect("original Go observations required"),
+        )
+        .unwrap();
+        let rows: Vec<Value> = rows
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(rows.len(), 512);
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(
+                std::env::var_os("VIDEO_RID_RUST_RESULTS")
+                    .expect("fresh Rust result path required"),
+            )
+            .unwrap();
+        let domain = ["", "q", "h", "f", "2", "1", "0", "x"];
+        let mut failures = Vec::new();
+        let mut index = 0;
+        for (i, a) in domain.iter().enumerate() {
+            for (j, b) in domain.iter().enumerate() {
+                for (k, c) in domain.iter().enumerate() {
+                    let id = format!("rid-{i}-{j}-{k}");
+                    let input = [a.to_string(), b.to_string(), c.to_string()];
+                    let expected = &rows[index];
+                    assert_eq!(expected["id"], id);
+                    assert_eq!(expected["input"], json!(input));
+                    assert_eq!(expected.as_object().unwrap().len(), 4);
+                    let normalized = rid_space_from_sdp(&input);
+                    let mappings: Vec<Vec<String>> = (0..8)
+                        .map(|mask| {
+                            let layers: Vec<VideoLayer> = (0..3)
+                                .filter(|q| mask & (1 << q) != 0)
+                                .map(|q| VideoLayer {
+                                    quality: VideoQuality::from_i32(q),
+                                    width: 0,
+                                    height: 0,
+                                    bitrate: 0,
+                                    ssrc: 0,
+                                    spatial_layer: 0,
+                                    rid: String::new(),
+                                    repair_ssrc: 0,
+                                })
+                                .collect();
+                            (0..3)
+                                .map(|q| {
+                                    quality_to_rid(
+                                        presence(&layers),
+                                        VideoQuality::from_i32(q),
+                                        &normalized,
+                                    )
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    let observed = json!({"id": id, "input": input, "normalized": normalized, "mappings": mappings});
+                    writeln!(output, "{observed}").unwrap();
+                    if &observed != expected {
+                        failures.push(id);
+                    }
+                    index += 1;
+                }
+            }
+        }
+        output.sync_all().unwrap();
+        assert_eq!(index, 512);
+        println!(
+            "RID_SOURCE cases={index} passed={} failed={}",
+            index - failures.len(),
+            failures.len()
+        );
+        assert!(failures.is_empty(), "RID source mismatches: {failures:?}");
     }
 }
 

@@ -1217,6 +1217,31 @@ mod svc_tests {
     }
 
     #[test]
+    fn normalized_duplicate_rids_survive_layer_rebuild_and_ssrc_binding() {
+        let now = Instant::now();
+        let mut up = track(now);
+        up.sdp_rids = crate::sdp_munge::simulcast_send_rids("a=simulcast:send h;h;f\r\n");
+        assert_eq!(up.sdp_rids, ["h", "h", "f"]);
+        assert_eq!(
+            crate::sdp_munge::simulcast_send_rids("a=simulcast:send h;;f\r\n"),
+            ["h", "f"]
+        );
+        up.rebuild_layers(now);
+        assert_eq!(
+            up.layers.iter().map(|l| l.rid.as_str()).collect::<Vec<_>>(),
+            ["h", "f", "f"]
+        );
+        assert_eq!(layers::rid_for_spatial(&up.layers, 2), Some("f"));
+        assert_eq!(layers::spatial_for_rid(&up.layers, "f"), 1);
+        assert!(up.observe_layer_ssrc(2, 300, 301));
+        let expected = up.layers.clone();
+        up.update_spec(up.spec.clone(), now + Duration::from_secs(1));
+        assert_eq!(up.layers, expected);
+        assert_eq!(up.layers[2].ssrc, 300);
+        assert_eq!(up.layers[2].repair_ssrc, 301);
+    }
+
+    #[test]
     fn simulcast_layers_bind_independent_ssrcs_by_spatial() {
         let now = Instant::now();
         let mut up = track(now);
