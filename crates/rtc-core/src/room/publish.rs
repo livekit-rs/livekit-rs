@@ -221,7 +221,9 @@ impl Room {
                     layers: if c.layers.is_empty() {
                         layers.clone()
                     } else {
-                        c.layers.clone()
+                        let mut codec_layers = c.layers.clone();
+                        codec_layers.sort_by_key(|layer| layer.quality);
+                        codec_layers
                     },
                     layer_mode: if c.layer_mode != VideoLayerMode::Unused {
                         c.layer_mode

@@ -194,6 +194,77 @@ fn transport_of(effects: &[Effect], sid: &ParticipantSid, role: PcRole) -> Trans
 }
 
 #[test]
+fn add_track_sorts_codec_specific_open_quality_layers_without_losing_metadata() {
+    let layer = |quality, marker| VideoLayer {
+        quality: VideoQuality::from_i32(quality),
+        width: marker,
+        height: marker + 1,
+        bitrate: marker + 2,
+        ssrc: marker + 3,
+        spatial_layer: 17,
+        rid: format!("rid-{marker}"),
+        repair_ssrc: marker + 4,
+    };
+    for codec_specific in [false, true] {
+        let (mut room, now) = room();
+        let publisher = room.join(params("publisher", 17, false), now).unwrap();
+        room.take_effects();
+        let mut request = add_track("video", TrackKind::Video, TrackSource::Camera);
+        request.layers = vec![layer(2, 200), layer(0, 100)];
+        let unsorted = vec![
+            layer(77, 300),
+            layer(i32::MAX, 400),
+            layer(-1, 500),
+            layer(2, 600),
+            layer(i32::MIN, 700),
+            layer(0, 800),
+        ];
+        request.simulcast_codecs = vec![SimulcastCodecRequest {
+            codec: "vp8".into(),
+            cid: "video".into(),
+            layers: if codec_specific {
+                unsorted.clone()
+            } else {
+                vec![]
+            },
+            layer_mode: Default::default(),
+        }];
+        room.handle_request(
+            &publisher.sid,
+            publisher.generation,
+            SessionRequest::AddTrack(request.clone()),
+            now,
+        );
+        let track = signals_to(&room.take_effects(), &publisher.sid)
+            .into_iter()
+            .find_map(|event| match event {
+                SignalEvent::TrackPublished { track, .. } => Some(track),
+                _ => None,
+            })
+            .expect("publication response");
+        assert_eq!(track.layers, vec![layer(0, 100), layer(2, 200)]);
+        assert_eq!(track.codecs.len(), 1);
+        let expected = if codec_specific {
+            vec![
+                layer(i32::MIN, 700),
+                layer(-1, 500),
+                layer(0, 800),
+                layer(2, 600),
+                layer(77, 300),
+                layer(i32::MAX, 400),
+            ]
+        } else {
+            track.layers.clone()
+        };
+        assert_eq!(track.codecs[0].layers, expected);
+        assert_eq!(request.layers, vec![layer(2, 200), layer(0, 100)]);
+        if codec_specific {
+            assert_eq!(request.simulcast_codecs[0].layers, unsorted);
+        }
+    }
+}
+
+#[test]
 fn join_response_is_first_and_shows_joining() {
     let (mut room, now) = room();
     let joined = room.join(params("alice", 16, false), now).unwrap();
