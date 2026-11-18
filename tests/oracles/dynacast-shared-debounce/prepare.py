@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Strictly offline, immutable-source staging for the C56 public-API observer."""
+import argparse
+import hashlib
+import io
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import tarfile
+
+HERE = Path(__file__).resolve().parent
+FIXED_HEADS = {
+    "references/livekit-stable": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "references/protocol-stable": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+    "references/psrpc": "e9701ee1b5a981cfa3c7c69503d4775ddff13729",
+}
+MEDIA_PATH = "references/go-modules/mediatransportutil-f234b534b095"
+MEDIA_VERSION = "v0.0.0-20260821083140-f234b534b095"
+MEDIA_MANIFEST_SHA256 = "05efcdb3f2437b1cc31ca9a5e5622b454eaad4a916a4418dcdc11aca5c84fb6f"
+REPLACEMENTS = (
+    ("github.com/livekit/livekit-server", "references/livekit-stable"),
+    ("github.com/livekit/protocol", "references/protocol-stable"),
+    ("github.com/livekit/psrpc", "references/psrpc"),
+    ("github.com/livekit/mediatransportutil", MEDIA_PATH),
+)
+
+
+def sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def git(path, *args):
+    return subprocess.check_output(["git", "-C", str(path), *args], text=True).strip()
+
+
+def prepare(root, out):
+    root = root.resolve(strict=True)
+    require(not out.is_symlink() and not out.exists(), "output must be fresh")
+    out = out.resolve()
+    require(out.parent.is_dir(), "output parent must exist")
+    require(out.is_relative_to(Path('/tmp').resolve()) and
+            any(p.startswith('c56-go-') for p in out.parts), "output must be task-owned /tmp/c56-go-* staging")
+    for relative, expected in FIXED_HEADS.items():
+        ref = root / relative
+        require(Path(git(ref, "rev-parse", "--show-toplevel")).resolve() == ref.resolve(), "not an independent reference: " + relative)
+        require(git(ref, "rev-parse", "HEAD") == expected, "reference HEAD drift: " + relative)
+        require(not git(ref, "status", "--porcelain", "--untracked-files=all"), "dirty reference: " + relative)
+    manifest = HERE / "PROVENANCE.json"
+    hashes = json.loads(manifest.read_text())["source_sha256"]
+    for relative, expected in hashes.items():
+        require(sha256(root / relative) == expected, "source drift: " + relative)
+    media = root / MEDIA_PATH
+    require(sha256(media / "SOURCE-ARCHIVE.json") == MEDIA_MANIFEST_SHA256, "media manifest drift")
+    archive = json.loads((media / "SOURCE-ARCHIVE.json").read_text())
+    require(archive["source"] == "github.com/livekit/mediatransportutil" and archive["version"] == MEDIA_VERSION, "media identity drift")
+    require(not any(p.is_symlink() for p in media.rglob('*')), "media symlink")
+    require({str(p.relative_to(media)) for p in media.rglob('*') if p.is_file()} == set(archive["paths"]) | {"SOURCE-ARCHIVE.json"}, "media inventory drift")
+    for relative, expected in archive["paths"].items():
+        require(sha256(media / relative) == expected, "media source drift: " + relative)
+        hashes[MEDIA_PATH + '/' + relative] = expected
+    hashes[MEDIA_PATH + '/SOURCE-ARCHIVE.json'] = MEDIA_MANIFEST_SHA256
+
+    out.mkdir()
+    sources = out / "sources"
+    archives = {}
+    for relative, head in FIXED_HEADS.items():
+        # Export only the pinned git objects, not mutable working-tree overlays.
+        data = subprocess.check_output(["git", "-C", str(root / relative), "archive", head])
+        archives[relative] = hashlib.sha256(data).hexdigest()
+        dest = sources / relative
+        dest.mkdir(parents=True)
+        with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+            for member in tar.getmembers():
+                require(not member.name.startswith('/') and '..' not in Path(member.name).parts, "unsafe archive path")
+                require(member.isfile() or member.isdir(), "non-regular git archive member: " + member.name)
+            tar.extractall(dest)
+    shutil.copytree(media, sources / MEDIA_PATH)
+    for relative, expected in hashes.items():
+        require(sha256(sources / relative) == expected, "staged source drift: " + relative)
+
+    fixed = sources / "references/livekit-stable"
+    mod = (fixed / "go.mod").read_text()
+    declaration = "module github.com/livekit/livekit-server\n"
+    require(mod.startswith(declaration), "unexpected module declaration")
+    mod = "module dynacast-shared-debounce-observer\n" + mod[len(declaration):]
+    for name, relative in REPLACEMENTS:
+        mod += '\nreplace ' + name + ' => ' + json.dumps(str(sources / relative)) + '\n'
+    mod += '\nrequire github.com/livekit/livekit-server v0.0.0\n'
+    (out / "go.mod").write_text(mod)
+    shutil.copyfile(fixed / "go.sum", out / "go.sum")
+    for name in ("main_test.go",):
+        shutil.copyfile(HERE / name, out / name)
+    provenance = {
+        "kind": "C56-original-Go-public-API-shared-debounce-observer",
+        "scope": "10 shared downgrade traces using original Go timers in testing/synctest; not SDK, MAIN or Rust execution",
+        "reference_heads": FIXED_HEADS,
+        "fixed_source_root": str(root),
+        "git_archive_sha256": archives,
+        "source_sha256": hashes,
+        "media_version": MEDIA_VERSION,
+        "interface_location": "pkg/rtc/dynacast/interfaces.go (dynacastmanager.go does not exist at pinned HEAD)",
+        "asset_sha256": {p.name: sha256(p) for p in sorted(HERE.iterdir()) if p.is_file()},
+        "staged_sha256": {n: sha256(out / n) for n in ("main_test.go", "go.mod", "go.sum")},
+        "rows": 10,
+        "case_order": "shared-expiry n=2,3; upgrade-flush n=2,3; return-keeps-deadline n=1,2; equal-expiry n=1,2; zero-delay n=2,3",
+        "codec_order": ["video/VP8", "video/VP9", "video/H264"],
+        "warmup": [2, 1, 1],
+        "clock": "Go 1.26.0 testing/synctest.Test, time.Sleep fake clock advancement, Wait after each notification/advance; relative zero after excluded per-codec warmup callbacks",
+        "checks": "Explicit independent full aggregate expectations at every checkpoint, actual callback timestamps, all empty observations, no reflection/unsafe/source patches or wall-clock ordering sleeps",
+        "close_caveat": "Original Close stops the queue and initial quality timers, not the manager debounce's residual no-op timer. All requested downgrade expiries occur before Close; synctest root return stops fake time without advancing that residual timer. No claim of Close timer cancellation parity.",
+        "excluded": "new-codec flush scenario not requested; initial 10-second quality timers excluded by zero-duration warmup and measured duration <=1400ms",
+
+    }
+    (out / "provenance.json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + '\n')
+    return out
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--fixed-source-root', type=Path, required=True)
+    parser.add_argument('--out', type=Path, required=True)
+    args = parser.parse_args()
+    print(prepare(args.fixed_source_root, args.out))

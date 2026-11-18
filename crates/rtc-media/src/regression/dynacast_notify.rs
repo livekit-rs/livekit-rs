@@ -213,7 +213,7 @@ fn multi_codec_snapshots_preserve_each_commit_before_drain() {
 }
 
 #[test]
-fn timer_commits_capture_each_receiver_before_the_next_tick() {
+fn timer_commits_capture_all_receivers_at_shared_deadline() {
     let now = Instant::now();
     let (mut engine, tracks) = fixture(2, Duration::from_secs(1), now);
     for track in &tracks {
@@ -229,7 +229,7 @@ fn timer_commits_capture_each_receiver_before_the_next_tick() {
     engine.dynacast_timers(now + Duration::from_secs(1));
     let mut events = Vec::new();
     drain(&mut engine, &mut events);
-    assert_eq!(events, vec![expected(&[0, 2]), expected(&[0, 0])]);
+    assert_eq!(events, vec![expected(&[0, 0])]);
 }
 
 #[test]
@@ -264,6 +264,362 @@ fn queued_snapshot_survives_receiver_removal() {
     let mut events = Vec::new();
     drain(&mut engine, &mut events);
     assert_eq!(events, vec![expected(&[2, 3])]);
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TimedObservation {
+    at_ms: u64,
+    events: Vec<Snapshot>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TimedTrace {
+    scenario: String,
+    codec_count: usize,
+    pause_ms: u64,
+    observations: Vec<TimedObservation>,
+}
+
+fn timed_trace(scenario: &str, count: usize) -> TimedTrace {
+    let now = Instant::now();
+    let pause_ms = if scenario == "zero-delay" { 0 } else { 1000 };
+    let (mut engine, tracks) = fixture(count, Duration::from_millis(pause_ms), now);
+    for (index, track) in tracks.iter().enumerate() {
+        demand(&mut engine, *track, if index == 0 { 2 } else { 1 }, now);
+    }
+    engine.events.clear();
+    let times: &[u64] = match scenario {
+        "shared-expiry" => &[0, 200, 400, 999, 1000, 1200],
+        "upgrade-flush" => &[0, 200, 400, 999, 1000, 1399, 1400],
+        "return-keeps-deadline" => &[0, 200, 400, 999, 1000, 1400],
+        "equal-expiry" => &[0, 200, 999, 1000],
+        "zero-delay" => &[0, 200, 400, 1000],
+        _ => panic!("unknown scenario"),
+    };
+    let mut observations = Vec::new();
+    for &at_ms in times {
+        let at = now + Duration::from_millis(at_ms);
+        engine.dynacast_timers(at);
+        let change = match (scenario, at_ms) {
+            (_, 0) => Some((0, 0)),
+            ("shared-expiry" | "zero-delay", 200) => Some((1, 3)),
+            ("shared-expiry", 400) if count == 3 => Some((2, 0)),
+            ("upgrade-flush", 200) => Some((1, 2)),
+            ("upgrade-flush", 400) => Some((if count == 3 { 2 } else { 0 }, 3)),
+            ("return-keeps-deadline" | "equal-expiry", 200) => Some((0, 2)),
+            ("return-keeps-deadline", 400) => Some((0, 3)),
+            ("zero-delay", 400) => Some((if count == 3 { 2 } else { 0 }, 2)),
+            _ => None,
+        };
+        if let Some((codec, quality)) = change {
+            demand(&mut engine, tracks[codec], quality, at);
+        }
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        observations.push(TimedObservation { at_ms, events });
+    }
+    TimedTrace {
+        scenario: scenario.into(),
+        codec_count: count,
+        pause_ms,
+        observations,
+    }
+}
+
+fn assert_timed_trace(scenario: &str, count: usize) {
+    let trace = timed_trace(scenario, count);
+    for observation in trace.observations {
+        let state: Option<Vec<i32>> = match (scenario, observation.at_ms) {
+            ("shared-expiry", 1000) => Some(vec![0, 3, 0][..count].to_vec()),
+            ("upgrade-flush", 200) => Some(vec![0, 2, 1][..count].to_vec()),
+            ("upgrade-flush", 1400) => Some(if count == 2 {
+                vec![3, 2]
+            } else {
+                vec![0, 2, 3]
+            }),
+            ("return-keeps-deadline", 1000) => Some(vec![3, 1][..count].to_vec()),
+            ("equal-expiry", 1000) => Some(vec![2, 1][..count].to_vec()),
+            ("zero-delay", 0) => Some(vec![0, 1, 1][..count].to_vec()),
+            ("zero-delay", 200) => Some(vec![0, 3, 1][..count].to_vec()),
+            ("zero-delay", 400) => Some(if count == 2 {
+                vec![2, 3]
+            } else {
+                vec![0, 3, 2]
+            }),
+            _ => None,
+        };
+        assert_eq!(
+            observation.events,
+            state.map(|s| vec![expected(&s)]).unwrap_or_default(),
+            "scenario={scenario} codecs={count} at_ms={}",
+            observation.at_ms
+        );
+    }
+}
+
+#[test]
+fn shared_debounce_staggered_downgrades_expire_together() {
+    for count in [2, 3] {
+        assert_timed_trace("shared-expiry", count);
+    }
+}
+
+#[test]
+fn shared_debounce_upgrade_flushes_and_rearms() {
+    for count in [2, 3] {
+        assert_timed_trace("upgrade-flush", count);
+    }
+}
+
+#[test]
+fn shared_debounce_return_retains_original_deadline() {
+    for count in [1, 2] {
+        assert_timed_trace("return-keeps-deadline", count);
+    }
+}
+
+#[test]
+fn shared_debounce_equal_expiry_still_notifies() {
+    for count in [1, 2] {
+        assert_timed_trace("equal-expiry", count);
+    }
+}
+
+#[test]
+fn shared_debounce_zero_delay_control() {
+    for count in [2, 3] {
+        assert_timed_trace("zero-delay", count);
+    }
+}
+
+#[test]
+fn shared_debounce_deadline_reaches_engine_poll_and_dies_with_publication() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture(2, Duration::from_secs(1), now);
+    for track in &tracks {
+        demand(&mut engine, *track, 2, now);
+    }
+    engine.events.clear();
+    demand(&mut engine, tracks[0], 0, now);
+    demand(&mut engine, tracks[1], 0, now + Duration::from_millis(200));
+    assert_eq!(engine.poll_timeout(), Some(now + Duration::from_secs(1)));
+    engine.unpublish(&SID.into(), now + Duration::from_millis(500));
+    assert!(!engine.codec_receivers.contains_key(&SID.into()));
+    assert!(engine.ups.iter().next().is_none());
+    engine.events.clear();
+    engine.dynacast_timers(now + Duration::from_secs(2));
+    assert!(engine.events.is_empty());
+    assert_eq!(engine.poll_timeout(), None);
+}
+
+#[test]
+fn shared_debounce_muted_upgrade_commits_and_cancels_without_emission() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture(2, Duration::from_secs(1), now);
+    demand(&mut engine, tracks[0], 2, now);
+    demand(&mut engine, tracks[1], 1, now);
+    engine.events.clear();
+    engine.set_publisher_muted(&SID.into(), true, now);
+    demand(&mut engine, tracks[0], 0, now);
+    assert_eq!(engine.poll_timeout(), Some(now + Duration::from_secs(1)));
+    demand(&mut engine, tracks[1], 2, now + Duration::from_millis(200));
+    assert!(
+        engine.codec_receivers[&SID.into()]
+            .dynacast_commit
+            .deadline
+            .is_none()
+    );
+    for (track, quality) in tracks.iter().zip([0, 2]) {
+        let msg = engine
+            .ups
+            .get(track.0)
+            .unwrap()
+            .dynacast
+            .as_ref()
+            .unwrap()
+            .committed_message()
+            .unwrap();
+        assert_eq!(
+            msg[0].qualities.iter().filter(|q| q.enabled).count(),
+            quality + 1
+        );
+    }
+    engine.dynacast_timers(now + Duration::from_secs(1));
+    assert!(engine.events.is_empty());
+    assert_eq!(
+        engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+        2
+    );
+    assert_eq!(
+        engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
+        1
+    );
+    engine.set_publisher_muted(&SID.into(), false, now + Duration::from_millis(1100));
+    assert_eq!(
+        engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+        0
+    );
+    assert_eq!(
+        engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
+        2
+    );
+    let mut snapshots = Vec::new();
+    drain(&mut engine, &mut snapshots);
+    assert_eq!(snapshots, vec![expected(&[0, 2]), expected(&[0, 2])]);
+}
+
+#[test]
+fn shared_debounce_survives_origin_invalidation() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture(2, Duration::from_secs(1), now);
+    for track in &tracks {
+        demand(&mut engine, *track, 2, now);
+    }
+    engine.events.clear();
+    demand(&mut engine, tracks[0], 0, now);
+    demand(&mut engine, tracks[1], 1, now + Duration::from_millis(200));
+    engine.invalidate_codec_receiver(tracks[0].0, now + Duration::from_millis(400));
+    assert!(engine.ups.get(tracks[0].0).unwrap().dynacast.is_none());
+    assert_eq!(engine.poll_timeout(), Some(now + Duration::from_secs(1)));
+    engine.dynacast_timers(now + Duration::from_millis(999));
+    assert!(engine.events.is_empty());
+    engine.dynacast_timers(now + Duration::from_secs(1));
+    let mut snapshots = Vec::new();
+    drain(&mut engine, &mut snapshots);
+    assert_eq!(snapshots, vec![expected(&[3, 1])]);
+    assert_eq!(
+        engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
+        1
+    );
+}
+
+#[test]
+fn shared_debounce_updates_each_receiver_expected_layer() {
+    for upgrade in [false, true] {
+        let now = Instant::now();
+        let (mut engine, tracks) = fixture(2, Duration::from_secs(1), now);
+        demand(&mut engine, tracks[0], 2, now);
+        demand(&mut engine, tracks[1], 1, now);
+        demand(&mut engine, tracks[0], 0, now);
+        assert_eq!(
+            engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+            2
+        );
+        demand(
+            &mut engine,
+            tracks[1],
+            if upgrade { 2 } else { 3 },
+            now + Duration::from_millis(200),
+        );
+        if !upgrade {
+            assert_eq!(
+                engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
+                1
+            );
+            engine.dynacast_timers(now + Duration::from_secs(1));
+        }
+        assert_eq!(
+            engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+            0
+        );
+        assert_eq!(
+            engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
+            if upgrade { 2 } else { -1 }
+        );
+    }
+}
+
+#[test]
+fn shared_debounce_first_codec_demand_flushes_pending_peer() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture(1, Duration::from_secs(1), now);
+    demand(&mut engine, tracks[0], 2, now);
+    engine.events.clear();
+    demand(&mut engine, tracks[0], 0, now);
+    let mut spec = engine.published[&SID.into()].clone();
+    spec.codecs.push(TrackCodec {
+        mime_type: "video/vp9".into(),
+        ..Default::default()
+    });
+    engine.published.insert(SID.into(), spec.clone());
+    engine.ups.get_mut(tracks[0].0).unwrap().spec = spec.clone();
+    let at = now + Duration::from_millis(200);
+    let ui = engine.ups.insert(crate::uptrack::UpTrack::new(
+        spec,
+        "PA_notify".into(),
+        TransportId::next(),
+        Mid::from("new"),
+        TrackKind::Video,
+        "video/vp9".into(),
+        vec!["q".into(), "h".into(), "f".into()],
+        &engine.audio_params,
+        Duration::from_secs(1),
+        at,
+    ));
+    engine
+        .codec_receivers
+        .get_mut(&SID.into())
+        .unwrap()
+        .bind("video/vp9", ui);
+    engine.update_dynacast(ui, at);
+    let mut snapshots = Vec::new();
+    drain(&mut engine, &mut snapshots);
+    assert_eq!(snapshots, vec![expected(&[0, 3])]);
+    assert!(
+        engine.codec_receivers[&SID.into()]
+            .dynacast_commit
+            .deadline
+            .is_none()
+    );
+    assert_eq!(
+        engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+        0
+    );
+    assert_eq!(engine.ups.get(ui).unwrap().max_expected_spatial(), -1);
+    engine.dynacast_timers(now + Duration::from_secs(1));
+    assert!(engine.events.is_empty());
+}
+
+#[test]
+#[ignore = "requires C56_GO_JSONL and fresh C56_RUST_JSONL"]
+fn fixed_go_shared_debounce_differential() {
+    use std::io::Write;
+    let actual: Vec<_> = [
+        "shared-expiry",
+        "upgrade-flush",
+        "return-keeps-deadline",
+        "equal-expiry",
+        "zero-delay",
+    ]
+    .into_iter()
+    .flat_map(|scenario| {
+        let counts = if matches!(scenario, "return-keeps-deadline" | "equal-expiry") {
+            [1, 2]
+        } else {
+            [2, 3]
+        };
+        counts.map(move |count| timed_trace(scenario, count))
+    })
+    .collect();
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(std::env::var_os("C56_RUST_JSONL").expect("C56_RUST_JSONL"))
+        .unwrap();
+    for row in &actual {
+        writeln!(output, "{}", serde_json::to_string(row).unwrap()).unwrap();
+    }
+    output.sync_all().unwrap();
+    let input =
+        std::fs::read_to_string(std::env::var_os("C56_GO_JSONL").expect("C56_GO_JSONL")).unwrap();
+    let reference: Vec<TimedTrace> = input
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(reference.len(), 10);
+    assert_eq!(actual, reference);
 }
 
 #[test]

@@ -15,6 +15,7 @@ pub(crate) struct Receiver {
 
 #[derive(Default)]
 pub(crate) struct CodecReceivers {
+    pub dynacast_commit: crate::dynacast::Commit,
     pub receivers: Vec<Receiver>,
     pub regressed_target: Option<usize>,
     pub target_received: bool,

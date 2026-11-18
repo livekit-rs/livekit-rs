@@ -1077,6 +1077,11 @@ impl UpTrack {
     }
 
     #[cfg(test)]
+    pub(crate) fn max_expected_spatial(&self) -> i32 {
+        self.max_expected
+    }
+
+    #[cfg(test)]
     pub(crate) fn bitrate_observation(&self) -> crate::allocator::LayerBitrateObservation {
         self.bitrate_observation_for(3)
     }

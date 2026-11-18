@@ -234,6 +234,20 @@ impl MediaEngine {
     }
 
     fn set_receiver_muted(&mut self, ui: usize, muted: bool, now: Instant) {
+        let Some(up) = self.ups.get_mut(ui) else {
+            return;
+        };
+        if up.muted == muted {
+            return;
+        }
+        up.muted = muted;
+        up.spec.muted = muted;
+        up.reset_stream_trackers();
+        up.set_dd_bitrate_muted(muted, now);
+        up.scorer.set_muted(muted);
+        if up.dynacast.as_mut().is_some_and(|d| d.set_muted(muted)) {
+            self.commit_dynacast(ui, true, now);
+        }
         let Self {
             ups,
             downs,
@@ -243,19 +257,7 @@ impl MediaEngine {
             cfg,
             ..
         } = self;
-        let Some(up) = ups.get_mut(ui) else { return };
-        if up.muted == muted {
-            return;
-        }
-        up.muted = muted;
-        up.spec.muted = muted;
-        up.reset_stream_trackers();
-        up.set_dd_bitrate_muted(muted, now);
-        up.scorer.set_muted(muted);
-        let notification = up.dynacast.as_mut().and_then(|d| d.set_muted(muted, now));
-        if let Some(msg) = &notification {
-            up.on_subscribed_codecs(msg);
-        }
+        let up = ups.get_mut(ui).unwrap();
         let available = up.available(now);
         let configured_layers = up.configured_layers();
         let mut want_pli = [false; 3];
@@ -287,9 +289,6 @@ impl MediaEngine {
                     now,
                 );
             }
-        }
-        if let Some(msg) = notification {
-            self.enqueue_subscribed_quality(ui, msg);
         }
     }
 
@@ -1069,39 +1068,103 @@ impl MediaEngine {
     }
 
     pub(crate) fn dynacast_timers(&mut self, now: Instant) {
-        let due = self
+        let initial = self
             .ups
             .iter()
             .filter_map(|(ui, up)| {
                 up.dynacast
                     .as_ref()?
                     .next_deadline()
-                    .is_some_and(|t| t <= now)
+                    .is_some_and(|at| at <= now)
                     .then_some(ui)
             })
             .collect::<Vec<_>>();
-        for ui in due {
-            let up = self.ups.get_mut(ui).unwrap();
-            if let Some(msg) = up.dynacast.as_mut().unwrap().tick(now) {
-                up.on_subscribed_codecs(&msg);
-                self.enqueue_subscribed_quality(ui, msg);
+        for ui in initial {
+            if self
+                .ups
+                .get_mut(ui)
+                .unwrap()
+                .dynacast
+                .as_mut()
+                .unwrap()
+                .take_initial_update(now)
+            {
+                self.commit_dynacast(ui, true, now);
             }
+        }
+        let due = self
+            .codec_receivers
+            .iter_mut()
+            .filter_map(|(sid, group)| {
+                if !group.dynacast_commit.deadline.is_some_and(|at| at <= now) {
+                    return None;
+                }
+                let active = group.receivers.iter().find_map(|r| {
+                    self.ups
+                        .get(r.up)
+                        .filter(|up| &up.sid == sid && up.dynacast.is_some())
+                        .map(|_| r.up)
+                });
+                if active.is_none() {
+                    group.dynacast_commit.deadline = None;
+                }
+                active
+            })
+            .collect::<Vec<_>>();
+        for ui in due {
+            self.commit_dynacast(ui, true, now);
         }
     }
 
-    fn enqueue_subscribed_quality(
-        &mut self,
-        ui: usize,
-        codecs: Vec<rtc_core::model::SubscribedCodec>,
-    ) {
-        let up = self.ups.get(ui).unwrap();
-        // Freeze the logical track at commit time, before another receiver changes it.
-        let codecs = self.codec_quality_snapshot(&up.sid).unwrap_or(codecs);
-        self.events.push(MediaEvent::SubscribedQuality {
-            publisher: up.publisher.clone(),
-            track_sid: up.sid.clone(),
-            codecs,
-        });
+    fn commit_dynacast(&mut self, ui: usize, force: bool, now: Instant) {
+        let Some(up) = self.ups.get(ui) else { return };
+        let sid = up.sid.clone();
+        let publisher = up.publisher.clone();
+        let muted = up.muted;
+        if !self.up_by_sid.contains_key(&sid) {
+            return;
+        }
+        let Some(group) = self.codec_receivers.get_mut(&sid) else {
+            return;
+        };
+        let receivers = group
+            .receivers
+            .iter()
+            .filter_map(|r| self.ups.get(r.up).filter(|up| up.sid == sid).map(|_| r.up))
+            .collect::<Vec<_>>();
+        if !group.dynacast_commit.update(
+            receivers
+                .iter()
+                .filter_map(|ui| self.ups.get(*ui)?.dynacast.as_ref()),
+            force,
+            now,
+        ) {
+            return;
+        }
+        for &receiver in &receivers {
+            if let Some(d) = self.ups.get_mut(receiver).unwrap().dynacast.as_mut() {
+                d.commit();
+            }
+        }
+        let Some(codecs) = self
+            .codec_quality_snapshot(&sid)
+            .or_else(|| self.ups.get(ui)?.dynacast.as_ref()?.committed_message())
+        else {
+            return;
+        };
+        for receiver in receivers {
+            let up = self.ups.get_mut(receiver).unwrap();
+            if !up.muted {
+                up.on_subscribed_codecs(&codecs);
+            }
+        }
+        if !muted {
+            self.events.push(MediaEvent::SubscribedQuality {
+                publisher,
+                track_sid: sid,
+                codecs,
+            });
+        }
     }
 
     /// Recompute the aggregated subscriber demand of a published video track.
@@ -1137,9 +1200,8 @@ impl MediaEngine {
                 .filter_map(|di| downs.get(*di))
                 .map(|d| up.quality_for_spatial(d.demand_spatial())),
         );
-        if let Some(msg) = up.dynacast.as_mut().and_then(|d| d.set_demand(demand, now)) {
-            up.on_subscribed_codecs(&msg);
-            self.enqueue_subscribed_quality(ui, msg);
+        if up.dynacast.as_mut().is_some_and(|d| d.set_demand(demand)) {
+            self.commit_dynacast(ui, false, now);
         }
     }
 

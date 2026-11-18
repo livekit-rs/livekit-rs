@@ -763,6 +763,9 @@ impl MediaEngine {
         for (_, d) in self.downs.iter() {
             take(d.next_deadline());
         }
+        for group in self.codec_receivers.values() {
+            take(group.dynacast_commit.deadline);
+        }
         for (_, u) in self.ups.iter() {
             take(u.dynacast.as_ref().and_then(|d| d.next_deadline()));
             take(u.next_bitrate_report());
