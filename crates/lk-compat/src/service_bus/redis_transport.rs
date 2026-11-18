@@ -6,7 +6,9 @@
 
 use super::channels::Channel;
 use super::wire::{self, BusMessage, CompressionPolicy, WireLimits};
-use crate::redis_endpoint::{RedisEndpoint, SharedConnection};
+use crate::redis_endpoint::{
+    RedisEndpoint, SharedConnection, go_dial_error_text, go_error_text,
+};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use redis::AsyncConnectionConfig;
 use sha2::{Digest, Sha256};
@@ -23,6 +25,14 @@ pub enum TransportError {
     Configuration,
     #[error("Redis operation failed")]
     Redis,
+    /// A startup command-connection dial that reached the wire and failed. The
+    /// payload is the Go `net.OpError` dial text (e.g.
+    /// `dial tcp 127.0.0.1:6379: connect: connection refused`), so the
+    /// `GetRedisClient` caller can wrap it with `unable to connect to redis: `
+    /// exactly as upstream does. Distinct from the payload-less [`Self::Redis`]
+    /// a mid-operation command or subscription failure reports.
+    #[error("{0}")]
+    Connect(String),
     #[error("Redis operation timed out")]
     Timeout,
     #[error("Redis subscription disconnected")]
@@ -118,10 +128,18 @@ impl RedisTransport {
         // RESP3 pushes allow a genuinely bounded user queue, unlike redis-rs's
         // RESP2 PubSub helper (which internally uses an unbounded message queue).
         let endpoint = endpoint.with_resp3();
-        let command = endpoint
-            .connect(&config(limits))
-            .await
-            .map_err(|_| TransportError::Redis)?;
+        let command = endpoint.connect(&config(limits)).await.map_err(|error| {
+            // Preserve the dial-layer detail so the startup `GetRedisClient`
+            // caller can wrap `unable to connect to redis: <net.OpError>` exactly
+            // as upstream does, instead of the payload-less "Redis operation
+            // failed" a mid-operation failure reports. A Sentinel endpoint has no
+            // single static dial address (it resolves the master per dial), so it
+            // falls back to the error's own reply text.
+            TransportError::Connect(match endpoint.dial_address() {
+                Some(address) => go_dial_error_text(&error, &address),
+                None => go_error_text(&error),
+            })
+        })?;
         let shared = Arc::new(SharedSubscriptions::new(endpoint.clone(), limits));
         Ok(Arc::new(Self {
             endpoint,

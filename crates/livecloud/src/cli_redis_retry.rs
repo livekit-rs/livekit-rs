@@ -136,10 +136,21 @@ async fn ping_existing(
     // written, even though `IsConfigured()` accepts a cluster-only configuration
     // (`redis.go:48-64`, `:131-143`). `SharedConnection::connect` is what every
     // server-side consumer already uses for the same endpoint.
+    // A dial that reached the wire renders Go's `net.OpError`
+    // (`dial tcp <seed>: connect: <cause>`) for the static Simple/Cluster address,
+    // exactly as the bus pool's `connect_endpoint` does; a Sentinel endpoint has
+    // no single static dial address, so it keeps the aggregate-unreachable reply
+    // text (`redis: all sentinels … : <joined attempts>`) instead of redis-rs'
+    // `"{trace} - Client: {detail}"` rendering (SPEC-0074 §2.5-B, SPEC-0077 C43).
     let connection = endpoint
         .connect(&config)
         .await
-        .map_err(|e| fail(lk_compat::redis_endpoint::go_error_text(&e)))?;
+        .map_err(|e| {
+            fail(match endpoint.dial_address() {
+                Some(address) => lk_compat::redis_endpoint::go_dial_error_text(&e, &address),
+                None => lk_compat::redis_endpoint::go_error_text(&e),
+            })
+        })?;
     wire::command("ping", &[])
         .query_async::<()>(&mut connection.begin())
         .await
@@ -257,4 +268,44 @@ pub(super) fn pool_diagnostic(cause: &[u8]) {
     let mut message = b"redis: connection pool: failed to dial after 5 attempts: ".to_vec();
     message.extend(cause);
     lk_compat::redis_endpoint::write_redis_diagnostic("pool.go:762", &message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NodeListError, ping_existing};
+    use lk_compat::redis_endpoint::RedisEndpoint;
+    use redis::IntoConnectionInfo;
+    use std::time::Duration;
+
+    /// The cluster discovery Ping is the server-start producer path
+    /// (`InitializeServer` topology branch -> `ping_with` -> `ping_existing`), and
+    /// the same `ping_existing` backs the CLI `read_nodes_endpoint`. A refused
+    /// first seed must surface as Go's wrapped `net.OpError`, not redis-rs' raw
+    /// `Connection refused (os error 61)` (SPEC-0077 C43). No Redis is needed: the
+    /// port is bound then dropped so the seed dial is refused.
+    #[tokio::test]
+    async fn cluster_refused_discovery_ping_renders_the_go_net_operror() {
+        let refused = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap()
+        };
+        let endpoint = RedisEndpoint::cluster(
+            vec![format!("redis://{refused}/").into_connection_info().unwrap()],
+            2,
+        );
+        let Err(error) =
+            ping_existing(&endpoint, Duration::from_secs(5), Duration::from_secs(5)).await
+        else {
+            panic!("a refused cluster seed must fail the discovery Ping");
+        };
+        assert_eq!(
+            error,
+            NodeListError::OrdinaryBytes(
+                format!(
+                    "unable to connect to redis: dial tcp {refused}: connect: connection refused"
+                )
+                .into_bytes()
+            )
+        );
+    }
 }

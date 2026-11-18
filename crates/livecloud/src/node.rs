@@ -192,7 +192,7 @@ pub enum NodeStartError {
     /// `workerStarted` (`redisrouter.go:176-181`), wrapped by psrpc as
     /// `psrpc.NewError(psrpc.Internal, err)` (`pkg/client/subscription.go:39`).
     #[error("could not subscribe to keepalive pings: {0}")]
-    KeepaliveSubscribe(&'static str),
+    KeepaliveSubscribe(String),
     /// `routing.NewLocalNode` refusing an empty `rtc.node_ip` (`node.go:53-55`),
     /// which `cmd/server/main.go:294-297` returns as the fatal startup error.
     #[error(transparent)]
@@ -689,32 +689,37 @@ fn now_unix() -> i64 {
         .unwrap_or_default()
 }
 
-/// The stable part of a transport error text, for the one startup message that
-/// carries it. `TransportError` has no source payload by design, so its Display
-/// is already the whole message.
-fn error_code(error: lk_compat::service_bus::redis_transport::TransportError) -> &'static str {
+/// The transport error text for the one startup message that carries it. Every
+/// variant's Display is already the whole message; `Connect` additionally carries
+/// the Go `net.OpError` dial text (e.g. `dial tcp 127.0.0.1:6379: connect:
+/// connection refused`) so a keepalive subscription that cannot dial reports the
+/// same detail upstream does rather than a payload-less "Redis operation failed".
+fn error_code(error: lk_compat::service_bus::redis_transport::TransportError) -> String {
     match error {
         lk_compat::service_bus::redis_transport::TransportError::Configuration => {
-            "invalid Redis transport limits or connection configuration"
+            "invalid Redis transport limits or connection configuration".into()
         }
-        lk_compat::service_bus::redis_transport::TransportError::Redis => "Redis operation failed",
+        lk_compat::service_bus::redis_transport::TransportError::Redis => {
+            "Redis operation failed".into()
+        }
+        lk_compat::service_bus::redis_transport::TransportError::Connect(text) => text,
         lk_compat::service_bus::redis_transport::TransportError::Timeout => {
-            "Redis operation timed out"
+            "Redis operation timed out".into()
         }
         lk_compat::service_bus::redis_transport::TransportError::Disconnected => {
-            "Redis subscription disconnected"
+            "Redis subscription disconnected".into()
         }
         lk_compat::service_bus::redis_transport::TransportError::Overflow => {
-            "Redis subscription queue overflow"
+            "Redis subscription queue overflow".into()
         }
         lk_compat::service_bus::redis_transport::TransportError::Oversized => {
-            "Redis message exceeds configured envelope limit"
+            "Redis message exceeds configured envelope limit".into()
         }
         lk_compat::service_bus::redis_transport::TransportError::Capacity => {
-            "Redis transport capacity exhausted"
+            "Redis transport capacity exhausted".into()
         }
         lk_compat::service_bus::redis_transport::TransportError::Codec => {
-            "psrpc envelope encoding or decoding failed"
+            "psrpc envelope encoding or decoding failed".into()
         }
     }
 }
@@ -783,6 +788,27 @@ mod tests {
 
     fn stamp(node: &LocalNode) -> i64 {
         node.snapshot().stats.unwrap().updated_at
+    }
+
+    /// `error_code` carries the `Connect` dial payload verbatim (Go's
+    /// `net.OpError` text) and leaves every payload-less variant's stable message
+    /// unchanged, so `KeepaliveSubscribe` reports the detail upstream does.
+    #[test]
+    fn keepalive_subscribe_error_carries_the_connect_dial_text() {
+        use lk_compat::service_bus::redis_transport::TransportError;
+        let dial = "dial tcp 127.0.0.1:6379: connect: connection refused";
+        assert_eq!(error_code(TransportError::Connect(dial.into())), dial);
+        assert_eq!(
+            NodeStartError::KeepaliveSubscribe(error_code(TransportError::Connect(dial.into())))
+                .to_string(),
+            format!("could not subscribe to keepalive pings: {dial}")
+        );
+        assert_eq!(error_code(TransportError::Redis), "Redis operation failed");
+        assert_eq!(error_code(TransportError::Timeout), "Redis operation timed out");
+        assert_eq!(
+            error_code(TransportError::Disconnected),
+            "Redis subscription disconnected"
+        );
     }
 
     /// Single-node routing (`LocalRouter`): no store, so nothing is registered and

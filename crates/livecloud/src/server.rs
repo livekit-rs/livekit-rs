@@ -305,6 +305,19 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         };
         let topology =
             !redis.sentinel_addresses.is_empty() || !redis.cluster_addresses.is_empty();
+        // Upstream `GetRedisClient` wraps a failed client dial/Ping with
+        // `unable to connect to redis: %w` (`redis.go:158-161`). The eager
+        // command-pool dial surfaces that failure as `TransportError::Connect`
+        // carrying the Go `net.OpError` text; any other transport error keeps its
+        // own message. The discovery Ping (`ping_with`/`ping_base`) already applies
+        // the same wrapper internally, so this only governs the pool dial.
+        let redis_connect_err =
+            |error: lk_compat::service_bus::redis_transport::TransportError| match error {
+                lk_compat::service_bus::redis_transport::TransportError::Connect(text) => {
+                    ServerError::RedisConnect(format!("unable to connect to redis: {text}"))
+                }
+                other => ServerError::RedisConnect(other.to_string()),
+            };
         let base = if topology {
             // SPEC-0074 C10/C11/C12: the Sentinel/Cluster `GetRedisClient` Ping
             // (`redis.go:158-161`) runs on the discovery client `redis_endpoint`
@@ -319,7 +332,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
                 limits,
             )
             .await
-            .map_err(|e| ServerError::RedisConnect(e.to_string()))?
+            .map_err(redis_connect_err)?
         } else {
             // Simple/plaintext: upstream's `GetRedisClient` returns the ONE
             // `redis.UniversalClient` that `redisbus.New` then borrows, so the
@@ -334,7 +347,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
                     limits,
                 )
                 .await
-                .map_err(|e| ServerError::RedisConnect(e.to_string()))?;
+                .map_err(redis_connect_err)?;
             crate::cli_nodes::cli_redis_retry::ping_base(base.command_connection(), redis)
                 .await
                 .map_err(|e| ServerError::RedisConnect(e.to_string()))?;

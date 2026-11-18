@@ -646,6 +646,63 @@ mod tests {
         );
     }
 
+    /// The server-start dial renderer (lk-compat `go_dial_error_text`, carried by
+    /// `connect_endpoint`'s `TransportError::Connect`) must agree byte-for-byte
+    /// with the proven CLI list-nodes renderer (`connection_message`) on every
+    /// vector, so the two startup surfaces never diverge (SPEC-0077 C43).
+    #[test]
+    fn server_start_dial_renderer_agrees_with_the_cli_renderer() {
+        let vectors: Vec<(redis::RedisError, &str)> = vec![
+            (
+                (redis::ErrorKind::AuthenticationFailed, "arbitrary").into(),
+                "127.0.0.1:6379",
+            ),
+            (
+                std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "x").into(),
+                "127.0.0.1:6379",
+            ),
+            (
+                std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "x").into(),
+                "[::1]:6379",
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::PermissionDenied).into(),
+                "127.0.0.1:6379",
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::InvalidInput).into(),
+                "127.0.0.1:0",
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::AddrNotAvailable).into(),
+                "127.0.0.1:0",
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::HostUnreachable).into(),
+                "127.0.0.1:0",
+            ),
+            (
+                std::io::Error::from(std::io::ErrorKind::NetworkUnreachable).into(),
+                "127.0.0.1:0",
+            ),
+            (
+                std::io::Error::new(std::io::ErrorKind::NotFound, "no file").into(),
+                "127.0.0.1:6379",
+            ),
+            (
+                (redis::ErrorKind::Client, "connection refused").into(),
+                "127.0.0.1:6379",
+            ),
+        ];
+        for (error, endpoint) in vectors {
+            assert_eq!(
+                lk_compat::redis_endpoint::go_dial_error_text(&error, endpoint),
+                connection_message(&error, endpoint),
+                "renderer divergence for endpoint {endpoint}"
+            );
+        }
+    }
+
     #[test]
     fn stored_node_full_field_roundtrip_and_all_states_render() {
         // Full-field node: every stat populated, all states represented.

@@ -717,30 +717,6 @@ def main() -> int:
                 "vector proves, and a matching count is not a matching record."),
         }
         report["known_differences"] = [reg_difference, {
-            "id": PRUNE_TEXT_ITEM,
-            "scope_of_this_item": (
-                "the sentence printed when the startup sweep cannot read the node hash — "
-                "either an unparsable record (`redisrouter.go:145-147` returns the raw "
-                "`proto.Unmarshal` error) or a failed HVALS/HDEL. What the sweep *does* "
-                "on failure (abort startup, never serve HTTP) is certified by "
-                "`prune-corrupt-record-aborts`; only the wording is in question."),
-            "difference": (
-                "the reference prints protobuf-go's own decode sentence; the candidate "
-                "prints the registry's `{context}: {source}` rendering of the same "
-                "failure. The candidate additionally opens its own command connection at "
-                "this step, so a dial-layer failure would surface with redis-rs' words "
-                "where go-redis reuses its pool."),
-            "observed_in_this_run": [
-                {"case": c["id"], "official_lines": c["official_error_lines"],
-                 "rust_lines": c["rust_error_lines"]}
-                for c in report["cases"] if c["expectation"] == "corrupt"],
-            "handling": (
-                "the presence of a failure line and the exit status are compared on this "
-                "vector, so a silent-success regression still fails here; the string "
-                "itself stays open rather than being closed by pasting a Go-shaped "
-                "message with no producer. This is deliberately not the same item as the "
-                "go-redis library diagnostics c22 tracks."),
-        }, {
             "id": STARTUP_RACE_ITEM,
             "scope_of_this_item": (
                 "SIGINT landing while `Start()` is still in its post-listener sleep: "
@@ -771,6 +747,48 @@ def main() -> int:
                 "more useful, and no official API/CLI output depends on the hang. The item "
                 "stays OPEN so the difference is never mistaken for parity, and so a "
                 "future signal-handling change is written against both behaviours."),
+        }]
+        report["closed_items"] = [{
+            "id": PRUNE_TEXT_ITEM,
+            "scope_of_this_item": (
+                "the sentence printed when the startup sweep cannot read the node hash — "
+                "either an unparsable record (`redisrouter.go:145-147` returns the raw "
+                "`proto.Unmarshal` error) or a failed HVALS/HDEL, and the fatal STDOUT line "
+                "when the startup Redis dial itself is refused. What the sweep *does* on "
+                "failure (abort startup, never serve HTTP) is certified by "
+                "`prune-corrupt-record-aborts`."),
+            "status": "CLOSED (C43 refused-dial + C08 registry-reply + C40 connection-reuse)",
+            "closure": (
+                "The wording is now certified byte-exact by the dedicated harnesses on ONE "
+                "final candidate af46d6f4 vs the locked Go 4bc2378e: the registry-reply "
+                "family (malformed protobuf wire / invalid UTF-8 / wrong-type / ACL-denied "
+                "HVALS-HDEL) by run-error-text.py (re-bound to af46d6f4 in C43-e), and the "
+                "refused-dial family (Go net.OpError 'dial tcp <addr>: connect: connection "
+                "refused' for the static Simple/Cluster address, the Sentinel "
+                "aggregate-unreachable reply) by run-dial-text.py (4 topology vectors, 0 "
+                "mismatches). The former claim that the candidate prints the registry's "
+                "`{context}: {source}` rendering where the reference prints protobuf-go's "
+                "decode sentence is no longer a difference for the certified registry-reply "
+                "cases. The connection-reuse claim ('the candidate opens its own command "
+                "connection where go-redis reuses its pool') was closed by C40 (shared "
+                "command pool + ping-via-base); the dial-layer-words claim was closed by "
+                "C43-b2 (cli_redis_retry.rs::ping_existing now uses the same dial_address-aware "
+                "renderer as redis_transport.rs::connect_endpoint). Two isolated-target "
+                "accept-but-ignore mutants each FAIL exactly their discriminating vectors "
+                "(MUTANTS.json). See evidence/2026-11-18/spec0077-c43-node-prune-dial-text/."),
+            "observed_in_this_run": [
+                {"case": c["id"], "official_lines": c["official_error_lines"],
+                 "rust_lines": c["rust_error_lines"]}
+                for c in report["cases"] if c["expectation"] == "corrupt"],
+            "handling": (
+                "This vector still compares the PRESENCE of a failure line and the exit "
+                "status, so a silent-success regression still fails here; the byte-exact "
+                "wording is certified by run-error-text.py / run-dial-text.py on the same "
+                "candidate, not by this presence check. Moved out of known_differences "
+                "because the wording and connection-reuse claims are closed; the leaf "
+                "CONFIG_BEHAVIOR:Redis.NodePruneFailureText is VERIFIED [ACCEPTED SUBSCOPE]. "
+                "The distinct go-redis library-internal stderr diagnostics remain under "
+                "CONFIG_BEHAVIOR:Redis.SentinelDiscoveryDiagnostics."),
         }]
         assert not report["mismatches"], report["mismatches"]
         report["aggregate_status"] = "PASS_CLI_REDIS_STARTUP_DEAD_NODE_PRUNE_PAIRED"

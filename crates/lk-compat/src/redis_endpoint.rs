@@ -474,6 +474,22 @@ impl RedisEndpoint {
         matches!(&self.kind, EndpointKind::Cluster(_))
     }
 
+    /// The static address a dial targets, for rendering a startup dial failure
+    /// as Go's `net.OpError`. A `Simple` endpoint dials its configured address;
+    /// a `Cluster` endpoint dials its seeds. A `Sentinel` endpoint resolves the
+    /// master per dial, so there is no single static dial address (`None`) and
+    /// the caller falls back to the error's own text.
+    pub fn dial_address(&self) -> Option<String> {
+        match &self.kind {
+            EndpointKind::Simple(info, _) => Some(addr_string(info.addr())),
+            EndpointKind::Cluster(shared) => shared
+                .initial_nodes
+                .first()
+                .map(|info| addr_string(info.addr())),
+            EndpointKind::Sentinel(_) => None,
+        }
+    }
+
     /// The long-lived command connection type used by every consumer.
     pub async fn connect(
         &self,
@@ -848,6 +864,77 @@ pub fn go_error_text(error: &RedisError) -> String {
         };
     }
     error.to_string()
+}
+
+/// Go `net.OpError` rendering of a failed dial to `endpoint`, the startup-surface
+/// text upstream `GetRedisClient` wraps with `unable to connect to redis: %w`.
+/// Mirrors the locked driver's TCP `connection_message`: an authentication
+/// failure is the typed WRONGPASS reply, a real IO cause is
+/// `dial tcp <endpoint>: connect: <go strerror>`, and anything else keeps the
+/// Redis error's own reply text. `endpoint` is the address actually dialled
+/// (already resolved by the caller), so a refused connection reads
+/// `dial tcp 127.0.0.1:6379: connect: connection refused` rather than redis-rs'
+/// `Connection refused (os error 61)`.
+pub fn go_dial_error_text(error: &RedisError, endpoint: &str) -> String {
+    if error.kind() == ErrorKind::AuthenticationFailed {
+        // The locked driver replaces RESP2 WRONGPASS with this typed error.
+        return "WRONGPASS invalid username-password pair or user is disabled.".into();
+    }
+    let io_error = std::error::Error::source(error).and_then(|cause| {
+        cause.downcast_ref::<std::io::Error>().or_else(|| {
+            cause
+                .downcast_ref::<std::sync::Arc<dyn std::error::Error + Send + Sync>>()
+                .and_then(|shared| shared.downcast_ref::<std::io::Error>())
+        })
+    });
+    if error.is_io_error()
+        && let Some(message) = io_error.and_then(go_connect_cause)
+    {
+        return format!("dial tcp {endpoint}: connect: {message}");
+    }
+    match (error.code(), error.detail()) {
+        (Some(code), Some(detail)) if !detail.is_empty() => format!("{code} {detail}"),
+        (Some(code), _) => code.to_owned(),
+        _ => error.to_string(),
+    }
+}
+
+/// Go renders a failed connect as a `net.OpError` whose `Err` is a
+/// `syscall.Errno`, i.e. the OS strerror text with a lowercase first letter and
+/// no `(os error N)` suffix. `io::Error` carries the same strerror but in the
+/// capitalized Rust form, so only the framing differs.
+fn go_connect_cause(error: &std::io::Error) -> Option<String> {
+    if let Some(kind) = go_connect_errno_text(error) {
+        return Some(kind.to_owned());
+    }
+    let text = error.to_string();
+    let stripped = match text.rfind(" (os error ") {
+        Some(at) => text[..at].to_owned(),
+        None => text,
+    };
+    let mut chars = stripped.chars();
+    let first = chars.next()?.to_lowercase().to_string();
+    Some(format!("{first}{}", chars.as_str()))
+}
+
+/// Errnos whose Go table deliberately does not match the OS strerror, plus the
+/// kinds Rust may synthesize without an OS code.
+fn go_connect_errno_text(error: &std::io::Error) -> Option<&'static str> {
+    match error.kind() {
+        std::io::ErrorKind::ConnectionRefused => Some("connection refused"),
+        std::io::ErrorKind::PermissionDenied => Some("permission denied"),
+        std::io::ErrorKind::InvalidInput => Some("invalid argument"),
+        std::io::ErrorKind::AddrNotAvailable => {
+            if cfg!(target_os = "macos") {
+                Some("can't assign requested address")
+            } else {
+                Some("cannot assign requested address")
+            }
+        }
+        std::io::ErrorKind::HostUnreachable => Some("no route to host"),
+        std::io::ErrorKind::NetworkUnreachable => Some("network is unreachable"),
+        _ => None,
+    }
 }
 
 /// `SENTINEL get-master-addr-by-name <master>` against one node.
@@ -2365,6 +2452,168 @@ mod tests {
         assert_eq!(
             go_error_text(&error),
             "ERR This instance has cluster support disabled"
+        );
+    }
+
+    /// The startup command-pool dial renders Go's `net.OpError` text for a real
+    /// IO cause, the typed WRONGPASS reply for an auth failure, and never converts
+    /// a textual Redis error into a `dial tcp` line. These are the absolute
+    /// upstream strings (SPEC-0077 C43), not redis-rs' capitalized std wording.
+    #[test]
+    fn go_dial_error_text_renders_the_upstream_net_operror_vectors() {
+        let auth: RedisError =
+            (ErrorKind::AuthenticationFailed, "arbitrary driver wording").into();
+        assert_eq!(
+            go_dial_error_text(&auth, "127.0.0.1:6379"),
+            "WRONGPASS invalid username-password pair or user is disabled."
+        );
+        let refused: RedisError = std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "arbitrary platform wording",
+        )
+        .into();
+        assert_eq!(
+            go_dial_error_text(&refused, "127.0.0.1:6379"),
+            "dial tcp 127.0.0.1:6379: connect: connection refused"
+        );
+        // The endpoint is already resolved by the caller, so an IPv6 literal keeps
+        // its brackets exactly as `net.JoinHostPort` produced it.
+        assert_eq!(
+            go_dial_error_text(&refused, "[::1]:6379"),
+            "dial tcp [::1]:6379: connect: connection refused"
+        );
+        let permission: RedisError =
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied).into();
+        assert_eq!(
+            go_dial_error_text(&permission, "127.0.0.1:6379"),
+            "dial tcp 127.0.0.1:6379: connect: permission denied"
+        );
+        let invalid: RedisError =
+            std::io::Error::from(std::io::ErrorKind::InvalidInput).into();
+        assert_eq!(
+            go_dial_error_text(&invalid, "127.0.0.1:6379"),
+            "dial tcp 127.0.0.1:6379: connect: invalid argument"
+        );
+        let unavailable: RedisError =
+            std::io::Error::from(std::io::ErrorKind::AddrNotAvailable).into();
+        let expected = if cfg!(target_os = "macos") {
+            "dial tcp 127.0.0.1:0: connect: can't assign requested address"
+        } else {
+            "dial tcp 127.0.0.1:0: connect: cannot assign requested address"
+        };
+        assert_eq!(go_dial_error_text(&unavailable, "127.0.0.1:0"), expected);
+        let host: RedisError =
+            std::io::Error::from(std::io::ErrorKind::HostUnreachable).into();
+        assert_eq!(
+            go_dial_error_text(&host, "127.0.0.1:0"),
+            "dial tcp 127.0.0.1:0: connect: no route to host"
+        );
+        let network: RedisError =
+            std::io::Error::from(std::io::ErrorKind::NetworkUnreachable).into();
+        assert_eq!(
+            go_dial_error_text(&network, "127.0.0.1:0"),
+            "dial tcp 127.0.0.1:0: connect: network is unreachable"
+        );
+        // A textual client error whose wording merely *contains* "connection
+        // refused" is not an IO cause and must not be framed as a dial.
+        let textual: RedisError = (ErrorKind::Client, "connection refused").into();
+        let rendered = go_dial_error_text(&textual, "127.0.0.1:6379");
+        assert!(
+            !rendered.starts_with("dial tcp"),
+            "a textual error was converted into a dial: {rendered}"
+        );
+    }
+
+    /// `dial_address` is the address the eager command-pool dial actually targets:
+    /// a Simple endpoint's configured address, a Cluster endpoint's first seed,
+    /// and `None` for Sentinel (which resolves the master per dial).
+    #[test]
+    fn dial_address_reflects_the_endpoint_topology() {
+        let simple =
+            RedisEndpoint::simple("redis://127.0.0.1:6379/".into_connection_info().unwrap());
+        assert_eq!(simple.dial_address().as_deref(), Some("127.0.0.1:6379"));
+        let cluster = RedisEndpoint::cluster(
+            vec![
+                "redis://127.0.0.1:7000/".into_connection_info().unwrap(),
+                "redis://127.0.0.1:7001/".into_connection_info().unwrap(),
+            ],
+            2,
+        );
+        assert_eq!(cluster.dial_address().as_deref(), Some("127.0.0.1:7000"));
+        let sentinel =
+            RedisEndpoint::sentinel(plaintext_target(vec!["127.0.0.1:26379".into()]));
+        assert_eq!(sentinel.dial_address(), None);
+    }
+
+    /// The genuine C43 producer path: `connect_endpoint` dials the command pool
+    /// eagerly, so a refused loopback port surfaces as `TransportError::Connect`
+    /// carrying Go's `net.OpError` line — not the payload-less "Redis operation
+    /// failed" the simple branch used to print. No Redis server is needed: the
+    /// port is bound then dropped so the connect is refused.
+    #[tokio::test]
+    async fn connect_endpoint_refused_dial_carries_the_go_net_operror() {
+        use crate::service_bus::redis_transport::{
+            RedisTransport, TransportError, TransportLimits,
+        };
+        use crate::service_bus::wire::{CompressionPolicy, WireLimits};
+        let refused = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap()
+        };
+        let endpoint = RedisEndpoint::simple(
+            format!("redis://{refused}/").into_connection_info().unwrap(),
+        );
+        let limits = TransportLimits {
+            wire: WireLimits {
+                encoded_bytes: 1 << 20,
+                decompressed_bytes: 1 << 20,
+            },
+            compression: CompressionPolicy {
+                quality: 0,
+                threshold: 0,
+            },
+            inbox_messages: 100,
+            subscriptions: 4096,
+            commands: 1000,
+            io_timeout: std::time::Duration::from_secs(5),
+        };
+        match RedisTransport::connect_endpoint(endpoint, limits).await {
+            Err(TransportError::Connect(text)) => assert_eq!(
+                text,
+                format!("dial tcp {refused}: connect: connection refused")
+            ),
+            Err(other) => panic!("expected Connect, got {other:?}"),
+            Ok(_) => panic!("a refused command-pool dial must not succeed"),
+        }
+    }
+
+    /// The cluster producer path: the discovery Ping (`ping_existing`) and the CLI
+    /// `read_nodes_endpoint` dial a Cluster endpoint through `connect`, whose
+    /// first-seed refusal must render Go's `net.OpError` for the static seed
+    /// address (SPEC-0077 C43). Before the fix the Ping used `go_error_text`,
+    /// which printed redis-rs' raw `Connection refused (os error 61)` with no
+    /// address; the bus pool's `connect_endpoint` already rendered Simple right.
+    #[tokio::test]
+    async fn cluster_refused_dial_carries_the_go_net_operror() {
+        let refused = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap()
+        };
+        let endpoint = RedisEndpoint::cluster(
+            vec![format!("redis://{refused}/").into_connection_info().unwrap()],
+            2,
+        );
+        let config = redis::AsyncConnectionConfig::new()
+            .set_connection_timeout(Some(std::time::Duration::from_secs(5)))
+            .set_response_timeout(Some(std::time::Duration::from_secs(5)));
+        let Err(error) = endpoint.connect(&config).await else {
+            panic!("a refused cluster seed must not connect");
+        };
+        let address = endpoint.dial_address().expect("cluster has a static seed");
+        assert_eq!(address, refused.to_string());
+        assert_eq!(
+            go_dial_error_text(&error, &address),
+            format!("dial tcp {refused}: connect: connection refused")
         );
     }
 }
