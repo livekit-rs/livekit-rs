@@ -158,12 +158,57 @@ pub(crate) async fn read_nodes(settings: &RedisConfig) -> Result<Vec<Vec<u8>>, N
         return read_nodes_endpoint(settings).await;
     }
     let mut session = connect(settings).await?;
+    // `getMessageBus` runs after `createRedisClient`'s Ping and before `ListNodes`:
+    // the message-bus read worker dials the second (pubsub) connection here. The
+    // dial is awaited so the connection is established before the node table is
+    // rendered and the process exits — on the CLI's current-thread runtime this
+    // emulates the head start the official `go readWorker()` goroutine gets from
+    // running on its own OS thread.
+    let _ = spawn_message_bus(settings).await;
     let values = session
         .query(wire::command("hvals", &["nodes"]))
         .await
         .map_err(|e| command_error("could not list nodes: ", e))?;
     redis::from_redis_value(values)
         .map_err(|e| command_error("could not list nodes: ", Fault::Protocol(e.to_string())))
+}
+
+/// `service.InitializeRouter` -> `getMessageBus` -> `redisbus.New(rc)` (psrpc
+/// v0.8.2 `redisbus.go:63-83`): the message bus spawns a `readWorker` goroutine
+/// whose first `ReceiveMessage` eagerly dials a dedicated pubsub connection — the
+/// official binary's SECOND Redis connection for one successful `list-nodes`. It
+/// dials with the same go-redis `initConn` handshake and then blocks receiving
+/// pushes. `list-nodes` runs `InitializeRouter` + `ListNodes` but never
+/// `router.Start()`, so `SubscribePing` never runs and no channel is subscribed:
+/// the read connection carries only the init handshake, never a command.
+///
+/// The worker is a detached task: the CLI's current-thread runtime aborts it when
+/// `block_on` returns and the process exits, the same cutoff that ends the official
+/// goroutine. The returned receiver fires once the dial attempt finishes (success
+/// or failure) so `read_nodes` can establish the connection before rendering; a
+/// failed bus dial is logged-and-dropped by the worker, never propagated, exactly
+/// as `readWorker`'s retry loop is independent of `ListNodes`.
+fn spawn_message_bus(settings: &RedisConfig) -> tokio::sync::oneshot::Receiver<()> {
+    let (ready, dialled) = tokio::sync::oneshot::channel();
+    let options = simple_options(settings);
+    let address = settings.address.clone();
+    tokio::spawn(async move {
+        let mut bus_wire = None;
+        if let Ok(options) = options
+            && let Ok(mut session) = Session::new(address, options)
+            && let Ok(opened) = session.open_message_bus().await
+        {
+            bus_wire = Some(opened);
+        }
+        let _ = ready.send(());
+        // readWorker: receive pushes until the connection closes. With no
+        // subscription no frame ever arrives, so this parks here; a received frame
+        // would be dispatched to subscribers, of which the read-only CLI has none.
+        if let Some(mut bus_wire) = bus_wire {
+            while bus_wire.read_push().await.is_ok() {}
+        }
+    });
+    dialled
 }
 
 /// `HVALS nodes` over the endpoint transport (Sentinel or Cluster), mirroring the

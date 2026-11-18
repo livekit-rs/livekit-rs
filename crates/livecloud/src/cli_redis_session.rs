@@ -442,7 +442,13 @@ impl Session {
             .map_err(|e| (e.prefix("failed to initialize connection options: "), false))?;
         }
         if self.maint && resp3 {
-            let endpoint = endpoint_type(&self.pool.address, false).await;
+            // go-redis `DetectEndpointType(opt.Addr, opt.TLSConfig != nil)`
+            // (options.go:581): TLS prefers an FQDN endpoint for certificate
+            // validation, so the suffix is `-fqdn` when TLS material is loaded and
+            // `-ip` otherwise. Hardcoding `false` here sent `-ip` on TLS too, a
+            // wire-only divergence no stdout differential could see.
+            let endpoint =
+                endpoint_type(&self.pool.address, self.pool.options.tls.is_some()).await;
             match handshake_command(
                 &mut wire,
                 maint_notifications_command(&endpoint),
@@ -463,6 +469,18 @@ impl Session {
             Err(e) => return Err((e, false)),
         }
         Ok(wire)
+    }
+    /// `redisbus.New`'s read-worker connection (psrpc v0.8.2 `redisbus.go:68,80`):
+    /// dial a dedicated pubsub wire with the SAME go-redis `initConn` handshake the
+    /// command pool uses. go-redis runs `initConn` on pubsub connections too
+    /// (`redis.go:895-1024` has no `IsPubSub` guard on maint_notifications/setinfo),
+    /// so this wire opens with hello/maint/setinfo exactly like the command wire.
+    /// `list-nodes` builds the message bus but never starts the router, so no
+    /// channel is ever subscribed on it — it carries only the init handshake.
+    pub(super) async fn open_message_bus(&mut self) -> Result<Wire, Fault> {
+        self.open()
+            .await
+            .map_err(|(error, dial)| if dial { error } else { error.unwrap_once() })
     }
     pub async fn query(&mut self, cmd: redis::Cmd) -> Result<redis::Value, Fault> {
         let mut last = None;

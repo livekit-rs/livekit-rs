@@ -105,3 +105,16 @@ fn every_command_name_is_lowercased_at_the_builder() {
         "*2\\r\\n$5\\r\\nhvals\\r\\n$5\\r\\nnodes\\r\\n"
     );
 }
+
+#[tokio::test]
+async fn endpoint_type_suffix_follows_tls_like_go_redis_detect() {
+    // go-redis options.go:581 `DetectEndpointType(opt.Addr, opt.TLSConfig != nil)`
+    // plus maintnotifications/config.go:418-480: a private address yields
+    // `internal-ip` without TLS and `internal-fqdn` with TLS (the FQDN is preserved
+    // for certificate validation). Hardcoding the TLS flag to false sent `-ip` on
+    // TLS connections, a wire-only divergence no stdout differential could see.
+    assert_eq!(endpoint_type("127.0.0.1:6379", false).await, "internal-ip");
+    assert_eq!(endpoint_type("127.0.0.1:6379", true).await, "internal-fqdn");
+    assert_eq!(endpoint_type("8.8.8.8:6379", false).await, "external-ip");
+    assert_eq!(endpoint_type("8.8.8.8:6379", true).await, "external-fqdn");
+}

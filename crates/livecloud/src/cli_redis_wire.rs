@@ -333,6 +333,17 @@ impl Wire {
         // preceding push frames. Read all server-error replies before returning first.
         self.read_cohort(&commands).await
     }
+    /// Block reading one unsolicited frame, as go-redis `PubSub.ReceiveMessage`
+    /// does on the message bus's dedicated read connection. No command is written:
+    /// with no channel subscribed no push ever arrives, so this parks on the socket
+    /// read until the peer closes it or the runtime aborts the read worker.
+    pub async fn read_push(&mut self) -> Result<Value, Fault> {
+        let result = {
+            let mut reader = super::cli_redis_resp::Reader::new(&mut self.stream);
+            reader.any().await
+        };
+        result.map_err(|error| self.read_error(error))
+    }
 }
 /// A RESP command as go-redis writes it: the command name is always the lowercase
 /// literal from the library's command builders (`hello`, `client`, `select`),
