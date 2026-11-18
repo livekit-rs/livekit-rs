@@ -1,0 +1,188 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>C60 video quality lifecycle</title>
+<script src="/sdk.js"></script>
+<body><canvas id="source" width="1280" height="720"></canvas>
+<script>
+const { Room, RoomEvent, Track, VideoQuality, VideoPreset } = LivekitClient;
+const roles = ['publisher', 'sub-a', 'sub-b'];
+const quality = { low: VideoQuality.LOW, medium: VideoQuality.MEDIUM, high: VideoQuality.HIGH };
+const check = n => ((n * 37 + 0x5b) ^ (n >> 8)) & 255;
+const finite = n => Number.isFinite(n) ? n : null;
+const sid = value => /^(PA_|TR_)[A-Za-z0-9_-]+$/.test(value) ? value : null;
+const pick = (value, keys) => Object.fromEntries(keys.map(k => [k, value?.[k] ?? null]));
+let room, role, local, publication, timer, frame = 0, generation = 0;
+let desired = { quality: 'high', enabled: true };
+const readers = [], events = [], errors = [], sourceCodes = [], sources = [];
+let eventCursor = 0, errorCursor = 0, sourceCursor = 0;
+const error = kind => errors.push({ kind, at: performance.timeOrigin + performance.now() });
+window.addEventListener('error', () => error('window-error'));
+window.addEventListener('unhandledrejection', () => error('unhandled-rejection'));
+const now = () => performance.timeOrigin + performance.now();
+function draw() {
+  frame++;
+  const canvas = document.getElementById('source'), ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#246e87'; ctx.fillRect(0, 0, 1280, 720);
+  ctx.fillStyle = '#e5b44d'; ctx.fillRect(frame * 13 % 1152, 390, 128, 128);
+  const n = frame & 65535, value = (n << 8) | check(n);
+  for (let i = 0; i < 24; i++) {
+    ctx.fillStyle = (value >> (23 - i)) & 1 ? '#fff' : '#000';
+    ctx.fillRect(i % 8 * 160, Math.floor(i / 8) * 90, 160, 90);
+  }
+  sourceCodes.push({ at: now(), code: n, sequence: frame });
+}
+function decode(data, w, h) {
+  let value = 0;
+  for (let i = 0; i < 24; i++) {
+    const x = Math.floor((i % 8 + 0.5) * w / 8);
+    const y = Math.floor((Math.floor(i / 8) + 0.5) * h / 8), offset = (y * w + x) * 4;
+    const luminance = data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114;
+    value = (value << 1) | (luminance > 128 ? 1 : 0);
+  }
+  const code = (value >> 8) & 65535;
+  return { code, valid: check(code) === (value & 255), checksum: value & 255 };
+}
+function attach(track, pub, participant) {
+  const video = track.attach(); video.muted = true; video.playsInline = true;
+  document.body.appendChild(video);
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const reader = { track, video, sid: sid(pub.trackSid), owner: sid(participant.sid), generation: ++generation,
+    frames: [], cursor: 0, callbacks: 0, valid: 0, invalid: 0, last: null, callbackId: null };
+  readers.push(reader);
+  const tick = (at, metadata) => {
+    try {
+      const w = metadata.width, h = metadata.height;
+      let code = null, valid = false, checksum = null;
+      if (w > 0 && h > 0) {
+        canvas.width = w; canvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+        ({ code, valid, checksum } = decode(ctx.getImageData(0, 0, w, h).data, w, h));
+      }
+      const value = { at: now(), callbackAt: finite(at), w: finite(w), h: finite(h), code, valid, checksum,
+        presentedFrames: finite(metadata.presentedFrames), rtpTimestamp: finite(metadata.rtpTimestamp),
+        mediaTime: finite(metadata.mediaTime), receiveTime: finite(metadata.receiveTime) };
+      reader.callbacks++; valid ? reader.valid++ : reader.invalid++;
+      reader.frames.push(value); reader.last = value;
+    } catch { error('frame-reader'); }
+    reader.callbackId = video.requestVideoFrameCallback(tick);
+  };
+  reader.callbackId = video.requestVideoFrameCallback(tick);
+  video.play().catch(() => error('video-play'));
+}
+function remotePublications() {
+  return [...(room?.remoteParticipants.values() ?? [])].flatMap(p =>
+    [...p.videoTrackPublications.values()].map(pub => ({ participant: p, pub })));
+}
+function applyDesired() {
+  for (const { pub } of remotePublications()) {
+    pub.setVideoQuality(quality[desired.quality]);
+    pub.setEnabled(desired.enabled);
+  }
+}
+async function stats(track) {
+  const report = await track?.getRTCStatsReport();
+  if (!report) return null;
+  return [...report.values()].filter(r => (r.type === 'outbound-rtp' || r.type === 'inbound-rtp') && r.kind === 'video').map(r => ({
+    ...pick(r, ['id', 'type', 'timestamp', 'ssrc', 'rid', 'active', 'bytesSent', 'bytesReceived',
+      'packetsSent', 'packetsReceived', 'framesEncoded', 'framesSent', 'framesDecoded', 'framesReceived',
+      'frameWidth', 'frameHeight', 'framesPerSecond', 'keyFramesEncoded', 'keyFramesDecoded', 'framesDropped',
+      'nackCount', 'pliCount', 'firCount', 'retransmittedBytesSent', 'retransmittedPacketsSent',
+      'packetsLost', 'jitter', 'freezeCount', 'totalFreezesDuration', 'qualityLimitationReason']),
+    codec: report.get(r.codecId)?.mimeType ?? null,
+  }));
+}
+window.fixture = {
+  async connect({ url, token, identity }) {
+    if (!roles.includes(identity)) throw Error('identity');
+    role = identity;
+    room = new Room({ adaptiveStream: false, dynacast: true });
+    for (const event of [RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackPublished,
+      RoomEvent.TrackUnpublished, RoomEvent.TrackSubscriptionFailed, RoomEvent.Reconnecting,
+      RoomEvent.Reconnected, RoomEvent.Disconnected]) {
+      room.on(event, (...args) => {
+        const pub = event === RoomEvent.TrackSubscribed || event === RoomEvent.TrackUnsubscribed ? args[1] : args[0];
+        const owner = event === RoomEvent.TrackSubscribed || event === RoomEvent.TrackUnsubscribed ? args[2] : args[1];
+        events.push({ event, sid: sid(pub?.trackSid), owner: sid(owner?.sid), at: now() });
+        if (event === RoomEvent.TrackSubscriptionFailed || event === RoomEvent.Reconnecting) error('sdk-' + event);
+      });
+    }
+    room.on(RoomEvent.TrackPublished, applyDesired);
+    room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+      if (track.kind !== Track.Kind.Video) { error('unexpected-track'); return; }
+      applyDesired(); attach(track, pub, participant);
+    });
+    await room.connect(url, token, { autoSubscribe: true });
+    return { sid: sid(room.localParticipant.sid), identity: role };
+  },
+  async publish() {
+    if (role !== 'publisher' || room.localParticipant.videoTrackPublications.size !== 0) throw Error('publish-state');
+    if (!timer) { draw(); timer = setInterval(draw, 1000 / 15); }
+    const media = document.getElementById('source').captureStream(15).getVideoTracks()[0];
+    sources.push(media);
+    publication = await room.localParticipant.publishTrack(media, {
+      name: 'c60-canvas', source: Track.Source.Camera, videoCodec: 'vp8', simulcast: true,
+      videoEncoding: { maxBitrate: 1800000, maxFramerate: 15 },
+      videoSimulcastLayers: [new VideoPreset(320, 180, 180000, 15), new VideoPreset(640, 360, 600000, 15)],
+      degradationPreference: 'maintain-resolution',
+    });
+    local = publication.track;
+    return { sid: sid(publication.trackSid), owner: sid(room.localParticipant.sid) };
+  },
+  request(value) {
+    if (!(value.quality in quality) || typeof value.enabled !== 'boolean' || role === 'publisher') throw Error('request');
+    desired = { quality: value.quality, enabled: value.enabled }; applyDesired();
+    return { ...desired };
+  },
+  async pause() { if (!local) throw Error('no-local'); await local.pauseUpstream(); },
+  async resume() { if (!local) throw Error('no-local'); await local.resumeUpstream(); },
+  async unpublish() {
+    if (!local) throw Error('no-local');
+    const removed = await room.localParticipant.unpublishTrack(local, true);
+    if (!removed) throw Error('unpublish-missing');
+    return { sid: sid(removed.trackSid) };
+  },
+  async snapshot() {
+    const capturedAt = now();
+    const pubs = remotePublications();
+    const capturedReaders = readers.map(r => {
+      const frames = r.frames.slice(r.cursor); r.cursor = r.frames.length;
+      return { sid: r.sid, owner: r.owner, generation: r.generation, callbacks: r.callbacks,
+        valid: r.valid, invalid: r.invalid, last: r.last, frames,
+        track: { ...pick(r.track.mediaStreamTrack, ['enabled', 'muted', 'readyState']),
+          attached: r.video.srcObject instanceof MediaStream && r.video.srcObject.getVideoTracks().includes(r.track.mediaStreamTrack) },
+        stats: null };
+    });
+    const encodings = local?.sender?.getParameters().encodings;
+    const output = { at: capturedAt, role: role ?? null, connection: room?.state ?? null,
+      participant: sid(room?.localParticipant.sid),
+      peers: [...(room?.remoteParticipants.values() ?? [])].map(p => ({ sid: sid(p.sid), identity: roles.includes(p.identity) ? p.identity : 'unexpected' })),
+      local: local ? { sid: sid(publication.trackSid), published: room.localParticipant.videoTrackPublications.has(publication.trackSid),
+        paused: local.isUpstreamPaused, senderPresent: !!local.sender, senderTrackPresent: local.sender ? local.sender.track !== null : null,
+        source: pick(local.mediaStreamTrack.getSettings(), ['width', 'height', 'frameRate']),
+        encodings: encodings ? encodings.map(e => pick(e, ['rid', 'active', 'scaleResolutionDownBy', 'maxBitrate', 'maxFramerate'])) : null,
+        stats: null } : null,
+      publications: pubs.map(({ participant, pub }) => ({ sid: sid(pub.trackSid), owner: sid(participant.sid),
+        ownerIdentity: roles.includes(participant.identity) ? participant.identity : 'unexpected',
+        subscribed: pub.isSubscribed, hasTrack: !!pub.track, enabled: pub.isEnabled,
+        quality: Object.keys(quality).find(k => quality[k] === pub.videoQuality) ?? null })),
+      requested: { ...desired }, readers: capturedReaders, sourceFrame: frame,
+      sourceCodes: sourceCodes.slice(sourceCursor), events: events.slice(eventCursor), errors: errors.slice(errorCursor) };
+    sourceCursor = sourceCodes.length; eventCursor = events.length; errorCursor = errors.length;
+    await Promise.all([
+      ...readers.map(async (r, i) => { capturedReaders[i].stats = await stats(r.track); }),
+      ...(local ? [(async () => { output.local.stats = await stats(local); })()] : []),
+    ]);
+    return output;
+  },
+  async close() {
+    clearInterval(timer);
+    try { await room?.disconnect(); }
+    finally {
+      for (const r of readers) { r.video.cancelVideoFrameCallback(r.callbackId); r.track.detach(); r.video.remove(); }
+      sources.forEach(track => track.stop()); local?.stop();
+    }
+  },
+};
+</script>
+</body>
