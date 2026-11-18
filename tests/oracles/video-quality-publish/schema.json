@@ -1,0 +1,1094 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "C61 original-Go AddTrack ACK observer; each JSONL line is an observation",
+  "$defs": {
+    "case": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "case": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "enabled_codecs": {
+              "type": "array",
+              "const": [
+                "video/vp8",
+                "video/h264"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "request": {
+              "type": "object",
+              "properties": {
+                "cid": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "muted": {
+                  "type": "boolean"
+                },
+                "disable_dtx": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "layers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "quality": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "bitrate": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "ssrc": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "spatial_layer": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      },
+                      "rid": {
+                        "type": "string"
+                      },
+                      "repair_ssrc": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      }
+                    },
+                    "required": [
+                      "quality",
+                      "width",
+                      "height",
+                      "bitrate",
+                      "ssrc",
+                      "spatial_layer",
+                      "rid",
+                      "repair_ssrc"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "simulcast_codecs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "codec": {
+                        "type": "string"
+                      },
+                      "cid": {
+                        "type": "string"
+                      },
+                      "layers": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "quality": {
+                              "type": "integer",
+                              "minimum": -2147483648,
+                              "maximum": 2147483647
+                            },
+                            "width": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "height": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "bitrate": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "ssrc": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "spatial_layer": {
+                              "type": "integer",
+                              "minimum": -2147483648,
+                              "maximum": 2147483647
+                            },
+                            "rid": {
+                              "type": "string"
+                            },
+                            "repair_ssrc": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            }
+                          },
+                          "required": [
+                            "quality",
+                            "width",
+                            "height",
+                            "bitrate",
+                            "ssrc",
+                            "spatial_layer",
+                            "rid",
+                            "repair_ssrc"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "video_layer_mode": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      }
+                    },
+                    "required": [
+                      "codec",
+                      "cid",
+                      "layers",
+                      "video_layer_mode"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "sid": {
+                  "type": "string"
+                },
+                "stereo": {
+                  "type": "boolean"
+                },
+                "disable_red": {
+                  "type": "boolean"
+                },
+                "encryption": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "stream": {
+                  "type": "string"
+                },
+                "backup_codec_policy": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "audio_features": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                },
+                "packet_trailer_features": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                }
+              },
+              "required": [
+                "cid",
+                "name",
+                "type",
+                "width",
+                "height",
+                "muted",
+                "disable_dtx",
+                "source",
+                "layers",
+                "simulcast_codecs",
+                "sid",
+                "stereo",
+                "disable_red",
+                "encryption",
+                "stream",
+                "backup_codec_policy",
+                "audio_features",
+                "packet_trailer_features"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "enabled_codecs",
+            "request"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "case",
+        "input"
+      ],
+      "additionalProperties": false
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": 1,
+            "type": "integer"
+          },
+          "case": {
+            "type": "string"
+          },
+          "input": {
+            "type": "object",
+            "properties": {
+              "enabled_codecs": {
+                "type": "array",
+                "const": [
+                  "video/vp8",
+                  "video/h264"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              },
+              "request": {
+                "type": "object",
+                "properties": {
+                  "cid": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  "muted": {
+                    "type": "boolean"
+                  },
+                  "disable_dtx": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "layers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "quality": {
+                          "type": "integer",
+                          "minimum": -2147483648,
+                          "maximum": 2147483647
+                        },
+                        "width": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 4294967295
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 4294967295
+                        },
+                        "bitrate": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 4294967295
+                        },
+                        "ssrc": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 4294967295
+                        },
+                        "spatial_layer": {
+                          "type": "integer",
+                          "minimum": -2147483648,
+                          "maximum": 2147483647
+                        },
+                        "rid": {
+                          "type": "string"
+                        },
+                        "repair_ssrc": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 4294967295
+                        }
+                      },
+                      "required": [
+                        "quality",
+                        "width",
+                        "height",
+                        "bitrate",
+                        "ssrc",
+                        "spatial_layer",
+                        "rid",
+                        "repair_ssrc"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "simulcast_codecs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "codec": {
+                          "type": "string"
+                        },
+                        "cid": {
+                          "type": "string"
+                        },
+                        "layers": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "quality": {
+                                "type": "integer",
+                                "minimum": -2147483648,
+                                "maximum": 2147483647
+                              },
+                              "width": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4294967295
+                              },
+                              "height": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4294967295
+                              },
+                              "bitrate": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4294967295
+                              },
+                              "ssrc": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4294967295
+                              },
+                              "spatial_layer": {
+                                "type": "integer",
+                                "minimum": -2147483648,
+                                "maximum": 2147483647
+                              },
+                              "rid": {
+                                "type": "string"
+                              },
+                              "repair_ssrc": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 4294967295
+                              }
+                            },
+                            "required": [
+                              "quality",
+                              "width",
+                              "height",
+                              "bitrate",
+                              "ssrc",
+                              "spatial_layer",
+                              "rid",
+                              "repair_ssrc"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "video_layer_mode": {
+                          "type": "integer",
+                          "minimum": -2147483648,
+                          "maximum": 2147483647
+                        }
+                      },
+                      "required": [
+                        "codec",
+                        "cid",
+                        "layers",
+                        "video_layer_mode"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "sid": {
+                    "type": "string"
+                  },
+                  "stereo": {
+                    "type": "boolean"
+                  },
+                  "disable_red": {
+                    "type": "boolean"
+                  },
+                  "encryption": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "stream": {
+                    "type": "string"
+                  },
+                  "backup_codec_policy": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  "audio_features": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": -2147483648,
+                      "maximum": 2147483647
+                    }
+                  },
+                  "packet_trailer_features": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": -2147483648,
+                      "maximum": 2147483647
+                    }
+                  }
+                },
+                "required": [
+                  "cid",
+                  "name",
+                  "type",
+                  "width",
+                  "height",
+                  "muted",
+                  "disable_dtx",
+                  "source",
+                  "layers",
+                  "simulcast_codecs",
+                  "sid",
+                  "stereo",
+                  "disable_red",
+                  "encryption",
+                  "stream",
+                  "backup_codec_policy",
+                  "audio_features",
+                  "packet_trailer_features"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "enabled_codecs",
+              "request"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schema_version",
+          "case",
+          "input"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "observation": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "case": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "enabled_codecs": {
+              "type": "array",
+              "const": [
+                "video/vp8",
+                "video/h264"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "request": {
+              "type": "object",
+              "properties": {
+                "cid": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "muted": {
+                  "type": "boolean"
+                },
+                "disable_dtx": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "layers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "quality": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "bitrate": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "ssrc": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "spatial_layer": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      },
+                      "rid": {
+                        "type": "string"
+                      },
+                      "repair_ssrc": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      }
+                    },
+                    "required": [
+                      "quality",
+                      "width",
+                      "height",
+                      "bitrate",
+                      "ssrc",
+                      "spatial_layer",
+                      "rid",
+                      "repair_ssrc"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "simulcast_codecs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "codec": {
+                        "type": "string"
+                      },
+                      "cid": {
+                        "type": "string"
+                      },
+                      "layers": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "quality": {
+                              "type": "integer",
+                              "minimum": -2147483648,
+                              "maximum": 2147483647
+                            },
+                            "width": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "height": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "bitrate": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "ssrc": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "spatial_layer": {
+                              "type": "integer",
+                              "minimum": -2147483648,
+                              "maximum": 2147483647
+                            },
+                            "rid": {
+                              "type": "string"
+                            },
+                            "repair_ssrc": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            }
+                          },
+                          "required": [
+                            "quality",
+                            "width",
+                            "height",
+                            "bitrate",
+                            "ssrc",
+                            "spatial_layer",
+                            "rid",
+                            "repair_ssrc"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "video_layer_mode": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      }
+                    },
+                    "required": [
+                      "codec",
+                      "cid",
+                      "layers",
+                      "video_layer_mode"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "sid": {
+                  "type": "string"
+                },
+                "stereo": {
+                  "type": "boolean"
+                },
+                "disable_red": {
+                  "type": "boolean"
+                },
+                "encryption": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "stream": {
+                  "type": "string"
+                },
+                "backup_codec_policy": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "audio_features": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                },
+                "packet_trailer_features": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                }
+              },
+              "required": [
+                "cid",
+                "name",
+                "type",
+                "width",
+                "height",
+                "muted",
+                "disable_dtx",
+                "source",
+                "layers",
+                "simulcast_codecs",
+                "sid",
+                "stereo",
+                "disable_red",
+                "encryption",
+                "stream",
+                "backup_codec_policy",
+                "audio_features",
+                "packet_trailer_features"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "enabled_codecs",
+            "request"
+          ],
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "properties": {
+            "cid": {
+              "type": "string"
+            },
+            "track": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "width": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "muted": {
+                  "type": "boolean"
+                },
+                "disable_dtx": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "layers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "quality": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      },
+                      "width": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "bitrate": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "ssrc": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "spatial_layer": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      },
+                      "rid": {
+                        "type": "string"
+                      },
+                      "repair_ssrc": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      }
+                    },
+                    "required": [
+                      "quality",
+                      "width",
+                      "height",
+                      "bitrate",
+                      "ssrc",
+                      "spatial_layer",
+                      "rid",
+                      "repair_ssrc"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "stereo": {
+                  "type": "boolean"
+                },
+                "disable_red": {
+                  "type": "boolean"
+                },
+                "encryption": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "stream": {
+                  "type": "string"
+                },
+                "backup_codec_policy": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                },
+                "audio_features": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                },
+                "packet_trailer_features": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  }
+                },
+                "simulcast": {
+                  "type": "boolean"
+                },
+                "mime_type": {
+                  "type": "string"
+                },
+                "mid": {
+                  "type": "string"
+                },
+                "codecs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "mime": {
+                        "type": "string"
+                      },
+                      "cid": {
+                        "type": "string"
+                      },
+                      "mid": {
+                        "type": "string"
+                      },
+                      "sdp_cid": {
+                        "type": "string"
+                      },
+                      "layer_mode": {
+                        "type": "integer",
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                      },
+                      "layers": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "quality": {
+                              "type": "integer",
+                              "minimum": -2147483648,
+                              "maximum": 2147483647
+                            },
+                            "width": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "height": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "bitrate": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "ssrc": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "spatial_layer": {
+                              "type": "integer",
+                              "minimum": -2147483648,
+                              "maximum": 2147483647
+                            },
+                            "rid": {
+                              "type": "string"
+                            },
+                            "repair_ssrc": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            }
+                          },
+                          "required": [
+                            "quality",
+                            "width",
+                            "height",
+                            "bitrate",
+                            "ssrc",
+                            "spatial_layer",
+                            "rid",
+                            "repair_ssrc"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "mime",
+                      "cid",
+                      "mid",
+                      "sdp_cid",
+                      "layer_mode",
+                      "layers"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "type",
+                "width",
+                "height",
+                "muted",
+                "disable_dtx",
+                "source",
+                "layers",
+                "stereo",
+                "disable_red",
+                "encryption",
+                "stream",
+                "backup_codec_policy",
+                "audio_features",
+                "packet_trailer_features",
+                "simulcast",
+                "mime_type",
+                "mid",
+                "codecs"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "cid",
+            "track"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "case",
+        "input",
+        "output"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/observation"
+}

@@ -213,18 +213,23 @@ impl Room {
                     continue;
                 }
                 let svc = is_svc(&mime);
+                let codec_name = mime
+                    .split_once('/')
+                    .and_then(|(_, name)| normalized_codec_name(name));
+                let mut codec_layers = req
+                    .simulcast_codecs
+                    .iter()
+                    .find(|codec| normalized_codec_name(&codec.codec) == codec_name)
+                    .filter(|codec| !codec.layers.is_empty())
+                    .map_or(&req.layers, |codec| &codec.layers)
+                    .clone();
+                codec_layers.sort_by_key(|layer| layer.quality);
                 codecs.push(TrackCodec {
                     mime_type: mime,
                     mid: String::new(),
                     cid: c.cid.clone(),
                     sdp_cid: String::new(),
-                    layers: if c.layers.is_empty() {
-                        layers.clone()
-                    } else {
-                        let mut codec_layers = c.layers.clone();
-                        codec_layers.sort_by_key(|layer| layer.quality);
-                        codec_layers
-                    },
+                    layers: codec_layers,
                     layer_mode: if c.layer_mode != VideoLayerMode::Unused {
                         c.layer_mode
                     } else if svc {
@@ -235,7 +240,8 @@ impl Room {
                 });
             }
         }
-        let simulcast = req.kind == TrackKind::Video
+        let simulcast = !req.simulcast_codecs.is_empty()
+            && req.kind == TrackKind::Video
             && codecs.first().is_some_and(|codec| {
                 codec.layer_mode != VideoLayerMode::MultipleSpatialLayersPerStream
                     && codec.layers.len() > 1
@@ -281,10 +287,7 @@ impl Room {
             simulcast,
             source: req.source,
             layers,
-            mime_type: codecs
-                .first()
-                .map(|c| c.mime_type.clone())
-                .unwrap_or_default(),
+            mime_type: String::new(),
             mid: String::new(),
             codecs,
             disable_red: req.disable_red,
@@ -1004,6 +1007,39 @@ fn track_has_cid(track: &TrackInfo, cid: &str) -> bool {
         .codecs
         .iter()
         .any(|c| c.cid == cid || c.sdp_cid == cid)
+}
+
+fn normalized_codec_name(codec: &str) -> Option<&'static str> {
+    [
+        "h264",
+        "h265",
+        "opus",
+        "red",
+        "vp8",
+        "vp9",
+        "av1",
+        "g722",
+        "pcmu",
+        "pcma",
+        "rtx",
+        "flexfec",
+        "ulpfec",
+        "flexfec-03",
+    ]
+    .into_iter()
+    .find(|name| {
+        // Go's EqualFold also maps long s to the ASCII s in Opus.
+        codec
+            .chars()
+            .map(|c| {
+                if c == 'ſ' {
+                    's'
+                } else {
+                    c.to_ascii_lowercase()
+                }
+            })
+            .eq(name.chars())
+    })
 }
 
 fn qualify_mime(kind: TrackKind, codec: &str) -> String {

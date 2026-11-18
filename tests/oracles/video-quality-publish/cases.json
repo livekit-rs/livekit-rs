@@ -1,0 +1,1105 @@
+[
+  {
+    "schema_version": 1,
+    "case": "supported-vp8",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-supported-vp8",
+        "name": "C61 supported-vp8",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "vp8",
+            "cid": "v",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 122,
+                "height": 222,
+                "bitrate": 100022,
+                "ssrc": 3022,
+                "spatial_layer": 1,
+                "rid": "rid-22",
+                "repair_ssrc": 4022
+              },
+              {
+                "quality": 0,
+                "width": 120,
+                "height": 220,
+                "bitrate": 100020,
+                "ssrc": 3020,
+                "spatial_layer": 2,
+                "rid": "rid-20",
+                "repair_ssrc": 4020
+              },
+              {
+                "quality": 1,
+                "width": 121,
+                "height": 221,
+                "bitrate": 100021,
+                "ssrc": 3021,
+                "spatial_layer": 0,
+                "rid": "rid-21",
+                "repair_ssrc": 4021
+              }
+            ],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "supported-two-codecs",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-supported-two-codecs",
+        "name": "C61 supported-two-codecs",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "vp8",
+            "cid": "v",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 122,
+                "height": 222,
+                "bitrate": 100022,
+                "ssrc": 3022,
+                "spatial_layer": 1,
+                "rid": "rid-22",
+                "repair_ssrc": 4022
+              },
+              {
+                "quality": 0,
+                "width": 120,
+                "height": 220,
+                "bitrate": 100020,
+                "ssrc": 3020,
+                "spatial_layer": 2,
+                "rid": "rid-20",
+                "repair_ssrc": 4020
+              }
+            ],
+            "video_layer_mode": 0
+          },
+          {
+            "codec": "h264",
+            "cid": "h",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 132,
+                "height": 232,
+                "bitrate": 100032,
+                "ssrc": 3032,
+                "spatial_layer": 2,
+                "rid": "rid-32",
+                "repair_ssrc": 4032
+              },
+              {
+                "quality": 0,
+                "width": 130,
+                "height": 230,
+                "bitrate": 100030,
+                "ssrc": 3030,
+                "spatial_layer": 0,
+                "rid": "rid-30",
+                "repair_ssrc": 4030
+              }
+            ],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "unsupported-absent-vp8-common",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-unsupported-absent-vp8-common",
+        "name": "C61 unsupported-absent-vp8-common",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "av1",
+            "cid": "unsupported",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 142,
+                "height": 242,
+                "bitrate": 100042,
+                "ssrc": 3042,
+                "spatial_layer": 0,
+                "rid": "rid-42",
+                "repair_ssrc": 4042
+              },
+              {
+                "quality": 0,
+                "width": 140,
+                "height": 240,
+                "bitrate": 100040,
+                "ssrc": 3040,
+                "spatial_layer": 1,
+                "rid": "rid-40",
+                "repair_ssrc": 4040
+              }
+            ],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "unsupported-before-explicit-vp8",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-unsupported-before-explicit-vp8",
+        "name": "C61 unsupported-before-explicit-vp8",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "av1",
+            "cid": "origin",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 142,
+                "height": 242,
+                "bitrate": 100042,
+                "ssrc": 3042,
+                "spatial_layer": 0,
+                "rid": "rid-42",
+                "repair_ssrc": 4042
+              },
+              {
+                "quality": 0,
+                "width": 140,
+                "height": 240,
+                "bitrate": 100040,
+                "ssrc": 3040,
+                "spatial_layer": 1,
+                "rid": "rid-40",
+                "repair_ssrc": 4040
+              }
+            ],
+            "video_layer_mode": 3
+          },
+          {
+            "codec": "vp8",
+            "cid": "later",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 122,
+                "height": 222,
+                "bitrate": 100022,
+                "ssrc": 3022,
+                "spatial_layer": 1,
+                "rid": "rid-22",
+                "repair_ssrc": 4022
+              },
+              {
+                "quality": 0,
+                "width": 120,
+                "height": 220,
+                "bitrate": 100020,
+                "ssrc": 3020,
+                "spatial_layer": 2,
+                "rid": "rid-20",
+                "repair_ssrc": 4020
+              }
+            ],
+            "video_layer_mode": 2
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "unsupported-before-empty-vp8",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-unsupported-before-empty-vp8",
+        "name": "C61 unsupported-before-empty-vp8",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "av1",
+            "cid": "origin",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 142,
+                "height": 242,
+                "bitrate": 100042,
+                "ssrc": 3042,
+                "spatial_layer": 0,
+                "rid": "rid-42",
+                "repair_ssrc": 4042
+              },
+              {
+                "quality": 0,
+                "width": 140,
+                "height": 240,
+                "bitrate": 100040,
+                "ssrc": 3040,
+                "spatial_layer": 1,
+                "rid": "rid-40",
+                "repair_ssrc": 4040
+              }
+            ],
+            "video_layer_mode": 3
+          },
+          {
+            "codec": "vp8",
+            "cid": "later",
+            "layers": [],
+            "video_layer_mode": 2
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "supported-empty-specific-common",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-supported-empty-specific-common",
+        "name": "C61 supported-empty-specific-common",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "vp8",
+            "cid": "v",
+            "layers": [],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "duplicate-final-codec-first-match",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-duplicate-final-codec-first-match",
+        "name": "C61 duplicate-final-codec-first-match",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "vp8",
+            "cid": "first",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 122,
+                "height": 222,
+                "bitrate": 100022,
+                "ssrc": 3022,
+                "spatial_layer": 1,
+                "rid": "rid-22",
+                "repair_ssrc": 4022
+              },
+              {
+                "quality": 0,
+                "width": 120,
+                "height": 220,
+                "bitrate": 100020,
+                "ssrc": 3020,
+                "spatial_layer": 2,
+                "rid": "rid-20",
+                "repair_ssrc": 4020
+              }
+            ],
+            "video_layer_mode": 2
+          },
+          {
+            "codec": "vp8",
+            "cid": "second",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 142,
+                "height": 242,
+                "bitrate": 100042,
+                "ssrc": 3042,
+                "spatial_layer": 0,
+                "rid": "rid-42",
+                "repair_ssrc": 4042
+              },
+              {
+                "quality": 0,
+                "width": 140,
+                "height": 240,
+                "bitrate": 100040,
+                "ssrc": 3040,
+                "spatial_layer": 1,
+                "rid": "rid-40",
+                "repair_ssrc": 4040
+              }
+            ],
+            "video_layer_mode": 3
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "signed-quality-common-fallback",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-signed-quality-common-fallback",
+        "name": "C61 signed-quality-common-fallback",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2147483647,
+            "width": 154,
+            "height": 254,
+            "bitrate": 100054,
+            "ssrc": 3054,
+            "spatial_layer": 0,
+            "rid": "rid-54",
+            "repair_ssrc": 4054
+          },
+          {
+            "quality": 3,
+            "width": 152,
+            "height": 252,
+            "bitrate": 100052,
+            "ssrc": 3052,
+            "spatial_layer": 1,
+            "rid": "rid-52",
+            "repair_ssrc": 4052
+          },
+          {
+            "quality": -2147483648,
+            "width": 150,
+            "height": 250,
+            "bitrate": 100050,
+            "ssrc": 3050,
+            "spatial_layer": 2,
+            "rid": "rid-50",
+            "repair_ssrc": 4050
+          },
+          {
+            "quality": 77,
+            "width": 153,
+            "height": 253,
+            "bitrate": 100053,
+            "ssrc": 3053,
+            "spatial_layer": 2,
+            "rid": "rid-53",
+            "repair_ssrc": 4053
+          },
+          {
+            "quality": -1,
+            "width": 151,
+            "height": 251,
+            "bitrate": 100051,
+            "ssrc": 3051,
+            "spatial_layer": 0,
+            "rid": "rid-51",
+            "repair_ssrc": 4051
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "av1",
+            "cid": "origin",
+            "layers": [
+              {
+                "quality": 2,
+                "width": 142,
+                "height": 242,
+                "bitrate": 100042,
+                "ssrc": 3042,
+                "spatial_layer": 0,
+                "rid": "rid-42",
+                "repair_ssrc": 4042
+              },
+              {
+                "quality": 0,
+                "width": 140,
+                "height": 240,
+                "bitrate": 100040,
+                "ssrc": 3040,
+                "spatial_layer": 1,
+                "rid": "rid-40",
+                "repair_ssrc": 4040
+              }
+            ],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "signed-quality-specific",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-signed-quality-specific",
+        "name": "C61 signed-quality-specific",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "h264",
+            "cid": "h",
+            "layers": [
+              {
+                "quality": 77,
+                "width": 153,
+                "height": 253,
+                "bitrate": 100053,
+                "ssrc": 3053,
+                "spatial_layer": 2,
+                "rid": "rid-53",
+                "repair_ssrc": 4053
+              },
+              {
+                "quality": -1,
+                "width": 151,
+                "height": 251,
+                "bitrate": 100051,
+                "ssrc": 3051,
+                "spatial_layer": 0,
+                "rid": "rid-51",
+                "repair_ssrc": 4051
+              },
+              {
+                "quality": 2147483647,
+                "width": 154,
+                "height": 254,
+                "bitrate": 100054,
+                "ssrc": 3054,
+                "spatial_layer": 0,
+                "rid": "rid-54",
+                "repair_ssrc": 4054
+              },
+              {
+                "quality": -2147483648,
+                "width": 150,
+                "height": 250,
+                "bitrate": 100050,
+                "ssrc": 3050,
+                "spatial_layer": 2,
+                "rid": "rid-50",
+                "repair_ssrc": 4050
+              },
+              {
+                "quality": 3,
+                "width": 152,
+                "height": 252,
+                "bitrate": 100052,
+                "ssrc": 3052,
+                "spatial_layer": 1,
+                "rid": "rid-52",
+                "repair_ssrc": 4052
+              }
+            ],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "duplicate-quality-small-fixture",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-duplicate-quality-small-fixture",
+        "name": "C61 duplicate-quality-small-fixture",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 0,
+            "width": 160,
+            "height": 260,
+            "bitrate": 100060,
+            "ssrc": 3060,
+            "spatial_layer": 0,
+            "rid": "rid-60",
+            "repair_ssrc": 4060
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [
+          {
+            "codec": "vp8",
+            "cid": "v",
+            "layers": [],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "legacy-no-codecs",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-legacy-no-codecs",
+        "name": "C61 legacy-no-codecs",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [
+          {
+            "quality": 2,
+            "width": 112,
+            "height": 212,
+            "bitrate": 100012,
+            "ssrc": 3012,
+            "spatial_layer": 0,
+            "rid": "rid-12",
+            "repair_ssrc": 4012
+          },
+          {
+            "quality": 0,
+            "width": 110,
+            "height": 210,
+            "bitrate": 100010,
+            "ssrc": 3010,
+            "spatial_layer": 1,
+            "rid": "rid-10",
+            "repair_ssrc": 4010
+          },
+          {
+            "quality": 1,
+            "width": 111,
+            "height": 211,
+            "bitrate": 100011,
+            "ssrc": 3011,
+            "spatial_layer": 2,
+            "rid": "rid-11",
+            "repair_ssrc": 4011
+          }
+        ],
+        "simulcast_codecs": [],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  },
+  {
+    "schema_version": 1,
+    "case": "no-layers",
+    "input": {
+      "enabled_codecs": [
+        "video/vp8",
+        "video/h264"
+      ],
+      "request": {
+        "cid": "track-no-layers",
+        "name": "C61 no-layers",
+        "type": 1,
+        "width": 1920,
+        "height": 1080,
+        "muted": false,
+        "disable_dtx": false,
+        "source": 1,
+        "layers": [],
+        "simulcast_codecs": [
+          {
+            "codec": "vp8",
+            "cid": "v",
+            "layers": [],
+            "video_layer_mode": 0
+          }
+        ],
+        "sid": "",
+        "stereo": false,
+        "disable_red": false,
+        "encryption": 0,
+        "stream": "c61-stream",
+        "backup_codec_policy": 0,
+        "audio_features": [],
+        "packet_trailer_features": []
+      }
+    }
+  }
+]

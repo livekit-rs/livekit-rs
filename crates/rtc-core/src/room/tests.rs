@@ -265,6 +265,718 @@ fn add_track_sorts_codec_specific_open_quality_layers_without_losing_metadata() 
 }
 
 #[test]
+fn add_track_ack_leaves_top_level_mime_unset() {
+    let (mut room, now) = room();
+    let publisher = room.join(params("publisher", 17, false), now).unwrap();
+    room.take_effects();
+    let mut request = add_track("video", TrackKind::Video, TrackSource::Camera);
+    request.simulcast_codecs = vec![SimulcastCodecRequest {
+        codec: "vp8".into(),
+        cid: "video".into(),
+        layers: vec![],
+        layer_mode: VideoLayerMode::OneSpatialLayerPerStream,
+    }];
+    room.handle_request(
+        &publisher.sid,
+        publisher.generation,
+        SessionRequest::AddTrack(request),
+        now,
+    );
+    let effects = room.take_effects();
+    let tracks = signals_to(&effects, &publisher.sid)
+        .into_iter()
+        .filter_map(|event| match event {
+            SignalEvent::TrackPublished { track, .. } => Some(track),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].codecs[0].mime_type, "video/vp8");
+    assert!(tracks[0].mime_type.is_empty());
+}
+
+#[test]
+fn add_track_legacy_ack_does_not_infer_simulcast_from_common_layers() {
+    let (mut room, now) = room();
+    let publisher = room.join(params("publisher", 17, false), now).unwrap();
+    room.take_effects();
+    let mut request = add_track("video", TrackKind::Video, TrackSource::Camera);
+    request.layers = [VideoQuality::Low, VideoQuality::High]
+        .into_iter()
+        .map(|quality| VideoLayer {
+            quality,
+            width: 320,
+            height: 180,
+            bitrate: 100_000,
+            ssrc: 0,
+            spatial_layer: 0,
+            rid: String::new(),
+            repair_ssrc: 0,
+        })
+        .collect();
+    room.handle_request(
+        &publisher.sid,
+        publisher.generation,
+        SessionRequest::AddTrack(request),
+        now,
+    );
+    let effects = room.take_effects();
+    let tracks = signals_to(&effects, &publisher.sid)
+        .into_iter()
+        .filter_map(|event| match event {
+            SignalEvent::TrackPublished { track, .. } => Some(track),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].layers.len(), 2);
+    assert_eq!(tracks[0].codecs[0].layers, tracks[0].layers);
+    assert!(!tracks[0].simulcast);
+}
+
+fn assert_publication_codec_layer_source(codec: &str, matching: Option<bool>) {
+    let layer = |quality, marker| VideoLayer {
+        quality: VideoQuality::from_i32(quality),
+        width: marker,
+        height: marker + 1,
+        bitrate: marker + 2,
+        ssrc: marker + 3,
+        spatial_layer: 17,
+        rid: format!("rid-{marker}"),
+        repair_ssrc: marker + 4,
+    };
+    let (mut room, now) = room();
+    let publisher = room.join(params("publisher", 17, false), now).unwrap();
+    room.take_effects();
+    let mut request = add_track("video", TrackKind::Video, TrackSource::Camera);
+    request.layers = vec![layer(2, 100)];
+    request.simulcast_codecs = vec![SimulcastCodecRequest {
+        codec: codec.into(),
+        cid: "origin".into(),
+        layers: vec![layer(2, 200), layer(0, 300)],
+        layer_mode: VideoLayerMode::OneSpatialLayerPerStream,
+    }];
+    let expected = if matching == Some(true) {
+        vec![layer(0, 500), layer(2, 400)]
+    } else {
+        request.layers.clone()
+    };
+    if let Some(nonempty) = matching {
+        request.simulcast_codecs.push(SimulcastCodecRequest {
+            codec: "vP8".into(),
+            cid: "matched".into(),
+            layers: if nonempty {
+                vec![layer(2, 400), layer(0, 500)]
+            } else {
+                vec![]
+            },
+            layer_mode: VideoLayerMode::MultipleSpatialLayersPerStream,
+        });
+    }
+    room.handle_request(
+        &publisher.sid,
+        publisher.generation,
+        SessionRequest::AddTrack(request.clone()),
+        now,
+    );
+    let effects = room.take_effects();
+    let tracks = signals_to(&effects, &publisher.sid)
+        .into_iter()
+        .filter_map(|event| match event {
+            SignalEvent::TrackPublished { track, .. } => Some(track),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tracks.len(), 1);
+    let track = &tracks[0];
+    assert_eq!(track.layers, request.layers);
+    assert_eq!(track.codecs.len(), 1);
+    assert!(track.codecs[0].mime_type.eq_ignore_ascii_case("video/vp8"));
+    assert_eq!(track.codecs[0].cid, "origin");
+    assert_eq!(
+        track.codecs[0].layer_mode,
+        VideoLayerMode::OneSpatialLayerPerStream
+    );
+    assert_eq!(track.codecs[0].layers, expected);
+    assert_eq!(track.simulcast, matching == Some(true));
+    let media_tracks = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Media(MediaCommand::ExpectTrack { track, .. }) => Some(track),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(media_tracks.len(), 1);
+    assert_eq!(media_tracks[0].sid, track.sid);
+    assert_eq!(media_tracks[0].layers, track.layers);
+    assert_eq!(media_tracks[0].codecs, track.codecs);
+    assert_eq!(
+        request.simulcast_codecs[0].layers,
+        vec![layer(2, 200), layer(0, 300)]
+    );
+}
+
+#[test]
+fn add_track_fallback_without_matching_codec_uses_common_layers() {
+    assert_publication_codec_layer_source("vp9", None);
+}
+
+#[test]
+fn add_track_fallback_uses_first_matching_final_codec_layers() {
+    assert_publication_codec_layer_source("vp9", Some(true));
+}
+
+#[test]
+fn add_track_fallback_empty_matching_codec_uses_common_layers() {
+    assert_publication_codec_layer_source("vp9", Some(false));
+}
+
+#[test]
+fn add_track_full_mime_request_uses_common_layers() {
+    assert_publication_codec_layer_source("video/VP8", None);
+}
+
+#[test]
+fn add_track_unicode_folded_opus_preserves_codec_layers() {
+    let (mut room, now) = room();
+    let publisher = room.join(params("publisher", 17, false), now).unwrap();
+    room.take_effects();
+    let mut request = add_track("audio", TrackKind::Audio, TrackSource::Microphone);
+    request.layers.clear();
+    request.simulcast_codecs = vec![SimulcastCodecRequest {
+        codec: "opuſ".into(),
+        cid: "audio-origin".into(),
+        layers: vec![VideoLayer {
+            quality: VideoQuality::from_i32(77),
+            width: 13,
+            height: 17,
+            bitrate: 19,
+            ssrc: 23,
+            spatial_layer: -7,
+            rid: "unicode-layer".into(),
+            repair_ssrc: 29,
+        }],
+        layer_mode: VideoLayerMode::OneSpatialLayerPerStream,
+    }];
+    room.handle_request(
+        &publisher.sid,
+        publisher.generation,
+        SessionRequest::AddTrack(request.clone()),
+        now,
+    );
+    let effects = room.take_effects();
+    let tracks = signals_to(&effects, &publisher.sid)
+        .into_iter()
+        .filter_map(|event| match event {
+            SignalEvent::TrackPublished { track, .. } => Some(track),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(tracks.len(), 1);
+    assert!(tracks[0].layers.is_empty());
+    assert_eq!(tracks[0].codecs.len(), 1);
+    assert_eq!(
+        tracks[0].codecs[0].layers,
+        request.simulcast_codecs[0].layers
+    );
+    assert_eq!(tracks[0].codecs[0].cid, "audio-origin");
+    let media_tracks = effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Media(MediaCommand::ExpectTrack { track, .. }) => Some(track),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(media_tracks.len(), 1);
+    assert_eq!(media_tracks[0].codecs, tracks[0].codecs);
+}
+
+mod c61_video_quality_publish {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+    use std::fs::OpenOptions;
+    use std::io::{BufWriter, Write};
+    use std::path::PathBuf;
+
+    // Derived struct readers also accept positional arrays; the schema requires objects.
+    macro_rules! strict_object {
+        ($name:ident { $($field:ident: $ty:ty),* $(,)? }) => {
+            #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+            struct $name {
+                $($field: $ty),*
+            }
+
+            impl<'de> Deserialize<'de> for $name {
+                fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                    #[derive(Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct Fields {
+                        $($field: $ty),*
+                    }
+
+                    struct ObjectVisitor;
+                    impl<'de> serde::de::Visitor<'de> for ObjectVisitor {
+                        type Value = $name;
+
+                        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                            f.write_str(concat!("a ", stringify!($name), " object"))
+                        }
+
+                        fn visit_map<M: serde::de::MapAccess<'de>>(self, map: M) -> Result<Self::Value, M::Error> {
+                            let fields = Fields::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
+                            Ok($name { $($field: fields.$field),* })
+                        }
+                    }
+                    deserializer.deserialize_map(ObjectVisitor)
+                }
+            }
+        };
+    }
+
+    strict_object!(Layer {
+        quality: i32,
+        width: u32,
+        height: u32,
+        bitrate: u32,
+        ssrc: u32,
+        spatial_layer: i32,
+        rid: String,
+        repair_ssrc: u32,
+    });
+    strict_object!(RequestCodec {
+        codec: String,
+        cid: String,
+        layers: Vec<Layer>,
+        video_layer_mode: i32,
+    });
+    strict_object!(Request {
+        cid: String,
+        name: String,
+        r#type: i32,
+        width: u32,
+        height: u32,
+        muted: bool,
+        disable_dtx: bool,
+        source: i32,
+        layers: Vec<Layer>,
+        simulcast_codecs: Vec<RequestCodec>,
+        sid: String,
+        stereo: bool,
+        disable_red: bool,
+        encryption: i32,
+        stream: String,
+        backup_codec_policy: i32,
+        audio_features: Vec<i32>,
+        packet_trailer_features: Vec<i32>,
+    });
+    strict_object!(Input {
+        enabled_codecs: Vec<String>,
+        request: Request,
+    });
+    strict_object!(Case {
+        schema_version: u32,
+        case: String,
+        input: Input,
+    });
+    strict_object!(Codec {
+        mime: String,
+        cid: String,
+        mid: String,
+        sdp_cid: String,
+        layer_mode: i32,
+        layers: Vec<Layer>,
+    });
+    strict_object!(Track {
+        name: String,
+        r#type: i32,
+        width: u32,
+        height: u32,
+        muted: bool,
+        disable_dtx: bool,
+        source: i32,
+        layers: Vec<Layer>,
+        stereo: bool,
+        disable_red: bool,
+        encryption: i32,
+        stream: String,
+        backup_codec_policy: i32,
+        audio_features: Vec<i32>,
+        packet_trailer_features: Vec<i32>,
+        simulcast: bool,
+        mime_type: String,
+        mid: String,
+        codecs: Vec<Codec>,
+    });
+    strict_object!(Output {
+        cid: String,
+        track: Track,
+    });
+    strict_object!(Observation {
+        schema_version: u32,
+        case: String,
+        input: Input,
+        output: Output,
+    });
+
+    impl Layer {
+        fn to_model(&self) -> VideoLayer {
+            VideoLayer {
+                quality: VideoQuality::from_i32(self.quality),
+                width: self.width,
+                height: self.height,
+                bitrate: self.bitrate,
+                ssrc: self.ssrc,
+                spatial_layer: self.spatial_layer,
+                rid: self.rid.clone(),
+                repair_ssrc: self.repair_ssrc,
+            }
+        }
+    }
+
+    impl From<&VideoLayer> for Layer {
+        fn from(layer: &VideoLayer) -> Self {
+            Self {
+                quality: layer.quality.as_i32(),
+                width: layer.width,
+                height: layer.height,
+                bitrate: layer.bitrate,
+                ssrc: layer.ssrc,
+                spatial_layer: layer.spatial_layer,
+                rid: layer.rid.clone(),
+                repair_ssrc: layer.repair_ssrc,
+            }
+        }
+    }
+
+    impl Request {
+        fn to_model(&self) -> AddTrack {
+            AddTrack {
+                token: 1,
+                cid: self.cid.clone(),
+                name: self.name.clone(),
+                kind: TrackKind::from_i32(self.r#type),
+                width: self.width,
+                height: self.height,
+                muted: self.muted,
+                disable_dtx: self.disable_dtx,
+                source: TrackSource::from_i32(self.source),
+                layers: self.layers.iter().map(Layer::to_model).collect(),
+                simulcast_codecs: self
+                    .simulcast_codecs
+                    .iter()
+                    .map(|codec| SimulcastCodecRequest {
+                        codec: codec.codec.clone(),
+                        cid: codec.cid.clone(),
+                        layers: codec.layers.iter().map(Layer::to_model).collect(),
+                        layer_mode: VideoLayerMode::from_i32(codec.video_layer_mode),
+                    })
+                    .collect(),
+                sid: (!self.sid.is_empty()).then(|| TrackSid::from(self.sid.clone())),
+                stereo: self.stereo,
+                disable_red: self.disable_red,
+                encryption: EncryptionType::from_i32(self.encryption),
+                stream: self.stream.clone(),
+                backup_codec_policy: BackupCodecPolicy::from_i32(self.backup_codec_policy),
+                audio_features: self
+                    .audio_features
+                    .iter()
+                    .copied()
+                    .map(AudioFeature::from_i32)
+                    .collect(),
+                packet_trailer_features: self.packet_trailer_features.clone(),
+            }
+        }
+    }
+
+    impl From<&AddTrack> for Request {
+        fn from(request: &AddTrack) -> Self {
+            Self {
+                cid: request.cid.clone(),
+                name: request.name.clone(),
+                r#type: request.kind.as_i32(),
+                width: request.width,
+                height: request.height,
+                muted: request.muted,
+                disable_dtx: request.disable_dtx,
+                source: request.source.as_i32(),
+                layers: request.layers.iter().map(Layer::from).collect(),
+                simulcast_codecs: request
+                    .simulcast_codecs
+                    .iter()
+                    .map(|codec| RequestCodec {
+                        codec: codec.codec.clone(),
+                        cid: codec.cid.clone(),
+                        layers: codec.layers.iter().map(Layer::from).collect(),
+                        video_layer_mode: codec.layer_mode.as_i32(),
+                    })
+                    .collect(),
+                sid: request
+                    .sid
+                    .as_ref()
+                    .map_or_else(String::new, ToString::to_string),
+                stereo: request.stereo,
+                disable_red: request.disable_red,
+                encryption: request.encryption.as_i32(),
+                stream: request.stream.clone(),
+                backup_codec_policy: request.backup_codec_policy.as_i32(),
+                audio_features: request.audio_features.iter().map(|v| v.as_i32()).collect(),
+                packet_trailer_features: request.packet_trailer_features.clone(),
+            }
+        }
+    }
+
+    impl From<&TrackInfo> for Track {
+        fn from(track: &TrackInfo) -> Self {
+            let TrackInfo {
+                sid: _,
+                version: _,
+                kind,
+                name,
+                muted,
+                width,
+                height,
+                simulcast,
+                source,
+                layers,
+                mime_type,
+                mid,
+                codecs,
+                disable_red,
+                disable_dtx,
+                stereo,
+                encryption,
+                stream,
+                audio_features,
+                packet_trailer_features,
+                backup_codec_policy,
+            } = track;
+            Self {
+                name: name.clone(),
+                r#type: kind.as_i32(),
+                width: *width,
+                height: *height,
+                muted: *muted,
+                disable_dtx: *disable_dtx,
+                source: source.as_i32(),
+                layers: layers.iter().map(Layer::from).collect(),
+                stereo: *stereo,
+                disable_red: *disable_red,
+                encryption: encryption.as_i32(),
+                stream: stream.clone(),
+                backup_codec_policy: backup_codec_policy.as_i32(),
+                audio_features: audio_features.iter().map(|v| v.as_i32()).collect(),
+                packet_trailer_features: packet_trailer_features.clone(),
+                simulcast: *simulcast,
+                mime_type: mime_type.clone(),
+                mid: mid.clone(),
+                codecs: codecs
+                    .iter()
+                    .map(|codec| Codec {
+                        mime: codec.mime_type.clone(),
+                        cid: codec.cid.clone(),
+                        mid: codec.mid.clone(),
+                        sdp_cid: codec.sdp_cid.clone(),
+                        layer_mode: codec.layer_mode.as_i32(),
+                        layers: codec.layers.iter().map(Layer::from).collect(),
+                    })
+                    .collect(),
+            }
+        }
+    }
+
+    fn observe(case: &Case) -> Observation {
+        let original_input = case.input.clone();
+        let now = Instant::now();
+        let mut policy = test_policy();
+        policy.enabled_codecs = case
+            .input
+            .enabled_codecs
+            .iter()
+            .map(|mime| CodecSpec {
+                mime: mime.clone(),
+                fmtp_line: String::new(),
+            })
+            .collect();
+        let mut room = Room::new(
+            RoomKey::new(ProjectId::local(), "r1"),
+            Arc::new(policy),
+            Arc::new(EchoData),
+            &Default::default(),
+            now,
+        );
+        room.take_effects();
+        let mut join = params("c61", 6, false);
+        join.capabilities.video_publication_requires_rtp = false;
+        join.grants.video.can_publish = Some(true);
+        join.grants.video.can_subscribe = Some(false);
+        join.grants.video.can_publish_data = Some(false);
+        join.auto_subscribe = false;
+        let publisher = room.join(join, now).expect("C61 publisher joins");
+        let transport = transport_of(&room.take_effects(), &publisher.sid, PcRole::Publisher);
+        let mut request = case.input.request.to_model();
+        let original_request = request.clone();
+        assert_eq!(
+            Request::from(&request),
+            case.input.request,
+            "{} projection",
+            case.case
+        );
+        room.handle_request(
+            &publisher.sid,
+            publisher.generation,
+            SessionRequest::AddTrack(request.clone()),
+            now,
+        );
+        let effects = room.take_effects();
+        let signals = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Signal { to, event } => Some((to, event)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(signals.len(), 1, "{} actual signals", case.case);
+        let (to, SignalEvent::TrackPublished { cid, track }) = signals[0] else {
+            panic!("{} did not emit TrackPublished", case.case);
+        };
+        assert_eq!(to, &publisher.sid);
+        assert_eq!(cid, &request.cid);
+        assert!(!track.sid.to_string().is_empty());
+        let expected_tracks = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Media(MediaCommand::ExpectTrack { transport, track }) => {
+                    Some((transport, track))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(expected_tracks.len(), 1, "{} actual ExpectTrack", case.case);
+        let (actual_transport, media) = expected_tracks[0];
+        assert_eq!(*actual_transport, transport);
+        assert_eq!(media.sid, track.sid);
+        assert_eq!(&media.cid, cid);
+        assert_eq!(media.kind, track.kind);
+        assert_eq!(media.source, track.source);
+        assert_eq!(media.layers, track.layers);
+        assert_eq!(media.codecs, track.codecs);
+        assert_eq!(media.backup_codec_policy, track.backup_codec_policy);
+        assert_eq!(media.stereo, track.stereo);
+        assert_eq!(media.disable_dtx, track.disable_dtx);
+        assert_eq!(media.disable_red, track.disable_red);
+        assert_eq!(media.encrypted, track.encryption != EncryptionType::None);
+        assert_eq!(media.muted, track.muted);
+        assert_eq!(
+            room.published_track_count(),
+            0,
+            "{} ACK-only boundary",
+            case.case
+        );
+        assert_eq!(request, original_request, "{} request mutated", case.case);
+        assert_eq!(case.input, original_input, "{} input mutated", case.case);
+
+        let snapshot = track.clone();
+        let mutate = |layers: &mut Vec<VideoLayer>| {
+            for layer in layers {
+                layer.quality = VideoQuality::from_i32(123);
+                layer.width = 7;
+                layer.height = 8;
+                layer.bitrate = 9;
+                layer.ssrc = 10;
+                layer.spatial_layer = 11;
+                layer.rid = "mutated".into();
+                layer.repair_ssrc = 12;
+            }
+        };
+        mutate(&mut request.layers);
+        for codec in &mut request.simulcast_codecs {
+            mutate(&mut codec.layers);
+            codec.cid = "mutated".into();
+            codec.codec = "mutated".into();
+        }
+        assert_eq!(track, &snapshot, "{} ACK aliases request", case.case);
+        assert_eq!(media.layers, snapshot.layers);
+        assert_eq!(media.codecs, snapshot.codecs);
+        assert_eq!(case.input, original_input);
+        assert_eq!(Request::from(&original_request), case.input.request);
+        Observation {
+            schema_version: case.schema_version,
+            case: case.case.clone(),
+            input: case.input.clone(),
+            output: Output {
+                cid: cid.clone(),
+                track: Track::from(track),
+            },
+        }
+    }
+
+    #[test]
+    #[ignore = "requires raw C61_GO_RESULTS and a new absolute C61_RUST_RESULTS path"]
+    fn add_track_matches_raw_go_observations() {
+        let cases: [Case; 12] = serde_json::from_str(include_str!(
+            "../../../../tests/oracles/video-quality-publish/cases.json"
+        ))
+        .expect("strict checked-in C61 cases");
+        for case in &cases {
+            assert_eq!(case.schema_version, 1);
+            assert_eq!(case.input.enabled_codecs, ["video/vp8", "video/h264"]);
+        }
+        let go_path =
+            PathBuf::from(std::env::var_os("C61_GO_RESULTS").expect("C61_GO_RESULTS required"));
+        let rust_path =
+            PathBuf::from(std::env::var_os("C61_RUST_RESULTS").expect("C61_RUST_RESULTS required"));
+        assert!(go_path.is_absolute(), "C61_GO_RESULTS must be absolute");
+        assert!(rust_path.is_absolute(), "C61_RUST_RESULTS must be absolute");
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&rust_path)
+            .expect("exclusively create C61_RUST_RESULTS");
+        let observations = cases.iter().map(observe).collect::<Vec<_>>();
+        let mut writer = BufWriter::new(file);
+        for observation in &observations {
+            serde_json::to_writer(&mut writer, observation).expect("write Rust observation");
+            writer.write_all(b"\n").expect("write JSONL newline");
+        }
+        writer.flush().expect("flush all 12 Rust observations");
+        drop(writer);
+
+        let raw = std::fs::read_to_string(&go_path).expect("read raw C61_GO_RESULTS");
+        let go = raw
+            .lines()
+            .enumerate()
+            .map(|(line, text)| {
+                serde_json::from_str::<Observation>(text)
+                    .unwrap_or_else(|error| panic!("C61 Go line {}: {error}", line + 1))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(go.len(), cases.len(), "C61 Go JSONL line count");
+        for (index, (actual, case)) in go.iter().zip(&cases).enumerate() {
+            assert_eq!(
+                actual.schema_version,
+                case.schema_version,
+                "line {} schema",
+                index + 1
+            );
+            assert_eq!(actual.case, case.case, "line {} case/order", index + 1);
+            assert_eq!(
+                actual.input,
+                case.input,
+                "line {} immutable stimulus",
+                index + 1
+            );
+        }
+        for (rust, go) in observations.iter().zip(&go) {
+            assert_eq!(
+                rust.output, go.output,
+                "{} Rust versus raw Go ACK",
+                rust.case
+            );
+        }
+    }
+}
+
+#[test]
 fn join_response_is_first_and_shows_joining() {
     let (mut room, now) = room();
     let joined = room.join(params("alice", 16, false), now).unwrap();
