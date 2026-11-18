@@ -153,7 +153,13 @@ impl Room {
         if count_attempt {
             self.lifecycle.track_publish_attempts += 1;
         }
-        let info = self.build_track_info(&req);
+        let incomplete_sr = self
+            .participants
+            .get(sid)
+            .expect("checked")
+            .capabilities
+            .incomplete_rtcp_sender_reports;
+        let info = self.build_track_info(&req, incomplete_sr);
         let spec = published_spec(&info, &req.cid);
         let transport = {
             let p = self.participants.get_mut(sid).expect("checked");
@@ -186,9 +192,14 @@ impl Room {
         }
     }
 
-    fn build_track_info(&self, req: &AddTrack) -> TrackInfo {
+    fn build_track_info(&self, req: &AddTrack, incomplete_sr: bool) -> TrackInfo {
         let mut layers = req.layers.clone();
         layers.sort_by_key(|l| l.quality);
+        let single_layer_mode = if incomplete_sr {
+            VideoLayerMode::OneSpatialLayerPerStreamIncompleteRtcpSr
+        } else {
+            VideoLayerMode::OneSpatialLayerPerStream
+        };
 
         let mut codecs = Vec::new();
         if req.simulcast_codecs.is_empty() {
@@ -198,18 +209,24 @@ impl Room {
                 cid: req.cid.clone(),
                 sdp_cid: String::new(),
                 layers: layers.clone(),
-                layer_mode: VideoLayerMode::OneSpatialLayerPerStream,
+                layer_mode: single_layer_mode,
             });
         } else {
+            let prefix = if req.kind == TrackKind::Audio {
+                "audio/"
+            } else {
+                "video/"
+            };
             for c in &req.simulcast_codecs {
-                let mut mime = qualify_mime(req.kind, &c.codec);
+                let mut mime = if c.codec.starts_with(prefix) {
+                    c.codec.clone()
+                } else {
+                    format!("{prefix}{}", c.codec)
+                };
                 if !self.codec_enabled(&mime) {
                     mime = self.fallback_codec(req.kind);
                 }
-                if codecs
-                    .iter()
-                    .any(|tc: &TrackCodec| tc.mime_type.eq_ignore_ascii_case(&mime))
-                {
+                if codecs.iter().any(|tc: &TrackCodec| tc.mime_type == mime) {
                     continue;
                 }
                 let svc = is_svc(&mime);
@@ -230,18 +247,19 @@ impl Room {
                     cid: c.cid.clone(),
                     sdp_cid: String::new(),
                     layers: codec_layers,
-                    layer_mode: if c.layer_mode != VideoLayerMode::Unused {
+                    layer_mode: if req.kind == TrackKind::Audio
+                        || c.layer_mode != VideoLayerMode::Unused
+                    {
                         c.layer_mode
                     } else if svc {
                         VideoLayerMode::MultipleSpatialLayersPerStream
                     } else {
-                        VideoLayerMode::OneSpatialLayerPerStream
+                        single_layer_mode
                     },
                 });
             }
         }
         let simulcast = !req.simulcast_codecs.is_empty()
-            && req.kind == TrackKind::Video
             && codecs.first().is_some_and(|codec| {
                 codec.layer_mode != VideoLayerMode::MultipleSpatialLayersPerStream
                     && codec.layers.len() > 1
@@ -325,31 +343,34 @@ impl Room {
         self.info
             .enabled_codecs
             .iter()
-            .any(|c| c.mime.eq_ignore_ascii_case(mime))
+            .any(|c| c.fmtp_line.is_empty() && normalized_mime(&c.mime) == normalized_mime(mime))
     }
 
     fn fallback_codec(&self, kind: TrackKind) -> String {
-        let prefix = if kind == TrackKind::Audio {
-            "audio/"
-        } else {
-            "video/"
-        };
-        self.info
-            .enabled_codecs
-            .iter()
-            .find(|c| {
-                c.mime.to_ascii_lowercase().starts_with(prefix)
-                    && !c.mime.eq_ignore_ascii_case("video/rtx")
-                    && !c.mime.eq_ignore_ascii_case("audio/red")
+        if kind == TrackKind::Audio {
+            return self
+                .info
+                .enabled_codecs
+                .iter()
+                .find(|c| c.mime.starts_with("audio/"))
+                .map_or_else(|| "audio/opus".into(), |c| c.mime.clone());
+        }
+        let candidates = self.info.enabled_codecs.iter().filter(|c| {
+            c.mime.starts_with("video/")
+                && !matches!(normalized_mime(&c.mime), Some("rtx" | "flexfec-03"))
+        });
+        // Go prepends each VP8, then appends H264 before the remaining codecs.
+        candidates
+            .clone()
+            .rev()
+            .find(|c| normalized_mime(&c.mime) == Some("vp8"))
+            .or_else(|| {
+                candidates
+                    .clone()
+                    .find(|c| normalized_mime(&c.mime) == Some("h264"))
             })
-            .map(|c| c.mime.clone())
-            .unwrap_or_else(|| {
-                if kind == TrackKind::Audio {
-                    "audio/opus".into()
-                } else {
-                    "video/VP8".into()
-                }
-            })
+            .or_else(|| candidates.into_iter().next())
+            .map_or_else(|| "video/VP8".into(), |c| c.mime.clone())
     }
 
     /// Match remote media to a pending track (signaling.md §4.1).
@@ -1040,6 +1061,18 @@ fn normalized_codec_name(codec: &str) -> Option<&'static str> {
             })
             .eq(name.chars())
     })
+}
+
+fn normalized_mime(mime: &str) -> Option<&'static str> {
+    let (prefix, codec) = mime.split_once('/')?;
+    let codec = normalized_codec_name(codec)?;
+    let expected_prefix = match codec {
+        "opus" | "red" | "g722" | "pcmu" | "pcma" => "audio",
+        _ => "video",
+    };
+    prefix
+        .eq_ignore_ascii_case(expected_prefix)
+        .then_some(codec)
 }
 
 fn qualify_mime(kind: TrackKind, codec: &str) -> String {

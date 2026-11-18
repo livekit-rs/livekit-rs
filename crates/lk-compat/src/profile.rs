@@ -35,6 +35,7 @@ pub fn capabilities(client: &ClientMeta) -> ClientCapabilities {
         ice_tcp: supports_ice_tcp(client),
         video_publication_requires_rtp: client.sdk == SdkKind::Go,
         codec_switch_requires_renegotiation: matches!(client.sdk, SdkKind::Go | SdkKind::Unknown),
+        incomplete_rtcp_sender_reports: client.browser.contains("OBS"),
         subscriber_primary: protocol > 2,
         speaker_changed: protocol > 2,
         connection_quality: protocol > 4,
@@ -119,6 +120,30 @@ mod tests {
 #[cfg(test)]
 mod publication_policy_tests {
     use super::*;
+    #[test]
+    fn incomplete_sender_reports_require_the_exact_obs_substring() {
+        for sdk in [SdkKind::Go, SdkKind::Js, SdkKind::Unknown] {
+            for (browser, expected) in [
+                ("OBS", true),
+                ("xOBSx", true),
+                ("obs", false),
+                ("Obs", false),
+                ("", false),
+            ] {
+                let client = ClientMeta {
+                    sdk: sdk.clone(),
+                    browser: browser.into(),
+                    ..Default::default()
+                };
+                assert_eq!(
+                    capabilities(&client).incomplete_rtcp_sender_reports,
+                    expected,
+                    "{sdk:?} {browser:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn only_go_sdk_video_uses_first_packet_codec_registration_policy() {
         for sdk in [SdkKind::Go, SdkKind::Js, SdkKind::Rust, SdkKind::Unknown] {

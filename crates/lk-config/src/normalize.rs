@@ -1292,6 +1292,7 @@ mod tests {
                 capabilities: ClientCapabilities {
                     video_publication_requires_rtp: false,
                     codec_switch_requires_renegotiation: false,
+                    incomplete_rtcp_sender_reports: false,
                     ice_tcp: true,
                     one_shot: false,
                     subscriber_primary: true,
@@ -1468,6 +1469,7 @@ mod tests {
                 capabilities: ClientCapabilities {
                     video_publication_requires_rtp: false,
                     codec_switch_requires_renegotiation: false,
+                    incomplete_rtcp_sender_reports: false,
                     ice_tcp: true,
                     one_shot: false,
                     subscriber_primary: true,

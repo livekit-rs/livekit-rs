@@ -2470,6 +2470,7 @@ mod owner_metadata_api_tests {
             capabilities: ClientCapabilities {
                 video_publication_requires_rtp: false,
                 codec_switch_requires_renegotiation: false,
+                incomplete_rtcp_sender_reports: false,
                 ice_tcp: true,
                 one_shot: false,
                 subscriber_primary: true,
@@ -2854,6 +2855,7 @@ mod automatic_recording_owner_tests {
             capabilities: ClientCapabilities {
                 video_publication_requires_rtp: false,
                 codec_switch_requires_renegotiation: false,
+                incomplete_rtcp_sender_reports: false,
                 ice_tcp: true,
                 one_shot: false,
                 subscriber_primary: true,

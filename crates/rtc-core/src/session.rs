@@ -84,6 +84,7 @@ pub struct ClientCapabilities {
     pub video_publication_requires_rtp: bool,
     /// Downstream codec changes require replacing the negotiated sender.
     pub codec_switch_requires_renegotiation: bool,
+    pub incomplete_rtcp_sender_reports: bool,
     /// No persistent interactive signaling peer; source WHIP one-shot mode.
     pub one_shot: bool,
     /// Fixed ClientInfo.SupportsICETCP, supplied by protocol adapter.

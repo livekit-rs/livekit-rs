@@ -113,6 +113,7 @@ fn params(identity: &str, protocol: i32, single_pc: bool) -> JoinParams {
         capabilities: ClientCapabilities {
             video_publication_requires_rtp: false,
             codec_switch_requires_renegotiation: false,
+            incomplete_rtcp_sender_reports: false,
             ice_tcp: true,
             one_shot: false,
             subscriber_primary: true,
@@ -390,14 +391,25 @@ fn assert_publication_codec_layer_source(codec: &str, matching: Option<bool>) {
     assert_eq!(tracks.len(), 1);
     let track = &tracks[0];
     assert_eq!(track.layers, request.layers);
-    assert_eq!(track.codecs.len(), 1);
-    assert!(track.codecs[0].mime_type.eq_ignore_ascii_case("video/vp8"));
-    assert_eq!(track.codecs[0].cid, "origin");
-    assert_eq!(
-        track.codecs[0].layer_mode,
-        VideoLayerMode::OneSpatialLayerPerStream
-    );
-    assert_eq!(track.codecs[0].layers, expected);
+    let mut expected_codecs = vec![TrackCodec {
+        mime_type: "video/VP8".into(),
+        mid: String::new(),
+        cid: "origin".into(),
+        sdp_cid: String::new(),
+        layers: expected.clone(),
+        layer_mode: VideoLayerMode::OneSpatialLayerPerStream,
+    }];
+    if matching.is_some() {
+        expected_codecs.push(TrackCodec {
+            mime_type: "video/vP8".into(),
+            mid: String::new(),
+            cid: "matched".into(),
+            sdp_cid: String::new(),
+            layers: expected,
+            layer_mode: VideoLayerMode::MultipleSpatialLayersPerStream,
+        });
+    }
+    assert_eq!(track.codecs, expected_codecs);
     assert_eq!(track.simulcast, matching == Some(true));
     let media_tracks = effects
         .iter()
@@ -489,6 +501,228 @@ fn add_track_unicode_folded_opus_preserves_codec_layers() {
         .collect::<Vec<_>>();
     assert_eq!(media_tracks.len(), 1);
     assert_eq!(media_tracks[0].codecs, tracks[0].codecs);
+}
+
+mod codec_selection_tests {
+    use super::*;
+
+    fn ack(
+        enabled: &[(&str, &str)],
+        kind: TrackKind,
+        incomplete_sr: bool,
+        codecs: &[(&str, i32)],
+    ) -> TrackInfo {
+        let now = Instant::now();
+        let mut policy = test_policy();
+        policy.enabled_codecs = enabled
+            .iter()
+            .map(|(mime, fmtp)| CodecSpec {
+                mime: (*mime).into(),
+                fmtp_line: (*fmtp).into(),
+            })
+            .collect();
+        let mut room = Room::new(
+            RoomKey::new(ProjectId::local(), "r1"),
+            Arc::new(policy),
+            Arc::new(EchoData),
+            &Default::default(),
+            now,
+        );
+        room.take_effects();
+        let mut join = params("publisher", 17, false);
+        join.capabilities.incomplete_rtcp_sender_reports = incomplete_sr;
+        let publisher = room.join(join, now).unwrap();
+        room.take_effects();
+        let mut request = add_track("c62", kind, TrackSource::Camera);
+        request.layers = [VideoQuality::High, VideoQuality::Low]
+            .into_iter()
+            .map(|quality| VideoLayer {
+                quality,
+                width: 320,
+                height: 180,
+                bitrate: 100_000,
+                ssrc: 17,
+                spatial_layer: 0,
+                rid: "f".into(),
+                repair_ssrc: 19,
+            })
+            .collect();
+        request.simulcast_codecs = codecs
+            .iter()
+            .enumerate()
+            .map(|(i, (codec, mode))| SimulcastCodecRequest {
+                codec: (*codec).into(),
+                cid: format!("codec-{i}"),
+                layers: vec![],
+                layer_mode: VideoLayerMode::from_i32(*mode),
+            })
+            .collect();
+        room.handle_request(
+            &publisher.sid,
+            publisher.generation,
+            SessionRequest::AddTrack(request),
+            now,
+        );
+        let effects = room.take_effects();
+        let tracks = signals_to(&effects, &publisher.sid)
+            .into_iter()
+            .filter_map(|event| match event {
+                SignalEvent::TrackPublished { track, .. } => Some(track),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(tracks.len(), 1);
+        let specs = effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Media(MediaCommand::ExpectTrack { track, .. }) => Some(track),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(specs.len(), 1);
+        assert_eq!(specs[0].codecs, tracks[0].codecs);
+        assert_eq!(room.published_track_count(), 0);
+        tracks.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn exact_dedup_preserves_case_distinct_codecs() {
+        let track = ack(
+            &[("video/VP8", "")],
+            TrackKind::Video,
+            false,
+            &[("VP8", 99), ("vp8", -1)],
+        );
+        assert_eq!(track.codecs.len(), 2);
+        assert_eq!(track.codecs[0].mime_type, "video/VP8");
+        assert_eq!(track.codecs[1].mime_type, "video/vp8");
+        assert_eq!(track.codecs[0].layer_mode.as_i32(), 99);
+        assert_eq!(track.codecs[1].layer_mode.as_i32(), -1);
+    }
+
+    #[test]
+    fn wrong_media_prefix_cannot_bypass_video_fallback() {
+        let track = ack(
+            &[("audio/opus", ""), ("video/h264", "")],
+            TrackKind::Video,
+            false,
+            &[("audio/opus", 0)],
+        );
+        assert_eq!(track.codecs[0].mime_type, "video/h264");
+    }
+
+    #[test]
+    fn fallback_prefers_last_vp8_then_first_h264() {
+        let track = ack(
+            &[
+                ("video/av1", ""),
+                ("video/h264", ""),
+                ("video/vp8", ""),
+                ("video/VP8", ""),
+            ],
+            TrackKind::Video,
+            false,
+            &[("unknown", 0)],
+        );
+        assert_eq!(track.codecs[0].mime_type, "video/VP8");
+        let track = ack(
+            &[("video/av1", ""), ("video/h264", "")],
+            TrackKind::Video,
+            false,
+            &[("unknown", 0)],
+        );
+        assert_eq!(track.codecs[0].mime_type, "video/h264");
+    }
+
+    #[test]
+    fn fallback_skips_flexfec03_but_includes_audio_red() {
+        let track = ack(
+            &[("video/flexfec-03", ""), ("video/rtx", "")],
+            TrackKind::Video,
+            false,
+            &[("unknown", 0)],
+        );
+        assert_eq!(track.codecs[0].mime_type, "video/VP8");
+        let track = ack(
+            &[("audio/red", ""), ("audio/opus", "")],
+            TrackKind::Audio,
+            false,
+            &[("unknown", 0)],
+        );
+        assert_eq!(track.codecs[0].mime_type, "audio/red");
+    }
+
+    #[test]
+    fn unknown_mime_values_share_the_unknown_codec_class() {
+        let track = ack(
+            &[("video/vendor-a", "")],
+            TrackKind::Video,
+            false,
+            &[("vendor-b", 0)],
+        );
+        assert_eq!(track.codecs[0].mime_type, "video/vendor-b");
+    }
+
+    #[test]
+    fn nonempty_fmtp_does_not_enable_an_empty_fmtp_request() {
+        let track = ack(
+            &[("video/vp9", "profile-id=1"), ("video/h264", "")],
+            TrackKind::Video,
+            false,
+            &[("vp9", 0)],
+        );
+        assert_eq!(track.codecs[0].mime_type, "video/h264");
+        assert_eq!(
+            track.codecs[0].layer_mode,
+            VideoLayerMode::OneSpatialLayerPerStream
+        );
+    }
+
+    #[test]
+    fn audio_mode_unused_is_not_inferred() {
+        let track = ack(
+            &[("audio/opus", "")],
+            TrackKind::Audio,
+            true,
+            &[("opus", 0)],
+        );
+        assert_eq!(track.codecs[0].layer_mode, VideoLayerMode::Unused);
+    }
+
+    #[test]
+    fn audio_multiple_layers_set_the_legacy_simulcast_flag() {
+        let track = ack(
+            &[("audio/opus", "")],
+            TrackKind::Audio,
+            false,
+            &[("opus", 1)],
+        );
+        assert!(track.simulcast);
+    }
+
+    #[test]
+    fn incomplete_sender_reports_select_mode_for_video_and_legacy_audio() {
+        for (kind, codecs) in [
+            (TrackKind::Video, vec![("vp8", 0)]),
+            (TrackKind::Audio, vec![]),
+        ] {
+            let track = ack(
+                &[("video/vp8", ""), ("audio/opus", "")],
+                kind,
+                true,
+                &codecs,
+            );
+            assert_eq!(
+                track.codecs[0].layer_mode,
+                VideoLayerMode::OneSpatialLayerPerStreamIncompleteRtcpSr
+            );
+        }
+        let track = ack(&[("video/vp9", "")], TrackKind::Video, true, &[("vp9", 0)]);
+        assert_eq!(
+            track.codecs[0].layer_mode,
+            VideoLayerMode::MultipleSpatialLayersPerStream
+        );
+    }
 }
 
 mod c61_video_quality_publish {
@@ -785,18 +1019,16 @@ mod c61_video_quality_publish {
     }
 
     fn observe(case: &Case) -> Observation {
+        let mut policy = test_policy();
+        policy.enabled_codecs = case.input.enabled_codecs.iter().map(|mime| CodecSpec {
+            mime: mime.clone(), fmtp_line: String::new(),
+        }).collect();
+        observe_with_policy(case, policy, false)
+    }
+
+    fn observe_with_policy(case: &Case, policy: RoomPolicy, incomplete_sr: bool) -> Observation {
         let original_input = case.input.clone();
         let now = Instant::now();
-        let mut policy = test_policy();
-        policy.enabled_codecs = case
-            .input
-            .enabled_codecs
-            .iter()
-            .map(|mime| CodecSpec {
-                mime: mime.clone(),
-                fmtp_line: String::new(),
-            })
-            .collect();
         let mut room = Room::new(
             RoomKey::new(ProjectId::local(), "r1"),
             Arc::new(policy),
@@ -807,6 +1039,7 @@ mod c61_video_quality_publish {
         room.take_effects();
         let mut join = params("c61", 6, false);
         join.capabilities.video_publication_requires_rtp = false;
+        join.capabilities.incomplete_rtcp_sender_reports = incomplete_sr;
         join.grants.video.can_publish = Some(true);
         join.grants.video.can_subscribe = Some(false);
         join.grants.video.can_publish_data = Some(false);
@@ -907,6 +1140,111 @@ mod c61_video_quality_publish {
                 cid: cid.clone(),
                 track: Track::from(track),
             },
+        }
+    }
+
+    strict_object!(EnabledCodec {
+        mime: String,
+        fmtp_line: String,
+    });
+    strict_object!(CodecInput {
+        enabled_codecs: Vec<EnabledCodec>,
+        browser: String,
+        request: Request,
+    });
+    strict_object!(CodecCase {
+        schema_version: u32,
+        case: String,
+        input: CodecInput,
+    });
+    strict_object!(CodecObservation {
+        schema_version: u32,
+        case: String,
+        input: CodecInput,
+        output: Output,
+    });
+
+    #[test]
+    #[ignore = "requires raw C62_GO_RESULTS and a new absolute C62_RUST_RESULTS path"]
+    fn codec_selection_matches_raw_go_observations() {
+        let cases: Vec<CodecCase> = serde_json::from_str(include_str!(
+            "../../../../tests/oracles/video-codec-selection/cases.json"
+        ))
+        .expect("strict checked-in codec selection cases");
+        assert_eq!(cases.len(), 48);
+        for case in &cases {
+            assert_eq!(case.schema_version, 2);
+        }
+        let go_path =
+            PathBuf::from(std::env::var_os("C62_GO_RESULTS").expect("C62_GO_RESULTS required"));
+        let rust_path =
+            PathBuf::from(std::env::var_os("C62_RUST_RESULTS").expect("C62_RUST_RESULTS required"));
+        assert!(go_path.is_absolute());
+        assert!(rust_path.is_absolute());
+        let file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&rust_path)
+            .expect("exclusively create C62_RUST_RESULTS");
+        let observations = cases
+            .iter()
+            .map(|case| {
+                let mut policy = test_policy();
+                policy.enabled_codecs = case
+                    .input
+                    .enabled_codecs
+                    .iter()
+                    .map(|codec| CodecSpec {
+                        mime: codec.mime.clone(),
+                        fmtp_line: codec.fmtp_line.clone(),
+                    })
+                    .collect();
+                let legacy = Case {
+                    schema_version: case.schema_version,
+                    case: case.case.clone(),
+                    input: Input {
+                        enabled_codecs: case
+                            .input
+                            .enabled_codecs
+                            .iter()
+                            .map(|c| c.mime.clone())
+                            .collect(),
+                        request: case.input.request.clone(),
+                    },
+                };
+                let actual = observe_with_policy(&legacy, policy, case.input.browser.contains("OBS"));
+                CodecObservation {
+                    schema_version: case.schema_version,
+                    case: case.case.clone(),
+                    input: case.input.clone(),
+                    output: actual.output,
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut writer = BufWriter::new(file);
+        for observation in &observations {
+            serde_json::to_writer(&mut writer, observation).expect("write actual Rust observation");
+            writer.write_all(b"\n").unwrap();
+        }
+        writer.flush().unwrap();
+        drop(writer);
+        let raw = std::fs::read_to_string(&go_path).expect("read raw Go observations");
+        let go = raw
+            .lines()
+            .enumerate()
+            .map(|(i, line)| {
+                serde_json::from_str::<CodecObservation>(line)
+                    .unwrap_or_else(|error| panic!("Go line {}: {error}", i + 1))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(go.len(), cases.len(), "exact Go row count");
+        for (go, case) in go.iter().zip(&cases) {
+            assert_eq!(go.schema_version, case.schema_version);
+            assert_eq!(go.case, case.case, "case identity/order");
+            assert_eq!(go.input, case.input, "immutable full stimulus");
+        }
+        for (rust, go) in observations.iter().zip(&go) {
+            assert_eq!(rust.output, go.output, "{} Rust versus raw Go ACK", rust.case);
         }
     }
 
