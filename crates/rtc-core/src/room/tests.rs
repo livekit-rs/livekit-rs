@@ -541,6 +541,292 @@ fn duplicate_identity_replaces_old_session() {
     )));
 }
 
+fn dynacast_description(
+    room: &mut Room,
+    sid: &ParticipantSid,
+    transport: TransportId,
+    kind: SdpType,
+    target: SignalTarget,
+    now: Instant,
+) {
+    room.handle_media_event(
+        MediaEvent::LocalDescription {
+            participant: sid.clone(),
+            transport,
+            target,
+            kind,
+            sdp: "v=0\r\n".into(),
+            trickle_only: false,
+            id: 7,
+            mid_to_track_id: BTreeMap::new(),
+        },
+        now,
+    );
+}
+
+fn dynacast_resends(effects: &[Effect]) -> Vec<ParticipantSid> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            Effect::Media(MediaCommand::ResendSubscribedQualities { participant }) => {
+                Some(participant.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn publisher_answer_dynacast_resend_waits_two_seconds_and_runs_once() {
+    for single in [false, true] {
+        let (mut room, now) = room();
+        let joined = room.join(params("publisher", 17, single), now).unwrap();
+        let transport = room.participants[&joined.sid].publish_transport();
+        room.take_effects();
+        dynacast_description(
+            &mut room,
+            &joined.sid,
+            transport,
+            SdpType::Answer,
+            SignalTarget::Publisher,
+            now,
+        );
+        let effects = room.take_effects();
+        assert!(matches!(
+            signals_to(&effects, &joined.sid).as_slice(),
+            [SignalEvent::Answer { id: 7, .. }]
+        ));
+        assert!(dynacast_resends(&effects).is_empty());
+        assert!(room.participants[&joined.sid].dynacast_resend.is_none());
+        let _ = room.publisher_answer_sent(&joined.sid, now);
+        assert_eq!(
+            room.participants[&joined.sid].dynacast_resend,
+            Some((now + Duration::from_secs(2), now + Duration::from_secs(8)))
+        );
+        assert_eq!(
+            room.tick(now + Duration::from_millis(1999)),
+            now + Duration::from_secs(2)
+        );
+        assert!(dynacast_resends(&room.take_effects()).is_empty());
+        room.tick(now + Duration::from_secs(2));
+        assert_eq!(dynacast_resends(&room.take_effects()), [joined.sid.clone()]);
+        assert!(room.participants[&joined.sid].dynacast_resend.is_none());
+        room.tick(now + Duration::from_secs(20));
+        assert!(dynacast_resends(&room.take_effects()).is_empty());
+    }
+}
+
+#[test]
+fn publisher_answer_dynacast_resend_caps_bursts_and_starts_a_new_window() {
+    let (mut room, now) = room();
+    let joined = room.join(params("publisher", 17, true), now).unwrap();
+    let transport = room.participants[&joined.sid].publish_transport();
+    room.take_effects();
+    for millis in [0, 1500, 3000, 4500, 6000, 7500, 7999] {
+        let at = now + Duration::from_millis(millis);
+        room.tick(at);
+        assert!(dynacast_resends(&room.take_effects()).is_empty());
+        dynacast_description(
+            &mut room,
+            &joined.sid,
+            transport,
+            SdpType::Answer,
+            SignalTarget::Publisher,
+            at,
+        );
+        let _ = room.publisher_answer_sent(&joined.sid, at);
+        assert_eq!(
+            room.participants[&joined.sid].dynacast_resend,
+            Some((
+                now + Duration::from_millis((millis + 2000).min(8000)),
+                now + Duration::from_secs(8)
+            ))
+        );
+        assert!(dynacast_resends(&room.take_effects()).is_empty());
+    }
+    room.tick(now + Duration::from_secs(8));
+    assert_eq!(dynacast_resends(&room.take_effects()), [joined.sid.clone()]);
+    dynacast_description(
+        &mut room,
+        &joined.sid,
+        transport,
+        SdpType::Answer,
+        SignalTarget::Publisher,
+        now + Duration::from_secs(9),
+    );
+    let _ = room.publisher_answer_sent(&joined.sid, now + Duration::from_secs(9));
+    assert_eq!(
+        room.participants[&joined.sid].dynacast_resend,
+        Some((now + Duration::from_secs(11), now + Duration::from_secs(17)))
+    );
+    room.tick(now + Duration::from_millis(10999));
+    assert!(dynacast_resends(&room.take_effects()).is_empty());
+    room.tick(now + Duration::from_secs(11));
+    assert_eq!(dynacast_resends(&room.take_effects()), [joined.sid]);
+}
+
+#[test]
+fn publisher_answer_dynacast_resend_requires_send_confirmation_and_live_participant() {
+    let (mut room, now) = room();
+    let joined = room.join(params("publisher", 17, false), now).unwrap();
+    let publisher = room.participants[&joined.sid].publish_transport();
+    let subscriber = room.participants[&joined.sid]
+        .transport(PcRole::Subscriber)
+        .unwrap();
+    room.take_effects();
+    for (transport, kind, target) in [
+        (publisher, SdpType::Answer, SignalTarget::Publisher),
+        (publisher, SdpType::Offer, SignalTarget::Publisher),
+        (subscriber, SdpType::Offer, SignalTarget::Subscriber),
+        (subscriber, SdpType::Answer, SignalTarget::Subscriber),
+        (subscriber, SdpType::Answer, SignalTarget::Publisher),
+        (
+            TransportId::next(),
+            SdpType::Answer,
+            SignalTarget::Publisher,
+        ),
+    ] {
+        dynacast_description(&mut room, &joined.sid, transport, kind, target, now);
+        assert!(room.participants[&joined.sid].dynacast_resend.is_none());
+    }
+    dynacast_description(
+        &mut room,
+        &"PA_missing".into(),
+        publisher,
+        SdpType::Answer,
+        SignalTarget::Publisher,
+        now,
+    );
+    let _ = room.publisher_answer_sent(&"PA_missing".into(), now);
+    room.tick(now + Duration::from_secs(2));
+    assert!(dynacast_resends(&room.take_effects()).is_empty());
+    room.participants.get_mut(&joined.sid).unwrap().info.state = ParticipantState::Disconnected;
+    dynacast_description(
+        &mut room,
+        &joined.sid,
+        publisher,
+        SdpType::Answer,
+        SignalTarget::Publisher,
+        now,
+    );
+    let _ = room.publisher_answer_sent(&joined.sid, now);
+    assert!(room.participants[&joined.sid].dynacast_resend.is_none());
+}
+
+#[test]
+fn publisher_answer_dynacast_resend_is_per_participant_and_survives_signal_loss() {
+    let (mut room, now) = room();
+    let a = room.join(params("alice", 17, true), now).unwrap();
+    let b = room.join(params("bob", 17, true), now).unwrap();
+    for joined in [&a, &b] {
+        let transport = room.participants[&joined.sid].publish_transport();
+        room.handle_media_event(
+            MediaEvent::TransportConnected {
+                participant: joined.sid.clone(),
+                transport,
+            },
+            now,
+        );
+        dynacast_description(
+            &mut room,
+            &joined.sid,
+            transport,
+            SdpType::Answer,
+            SignalTarget::Publisher,
+            now + Duration::from_millis(if joined.sid == a.sid { 0 } else { 500 }),
+        );
+        let _ = room.publisher_answer_sent(
+            &joined.sid,
+            now + Duration::from_millis(if joined.sid == a.sid { 0 } else { 500 }),
+        );
+    }
+    room.signal_closed(&a.sid, a.generation, now + Duration::from_secs(1));
+    assert!(!room.participants[&a.sid].signal_connected);
+    room.take_effects();
+    room.tick(now + Duration::from_secs(2));
+    assert_eq!(dynacast_resends(&room.take_effects()), [a.sid]);
+    room.tick(now + Duration::from_millis(2499));
+    assert!(dynacast_resends(&room.take_effects()).is_empty());
+    room.tick(now + Duration::from_millis(2500));
+    assert_eq!(dynacast_resends(&room.take_effects()), [b.sid]);
+}
+
+#[test]
+fn publisher_answer_dynacast_resend_drops_removed_and_closed_participants() {
+    for close_room in [false, true] {
+        let (mut room, now) = room();
+        let joined = room.join(params("publisher", 17, true), now).unwrap();
+        let transport = room.participants[&joined.sid].publish_transport();
+        dynacast_description(
+            &mut room,
+            &joined.sid,
+            transport,
+            SdpType::Answer,
+            SignalTarget::Publisher,
+            now,
+        );
+        let _ = room.publisher_answer_sent(&joined.sid, now);
+        assert!(room.participants[&joined.sid].dynacast_resend.is_some());
+        if close_room {
+            room.close(RoomEndReason::ApiDelete, now + Duration::from_secs(1));
+        } else {
+            room.remove_participant(
+                &joined.sid,
+                DisconnectReason::ClientInitiated,
+                true,
+                now + Duration::from_secs(1),
+            );
+        }
+        assert!(!room.participants.contains_key(&joined.sid));
+        room.take_effects();
+        room.tick(now + Duration::from_secs(2));
+        assert!(dynacast_resends(&room.take_effects()).is_empty());
+    }
+}
+
+#[test]
+fn resume_restarts_publications_once_for_both_pc_modes_but_not_one_shot() {
+    for single in [false, true] {
+        for one_shot in [false, true] {
+            let (mut room, now) = room();
+            let mut join = params("publisher", 17, single);
+            join.capabilities.one_shot = one_shot;
+            let joined = room.join(join.clone(), now).unwrap();
+            let subscriber = room.participants[&joined.sid].transport(PcRole::Subscriber);
+            room.take_effects();
+            join.reconnect = true;
+            join.participant_sid = Some(joined.sid.clone());
+            let resumed = room.join(join, now + Duration::from_secs(1)).unwrap();
+            assert_eq!(resumed.sid, joined.sid);
+            let effects = room.take_effects();
+            let restarts: Vec<_> = effects
+                .iter()
+                .filter_map(|effect| match effect {
+                    Effect::Media(MediaCommand::IceRestart { transport }) => {
+                        assert_eq!(Some(*transport), subscriber);
+                        Some("ice")
+                    }
+                    Effect::Media(MediaCommand::RestartPublishedTracks { participant }) => {
+                        assert_eq!(participant, &joined.sid);
+                        Some("publication")
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                restarts,
+                if one_shot {
+                    vec![]
+                } else if single {
+                    vec!["publication"]
+                } else {
+                    vec!["ice"]
+                }
+            );
+        }
+    }
+}
+
 #[test]
 fn resume_sends_reconnect_first_and_keeps_sid() {
     let (mut room, now) = room();

@@ -180,6 +180,12 @@ pub enum MediaCommand {
     IceRestart {
         transport: TransportId,
     },
+    RestartPublishedTracks {
+        participant: ParticipantSid,
+    },
+    ResendSubscribedQualities {
+        participant: ParticipantSid,
+    },
     /// Announce a pending publication so the next client offer can be matched and
     /// the answer munged (opus fmtp, simulcast rids).
     ExpectTrack {

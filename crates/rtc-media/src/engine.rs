@@ -530,23 +530,23 @@ impl MediaEngine {
                     }
                 }
             }
+            MediaCommand::RestartPublishedTracks { participant } => {
+                self.restart_publisher_dynacast(&participant, now);
+            }
+            MediaCommand::ResendSubscribedQualities { participant } => {
+                self.resend_publisher_dynacast(&participant);
+            }
             MediaCommand::IceRestart { transport } => {
-                // Fixed Go ParticipantImpl.ICERestart restarts every published
-                // track: MediaTrackReceiver.Restart expects the HIGH layer again.
+                // Go ParticipantImpl.ICERestart returns before track restart for
+                // one-shot participants. Ordinary dual-PC recovery restarts all
+                // of the participant's publications, not only this transport.
                 if let Some(participant) = self
                     .transports
                     .get(&transport)
+                    .filter(|t| !t.spec.one_shot)
                     .map(|t| t.spec.participant.clone())
                 {
-                    for (_, up) in self.ups.iter_mut() {
-                        if up.publisher == participant {
-                            let high = crate::layers::spatial_for_quality(
-                                &up.layers,
-                                rtc_core::model::VideoQuality::High,
-                            );
-                            up.set_max_expected_spatial(high);
-                        }
-                    }
+                    self.restart_publisher_dynacast(&participant, now);
                 }
                 if let Some(t) = self.transports.get_mut(&transport) {
                     if t.role() == PcRole::Subscriber {

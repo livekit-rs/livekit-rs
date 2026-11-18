@@ -10,6 +10,7 @@ pub(crate) struct Dynacast {
     codec: String,
     pause_delay: Duration,
     aggregated: Option<VideoQuality>,
+    initialized: bool,
     committed: Option<VideoQuality>,
     initial_at: Option<Instant>,
     muted: bool,
@@ -18,6 +19,9 @@ pub(crate) struct Dynacast {
 #[derive(Default)]
 pub(crate) struct Commit {
     pub deadline: Option<Instant>,
+    // Synthetic backup entries belong in the payload, not the resend eligibility decision.
+    pub snapshot: Vec<SubscribedCodec>,
+    pub resend_eligible: bool,
 }
 
 impl Commit {
@@ -30,10 +34,12 @@ impl Commit {
         let mut delay = None;
         let mut changed = false;
         let mut upgrade = false;
+        let mut resend_eligible = false;
         for codec in codecs {
             let Some(quality) = codec.aggregated else {
                 continue;
             };
+            resend_eligible |= quality != VideoQuality::High;
             delay.get_or_insert(codec.pause_delay);
             changed |= codec.committed != Some(quality);
             upgrade |= codec.committed.is_none_or(|old| is_upgrade(old, quality));
@@ -52,6 +58,7 @@ impl Commit {
             }
         }
         self.deadline = None;
+        self.resend_eligible = resend_eligible;
         true
     }
 }
@@ -80,6 +87,7 @@ impl Dynacast {
             codec,
             pause_delay,
             aggregated: None,
+            initialized: false,
             committed: None,
             initial_at: Some(now + INITIAL_UPDATE_WAIT),
             muted,
@@ -98,10 +106,17 @@ impl Dynacast {
         self.initial_at
     }
 
+    pub(crate) fn restart(&mut self, now: Instant) {
+        self.committed = None;
+        self.initialized = false;
+        self.initial_at = Some(now + INITIAL_UPDATE_WAIT);
+    }
+
     pub(crate) fn set_demand(&mut self, quality: VideoQuality) -> bool {
-        if self.aggregated == Some(quality) {
+        if self.initialized && self.aggregated == Some(quality) {
             return false;
         }
+        self.initialized = true;
         self.aggregated = Some(quality);
         true
     }
@@ -111,6 +126,7 @@ impl Dynacast {
             return false;
         }
         self.initial_at = None;
+        self.initialized = true;
         self.aggregated.get_or_insert(VideoQuality::Off);
         true
     }
@@ -275,6 +291,37 @@ mod tests {
             enabled(&d.tick(now + INITIAL_UPDATE_WAIT).unwrap()),
             vec![false; 3]
         );
+    }
+
+    #[test]
+    fn restart_preserves_demand_pause_mute_and_reinitializes_same_quality() {
+        let now = Instant::now();
+        let delay = Duration::from_secs(1);
+        let mut d = Driver::new(delay, now, true);
+        assert!(!d.codec.initialized);
+        assert!(d.demand(Low, now).is_none());
+        assert!(d.codec.initialized);
+        assert_eq!(d.codec.committed, Some(Low));
+        let restart = now + Duration::from_millis(100);
+        d.codec.restart(restart);
+        assert_eq!(d.codec.aggregated, Some(Low));
+        assert_eq!(d.codec.committed, None);
+        assert_eq!(d.codec.pause_delay, delay);
+        assert!(d.codec.muted);
+        assert!(!d.codec.initialized);
+        assert_eq!(d.codec.next_deadline(), Some(restart + INITIAL_UPDATE_WAIT));
+        assert!(
+            d.codec.set_demand(Low),
+            "same demand must reenter the manager"
+        );
+        assert!(d.codec.initialized);
+        assert!(d.update(false, restart).is_none());
+        assert_eq!(d.codec.committed, Some(Low));
+        assert!(!d.codec.set_demand(Low));
+        d.codec.restart(restart);
+        assert!(d.codec.take_initial_update(restart + INITIAL_UPDATE_WAIT));
+        assert!(d.codec.initialized);
+        assert!(!d.codec.set_demand(Low));
     }
 
     #[test]

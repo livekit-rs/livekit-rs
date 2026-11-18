@@ -62,6 +62,8 @@ const NONCE_CACHE_MAX: usize = 1024;
 const RECENT_DISCONNECT_MEMORY: usize = 64;
 const MAX_PENDING_TRACKS: usize = 20;
 const MAX_QUEUED_PER_CID: usize = 3;
+const DYNACAST_RESEND_DELAY: Duration = Duration::from_secs(2);
+const DYNACAST_RESEND_MAX_DELAY: Duration = Duration::from_secs(8);
 
 /// Something the runtime must do on behalf of the room.
 #[derive(Debug)]
@@ -302,6 +304,22 @@ impl Room {
         self.participants.get(sid).map(|p| p.generation)
     }
 
+    pub fn publisher_answer_sent(&mut self, sid: &ParticipantSid, now: Instant) -> Option<Instant> {
+        if self.closed {
+            return None;
+        }
+        let p = self.participants.get_mut(sid)?;
+        if p.is_disconnected() {
+            return None;
+        }
+        let deadline = p
+            .dynacast_resend
+            .map_or(now + DYNACAST_RESEND_MAX_DELAY, |(_, deadline)| deadline);
+        let due = (now + DYNACAST_RESEND_DELAY).min(deadline);
+        p.dynacast_resend = Some((due, deadline));
+        Some(due)
+    }
+
     /// Periodic housekeeping. Returns the next time `tick` must run.
     pub fn tick(&mut self, now: Instant) -> Instant {
         if now >= self.next_batch_flush {
@@ -347,6 +365,19 @@ impl Room {
             self.remove_participant(&sid, reason, send_leave, now);
         }
 
+        let mut resend = Vec::new();
+        for p in self.participants.values_mut() {
+            if p.dynacast_resend.is_some_and(|(due, _)| due <= now) {
+                p.dynacast_resend = None;
+                if !p.is_disconnected() {
+                    resend.push(p.sid().clone());
+                }
+            }
+        }
+        for participant in resend {
+            self.media(MediaCommand::ResendSubscribedQualities { participant });
+        }
+
         let mut next = self.next_batch_flush;
         if !self.publication_monitors.is_empty() || !self.subscription_monitors.is_empty() {
             next = next.min(self.next_error_supervision);
@@ -358,6 +389,9 @@ impl Room {
             next = next.min(*at);
         }
         for p in self.participants.values() {
+            if let Some((due, _)) = p.dynacast_resend {
+                next = next.min(due);
+            }
             if p.subscriptions
                 .values()
                 .any(|s| !s.requested && s.desired_since.is_some())

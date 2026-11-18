@@ -1074,6 +1074,59 @@ impl MediaEngine {
         }
     }
 
+    /// Restart once per logical publication, retaining demand and shared debounce.
+    pub(crate) fn restart_publisher_dynacast(
+        &mut self,
+        participant: &ParticipantSid,
+        now: Instant,
+    ) {
+        let tracks = self.publisher_dynacast_tracks(participant);
+        for sid in tracks {
+            for (_, up) in self.ups.iter_mut() {
+                if up.sid != sid || &up.publisher != participant {
+                    continue;
+                }
+                let high = crate::layers::spatial_for_quality(
+                    &up.layers,
+                    rtc_core::model::VideoQuality::High,
+                );
+                up.set_max_expected_spatial(high);
+                if let Some(dynacast) = up.dynacast.as_mut() {
+                    dynacast.restart(now);
+                }
+            }
+            if let Some(group) = self.codec_receivers.get_mut(&sid) {
+                group.dynacast_commit.snapshot.clear();
+                group.dynacast_commit.resend_eligible = false;
+            }
+        }
+    }
+
+    fn publisher_dynacast_tracks(&self, participant: &ParticipantSid) -> Vec<TrackSid> {
+        self.up_by_sid
+            .iter()
+            .filter_map(|(sid, ui)| {
+                self.ups
+                    .get(*ui)
+                    .filter(|up| &up.sid == sid && &up.publisher == participant)
+                    .map(|_| sid.clone())
+            })
+            .collect()
+    }
+
+    pub(crate) fn resend_publisher_dynacast(&mut self, participant: &ParticipantSid) {
+        for sid in self.publisher_dynacast_tracks(participant) {
+            let Some(group) = self.codec_receivers.get(&sid) else {
+                continue;
+            };
+            if !group.dynacast_commit.resend_eligible {
+                continue;
+            }
+            let codecs = group.dynacast_commit.snapshot.clone();
+            self.emit_dynacast_snapshot(sid, participant.clone(), codecs);
+        }
+    }
+
     pub(crate) fn dynacast_timers(&mut self, now: Instant) {
         let initial = self
             .ups
@@ -1127,7 +1180,6 @@ impl MediaEngine {
         let Some(up) = self.ups.get(ui) else { return };
         let sid = up.sid.clone();
         let publisher = up.publisher.clone();
-        let muted = up.muted;
         if !self.up_by_sid.contains_key(&sid) {
             return;
         }
@@ -1159,9 +1211,37 @@ impl MediaEngine {
         else {
             return;
         };
-        for receiver in receivers {
-            let up = self.ups.get_mut(receiver).unwrap();
-            up.on_subscribed_codecs(&codecs);
+        self.codec_receivers
+            .get_mut(&sid)
+            .unwrap()
+            .dynacast_commit
+            .snapshot = codecs.clone();
+        self.emit_dynacast_snapshot(sid, publisher, codecs);
+    }
+
+    fn emit_dynacast_snapshot(
+        &mut self,
+        sid: TrackSid,
+        publisher: ParticipantSid,
+        codecs: Vec<rtc_core::model::SubscribedCodec>,
+    ) {
+        let Some(up) = self.up_by_sid.get(&sid).and_then(|ui| self.ups.get(*ui)) else {
+            return;
+        };
+        if up.sid != sid || up.publisher != publisher {
+            return;
+        }
+        let muted = up.muted;
+        let Some(group) = self.codec_receivers.get(&sid) else {
+            return;
+        };
+        for receiver in &group.receivers {
+            if let Some(up) = self.ups.get_mut(receiver.up)
+                && up.sid == sid
+                && up.publisher == publisher
+            {
+                up.on_subscribed_codecs(&codecs);
+            }
         }
         if !muted {
             self.events.push(MediaEvent::SubscribedQuality {

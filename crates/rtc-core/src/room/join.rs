@@ -134,6 +134,7 @@ impl Room {
             subscription_permission: None,
             subscriptions: BTreeMap::new(),
             next_subscription_reconcile: now + Duration::from_secs(3),
+            dynacast_resend: None,
             track_settings: HashMap::new(),
             sent_versions: HashMap::new(),
             ready: false,
@@ -427,8 +428,14 @@ impl Room {
             .participants
             .get(sid)
             .and_then(|p| p.transport(PcRole::Subscriber));
-        if let Some(t) = subscriber_transport {
-            self.media(MediaCommand::IceRestart { transport: t });
+        if !capabilities.one_shot {
+            if let Some(t) = subscriber_transport {
+                self.media(MediaCommand::IceRestart { transport: t });
+            } else {
+                self.media(MediaCommand::RestartPublishedTracks {
+                    participant: sid.clone(),
+                });
+            }
         }
 
         let claims = self.participants.get_mut(sid).map(|p| {

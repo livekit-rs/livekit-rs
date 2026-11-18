@@ -1183,10 +1183,13 @@ impl RoomTask {
                 {
                     return;
                 }
+                let is_answer = matches!(event, SignalEvent::Answer { .. });
                 if session.tx.try_send(SessionOutput::Signal(event)).is_err() {
                     // Slow or gone consumer: drop the signal connection (§4.4).
                     tracing::warn!(participant = %to, "signal queue full or closed, closing session");
                     self.sessions.remove(&to);
+                } else if is_answer && let Some(due) = self.room.publisher_answer_sent(&to, now) {
+                    self.room_deadline = self.room_deadline.min(due);
                 }
             }
             Effect::CloseSignal { to } => {
@@ -3196,6 +3199,249 @@ mod automatic_recording_owner_tests {
         });
         result.await.unwrap().unwrap()
     }
+    mod publisher_answer_enqueue_tests {
+        use super::*;
+
+        async fn join_with_bounded_queue(
+            task: &mut RoomTask,
+            identity: &str,
+            one_shot: bool,
+        ) -> SessionHandle {
+            let mut request = params(identity, 17, false);
+            request.capabilities.one_shot = one_shot;
+            let mut joined = owner_join(task, request).await;
+            // Isolate enqueue admission from join traffic, using a real bounded queue.
+            let (tx, rx) = mpsc::channel(1);
+            task.sessions.get_mut(&joined.participant_sid).unwrap().tx = tx;
+            joined.output = rx;
+            task.room.take_effects();
+            joined
+        }
+
+        fn answer() -> SignalEvent {
+            SignalEvent::Answer {
+                sdp: "v=0\r\n".into(),
+                id: 59,
+                mid_to_track_id: BTreeMap::from([("0".into(), "TR_answer".into())]),
+            }
+        }
+
+        fn enqueue_answer(task: &mut RoomTask, sid: &ParticipantSid, now: Instant) {
+            task.execute(
+                Effect::Signal {
+                    to: sid.clone(),
+                    event: answer(),
+                },
+                now,
+            );
+        }
+
+        fn receive_answer(joined: &mut SessionHandle) {
+            let SessionOutput::Signal(SignalEvent::Answer {
+                sdp,
+                id,
+                mid_to_track_id,
+            }) = joined.output.try_recv().expect("Answer must be enqueued")
+            else {
+                panic!("expected the accepted Answer payload");
+            };
+            assert_eq!(sdp, "v=0\r\n");
+            assert_eq!(id, 59);
+            assert_eq!(
+                mid_to_track_id,
+                BTreeMap::from([("0".into(), "TR_answer".into())])
+            );
+            assert!(matches!(
+                joined.output.try_recv(),
+                Err(mpsc::error::TryRecvError::Empty)
+            ));
+        }
+
+        fn tick_resends(task: &mut RoomTask, now: Instant) -> Vec<ParticipantSid> {
+            task.room.tick(now);
+            task.room
+                .take_effects()
+                .into_iter()
+                .filter_map(|effect| match effect {
+                    Effect::Media(MediaCommand::ResendSubscribedQualities { participant }) => {
+                        Some(participant)
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        #[tokio::test]
+        async fn successful_answer_arms_once_after_two_seconds_including_one_shot() {
+            for one_shot in [false, true] {
+                let (mut task, _, _, net) = video_owner().await;
+                let mut joined = join_with_bounded_queue(&mut task, "owner", one_shot).await;
+                let now = Instant::now();
+                task.room_deadline = task.room.tick(now);
+                assert!(task.room_deadline > now + Duration::from_secs(2));
+                enqueue_answer(&mut task, &joined.participant_sid, now);
+                assert_eq!(task.room_deadline, now + Duration::from_secs(2));
+                receive_answer(&mut joined);
+                assert!(task.sessions.contains_key(&joined.participant_sid));
+                assert!(tick_resends(&mut task, now + Duration::from_millis(1999)).is_empty());
+                assert_eq!(
+                    tick_resends(&mut task, now + Duration::from_secs(2)),
+                    [joined.participant_sid.clone()]
+                );
+                assert!(tick_resends(&mut task, now + Duration::from_secs(8)).is_empty());
+                net.shutdown();
+            }
+        }
+
+        #[tokio::test]
+        async fn successful_answer_preserves_an_earlier_room_deadline() {
+            let (mut task, _, _, net) = video_owner().await;
+            let mut joined = join_with_bounded_queue(&mut task, "owner", false).await;
+            let now = Instant::now();
+            task.room_deadline = now + Duration::from_millis(500);
+            enqueue_answer(&mut task, &joined.participant_sid, now);
+            receive_answer(&mut joined);
+            assert_eq!(task.room_deadline, now + Duration::from_millis(500));
+            task.room_deadline = task.room.tick(task.room_deadline);
+            assert_eq!(task.room_deadline, now + Duration::from_secs(2));
+            assert_eq!(
+                tick_resends(&mut task, now + Duration::from_secs(2)),
+                [joined.participant_sid.clone()]
+            );
+            net.shutdown();
+        }
+
+        #[tokio::test]
+        async fn offer_does_not_arm_and_one_shot_still_filters_it() {
+            for one_shot in [false, true] {
+                let (mut task, _, _, net) = video_owner().await;
+                let mut joined = join_with_bounded_queue(&mut task, "owner", one_shot).await;
+                let now = Instant::now();
+                task.execute(
+                    Effect::Signal {
+                        to: joined.participant_sid.clone(),
+                        event: SignalEvent::Offer {
+                            sdp: "v=0\r\n".into(),
+                            id: 59,
+                            mid_to_track_id: BTreeMap::new(),
+                        },
+                    },
+                    now,
+                );
+                if !one_shot {
+                    assert!(matches!(
+                        joined.output.try_recv(),
+                        Ok(SessionOutput::Signal(SignalEvent::Offer {
+                            sdp, id: 59, mid_to_track_id,
+                        })) if sdp == "v=0\r\n" && mid_to_track_id.is_empty()
+                    ));
+                }
+                assert!(matches!(
+                    joined.output.try_recv(),
+                    Err(mpsc::error::TryRecvError::Empty)
+                ));
+                assert!(task.sessions.contains_key(&joined.participant_sid));
+                for millis in [1999, 2000, 8000] {
+                    assert!(
+                        tick_resends(&mut task, now + Duration::from_millis(millis)).is_empty()
+                    );
+                }
+                net.shutdown();
+            }
+        }
+
+        #[derive(Clone, Copy, Debug)]
+        enum FailedQueue {
+            Full,
+            Closed,
+            Missing,
+        }
+
+        async fn failed_answer_does_not_change_due(earlier_success: bool) {
+            for failure in [FailedQueue::Full, FailedQueue::Closed, FailedQueue::Missing] {
+                for one_shot in [false, true] {
+                    let (mut task, _, _, net) = video_owner().await;
+                    let mut joined = join_with_bounded_queue(&mut task, "owner", one_shot).await;
+                    let sid = joined.participant_sid.clone();
+                    let now = Instant::now();
+                    if earlier_success {
+                        enqueue_answer(&mut task, &sid, now);
+                        receive_answer(&mut joined);
+                    }
+                    match failure {
+                        FailedQueue::Full => task.sessions[&sid]
+                            .tx
+                            .try_send(SessionOutput::Close)
+                            .expect("fill the single-slot queue"),
+                        FailedQueue::Closed => joined.output.close(),
+                        FailedQueue::Missing => {
+                            task.sessions.remove(&sid).unwrap();
+                        }
+                    }
+                    let deadline_before = task.room_deadline;
+                    enqueue_answer(&mut task, &sid, now + Duration::from_secs(1));
+                    assert_eq!(task.room_deadline, deadline_before);
+                    assert!(!task.sessions.contains_key(&sid), "{failure:?}");
+                    if matches!(failure, FailedQueue::Full) {
+                        assert!(matches!(joined.output.try_recv(), Ok(SessionOutput::Close)));
+                    }
+                    assert!(matches!(
+                        joined.output.try_recv(),
+                        Err(mpsc::error::TryRecvError::Disconnected)
+                    ));
+                    assert!(tick_resends(&mut task, now + Duration::from_millis(1999)).is_empty());
+                    let expected = if earlier_success { vec![sid] } else { vec![] };
+                    assert_eq!(
+                        tick_resends(&mut task, now + Duration::from_secs(2)),
+                        expected,
+                        "{failure:?}, one_shot={one_shot}"
+                    );
+                    for seconds in [3, 8, 9] {
+                        assert!(
+                            tick_resends(&mut task, now + Duration::from_secs(seconds)).is_empty()
+                        );
+                    }
+                    net.shutdown();
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn full_closed_and_missing_session_do_not_arm() {
+            failed_answer_does_not_change_due(false).await;
+        }
+
+        #[tokio::test]
+        async fn later_failed_answer_does_not_extend_successful_answers_due() {
+            failed_answer_does_not_change_due(true).await;
+        }
+
+        #[tokio::test]
+        async fn accepted_answer_only_arms_its_target_owner() {
+            let (mut task, _, _, net) = video_owner().await;
+            let mut owner = owner_join(&mut task, params("owner", 17, false)).await;
+            let mut other = join_with_bounded_queue(&mut task, "other", false).await;
+            // Replace the owner's queue only after both joins have settled.
+            let (tx, rx) = mpsc::channel(1);
+            task.sessions.get_mut(&owner.participant_sid).unwrap().tx = tx;
+            owner.output = rx;
+            let now = Instant::now();
+            enqueue_answer(&mut task, &owner.participant_sid, now);
+            receive_answer(&mut owner);
+            assert!(matches!(
+                other.output.try_recv(),
+                Err(mpsc::error::TryRecvError::Empty)
+            ));
+            assert!(tick_resends(&mut task, now + Duration::from_millis(1999)).is_empty());
+            assert_eq!(
+                tick_resends(&mut task, now + Duration::from_secs(2)),
+                [owner.participant_sid.clone()]
+            );
+            assert!(tick_resends(&mut task, now + Duration::from_secs(8)).is_empty());
+            net.shutdown();
+        }
+    }
+
     async fn no_intent(receive: &mut mpsc::UnboundedReceiver<RecordingLaunch>) {
         tokio::task::yield_now().await;
         assert!(

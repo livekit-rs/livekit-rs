@@ -99,6 +99,7 @@ pub(crate) struct Participant {
     pub subscriptions: BTreeMap<TrackSid, Subscription>,
     /// Original per-participant subscription-manager three-second ticker.
     pub next_subscription_reconcile: Instant,
+    pub dynacast_resend: Option<(Instant, Instant)>,
     pub track_settings: HashMap<TrackSid, TrackSettings>,
     /// Highest ParticipantInfo version this recipient received per participant.
     pub sent_versions: HashMap<ParticipantSid, u32>,

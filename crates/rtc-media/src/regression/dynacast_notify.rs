@@ -814,6 +814,664 @@ fn publisher_mute_unmuted_control_and_repeated_force() {
     }
 }
 
+const LIFECYCLE_SCENARIOS: [&str; 9] = [
+    "restart-settled",
+    "restart-same",
+    "restart-pending",
+    "restart-repeat",
+    "resend-high",
+    "resend-low",
+    "resend-pending",
+    "resend-restart",
+    "resend-muted",
+];
+const LIFECYCLE_CHECKPOINTS: [u64; 15] = [
+    0, 100, 200, 300, 400, 1099, 1100, 1101, 9999, 10000, 10099, 10100, 10199, 10200, 10300,
+];
+
+fn dynacast_lifecycle_trace(scenario: &str, count: usize) -> MuteTrace {
+    let now = Instant::now();
+    let pause_ms = 1000;
+    let (mut engine, tracks) =
+        fixture_with_demand(count, Duration::from_millis(pause_ms), now, false);
+    for (index, track) in tracks.iter().enumerate() {
+        let quality = if index != 0 || matches!(scenario, "restart-pending" | "resend-high") {
+            2
+        } else if scenario == "resend-pending" {
+            1
+        } else {
+            0
+        };
+        demand(&mut engine, *track, quality, now);
+    }
+    engine.events.clear();
+    let publisher = ParticipantSid::from("PA_notify");
+    let mut observations = Vec::new();
+    for at_ms in LIFECYCLE_CHECKPOINTS {
+        let at = now + Duration::from_millis(at_ms);
+        engine.dynacast_timers(at);
+        match (scenario, at_ms) {
+            ("restart-settled" | "restart-same" | "resend-restart", 100)
+            | ("restart-repeat", 100 | 200)
+            | ("restart-pending", 200) => engine.restart_publisher_dynacast(&publisher, at),
+            ("restart-same", 200) | ("restart-pending" | "resend-pending", 100) => {
+                demand(&mut engine, tracks[0], 0, at);
+            }
+            ("resend-high" | "resend-low", 100 | 200)
+            | ("resend-pending", 200)
+            | ("resend-restart", 200 | 10200)
+            | ("resend-muted", 200 | 400) => engine.resend_publisher_dynacast(&publisher),
+            ("resend-muted", 100) => engine.set_publisher_muted(&SID.into(), true, at),
+            ("resend-muted", 300) => engine.set_publisher_muted(&SID.into(), false, at),
+            _ => {}
+        }
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        let expected_layers = tracks
+            .iter()
+            .enumerate()
+            .map(|(index, track)| ExpectedLayer {
+                codec: CODECS[index].into(),
+                spatial: engine.ups.get(track.0).unwrap().max_expected_spatial(),
+            })
+            .collect();
+        observations.push(MuteObservation {
+            at_ms,
+            events,
+            expected_layers,
+        });
+    }
+    MuteTrace {
+        scenario: scenario.into(),
+        codec_count: count,
+        pause_ms,
+        observations,
+    }
+}
+
+fn dynacast_lifecycle_matrix() -> Vec<MuteTrace> {
+    LIFECYCLE_SCENARIOS
+        .into_iter()
+        .flat_map(|scenario| [1, 2].map(move |count| dynacast_lifecycle_trace(scenario, count)))
+        .collect()
+}
+
+#[test]
+fn dynacast_lifecycle_literal_matrix() {
+    let actual = dynacast_lifecycle_matrix();
+    assert_eq!(actual.len(), 18);
+    for (row, trace) in actual.into_iter().enumerate() {
+        let scenario = LIFECYCLE_SCENARIOS[row / 2];
+        let count = row % 2 + 1;
+        assert_eq!(trace.scenario, scenario);
+        assert_eq!(trace.codec_count, count);
+        assert_eq!(trace.pause_ms, 1000);
+        assert_eq!(trace.observations.len(), LIFECYCLE_CHECKPOINTS.len());
+        for (observation, at) in trace.observations.into_iter().zip(LIFECYCLE_CHECKPOINTS) {
+            assert_eq!(observation.at_ms, at);
+            let first = match scenario {
+                "restart-settled" | "resend-restart" if (100..10100).contains(&at) => 2,
+                "restart-same" if (100..200).contains(&at) => 2,
+                "restart-pending" if at < 1100 => 2,
+                "restart-repeat" if (100..10200).contains(&at) => 2,
+                "resend-high" => 2,
+                "resend-pending" if at < 1100 => 1,
+                _ => 0,
+            };
+            let qualities = [first, 2][..count].to_vec();
+            assert_eq!(
+                observation.expected_layers,
+                qualities
+                    .iter()
+                    .enumerate()
+                    .map(|(index, spatial)| ExpectedLayer {
+                        codec: CODECS[index].into(),
+                        spatial: *spatial,
+                    })
+                    .collect::<Vec<_>>(),
+                "{scenario} count={count} at={at} receiver layers"
+            );
+            let emit = matches!(
+                (scenario, at),
+                ("restart-settled", 10100)
+                    | ("restart-same", 200)
+                    | ("restart-pending", 1100)
+                    | ("restart-repeat", 10200)
+                    | ("resend-low", 100 | 200)
+                    | ("resend-pending", 200 | 1100)
+                    | ("resend-restart", 10100 | 10200)
+                    | ("resend-muted", 300 | 400)
+            );
+            assert_eq!(
+                observation.events,
+                if emit {
+                    vec![expected(&qualities)]
+                } else {
+                    vec![]
+                },
+                "{scenario} count={count} at={at} publisher events"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires C59_GO_JSONL and fresh C59_RUST_JSONL"]
+fn fixed_go_dynacast_lifecycle_differential() {
+    use std::io::Write;
+    // Generate the complete Rust result before opening the independent oracle.
+    let actual = dynacast_lifecycle_matrix();
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(std::env::var_os("C59_RUST_JSONL").expect("C59_RUST_JSONL"))
+        .unwrap();
+    for row in &actual {
+        writeln!(output, "{}", serde_json::to_string(row).unwrap()).unwrap();
+    }
+    output.sync_all().unwrap();
+    let input =
+        std::fs::read_to_string(std::env::var_os("C59_GO_JSONL").expect("C59_GO_JSONL")).unwrap();
+    let reference: Vec<MuteTrace> = input
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(reference.len(), 18);
+    assert_eq!(actual, reference);
+}
+
+#[test]
+fn dynacast_restart_without_aggregate_rearms_initial_off() {
+    let now = Instant::now();
+    for count in [1, 2, 3] {
+        let (mut engine, tracks) = fixture_with_demand(count, Duration::from_secs(1), now, false);
+        engine.restart_publisher_dynacast(&"PA_notify".into(), now + Duration::from_millis(100));
+        engine.resend_publisher_dynacast(&"PA_notify".into());
+        assert!(engine.events.is_empty());
+        assert_eq!(
+            engine.poll_timeout(),
+            Some(now + Duration::from_millis(10100))
+        );
+        for track in &tracks {
+            assert_eq!(engine.ups.get(track.0).unwrap().max_expected_spatial(), 2);
+        }
+        engine.dynacast_timers(now + Duration::from_secs(10));
+        assert!(engine.events.is_empty());
+        engine.dynacast_timers(now + Duration::from_millis(10100));
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        // Each previously uninitialized codec contributes its first OFF demand.
+        assert_eq!(
+            events,
+            (0..count)
+                .map(|_| expected(&vec![3; count]))
+                .collect::<Vec<_>>()
+        );
+        for track in &tracks {
+            assert_eq!(engine.ups.get(track.0).unwrap().max_expected_spatial(), -1);
+        }
+        assert_eq!(engine.poll_timeout(), None);
+    }
+}
+
+#[test]
+fn dynacast_restart_retains_shared_pending_deadline_for_all_codecs() {
+    let now = Instant::now();
+    for count in [1, 2, 3] {
+        let (mut engine, tracks) = fixture_with_demand(count, Duration::from_secs(1), now, false);
+        for track in &tracks {
+            demand(&mut engine, *track, 2, now);
+        }
+        engine.events.clear();
+        for track in &tracks {
+            demand(&mut engine, *track, 0, now + Duration::from_millis(100));
+        }
+        engine.restart_publisher_dynacast(&"PA_notify".into(), now + Duration::from_millis(200));
+        assert!(
+            engine.codec_receivers[&SID.into()]
+                .dynacast_commit
+                .snapshot
+                .is_empty()
+        );
+        assert_eq!(
+            engine.poll_timeout(),
+            Some(now + Duration::from_millis(1100))
+        );
+        for track in &tracks {
+            let up = engine.ups.get(track.0).unwrap();
+            assert_eq!(up.max_expected_spatial(), 2);
+            assert!(up.dynacast.as_ref().unwrap().committed_message().is_none());
+            assert_eq!(engine.downs.get(track.1).unwrap().max_spatial, 0);
+        }
+        engine.dynacast_timers(now + Duration::from_millis(1099));
+        assert!(engine.events.is_empty());
+        engine.dynacast_timers(now + Duration::from_millis(1100));
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        assert_eq!(events, vec![expected(&vec![0; count])]);
+        assert_eq!(
+            engine.poll_timeout(),
+            Some(now + Duration::from_millis(10200))
+        );
+        engine.dynacast_timers(now + Duration::from_millis(10200));
+        assert!(engine.events.is_empty());
+    }
+}
+
+#[test]
+fn dynacast_resend_pending_does_not_commit_or_extend_timer() {
+    let now = Instant::now();
+    for count in [1, 2, 3] {
+        let (mut engine, tracks) = fixture_with_demand(count, Duration::from_secs(1), now, false);
+        for track in &tracks {
+            demand(&mut engine, *track, 1, now);
+        }
+        engine.events.clear();
+        for track in &tracks {
+            demand(&mut engine, *track, 0, now + Duration::from_millis(100));
+        }
+        for _ in 0..2 {
+            engine.resend_publisher_dynacast(&"PA_notify".into());
+            assert_eq!(
+                engine.poll_timeout(),
+                Some(now + Duration::from_millis(1100))
+            );
+            for track in &tracks {
+                assert_eq!(engine.ups.get(track.0).unwrap().max_expected_spatial(), 1);
+                assert_eq!(engine.downs.get(track.1).unwrap().max_spatial, 0);
+            }
+        }
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        assert_eq!(
+            events,
+            vec![expected(&vec![1; count]), expected(&vec![1; count])]
+        );
+        engine.dynacast_timers(now + Duration::from_millis(1099));
+        assert!(engine.events.is_empty());
+        engine.dynacast_timers(now + Duration::from_millis(1100));
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        assert_eq!(events, vec![expected(&vec![0; count])]);
+    }
+}
+
+#[test]
+fn dynacast_resend_high_or_empty_has_no_receiver_or_event_side_effects() {
+    let now = Instant::now();
+    for initialized in [false, true] {
+        let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+        if initialized {
+            for track in &tracks {
+                demand(&mut engine, *track, 2, now);
+            }
+        }
+        engine.events.clear();
+        for track in &tracks {
+            engine
+                .ups
+                .get_mut(track.0)
+                .unwrap()
+                .set_max_expected_spatial(0);
+        }
+        for _ in 0..2 {
+            engine.resend_publisher_dynacast(&"PA_notify".into());
+        }
+        assert!(engine.events.is_empty());
+        assert_eq!(engine.poll_timeout(), Some(now + Duration::from_secs(10)));
+        for track in &tracks {
+            assert_eq!(engine.ups.get(track.0).unwrap().max_expected_spatial(), 0);
+        }
+    }
+}
+
+#[test]
+fn dynacast_resend_ignores_synthetic_backup_off_until_it_is_committed() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+    demand(&mut engine, tracks[0], 2, now);
+    assert!(
+        engine
+            .ups
+            .get(tracks[1].0)
+            .unwrap()
+            .dynacast
+            .as_ref()
+            .unwrap()
+            .committed_message()
+            .is_none()
+    );
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[2, 3])]);
+    engine
+        .ups
+        .get_mut(tracks[1].0)
+        .unwrap()
+        .set_max_expected_spatial(2);
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    assert!(engine.events.is_empty());
+    assert_eq!(
+        engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
+        2
+    );
+    demand(&mut engine, tracks[1], 3, now + Duration::from_millis(100));
+    engine.events.clear();
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[2, 3])]);
+    assert_eq!(
+        engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
+        -1
+    );
+}
+
+#[test]
+fn dynacast_restart_preserves_already_queued_snapshots() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+    demand(&mut engine, tracks[0], 0, now);
+    demand(&mut engine, tracks[1], 2, now);
+    engine.events.clear();
+    demand(&mut engine, tracks[0], 1, now);
+    engine.restart_publisher_dynacast(&"PA_notify".into(), now + Duration::from_millis(100));
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    demand(&mut engine, tracks[0], 0, now + Duration::from_millis(200));
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[1, 2]), expected(&[0, 2])]);
+}
+
+#[test]
+fn dynacast_resend_uses_full_committed_payload_not_backup_fallback() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+    demand(&mut engine, tracks[0], 0, now);
+    demand(&mut engine, tracks[1], 2, now);
+    engine.events.clear();
+    // Backup demand is no longer available, so recomputation would invent OFF.
+    engine.ups.remove(tracks[1].0);
+    let recomputed = engine.codec_quality_snapshot(&SID.into()).unwrap();
+    assert!(
+        recomputed[1]
+            .qualities
+            .iter()
+            .all(|quality| !quality.enabled)
+    );
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[0, 2])]);
+}
+
+#[test]
+fn dynacast_resend_muted_still_fans_out_receiver_layers() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+    demand(&mut engine, tracks[0], 0, now);
+    demand(&mut engine, tracks[1], 1, now);
+    engine.events.clear();
+    engine.set_publisher_muted(&SID.into(), true, now);
+    for track in &tracks {
+        engine
+            .ups
+            .get_mut(track.0)
+            .unwrap()
+            .set_max_expected_spatial(2);
+    }
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    assert!(engine.events.is_empty());
+    for (track, expected) in tracks.iter().zip([0, 1]) {
+        assert_eq!(
+            engine.ups.get(track.0).unwrap().max_expected_spatial(),
+            expected
+        );
+    }
+    assert_eq!(engine.poll_timeout(), Some(now + Duration::from_secs(10)));
+    engine.set_publisher_muted(&SID.into(), false, now);
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[0, 1])]);
+}
+
+// Add an independent logical publication without any transport or network IO.
+fn add_lifecycle_publication(
+    engine: &mut MediaEngine,
+    sid: &str,
+    publisher: &str,
+    now: Instant,
+) -> (usize, usize) {
+    let (mut source, tracks) = fixture_with_demand(1, Duration::from_secs(1), now, false);
+    let mut up = source.ups.remove(tracks[0].0).unwrap();
+    let mut down = source.downs.remove(tracks[0].1).unwrap();
+    up.sid = sid.into();
+    up.spec.sid = sid.into();
+    up.publisher = publisher.into();
+    up.subscribers.clear();
+    engine.published.insert(sid.into(), up.spec.clone());
+    let ui = engine.ups.insert(up);
+    down.up = ui;
+    down.spec.track_sid = sid.into();
+    down.spec.publisher = publisher.into();
+    let di = engine.downs.insert(down);
+    engine.ups.get_mut(ui).unwrap().subscribers.push(di);
+    engine.up_by_sid.insert(sid.into(), ui);
+    engine
+        .codec_receivers
+        .entry(sid.into())
+        .or_default()
+        .bind("video/vp8", ui);
+    (ui, di)
+}
+
+#[test]
+fn dynacast_lifecycle_isolates_mixed_publishers_and_checks_receiver_ownership() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+    for track in &tracks {
+        demand(&mut engine, *track, 0, now);
+    }
+    let foreign = add_lifecycle_publication(&mut engine, "TR_foreign", "PA_foreign", now);
+    demand(&mut engine, foreign, 1, now);
+    engine.events.clear();
+    // Even a stale/wrong group entry must not fan out to another publication.
+    engine
+        .codec_receivers
+        .get_mut(&SID.into())
+        .unwrap()
+        .bind("video/h264", foreign.0);
+    engine.resend_publisher_dynacast(&"PA_missing".into());
+    engine.restart_publisher_dynacast(&"PA_missing".into(), now);
+    assert!(engine.events.is_empty());
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[0, 0])]);
+    engine.restart_publisher_dynacast(&"PA_notify".into(), now + Duration::from_millis(100));
+    for track in &tracks {
+        assert_eq!(engine.ups.get(track.0).unwrap().max_expected_spatial(), 2);
+        assert!(
+            engine
+                .ups
+                .get(track.0)
+                .unwrap()
+                .dynacast
+                .as_ref()
+                .unwrap()
+                .committed_message()
+                .is_none()
+        );
+    }
+    let foreign_up = engine.ups.get(foreign.0).unwrap();
+    assert_eq!(foreign_up.max_expected_spatial(), 1);
+    assert_eq!(
+        foreign_up.dynacast.as_ref().unwrap().next_deadline(),
+        Some(now + Duration::from_secs(10))
+    );
+    assert_eq!(
+        engine.codec_receivers[&TrackSid::from("TR_foreign")]
+            .dynacast_commit
+            .snapshot[0]
+            .qualities
+            .iter()
+            .filter(|q| q.enabled)
+            .count(),
+        2
+    );
+    // A stale primary slot pointing at a different SID is not ownership proof.
+    engine.up_by_sid.insert(SID.into(), foreign.0);
+    engine.restart_publisher_dynacast(&"PA_foreign".into(), now + Duration::from_millis(200));
+    for track in &tracks {
+        assert_eq!(
+            engine
+                .ups
+                .get(track.0)
+                .unwrap()
+                .dynacast
+                .as_ref()
+                .unwrap()
+                .next_deadline(),
+            Some(now + Duration::from_millis(10100))
+        );
+    }
+}
+
+#[test]
+fn dynacast_unpublish_and_reuse_cannot_replay_cached_quality() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture_with_demand(1, Duration::from_secs(1), now, false);
+    demand(&mut engine, tracks[0], 0, now);
+    engine.events.clear();
+    engine.unpublish(&SID.into(), now);
+    assert!(!engine.codec_receivers.contains_key(&SID.into()));
+    for event in engine.events.drain(..) {
+        assert!(matches!(event, MediaEvent::SubscriptionRemoved { .. }));
+    }
+    engine.restart_publisher_dynacast(&"PA_notify".into(), now);
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    assert_eq!(engine.poll_timeout(), None);
+    assert!(engine.events.is_empty());
+    let replacement = add_lifecycle_publication(&mut engine, SID, "PA_notify", now);
+    assert_eq!(replacement.0, tracks[0].0, "exercise reused receiver slot");
+    assert!(
+        engine.codec_receivers[&SID.into()]
+            .dynacast_commit
+            .snapshot
+            .is_empty()
+    );
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    assert!(engine.events.is_empty());
+    demand(&mut engine, replacement, 2, now);
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[2])]);
+    engine.resend_publisher_dynacast(&"PA_notify".into());
+    assert!(engine.events.is_empty());
+}
+
+#[test]
+fn dynacast_lifecycle_media_commands_dispatch_restart_and_resend() {
+    use rtc_core::media_api::MediaCommand;
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+    demand(&mut engine, tracks[0], 0, now);
+    demand(&mut engine, tracks[1], 2, now);
+    engine.events.clear();
+    engine.handle_command(
+        MediaCommand::ResendSubscribedQualities {
+            participant: "PA_notify".into(),
+        },
+        now,
+    );
+    engine.handle_command(
+        MediaCommand::RestartPublishedTracks {
+            participant: "PA_notify".into(),
+        },
+        now + Duration::from_millis(100),
+    );
+    engine.handle_command(
+        MediaCommand::ResendSubscribedQualities {
+            participant: "PA_notify".into(),
+        },
+        now + Duration::from_millis(200),
+    );
+    assert_eq!(
+        engine.poll_timeout(),
+        Some(now + Duration::from_millis(10100))
+    );
+    for track in &tracks {
+        assert_eq!(engine.ups.get(track.0).unwrap().max_expected_spatial(), 2);
+    }
+    demand(&mut engine, tracks[0], 0, now + Duration::from_millis(300));
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[0, 2]), expected(&[0, 2])]);
+}
+
+#[test]
+fn dynacast_ice_restart_command_restarts_publications_except_one_shot() {
+    use rtc_core::media_api::MediaCommand;
+    let now = Instant::now();
+    for role in [PcRole::Publisher, PcRole::Subscriber, PcRole::Single] {
+        for one_shot in [false, true] {
+            let (mut engine, tracks) = fixture_with_demand(2, Duration::from_secs(1), now, false);
+            demand(&mut engine, tracks[0], 0, now);
+            demand(&mut engine, tracks[1], 2, now);
+            let tid = TransportId::next();
+            let mut spec = transport_spec(tid, role);
+            spec.participant = "PA_notify".into();
+            spec.one_shot = one_shot;
+            engine.create_transport(spec, IceCredentials::random(), vec![], now);
+            engine.events.clear();
+            engine.handle_command(
+                MediaCommand::IceRestart { transport: tid },
+                now + Duration::from_millis(100),
+            );
+            // Subscriber negotiation may emit SDP; it must not emit quality yet.
+            for event in engine.events.drain(..) {
+                match event {
+                    MediaEvent::LocalDescription {
+                        transport, kind, ..
+                    } => {
+                        assert_eq!(transport, tid);
+                        assert_eq!(role, PcRole::Subscriber);
+                        assert_eq!(kind, SdpType::Offer);
+                    }
+                    other => panic!("unexpected restart event {other:?}"),
+                }
+            }
+            assert_eq!(
+                engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+                if one_shot { 0 } else { 2 }
+            );
+            let dynacast = engine
+                .ups
+                .get(tracks[0].0)
+                .unwrap()
+                .dynacast
+                .as_ref()
+                .unwrap();
+            assert_eq!(dynacast.committed_message().is_some(), one_shot);
+            assert_eq!(
+                dynacast.next_deadline(),
+                Some(now + Duration::from_millis(if one_shot { 10000 } else { 10100 }))
+            );
+            demand(&mut engine, tracks[0], 0, now + Duration::from_millis(200));
+            let mut events = Vec::new();
+            drain(&mut engine, &mut events);
+            assert_eq!(
+                events,
+                if one_shot {
+                    vec![]
+                } else {
+                    vec![expected(&[0, 2])]
+                }
+            );
+        }
+    }
+}
+
 #[test]
 #[ignore = "requires C58_GO_JSONL and fresh C58_RUST_JSONL"]
 fn fixed_go_publisher_mute_differential() {
