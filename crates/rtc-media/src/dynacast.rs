@@ -180,12 +180,15 @@ mod tests {
         }
 
         fn tick(&mut self, now: Instant) -> Option<Vec<SubscribedCodec>> {
-            if self.codec.take_initial_update(now)
-                || self.shared.deadline.is_some_and(|at| at <= now)
-            {
-                self.update(true, now)
+            let initial = if self.codec.take_initial_update(now) {
+                self.update(false, now)
             } else {
                 None
+            };
+            if self.shared.deadline.is_some_and(|at| at <= now) {
+                self.update(true, now)
+            } else {
+                initial
             }
         }
     }
@@ -218,10 +221,7 @@ mod tests {
             enabled(&d.demand(Medium, now + Duration::from_secs(7)).unwrap()),
             vec![true, true, false]
         );
-        assert_eq!(
-            enabled(&d.tick(now + INITIAL_UPDATE_WAIT).unwrap()),
-            vec![true, true, false]
-        );
+        assert!(d.tick(now + INITIAL_UPDATE_WAIT).is_none());
         assert!(d.codec.next_deadline().is_none() && d.shared.deadline.is_none());
     }
 

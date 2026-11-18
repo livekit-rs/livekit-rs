@@ -1089,7 +1089,7 @@ impl MediaEngine {
                 .unwrap()
                 .take_initial_update(now)
             {
-                self.commit_dynacast(ui, true, now);
+                self.commit_dynacast(ui, false, now);
             }
         }
         let due = self

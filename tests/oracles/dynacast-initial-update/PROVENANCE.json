@@ -1,0 +1,31 @@
+{
+  "kind": "C57-fixed-original-Go-initial-quality-update-oracle",
+  "reference_head": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "copied_from": "tests/oracles/dynacast-shared-debounce/{prepare.py,run.py,main_test.go,validate.py,project-codecs.py,PROVENANCE.json}; those originals are not edited",
+  "scope": "Initial 10-second quality callbacks only; original public AddCodec and NotifySubscriberMaxQuality, original timers/queue, testing/synctest. No mute/restart, source mutation, Rust/docs edits or integration execution.",
+  "source_boundary": "Quality timer calls updateQualityChange(true) at dynacastqualityvideo.go:235-238; listener at :223 calls manager OnUpdateMaxQualityForMime, which calls update(false) at dynacastmanagervideo.go:145-155. Pending manager deadline calls update(true) at :204-206.",
+  "staging": "Offline APFS clones of clean pinned source checkouts and module-cache entries; every tracked source byte checked against git archive. Only a separate observer module gets absolute local replacements. All writable Go caches and outputs are task-owned /tmp/c57-go-*.",
+  "expected_counts": {"rows": 14, "checkpoints": 140, "events": 10},
+  "checkpoints_ms": [0, 8000, 9000, 9500, 9999, 10000, 10001, 11499, 11500, 12000],
+  "normalization": "Only codec map order in raw callback capture. Separate projection pins participant.go:2935-2938 SHA256 and converts video/VP8,video/VP9 to vp8,vp9; it does not execute ParticipantImpl or Rust.",
+  "timeouts": "600 seconds real time per subprocess; Go test/observer watchdog 60 seconds per invocation. 12000ms per row is virtual synctest time, not wall-clock sleep.",
+  "run": "/usr/bin/python3 -B tests/oracles/dynacast-initial-update/run.py",
+  "outcome": "Recorded only in task work provenance.json after actual execution; these are requested expectations, not a claimed pass.",
+  "source_sha256": {
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/rtc/dynacast/dynacastmanagervideo.go": "7aa14918d8fefdd4df849121245c0650bdddef20f92270b98e684fe52f223dfe",
+    "references/livekit-stable/pkg/rtc/dynacast/dynacastmanagerbase.go": "774465e5d72537988d62abfbce12f64e7da06efb9d89ece34909586a9a90b185",
+    "references/livekit-stable/pkg/rtc/dynacast/dynacastqualityvideo.go": "c6f7adc262ccdc910991aac11b540e6bfd1451067bae49276f378173cf511d6e",
+    "references/livekit-stable/pkg/rtc/dynacast/interfaces.go": "a68212f531503624700b6f36318bdc395b31e2ed473eef84e95403644e1c1504",
+    "references/livekit-stable/pkg/utils/opsqueue.go": "d39059fb6cf851d6dd48187510fea07f6abe989f9a154207eb18749d03adcdb5",
+    "references/livekit-stable/pkg/rtc/types/interfaces.go": "8c3965981ec38dbb022c2b50ce3fdf5111483227f465c5247617e19a49f82f0a",
+    "references/protocol-stable/codecs/mime/mimetype.go": "0d442ae3d3ff4b6ae1c15abeef396f0b7fe143dc40b4afca692b8a6d71d3bce1",
+    "references/protocol-stable/livekit/livekit_models.pb.go": "a4bd26f05210610648916657c2c4079e6492a921f3ae14c4e8da2aeb10bf0b99",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "references/psrpc/go.mod": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0",
+    "references/psrpc/go.sum": "e73e69f3f68df7c646ddbb4c66feb2ca5bbce2c7afd9d615039a862ac30ec173"
+  }
+}

@@ -35,6 +35,15 @@ struct Trace {
 }
 
 fn fixture(count: usize, delay: Duration, now: Instant) -> (MediaEngine, Vec<(usize, usize)>) {
+    fixture_with_demand(count, delay, now, true)
+}
+
+fn fixture_with_demand(
+    count: usize,
+    delay: Duration,
+    now: Instant,
+    initialize: bool,
+) -> (MediaEngine, Vec<(usize, usize)>) {
     let mut engine = engine(now);
     let sid = TrackSid::from(SID);
     let spec = PublishedTrackSpec {
@@ -97,7 +106,9 @@ fn fixture(count: usize, delay: Duration, now: Instant) -> (MediaEngine, Vec<(us
         down.max_spatial = -1;
         let di = engine.downs.insert(down);
         engine.ups.get_mut(ui).unwrap().subscribers.push(di);
-        engine.update_dynacast(ui, now);
+        if initialize {
+            engine.update_dynacast(ui, now);
+        }
         tracks.push((ui, di));
     }
     engine.events.clear();
@@ -580,6 +591,194 @@ fn shared_debounce_first_codec_demand_flushes_pending_peer() {
     assert_eq!(engine.ups.get(ui).unwrap().max_expected_spatial(), -1);
     engine.dynacast_timers(now + Duration::from_secs(1));
     assert!(engine.events.is_empty());
+}
+
+#[test]
+fn initial_update_preserves_receiver_layer_and_unmute_force() {
+    let now = Instant::now();
+    let (mut engine, tracks) = fixture(2, Duration::from_secs(2), now);
+    for track in &tracks {
+        demand(&mut engine, *track, 2, now);
+    }
+    engine.events.clear();
+    engine.set_publisher_muted(&SID.into(), true, now + Duration::from_millis(9400));
+    demand(&mut engine, tracks[0], 0, now + Duration::from_millis(9500));
+    engine.dynacast_timers(now + Duration::from_secs(10));
+    assert!(engine.events.is_empty());
+    assert_eq!(
+        engine.poll_timeout(),
+        Some(now + Duration::from_millis(11500))
+    );
+    assert_eq!(
+        engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+        2
+    );
+    let committed = engine
+        .ups
+        .get(tracks[0].0)
+        .unwrap()
+        .dynacast
+        .as_ref()
+        .unwrap()
+        .committed_message()
+        .unwrap();
+    assert!(committed[0].qualities.iter().all(|q| q.enabled));
+    engine.set_publisher_muted(&SID.into(), false, now + Duration::from_millis(10500));
+    assert_eq!(
+        engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
+        0
+    );
+    assert!(
+        engine.codec_receivers[&SID.into()]
+            .dynacast_commit
+            .deadline
+            .is_none()
+    );
+    let mut events = Vec::new();
+    drain(&mut engine, &mut events);
+    assert_eq!(events, vec![expected(&[0, 2]), expected(&[0, 2])]);
+    engine.dynacast_timers(now + Duration::from_millis(11500));
+    assert!(engine.events.is_empty());
+}
+
+fn initial_trace(scenario: &str, count: usize) -> TimedTrace {
+    let now = Instant::now();
+    let pause_ms = if scenario == "zero-delay" { 0 } else { 2000 };
+    let (mut engine, tracks) =
+        fixture_with_demand(count, Duration::from_millis(pause_ms), now, false);
+    for (index, track) in tracks.iter().enumerate() {
+        if scenario == "no-demand" || (scenario == "new-codec-initial" && index == 1) {
+            continue;
+        }
+        demand(
+            &mut engine,
+            *track,
+            if scenario == "settled-low" { 0 } else { 2 },
+            now,
+        );
+    }
+    engine.events.clear();
+    let mut observations = Vec::new();
+    for at_ms in [0, 8000, 9000, 9500, 9999, 10000, 10001, 11499, 11500, 12000] {
+        let at = now + Duration::from_millis(at_ms);
+        engine.dynacast_timers(at);
+        let quality = match (scenario, at_ms) {
+            ("pending-codue" | "equal-codue", 8000) => Some(0),
+            ("equal-codue", 9000) => Some(2),
+            ("pending-late" | "new-codec-initial" | "zero-delay", 9500) => Some(0),
+            _ => None,
+        };
+        if let Some(quality) = quality {
+            demand(&mut engine, tracks[0], quality, at);
+        }
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        observations.push(TimedObservation { at_ms, events });
+    }
+    TimedTrace {
+        scenario: scenario.into(),
+        codec_count: count,
+        pause_ms,
+        observations,
+    }
+}
+
+fn assert_initial_trace(scenario: &str, count: usize) {
+    for observation in initial_trace(scenario, count).observations {
+        let state = match (scenario, observation.at_ms) {
+            ("pending-late", 11500) | ("pending-codue", 10000) | ("zero-delay", 9500) => {
+                Some(vec![0, 2][..count].to_vec())
+            }
+            ("equal-codue", 10000) => Some(vec![2; count]),
+            ("no-demand", 10000) => Some(vec![3]),
+            ("new-codec-initial", 10000) => Some(vec![0, 3]),
+            _ => None,
+        };
+        assert_eq!(
+            observation.events,
+            state.map(|s| vec![expected(&s)]).unwrap_or_default(),
+            "scenario={scenario} codecs={count} at_ms={}",
+            observation.at_ms
+        );
+    }
+}
+
+#[test]
+fn initial_update_suppresses_settled_demand() {
+    for scenario in ["settled-high", "settled-low"] {
+        for count in [1, 2] {
+            assert_initial_trace(scenario, count);
+        }
+    }
+}
+
+#[test]
+fn initial_update_does_not_shorten_pending_downgrade() {
+    for count in [1, 2] {
+        assert_initial_trace("pending-late", count);
+    }
+}
+
+#[test]
+fn initial_update_coincident_deadline_emits_once() {
+    for scenario in ["pending-codue", "equal-codue"] {
+        for count in [1, 2] {
+            assert_initial_trace(scenario, count);
+        }
+    }
+}
+
+#[test]
+fn initial_update_zero_delay_stays_silent() {
+    for count in [1, 2] {
+        assert_initial_trace("zero-delay", count);
+    }
+}
+
+#[test]
+fn initial_update_without_demand_emits_off() {
+    assert_initial_trace("no-demand", 1);
+}
+
+#[test]
+fn initial_update_new_codec_flushes_pending_peer() {
+    assert_initial_trace("new-codec-initial", 2);
+}
+
+#[test]
+#[ignore = "requires C57_GO_JSONL and fresh C57_RUST_JSONL"]
+fn fixed_go_initial_update_differential() {
+    use std::io::Write;
+    let mut actual: Vec<_> = [
+        "settled-high",
+        "settled-low",
+        "pending-late",
+        "pending-codue",
+        "equal-codue",
+        "zero-delay",
+    ]
+    .into_iter()
+    .flat_map(|scenario| [1, 2].map(move |count| initial_trace(scenario, count)))
+    .collect();
+    actual.push(initial_trace("no-demand", 1));
+    actual.push(initial_trace("new-codec-initial", 2));
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(std::env::var_os("C57_RUST_JSONL").expect("C57_RUST_JSONL"))
+        .unwrap();
+    for row in &actual {
+        writeln!(output, "{}", serde_json::to_string(row).unwrap()).unwrap();
+    }
+    output.sync_all().unwrap();
+    let input =
+        std::fs::read_to_string(std::env::var_os("C57_GO_JSONL").expect("C57_GO_JSONL")).unwrap();
+    let reference: Vec<TimedTrace> = input
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(reference.len(), 14);
+    assert_eq!(actual, reference);
 }
 
 #[test]
