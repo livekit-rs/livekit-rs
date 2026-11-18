@@ -494,3 +494,147 @@ mod open_quality_consumers {
         assert_eq!(presence(&[layer(-1)]), Some([false; 3]));
     }
 }
+
+/// Paired fixed-Go source differential for SIGNAL:VideoLayer.OpenQualityConsumers.
+/// Reads the ACTUAL original pkg/sfu/buffer consumer outcomes emitted by
+/// tests/oracles/video-quality-source (env VIDEO_QUALITY_GO_RESULTS) and compares
+/// every row against the Rust mirrors over the same 1056-case inventory. Source-level
+/// mapping evidence only: not real SRTP forwarding, not the assembled main server,
+/// not dynacast demand ordering, not the participant.go cloneLayers metadata-sort
+/// producer leg (those stay component M04 / main / genuine OPEN residuals).
+#[cfg(test)]
+mod video_quality_source_differential {
+    use super::*;
+
+    fn vi32(v: &serde_json::Value) -> i32 {
+        i32::try_from(v.as_i64().unwrap()).unwrap()
+    }
+    fn vu32(v: &serde_json::Value) -> u32 {
+        u32::try_from(v.as_i64().unwrap()).unwrap()
+    }
+    fn build_layers(case: &serde_json::Value) -> Vec<VideoLayer> {
+        case["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| VideoLayer {
+                quality: VideoQuality::from_i32(vi32(&l["quality"])),
+                spatial_layer: vi32(&l["spatial"]),
+                rid: l["rid"].as_str().unwrap().to_string(),
+                width: vu32(&l["width"]),
+                height: vu32(&l["height"]),
+                bitrate: vu32(&l["bitrate"]),
+                ssrc: vu32(&l["ssrc"]),
+                repair_ssrc: vu32(&l["repair_ssrc"]),
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "requires actual original buffer open-quality consumer matrix VIDEO_QUALITY_GO_RESULTS"]
+    fn open_quality_consumers_actual_source_matrix() {
+        let cases: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("video_quality_cases.json")).unwrap();
+        assert_eq!(cases.len(), 1056);
+        let text = std::fs::read_to_string(
+            std::env::var_os("VIDEO_QUALITY_GO_RESULTS").expect("actual original rows required"),
+        )
+        .unwrap();
+        let rows: Vec<serde_json::Value> = text
+            .lines()
+            .map(|x| serde_json::from_str(x).unwrap())
+            .collect();
+        assert_eq!(rows.len(), cases.len());
+        let mut seen = std::collections::BTreeSet::new();
+        for (case, row) in cases.iter().zip(rows) {
+            let id = case["id"].as_str().unwrap();
+            assert_eq!(
+                row.as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<std::collections::BTreeSet<_>>(),
+                [
+                    "id",
+                    "input",
+                    "presence",
+                    "quality_to_spatial",
+                    "get_spatial_for_quality",
+                    "spatial_to_quality",
+                    "spatial_to_rid",
+                    "quality_to_rid",
+                    "get_spatial_for_rid",
+                    "get_quality_for_spatial",
+                ]
+                .into_iter()
+                .collect()
+            );
+            assert_eq!(row["id"], case["id"]);
+            assert!(seen.insert(id.to_owned()));
+            assert_eq!(row["input"], case.clone(), "input echo {}", id);
+            let layers = build_layers(case);
+            let lp = presence(&layers);
+            let rs = case["rid_space"].as_array().unwrap();
+            let rid_space: [String; 3] = [
+                rs[0].as_str().unwrap().to_string(),
+                rs[1].as_str().unwrap().to_string(),
+                rs[2].as_str().unwrap().to_string(),
+            ];
+            let q = VideoQuality::from_i32(vi32(&case["query_quality"]));
+            let spatial = vi32(&case["query_spatial"]);
+            let rid = case["query_rid"].as_str().unwrap();
+            match lp {
+                None => assert!(row["presence"].is_null(), "presence {}", id),
+                Some(p) => {
+                    let a = row["presence"].as_array().unwrap();
+                    assert_eq!(a.len(), 3, "presence len {}", id);
+                    for i in 0..3 {
+                        assert_eq!(a[i].as_bool().unwrap(), p[i], "presence[{}] {}", i, id);
+                    }
+                }
+            }
+            assert_eq!(
+                vi32(&row["quality_to_spatial"]),
+                quality_to_spatial(lp, q),
+                "quality_to_spatial {}",
+                id
+            );
+            assert_eq!(
+                vi32(&row["get_spatial_for_quality"]),
+                spatial_for_quality(&layers, q),
+                "get_spatial_for_quality {}",
+                id
+            );
+            assert_eq!(
+                vi32(&row["spatial_to_quality"]),
+                spatial_to_quality(lp, spatial).as_i32(),
+                "spatial_to_quality {}",
+                id
+            );
+            assert_eq!(
+                row["spatial_to_rid"].as_str().unwrap(),
+                spatial_to_rid(lp, spatial, &rid_space),
+                "spatial_to_rid {}",
+                id
+            );
+            assert_eq!(
+                row["quality_to_rid"].as_str().unwrap(),
+                quality_to_rid(lp, q, &rid_space),
+                "quality_to_rid {}",
+                id
+            );
+            assert_eq!(
+                vi32(&row["get_spatial_for_rid"]),
+                spatial_for_rid(&layers, rid),
+                "get_spatial_for_rid {}",
+                id
+            );
+            assert_eq!(
+                vi32(&row["get_quality_for_spatial"]),
+                quality_for_spatial(&layers, spatial).as_i32(),
+                "get_quality_for_spatial {}",
+                id
+            );
+        }
+    }
+}

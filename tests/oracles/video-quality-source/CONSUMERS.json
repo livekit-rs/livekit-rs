@@ -1,0 +1,17 @@
+{
+  "status": "SOURCE_OBSERVER_PAIRED_DIFFERENTIAL",
+  "leaf": "SIGNAL:VideoLayer.OpenQualityConsumers [1109]",
+  "observed_consumers": [
+    {"go": "pkg/sfu/buffer/videolayerutils.go:LayerPresenceFromTrackInfo", "rust": "rtc-media/src/layers.rs:presence"},
+    {"go": "pkg/sfu/buffer/videolayerutils.go:VideoQualityToSpatialLayer", "rust": "rtc-media/src/layers.rs:quality_to_spatial"},
+    {"go": "pkg/sfu/buffer/videolayerutils.go:GetSpatialLayerForVideoQuality", "rust": "rtc-media/src/layers.rs:spatial_for_quality"},
+    {"go": "pkg/sfu/buffer/videolayerutils.go:SpatialLayerToVideoQuality", "rust": "rtc-media/src/layers.rs:spatial_to_quality"},
+    {"go": "pkg/sfu/buffer/videolayerutils.go:SpatialLayerToRid", "rust": "rtc-media/src/layers.rs:spatial_to_rid"},
+    {"go": "pkg/sfu/buffer/videolayerutils.go:VideoQualityToRid", "rust": "rtc-media/src/layers.rs:quality_to_rid"},
+    {"go": "pkg/sfu/buffer/videolayerutils.go:GetSpatialLayerForRid", "rust": "rtc-media/src/layers.rs:spatial_for_rid"},
+    {"go": "pkg/sfu/buffer/videolayerutils.go:GetVideoQualityForSpatialLayer", "rust": "rtc-media/src/layers.rs:quality_for_spatial"}
+  ],
+  "assessment": "Unknown/unrecognized requested quality (4, 77, -1, i32::MAX) and unknown published layer quality (77, OFF) never alias LOW or a known spatial layer: both sides return InvalidLayerSpatial / exclude from presence. Empty-layer single-track fallback returns spatial 0 on both sides. Exact signalled spatial/rid/quality matches take precedence over computed presence mapping on both sides (noncanon premise). All eight consumers agree field-by-field over 1056 cases.",
+  "scope_limit": "Source-level mapping evidence only. NOT real SRTP forwarding/keyframe resume (component M04), NOT assembled main server (main NOT_RUN), NOT genuine OPEN dynacast demand ordering. Non-nil codec-less TrackInfo only: nil-TrackInfo guards and GetVideoLayersForMimeType codec selection not exercised. participant.go cloneLayers/mediaTrackReceived numeric-sort producer leg not source-observed (component M04). NormalizeVideoLayersRid/rid_space_from_sdp and RidToSpatialLayer not observed; middle-gap rid normalization tail divergence recorded as an unattested residual for a future batch.",
+  "upstream_boundary": "Fixed Go LayerPresenceFromTrackInfo indexes layerPresence[layer.Quality] when Quality<=HIGH; a negative LAYER quality panics upstream. Observer layer qualities are non-negative; the Rust mirror safely excludes that value (spatial_index None), already covered by M04 component test. Requested query quality may be any int32 (switch default, never indexes)."
+}

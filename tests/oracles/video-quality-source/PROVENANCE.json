@@ -1,0 +1,21 @@
+{
+  "source_sha256": {
+    "references/livekit-stable/pkg/sfu/buffer/videolayerutils.go": "f1b96b6dda7c885d22a77d3f8ae91b5fc54f4624af28a5d0f508d9156ea14abf",
+    "references/livekit-stable/pkg/sfu/buffer/videolayer.go": "5d93c24f3e3d84676a4cc1655291ba06fbc097e6c00bd11ddb140bd02246e44f",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/livekit/livekit_models.pb.go": "a4bd26f05210610648916657c2c4079e6492a921f3ae14c4e8da2aeb10bf0b99",
+    "references/protocol-stable/codecs/mime/mimetype.go": "0d442ae3d3ff4b6ae1c15abeef396f0b7fe143dc40b4afca692b8a6d71d3bce1",
+    "references/psrpc/go.mod": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0",
+    "references/go-modules/mediatransportutil-f234b534b095/go.mod": "4d43ee74fb8e20460b1dc6fad7ad45d2882d8aa6b2da13592b42f6832a9effa4"
+  },
+  "assets_sha256": {
+    "cases.json": "160aa069249df1c4e1538704e47b132b57ba326398eb6e84c281281e30e5c2e0",
+    "gen_cases.py": "479f87415fa1046b9b6464fb4b076ada62fbf6318939fe54db79aa70cca2146c",
+    "oracle/main.go": "bc831c5864f687868f5da99a7a42743f81e1bd6be7a2478c2be689b50036803c",
+    "oracle/LICENSE-livekit": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "rust_cases_copy": "crates/rtc-media/src/video_quality_cases.json",
+  "rust_cases_copy_sha256": "160aa069249df1c4e1538704e47b132b57ba326398eb6e84c281281e30e5c2e0"
+}
