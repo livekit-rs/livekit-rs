@@ -825,10 +825,20 @@ impl PacketOut for RoutedPacketQueue {
 }
 
 fn answer_server_offer(engine: &mut MediaEngine, client: &mut Rtc, tid: TransportId, now: Instant) {
+    let _ = answer_server_offer_events(engine, client, tid, now);
+}
+
+// Preserve setup events for harnesses that assert the complete dynacast sequence.
+fn answer_server_offer_events(
+    engine: &mut MediaEngine,
+    client: &mut Rtc,
+    tid: TransportId,
+    now: Instant,
+) -> Vec<MediaEvent> {
     let mut events = vec![];
     engine.drain_events(&mut events);
     let (sdp, id) = events
-        .into_iter()
+        .iter()
         .find_map(|e| match e {
             MediaEvent::LocalDescription {
                 transport,
@@ -836,16 +846,17 @@ fn answer_server_offer(engine: &mut MediaEngine, client: &mut Rtc, tid: Transpor
                 sdp,
                 id,
                 ..
-            } if transport == tid => Some((sdp, id)),
+            } if *transport == tid => Some((sdp, *id)),
             _ => None,
         })
         .expect("subscriber transport emits a serialized server offer");
     let answer = client
         .sdp_api()
-        .accept_offer(str0m::change::SdpOffer::from_sdp_string(&sdp).unwrap())
+        .accept_offer(str0m::change::SdpOffer::from_sdp_string(sdp).unwrap())
         .unwrap();
     engine.on_remote_description(tid, SdpType::Answer, answer.to_sdp_string(), id, now);
     engine.run(now);
+    events
 }
 
 #[test]
@@ -5662,15 +5673,29 @@ fn red_sender_disables_opus_nack_stickily_for_single_and_dual_pc_only() {
 /// known HIGH must still wait for that RID's real VP8 keyframe.
 #[test]
 fn open_quality_settings_reach_three_layer_srtp_forwarding_and_keyframe_resume() {
-    three_layer_srtp_quality_and_padding(false);
+    three_layer_srtp_quality_and_padding(false, false, false);
 }
 
 #[test]
 fn node_padding_telemetry_matches_real_remote_feedback_rtx_srtp_output() {
-    three_layer_srtp_quality_and_padding(true);
+    three_layer_srtp_quality_and_padding(true, false, false);
 }
 
-fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
+#[test]
+fn reference_layer_dynacast_waits_for_real_sender_report_over_three_layer_srtp() {
+    three_layer_srtp_quality_and_padding(false, true, false);
+}
+
+#[test]
+fn authenticated_source_restart_clears_reference_reports_before_new_layer_forwarding() {
+    three_layer_srtp_quality_and_padding(false, true, true);
+}
+
+fn three_layer_srtp_quality_and_padding(
+    independent_padding: bool,
+    reference_sr: bool,
+    source_restart: bool,
+) {
     use crate::net::Datagram;
     use rtc_core::media_api::{DownTrackSpec, MediaCommand, PublishedTrackSpec};
     use rtc_core::model::{TrackKind, TrackSettings, TrackSource, VideoLayer, VideoQuality};
@@ -5680,6 +5705,10 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
     let start = Instant::now();
     let mut engine = engine(start);
     engine.cfg.rtc.congestion_control.enabled = independent_padding;
+    engine.cfg.rtc.enable_rtp_stream_restart_detection = source_restart;
+    if reference_sr {
+        engine.cfg.video.dynacast_pause_delay = Duration::ZERO;
+    }
     if independent_padding {
         // Real remote feedback / Pion interceptor mode owns explicit padding;
         // native GCC is intentionally a different producer, not switched off at runtime.
@@ -5758,25 +5787,25 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
         .enable_raw_packets(true)
         .build(start);
     publisher.add_local_candidate(Candidate::host(pub_addr, "udp").unwrap());
-    let tx_mid = published_mid(&offer(
-        &mut engine,
-        &mut publisher,
-        pub_tid,
-        start,
-        |change| {
-            let mut simulcast = Simulcast::new();
-            for rid in ["q", "h", "f"] {
-                simulcast.add_send_layer(SimulcastLayer::new(rid));
-            }
-            change.add_media(
-                MediaKind::Video,
-                Direction::SendOnly,
-                None,
-                Some("open-quality".into()),
-                Some(simulcast),
-            );
-        },
-    ));
+    let publish_events = offer(&mut engine, &mut publisher, pub_tid, start, |change| {
+        let mut simulcast = Simulcast::new();
+        for rid in ["q", "h", "f"] {
+            simulcast.add_send_layer(SimulcastLayer::new(rid));
+        }
+        change.add_media(
+            MediaKind::Video,
+            Direction::SendOnly,
+            None,
+            Some("open-quality".into()),
+            Some(simulcast),
+        );
+    });
+    let tx_mid = published_mid(&publish_events);
+    let mut reference_events = if reference_sr {
+        publish_events
+    } else {
+        Vec::new()
+    };
     engine.bind_track(pub_tid, &tx_mid.to_string(), sid.clone(), start);
     let sub_tid = TransportId::next();
     engine.create_transport(
@@ -5809,7 +5838,16 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
         .enable_raw_packets(true)
         .build(start);
     subscriber.add_local_candidate(Candidate::host(sub_addr, "udp").unwrap());
-    answer_server_offer(&mut engine, &mut subscriber, sub_tid, start);
+    if reference_sr {
+        reference_events.extend(answer_server_offer_events(
+            &mut engine,
+            &mut subscriber,
+            sub_tid,
+            start,
+        ));
+    } else {
+        answer_server_offer(&mut engine, &mut subscriber, sub_tid, start);
+    }
     engine.handle_command(
         MediaCommand::Subscribe(DownTrackSpec {
             subscriber: "PA_test".into(),
@@ -5823,8 +5861,21 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
     );
     let negotiated = start + Duration::from_millis(160);
     engine.handle_timeout(negotiated);
-    answer_server_offer(&mut engine, &mut subscriber, sub_tid, negotiated);
+    if reference_sr {
+        reference_events.extend(answer_server_offer_events(
+            &mut engine,
+            &mut subscriber,
+            sub_tid,
+            negotiated,
+        ));
+    } else {
+        answer_server_offer(&mut engine, &mut subscriber, sub_tid, negotiated);
+    }
     let di = engine.down_by_key[&("PA_test".into(), sid.clone())];
+    let mut quality_events = Vec::new();
+    let mut dropped_srtcp = 0usize;
+    let mut delivered_srtcp = 0usize;
+    let mut first_reference_report = None;
     let mut counts = [0usize; 4];
     let mut received_before_high_keyframe = 0usize;
     let mut wire_padding = (0u64, 0u64);
@@ -5842,7 +5893,8 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
         if let Some(quality) = match tick {
             2000 => Some(VideoQuality::from_i32(77)),
             3000 => Some(VideoQuality::Low),
-            4000 => Some(VideoQuality::High),
+            4000 if !reference_sr => Some(VideoQuality::High),
+            4700 if reference_sr => Some(VideoQuality::from_i32(77)),
             _ => None,
         } {
             engine.handle_command(
@@ -5883,6 +5935,10 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
         }
         if publisher.is_connected() && tick.is_multiple_of(30) {
             for (index, rid) in ["q", "h", "f"].iter().enumerate() {
+                // Establish HIGH from real media before introducing lower encodings.
+                if reference_sr && tick < 900 && index != 2 {
+                    continue;
+                }
                 let writer = publisher.writer(tx_mid).unwrap().rid((*rid).into());
                 let pt = writer
                     .payload_params()
@@ -5912,6 +5968,19 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
             loop {
                 match peer.poll_output().unwrap() {
                     Output::Transmit(p) => {
+                        // SRTCP leaves its version/type header unencrypted.
+                        if reference_sr
+                            && !receiving
+                            && p.contents.len() >= 2
+                            && p.contents[0] >> 6 == 2
+                            && (192..=223).contains(&p.contents[1])
+                        {
+                            if tick < 3500 {
+                                dropped_srtcp += 1;
+                                continue;
+                            }
+                            delivered_srtcp += 1;
+                        }
                         if independent_padding
                             && !receiving
                             && tick >= 750
@@ -5964,6 +6033,22 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
                     }
                     Output::Event(Event::MediaData(data)) if receiving => {
                         let layer = *data.data.last().unwrap();
+                        if reference_sr {
+                            match tick {
+                                1000..1900 => {
+                                    assert_eq!(layer, 2);
+                                    counts[0] += 1;
+                                }
+                                2250..3000 => counts[1] += 1,
+                                3300..4700 => {
+                                    assert_eq!(layer, 0);
+                                    counts[2] += 1;
+                                }
+                                5000..6500 => counts[3] += 1,
+                                _ => {}
+                            }
+                            continue;
+                        }
                         if (1000..1900).contains(&tick) {
                             assert_eq!(layer, 2);
                             counts[0] += 1;
@@ -5989,7 +6074,24 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
             }
         }
         engine.handle_timeout(now);
-        engine.drain_events(&mut Vec::new());
+        if reference_sr {
+            engine.drain_events(&mut reference_events);
+            for event in reference_events.drain(..) {
+                if let MediaEvent::SubscribedQuality {
+                    publisher,
+                    track_sid,
+                    codecs,
+                } = event
+                {
+                    assert_eq!(publisher, ParticipantSid::from("PA_test"));
+                    assert_eq!(track_sid, sid);
+                    println!("reference_sr tick={tick} SubscribedQuality={codecs:?}");
+                    quality_events.push((tick, codecs));
+                }
+            }
+        } else {
+            engine.drain_events(&mut Vec::new());
+        }
         for (destination, bytes) in packets.0.lock().unwrap().drain(..) {
             if independent_padding
                 && destination == sub_addr
@@ -6034,11 +6136,298 @@ fn three_layer_srtp_quality_and_padding(independent_padding: bool) {
             assert_eq!(engine.downs.get(di).unwrap().max_spatial, -1);
             assert_eq!(engine.downs.get(di).unwrap().settings.quality.as_i32(), 77);
         }
+        if reference_sr {
+            let down = engine.downs.get(di).unwrap();
+            let (reference, reports) = down.reference_state();
+            if tick < 3500 {
+                assert_eq!(
+                    reports, [false; 3],
+                    "tick={tick}: elapsed time and real RTP must not fabricate sender reports"
+                );
+            }
+            if tick >= 1800 {
+                assert_eq!(reference, Some(2), "reference survives OFF/LOW at {tick}");
+            }
+            if reports[2] && first_reference_report.is_none() {
+                println!(
+                    "reference_sr first real reference SR tick={tick} reference={reference:?} reports={reports:?} droppedSRTCP={dropped_srtcp} deliveredSRTCP={delivered_srtcp}"
+                );
+                assert!(tick >= 3500 && delivered_srtcp > 0);
+                first_reference_report = Some(tick);
+            }
+            if [1800, 2250, 3300, 4600, 5000].contains(&tick) {
+                let committed = engine
+                    .ups
+                    .get(down.up)
+                    .unwrap()
+                    .dynacast
+                    .as_ref()
+                    .unwrap()
+                    .committed_message()
+                    .unwrap();
+                println!(
+                    "reference_sr tick={tick} reference={reference:?} reports={reports:?} current={} max={} demand={} committed={committed:?} droppedSRTCP={dropped_srtcp} deliveredSRTCP={delivered_srtcp} media={counts:?}",
+                    down.current,
+                    down.max_spatial,
+                    down.demand_spatial()
+                );
+                let expected = match tick {
+                    1800 => (2, 2, 2),
+                    2250 => (-1, -1, 2),
+                    3300 => (0, 0, 2),
+                    4600 => (0, 0, 0),
+                    5000 => (-1, -1, -1),
+                    _ => unreachable!(),
+                };
+                if tick >= 4600 {
+                    assert!(
+                        reports[2],
+                        "real reference SR must arrive by 4600ms after SRTCP resumes at 3500ms"
+                    );
+                } else {
+                    assert_eq!(reports, [false; 3]);
+                }
+                assert_eq!(
+                    (down.current, down.max_spatial, down.demand_spatial()),
+                    expected
+                );
+                assert_eq!(
+                    committed,
+                    crate::dynacast::message(
+                        "vp8",
+                        if tick == 5000 {
+                            VideoQuality::Off
+                        } else {
+                            VideoQuality::High
+                        }
+                    ),
+                    "SR alone must not recompute committed dynacast demand"
+                );
+                let mut expected_events = vec![
+                    crate::dynacast::message("vp8", VideoQuality::Off),
+                    crate::dynacast::message("vp8", VideoQuality::High),
+                ];
+                if tick == 5000 {
+                    expected_events.push(crate::dynacast::message("vp8", VideoQuality::Off));
+                }
+                assert_eq!(
+                    quality_events
+                        .iter()
+                        .map(|(_, codecs)| codecs.clone())
+                        .collect::<Vec<_>>(),
+                    expected_events,
+                    "complete quality sequence includes pre-subscription OFF, without an SR-driven LOW"
+                );
+            }
+        }
     }
     assert!(
         publisher.is_connected() && subscriber.is_connected(),
         "same ICE/DTLS connections survive unsupported settings"
     );
+    if reference_sr {
+        println!(
+            "reference_sr final droppedSRTCP={dropped_srtcp} deliveredSRTCP={delivered_srtcp} firstReferenceSR={first_reference_report:?} quality_events={quality_events:?} media[HIGH,OFF,LOW,OFF]={counts:?} connected=({}, {}) reference={:?}",
+            publisher.is_connected(),
+            subscriber.is_connected(),
+            engine.downs.get(di).unwrap().reference_state()
+        );
+        assert!(engine.transports[&pub_tid].rtc.is_connected());
+        assert!(engine.transports[&sub_tid].rtc.is_connected());
+        assert!(dropped_srtcp > 0 && delivered_srtcp > 0);
+        assert!(first_reference_report.is_some_and(|tick| (3500..=4600).contains(&tick)));
+        assert!(
+            counts[0] > 10 && counts[2] > 10,
+            "real HIGH/LOW MediaData: {counts:?}"
+        );
+        assert_eq!(
+            (counts[1], counts[3]),
+            (0, 0),
+            "both unsupported phases must be silent"
+        );
+        assert_eq!(
+            quality_events
+                .iter()
+                .map(|(_, codecs)| codecs.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                crate::dynacast::message("vp8", VideoQuality::Off),
+                crate::dynacast::message("vp8", VideoQuality::High),
+                crate::dynacast::message("vp8", VideoQuality::Off),
+            ],
+            "preserve every quality event through the final tick"
+        );
+        assert!((4700..=5000).contains(&quality_events.last().unwrap().0));
+        if source_restart {
+            let original_up = engine.downs.get(di).unwrap().up;
+            let original_mid = engine.downs.get(di).unwrap().mid;
+            let mut restarted = false;
+            let mut rebuilt = false;
+            let mut received_after_restart = 0;
+            engine.handle_command(
+                MediaCommand::UpdateTrackSettings {
+                    subscriber: "PA_test".into(),
+                    track_sid: sid.clone(),
+                    settings: TrackSettings {
+                        quality: VideoQuality::Low,
+                        ..Default::default()
+                    },
+                },
+                negotiated + Duration::from_millis(6500),
+            );
+            for tick in 6500..8500u64 {
+                let now = negotiated + Duration::from_millis(tick);
+                publisher.handle_input(Input::Timeout(now)).unwrap();
+                subscriber.handle_input(Input::Timeout(now)).unwrap();
+                if tick == 7000 {
+                    let down = engine.downs.get_mut(di).unwrap();
+                    let (reference, reports) = down.reference_state();
+                    assert_eq!(reference, Some(2), "real HIGH reference survives LOW");
+                    assert!(reports[2], "the old receiver has a real reference SR");
+                    assert!(reports[0], "the future LOW reference also has an old SR");
+                    assert_eq!((down.current, down.target), (0, 0));
+                    assert!(down.last_pt.is_some(), "LOW was actually forwarded");
+                    // Pause admission to observe the real restart before its keyframe rebuilds state.
+                    down.negotiated = false;
+                    let pt = publisher
+                        .writer(tx_mid)
+                        .unwrap()
+                        .payload_params()
+                        .find(|p| p.spec().codec == str0m::format::Codec::Vp8)
+                        .unwrap()
+                        .pt();
+                    let mut direct = publisher.direct_api();
+                    let stream = direct.stream_tx_by_mid(tx_mid, Some("q".into())).unwrap();
+                    // Five backward timestamps must trigger native authenticated restart detection.
+                    for index in 1..=5u32 {
+                        let sequence = stream.next_seq_no();
+                        stream.write_rtp(
+                            str0m::rtp::RtpWrite::new(
+                                pt,
+                                sequence,
+                                index * 1000,
+                                now,
+                                vec![0x10, 0, 0, 0x9d, 1, 0x2a],
+                            )
+                            .marker(true),
+                        );
+                    }
+                }
+                if tick == 7100 {
+                    let down = engine.downs.get_mut(di).unwrap();
+                    assert!(restarted);
+                    assert_eq!(down.reference_state(), (None, [false; 3]));
+                    assert!(down.last_pt.is_none());
+                    down.negotiated = true;
+                }
+                if tick.is_multiple_of(30) && !(7000..7100).contains(&tick) {
+                    for (index, rid) in ["q", "h", "f"].iter().enumerate() {
+                        let writer = publisher.writer(tx_mid).unwrap().rid((*rid).into());
+                        let pt = writer
+                            .payload_params()
+                            .find(|p| p.spec().codec == str0m::format::Codec::Vp8)
+                            .unwrap()
+                            .pt();
+                        let mut frame = vec![0u8; 64];
+                        frame[..10].copy_from_slice(&[0x10, 0, 0, 0x9d, 1, 0x2a, 0x80, 2, 0x68, 1]);
+                        frame[63] = index as u8;
+                        writer
+                            .write(
+                                pt,
+                                now,
+                                MediaTime::new(tick * 90, Frequency::NINETY_KHZ),
+                                frame,
+                            )
+                            .unwrap();
+                    }
+                }
+                for (peer, tid, addr, receiving) in [
+                    (&mut publisher, pub_tid, pub_addr, false),
+                    (&mut subscriber, sub_tid, sub_addr, true),
+                ] {
+                    loop {
+                        match peer.poll_output().unwrap() {
+                            Output::Transmit(packet) => {
+                                // No fresh publisher SR may hide inherited report
+                                // flags or release the new reference after restart.
+                                if !receiving
+                                    && packet.contents.len() >= 2
+                                    && packet.contents[0] >> 6 == 2
+                                    && (192..=223).contains(&packet.contents[1])
+                                {
+                                    continue;
+                                }
+                                engine.handle_datagram(Datagram {
+                                    transport: tid,
+                                    proto: Proto::Udp,
+                                    source: addr,
+                                    destination: server_addr,
+                                    data: &packet.contents,
+                                    received_at: now,
+                                });
+                                if !receiving && (7000..7100).contains(&tick) {
+                                    let down = engine.downs.get(di).unwrap();
+                                    if !restarted && down.reference_state().0.is_none() {
+                                        assert_eq!(down.reference_state(), (None, [false; 3]));
+                                        assert_eq!((down.current, down.target), (-1, -1));
+                                        assert!(down.last_pt.is_none());
+                                        restarted = true;
+                                    }
+                                }
+                                if !receiving && tick >= 7100 {
+                                    let down = engine.downs.get(di).unwrap();
+                                    if down.reference_state().0.is_some() {
+                                        assert_eq!(down.reference_state(), (Some(0), [false; 3]));
+                                        assert_eq!(down.current, 0);
+                                        assert!(down.last_pt.is_some());
+                                        rebuilt = true;
+                                    }
+                                }
+                            }
+                            Output::Event(Event::MediaData(data)) if receiving && tick >= 7200 => {
+                                assert_eq!(data.data.last(), Some(&0));
+                                received_after_restart += 1;
+                            }
+                            Output::Timeout(_) => break,
+                            _ => {}
+                        }
+                    }
+                }
+                if tick == 7099 {
+                    assert!(
+                        restarted,
+                        "paced authenticated RTP must trigger restart before admission resumes"
+                    );
+                }
+                engine.handle_timeout(now);
+                engine.drain_events(&mut Vec::new());
+                for (destination, bytes) in packets.0.lock().unwrap().drain(..) {
+                    let peer = if destination == pub_addr {
+                        &mut publisher
+                    } else {
+                        assert_eq!(destination, sub_addr);
+                        &mut subscriber
+                    };
+                    peer.handle_input(Input::Receive(
+                        now,
+                        Receive::new(Protocol::Udp, server_addr, destination, &bytes).unwrap(),
+                    ))
+                    .unwrap();
+                }
+            }
+            let down = engine.downs.get(di).unwrap();
+            assert!(restarted && rebuilt && received_after_restart > 10);
+            assert_eq!(down.reference_state(), (Some(0), [false; 3]));
+            assert_eq!((down.current, down.target), (0, 0));
+            assert_eq!(down.up, original_up);
+            assert_eq!(down.mid, original_mid);
+            assert_eq!(engine.up_by_mid[&(pub_tid, tx_mid)], original_up);
+            assert!(publisher.is_connected() && subscriber.is_connected());
+            assert!(engine.transports[&pub_tid].rtc.is_connected());
+            assert!(engine.transports[&sub_tid].rtc.is_connected());
+        }
+        return;
+    }
     assert!(
         counts[0] > 10 && counts[2] > 10 && counts[3] > 10,
         "actual authenticated selected-layer packets must arrive: {counts:?}"

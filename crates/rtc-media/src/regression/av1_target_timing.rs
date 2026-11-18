@@ -240,6 +240,28 @@ fn spatial_case(
                 || (sent == 2 && tick >= begin + 1000)
             {
                 if sent == 1 {
+                    for (index, (tid, _, _, frames)) in subscribers.iter().enumerate() {
+                        assert!(
+                            !frames.is_empty(),
+                            "subscriber must receive the first authenticated AV1 frame"
+                        );
+                        let down = engine
+                            .downs
+                            .iter()
+                            .find(|(_, down)| down.transport == Some(*tid))
+                            .expect("subscriber has an actual forwarding downtrack")
+                            .1;
+                        assert!(engine.ups.get(down.up).unwrap().svc);
+                        assert_eq!(
+                            down.reference_state().0,
+                            Some(if independent_high_only || index == 1 {
+                                2
+                            } else {
+                                0
+                            }),
+                            "AV1 reference must be the first retained component, not a filtered input layer"
+                        );
+                    }
                     stats.tick(now);
                     after_first = Some(stats.snapshot().histogram_count);
                     first_received_counts = Some(

@@ -99,7 +99,7 @@ impl MediaEngine {
                     };
                     for di in subscribers {
                         if let Some(d) = self.downs.get_mut(di) {
-                            d.stop_forwarding();
+                            d.restart_receiver();
                             d.av1 = Default::default();
                             d.av1_packet_selector.restart();
                             if let (Some(target), Some(mid)) = (d.transport, d.mid) {

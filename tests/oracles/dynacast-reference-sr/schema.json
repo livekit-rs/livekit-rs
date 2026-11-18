@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "C54 fixed-Go dynacast reference/SR JSONL row, schema 1",
+  "description": "Exactly 90 JSONL rows, case_id 0..89. Nested order: codec_mode [h264-simulcast,vp9-svc], reference [0,1,2], max_spatial [-1,0,2], report [none,wrong-layer,matching-zero,matching-valid,premature-zero]. No headers, expected values, cache reads or non-JSON stdout. All observations are public fixed-Go getters. ForceLayerForTest sets current/target only; GetTranslationParams on a real testutils RTP packet establishes reference. The Rust reader explicitly initializes max_spatial=-1 before subscription settings to match the bare Go Forwarder; constructor defaults are not compared. Its Started adapter uses the persistent video output clock and excludes dummy or seeded starts. This is not allocator/MAIN/SDP/SRTP/decoder evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "case_id", "scenario", "observations"],
+  "properties": {
+    "schema": {"const": 1},
+    "case_id": {"type": "integer", "minimum": 0, "maximum": 89},
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codec_mode", "reference", "max_spatial", "report", "report_layer"],
+      "properties": {
+        "codec_mode": {"enum": ["h264-simulcast", "vp9-svc"]},
+        "reference": {"enum": [0, 1, 2], "description": "First packet's spatial argument to GetTranslationParams, not the SR buffer index. VP9 SVC uses MULTIPLE_SPATIAL_LAYERS_PER_STREAM; reference 2 remains 2 even though getRefLayer uses SR buffer 0."},
+        "max_spatial": {"enum": [-1, 0, 2]},
+        "report": {"enum": ["none", "wrong-layer", "matching-zero", "matching-valid", "premature-zero"]},
+        "report_layer": {"enum": [-1, 0, 1, 2], "description": "none=-1 (no setter call), wrong-layer=(reference+1)%3, otherwise reference. matching-zero/premature-zero use non-nil all-zero RTCPSenderReportState. wrong-layer/matching-valid use NTP 0xe900000000000000, RTP=extRTP=93000. premature-zero occurs after constructor/DetermineCodec/SetMaxSpatialLayer(2), before ForceLayerForTest and first packet."}
+      }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 20,
+      "maxItems": 20,
+      "items": {"$ref": "#/$defs/observation"},
+      "description": "Exact stage order is given in x-stage-operations. Each stage queries after the listed operations. The Rust reader should validate all scenario fields, order, row count, stage count and every observation, reject unknown/missing fields, and write its independently observed rows to a fresh output file. reference_spatial is JSON null only when GetState returns nil; after Restart it is integer -1 with started=true. All layer values are signed integers."
+    }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "max_subscribed_spatial", "max_spatial", "current_spatial", "target_spatial", "started", "reference_spatial", "muted", "pub_muted"],
+      "properties": {
+        "stage": {"enum": ["constructed", "before_first_packet", "first_packet", "set_max", "report", "resync", "resync_again", "muted", "unmuted", "pub_muted", "pub_unmuted", "matching_zero_sr", "matching_sr_resync", "restart", "restart_packet", "restart_resync", "before_fresh", "fresh", "fresh_packet", "fresh_resync"]},
+        "max_subscribed_spatial": {"type": "integer", "minimum": -1, "maximum": 2},
+        "max_spatial": {"type": "integer", "minimum": -1, "maximum": 2},
+        "current_spatial": {"type": "integer", "minimum": -1, "maximum": 2},
+        "target_spatial": {"type": "integer", "minimum": -1, "maximum": 2},
+        "started": {"type": "boolean"},
+        "reference_spatial": {"type": ["integer", "null"], "minimum": -1, "maximum": 2},
+        "muted": {"type": "boolean"},
+        "pub_muted": {"type": "boolean"}
+      }
+    }
+  },
+  "x-stage-operations": [
+    ["constructed", "NewForwarder(video, logger, skipReferenceTS=false, disableOpportunisticAllocation=true, enableStartAtDesiredQuality=true, rtpStats=nil); DetermineCodec(H264 or VP9, 90000Hz, no extensions, corresponding layer mode)"],
+    ["before_first_packet", "SetMaxSpatialLayer(2); for premature-zero only, SetRefSenderReport(report_layer, non-nil zero SR)"],
+    ["first_packet", "ForceLayerForTest(reference, temporal=0); GetTranslationParams(testutils packet seq=1, timestamp=93000, SSRC=1000+reference, PT=96, marker/keyframe=true, reference)"],
+    ["set_max", "SetMaxSpatialLayer(scenario.max_spatial)"],
+    ["report", "SetRefSenderReport for wrong-layer/matching-zero/matching-valid; none/premature-zero do nothing"],
+    ["resync", "Resync()"],
+    ["resync_again", "Resync()"],
+    ["muted", "Mute(true, true)"],
+    ["unmuted", "Mute(false, true)"],
+    ["pub_muted", "PubMute(true)"],
+    ["pub_unmuted", "PubMute(false)"],
+    ["matching_zero_sr", "SetRefSenderReport(reference, non-nil zero SR)"],
+    ["matching_sr_resync", "Resync()"],
+    ["restart", "Restart(); does not reconstruct the object or call DetermineCodec again"],
+    ["restart_packet", "ForceLayerForTest(reference,0); GetTranslationParams(same codec/layer/SSRC, seq=2, timestamp=96000)"],
+    ["restart_resync", "Resync()"],
+    ["before_fresh", "SetRefSenderReport(reference, non-nil zero SR), leaving reference and SR in the old object"],
+    ["fresh", "Replace with a new Forwarder and DetermineCodec; SetMaxSpatialLayer(scenario.max_spatial); no reports or state copied"],
+    ["fresh_packet", "ForceLayerForTest(reference,0); GetTranslationParams(seq=1, timestamp=93000, same codec/layer/SSRC)"],
+    ["fresh_resync", "Resync()"]
+  ]
+}

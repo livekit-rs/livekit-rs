@@ -557,6 +557,7 @@ impl MediaEngine {
                             stream.set_nack_throttled(false);
                         }
                         let layer = dd_layer.unwrap_or((info.spatial, info.temporal));
+                        d.observe_reference_layer(layer.0);
                         admissions.accepted(layer.0, layer.1, layer.0);
                         if !was_active {
                             events.push(MediaEvent::StreamState {

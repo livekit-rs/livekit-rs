@@ -1151,6 +1151,12 @@ impl MediaEngine {
                     if let Some(layer) = u.one_dd_layer(&u.mime, f.rid) {
                         u.one_dd.report(layer, f.sender_info);
                     }
+                    let layer = u.reference_report_layer(f.rid);
+                    for di in &u.subscribers {
+                        if let Some(down) = self.downs.get_mut(*di) {
+                            down.observe_reference_report(layer);
+                        }
+                    }
                 }
             }
             Event::Closed => self.remote_closed(tid, now),

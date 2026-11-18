@@ -830,6 +830,30 @@ impl MediaEngine {
                 if let Err(e) = w.write(pt, data.network_time, rtp_time, payload) {
                     tracing::debug!(transport = %out_tid, error = %e, "media write failed");
                 } else {
+                    let reference = if let Some(svc) = svc {
+                        svc.ends.iter().position(Option::is_some).map(|s| s as i32)
+                    } else if up.svc {
+                        av1.as_ref()
+                            .zip(av1_prepared.as_ref())
+                            .and_then(|(picture, prepared)| {
+                                picture
+                                    .packet_frames()
+                                    .iter()
+                                    .zip(picture.packet_layers())
+                                    .find_map(|(frame, layer)| {
+                                        frame
+                                            .filter(|frame| prepared.input_frames.contains(frame))
+                                            .and_then(|_| {
+                                                layer.map(|(spatial, _)| i32::from(spatial))
+                                            })
+                                    })
+                            })
+                    } else {
+                        Some(spatial)
+                    };
+                    if let Some(reference) = reference {
+                        d.observe_reference_layer(reference);
+                    }
                     if keyframe
                         && let Some(stream) = t.rtc.direct_api().stream_tx_by_mid(mid, None)
                         && stream.nack_throttled()

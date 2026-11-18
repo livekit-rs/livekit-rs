@@ -1535,7 +1535,15 @@ impl MediaEngine {
             Some(ui) => {
                 let u = self.ups.get_mut(ui).expect("indexed up track");
                 let old_key = (u.transport, u.mid);
+                let receiver_changed = old_key != (tid, mid) || !u.mime.eq_ignore_ascii_case(&mime);
                 u.rebind_source(tid, mid, rids, &mime, spec, now);
+                if receiver_changed {
+                    for di in &u.subscribers {
+                        if let Some(down) = self.downs.get_mut(*di) {
+                            down.restart_receiver();
+                        }
+                    }
+                }
                 if old_key != (tid, mid) && self.up_by_mid.get(&old_key) == Some(&ui) {
                     self.up_by_mid.remove(&old_key);
                 }

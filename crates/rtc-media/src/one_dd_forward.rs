@@ -388,6 +388,7 @@ impl MediaEngine {
                         stream.set_nack_throttled(false);
                     }
                     let previous = (down.current, down.forwarded_temporal_cap());
+                    down.observe_reference_layer(spatial);
                     down.commit_av1_packet_selection(spatial, output_temporal, cap);
                     changed |= previous != (down.current, down.forwarded_temporal_cap());
                     admissions.accepted(spatial, temporal, spatial);

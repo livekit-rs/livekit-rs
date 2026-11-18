@@ -456,6 +456,7 @@ impl MediaEngine {
         down.av1_packet_selector = Default::default();
         down.av1_packet_sequences = Default::default();
         down.one_dd = Default::default();
+        down.restart_receiver();
         down.pub_muted = muted;
         down.scorer.set_mime(&mime);
         // Keep SDP, SSRC, RTP clock continuity and bound lifecycle intact; the

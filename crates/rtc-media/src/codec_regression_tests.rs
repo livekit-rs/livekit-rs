@@ -9,6 +9,86 @@ use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, Input, Output};
 
 #[test]
+fn reference_state_rebind_distinguishes_same_receiver_from_new_mid() {
+    let now = Instant::now();
+    let mut engine = engine(now);
+    engine.cfg.enabled_codecs.push(CodecSpec {
+        mime: "video/vp8".into(),
+        fmtp_line: String::new(),
+    });
+    let tid = transport(&mut engine, PcRole::Publisher, now);
+    let mut publisher = Rtc::builder()
+        .set_crypto_provider(rtc_crypto::provider().into())
+        .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+        .build(now);
+    let mut mids = Vec::new();
+    offer(&mut engine, &mut publisher, tid, now, |change| {
+        for _ in 0..2 {
+            mids.push(change.add_media(MediaKind::Video, Direction::SendOnly, None, None, None));
+        }
+    });
+    let sid = TrackSid::from("TR_reference_rebind");
+    engine.bind_track(tid, &mids[0].to_string(), sid.clone(), now);
+    engine.handle_command(
+        MediaCommand::Subscribe(DownTrackSpec {
+            subscriber: "PA_test".into(),
+            publisher: "PA_test".into(),
+            track_sid: sid.clone(),
+            stream_id: "reference-rebind".into(),
+            settings: TrackSettings::default(),
+            adaptive_stream: false,
+        }),
+        now,
+    );
+    let di = engine.down_by_key[&("PA_test".into(), sid.clone())];
+    let down = engine.downs.get_mut(di).unwrap();
+    down.observe_reference_layer(2);
+    down.observe_reference_report(2);
+    down.current = 2;
+    engine.bind_track(tid, &mids[0].to_string(), sid.clone(), now);
+    assert_eq!(
+        engine.downs.get(di).unwrap().reference_state(),
+        (Some(2), [false, false, true])
+    );
+    engine.bind_track(tid, &mids[1].to_string(), sid, now);
+    let down = engine.downs.get(di).unwrap();
+    assert_eq!(down.reference_state(), (None, [false; 3]));
+    assert_eq!(down.current, -1);
+    assert!(!engine.up_by_mid.contains_key(&(tid, mids[0])));
+    let feedback = |mid, rid| {
+        Event::SenderFeedback(str0m::media::SenderFeedback {
+            mid,
+            rid,
+            received_at: now,
+            sender_info: str0m::rtp::rtcp::SenderInfo {
+                ssrc: 123u32.into(),
+                ntp_time: std::time::UNIX_EPOCH + Duration::from_secs(1_730_000_000),
+                rtp_time: MediaTime::new(30000, Frequency::NINETY_KHZ),
+                sender_packet_count: 40,
+                sender_octet_count: 40,
+            },
+        })
+    };
+    engine.handle_event(tid, feedback(mids[0], None), now);
+    engine.handle_event(TransportId::next(), feedback(mids[1], None), now);
+    assert_eq!(
+        engine.downs.get(di).unwrap().reference_state(),
+        (None, [false; 3])
+    );
+    engine.handle_event(tid, feedback(mids[1], Some("unknown".into())), now);
+    assert_eq!(
+        engine.downs.get(di).unwrap().reference_state(),
+        (None, [true, false, false])
+    );
+    engine.downs.get_mut(di).unwrap().restart_receiver();
+    engine.handle_event(tid, feedback(mids[1], None), now);
+    assert_eq!(
+        engine.downs.get(di).unwrap().reference_state(),
+        (None, [true, false, false])
+    );
+}
+
+#[test]
 fn actual_dual_codec_srtp_regression_uses_live_room_threshold_and_preserves_subscription() {
     for (policy, threshold, count, later_count, regresses) in [
         (BackupCodecPolicy::PreferRegression, 0, 100, 100, true),

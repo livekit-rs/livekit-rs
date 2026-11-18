@@ -382,6 +382,7 @@ impl MediaEngine {
                             }
                             stream.set_nack_throttled(false);
                         }
+                        d.observe_reference_layer(i32::from(parsed.spatial()));
                         let before = (d.current, d.forwarded_temporal_cap());
                         d.commit_av1_packet_selection(
                             if up.svc {

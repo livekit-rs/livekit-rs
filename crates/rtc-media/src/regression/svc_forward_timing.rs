@@ -291,6 +291,13 @@ fn spatial_case(
                 || (sent == 2 && tick >= begin + 1000)
             {
                 if sent == 1 {
+                    for (_, down) in engine.downs.iter() {
+                        assert_eq!(
+                            down.reference_state().0,
+                            Some(if independent_high_only { 2 } else { 0 }),
+                            "reference must be the first actual retained VP9 component"
+                        );
+                    }
                     stats.tick(now);
                     after_first = Some(stats.snapshot().histogram_count - baseline_count);
                     first_received_counts = Some(

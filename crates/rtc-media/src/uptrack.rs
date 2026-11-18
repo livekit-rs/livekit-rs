@@ -461,6 +461,17 @@ impl UpTrack {
             .map(|codec| codec.layer_mode)
     }
 
+    pub(crate) fn reference_report_layer(&self, rid: Option<Rid>) -> i32 {
+        if matches!(
+            self.declared_layer_mode(&self.mime),
+            Some(rtc_core::model::VideoLayerMode::MultipleSpatialLayersPerStream)
+        ) {
+            return 0;
+        }
+        rid.and_then(|rid| self.layers.iter().find(|layer| layer.rid == &*rid))
+            .map_or(0, |layer| layer.spatial_layer)
+    }
+
     pub(crate) fn unrecognized_vp9_layer_mode(&self) -> bool {
         self.mime.eq_ignore_ascii_case("video/VP9")
             && matches!(
@@ -1262,6 +1273,36 @@ mod svc_tests {
         }
         // An unknown spatial layer binds nothing.
         assert!(!up.observe_layer_ssrc(5, 400, 0));
+    }
+
+    #[test]
+    fn reference_reports_use_receiver_buffer_layer_not_svc_packet_layer() {
+        use rtc_core::model::{TrackCodec, VideoLayerMode};
+
+        let now = Instant::now();
+        let mut up = track(now);
+        up.sdp_rids = vec!["q".into(), "h".into(), "f".into()];
+        up.rebuild_layers(now);
+        for (rid, expected) in [
+            (None, 0),
+            (Some("q"), 0),
+            (Some("h"), 1),
+            (Some("f"), 2),
+            (Some("unknown"), 0),
+        ] {
+            assert_eq!(up.reference_report_layer(rid.map(Into::into)), expected);
+        }
+        up.spec.codecs.push(TrackCodec {
+            mime_type: up.mime.clone(),
+            mid: String::new(),
+            cid: "camera".into(),
+            sdp_cid: String::new(),
+            layers: vec![],
+            layer_mode: VideoLayerMode::MultipleSpatialLayersPerStream,
+        });
+        for rid in [None, Some("q"), Some("h"), Some("f"), Some("unknown")] {
+            assert_eq!(up.reference_report_layer(rid.map(Into::into)), 0);
+        }
     }
 
     #[test]
