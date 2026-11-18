@@ -228,8 +228,15 @@ impl MediaEngine {
             .filter(|(_, up)| &up.sid == sid)
             .map(|(ui, _)| ui)
             .collect::<Vec<_>>();
-        for ui in receivers {
+        for &ui in &receivers {
             self.set_receiver_muted(ui, muted, now);
+        }
+        if !muted
+            && let Some(ui) = receivers
+                .into_iter()
+                .find(|ui| self.ups.get(*ui).is_some_and(|up| up.dynacast.is_some()))
+        {
+            self.commit_dynacast(ui, true, now);
         }
     }
 
@@ -245,8 +252,8 @@ impl MediaEngine {
         up.reset_stream_trackers();
         up.set_dd_bitrate_muted(muted, now);
         up.scorer.set_muted(muted);
-        if up.dynacast.as_mut().is_some_and(|d| d.set_muted(muted)) {
-            self.commit_dynacast(ui, true, now);
+        if let Some(dynacast) = up.dynacast.as_mut() {
+            dynacast.set_muted(muted);
         }
         let Self {
             ups,
@@ -1154,9 +1161,7 @@ impl MediaEngine {
         };
         for receiver in receivers {
             let up = self.ups.get_mut(receiver).unwrap();
-            if !up.muted {
-                up.on_subscribed_codecs(&codecs);
-            }
+            up.on_subscribed_codecs(&codecs);
         }
         if !muted {
             self.events.push(MediaEvent::SubscribedQuality {

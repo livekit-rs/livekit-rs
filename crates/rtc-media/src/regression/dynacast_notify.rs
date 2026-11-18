@@ -257,10 +257,7 @@ fn unmute_snapshot_survives_later_demand_before_drain() {
     demand(&mut engine, tracks[0], 3, now);
     let mut events = Vec::new();
     drain(&mut engine, &mut events);
-    assert_eq!(
-        events,
-        vec![expected(&[2, 2]), expected(&[2, 2]), expected(&[3, 2])]
-    );
+    assert_eq!(events, vec![expected(&[2, 2]), expected(&[3, 2])]);
 }
 
 #[test]
@@ -461,11 +458,11 @@ fn shared_debounce_muted_upgrade_commits_and_cancels_without_emission() {
     assert!(engine.events.is_empty());
     assert_eq!(
         engine.ups.get(tracks[0].0).unwrap().max_expected_spatial(),
-        2
+        0
     );
     assert_eq!(
         engine.ups.get(tracks[1].0).unwrap().max_expected_spatial(),
-        1
+        2
     );
     engine.set_publisher_muted(&SID.into(), false, now + Duration::from_millis(1100));
     assert_eq!(
@@ -478,7 +475,7 @@ fn shared_debounce_muted_upgrade_commits_and_cancels_without_emission() {
     );
     let mut snapshots = Vec::new();
     drain(&mut engine, &mut snapshots);
-    assert_eq!(snapshots, vec![expected(&[0, 2]), expected(&[0, 2])]);
+    assert_eq!(snapshots, vec![expected(&[0, 2])]);
 }
 
 #[test]
@@ -594,6 +591,254 @@ fn shared_debounce_first_codec_demand_flushes_pending_peer() {
 }
 
 #[test]
+fn publisher_unmute_flushes_pending_once_for_every_codec_count() {
+    let now = Instant::now();
+    for count in [1, 2, 3] {
+        let (mut engine, tracks) = fixture(count, Duration::from_secs(2), now);
+        for track in &tracks {
+            demand(&mut engine, *track, 2, now);
+        }
+        engine.events.clear();
+        engine.set_publisher_muted(&SID.into(), true, now);
+        for track in &tracks {
+            demand(&mut engine, *track, 0, now + Duration::from_millis(100));
+        }
+        assert_eq!(
+            engine.poll_timeout(),
+            Some(now + Duration::from_millis(2100))
+        );
+        engine.set_publisher_muted(&SID.into(), false, now + Duration::from_millis(200));
+        let mut snapshots = Vec::new();
+        drain(&mut engine, &mut snapshots);
+        assert_eq!(snapshots, vec![expected(&vec![0; count])]);
+        for track in &tracks {
+            assert_eq!(engine.ups.get(track.0).unwrap().max_expected_spatial(), 0);
+        }
+        assert_eq!(engine.poll_timeout(), Some(now + Duration::from_secs(10)));
+        engine.dynacast_timers(now + Duration::from_millis(2100));
+        assert!(engine.events.is_empty());
+    }
+}
+
+#[test]
+fn publisher_unmute_without_aggregate_preserves_initial_deadline() {
+    let now = Instant::now();
+    let (mut engine, _) = fixture_with_demand(2, Duration::from_secs(2), now, false);
+    for muted in [false, true, false, false] {
+        engine.set_publisher_muted(&SID.into(), muted, now);
+        assert!(engine.events.is_empty());
+        assert_eq!(engine.poll_timeout(), Some(now + Duration::from_secs(10)));
+    }
+    engine.unpublish(&SID.into(), now);
+    let mut removed = Vec::new();
+    for event in engine.events.drain(..) {
+        let MediaEvent::SubscriptionRemoved {
+            subscriber,
+            track_sid,
+        } = event
+        else {
+            panic!("unexpected event after unpublish: {event:?}");
+        };
+        assert_eq!(track_sid, TrackSid::from(SID));
+        removed.push(subscriber.to_string());
+    }
+    removed.sort();
+    assert_eq!(removed, ["PA_sub_0", "PA_sub_1"]);
+    engine.set_publisher_muted(&SID.into(), false, now);
+    assert!(engine.events.is_empty());
+    assert_eq!(engine.poll_timeout(), None);
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExpectedLayer {
+    codec: String,
+    spatial: i32,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MuteObservation {
+    at_ms: u64,
+    events: Vec<Snapshot>,
+    expected_layers: Vec<ExpectedLayer>,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MuteTrace {
+    scenario: String,
+    codec_count: usize,
+    pause_ms: u64,
+    observations: Vec<MuteObservation>,
+}
+
+fn publisher_mute_trace(scenario: &str, count: usize) -> MuteTrace {
+    let now = Instant::now();
+    let pause_ms = if scenario == "zero-muted" { 0 } else { 1000 };
+    let (mut engine, tracks) =
+        fixture_with_demand(count, Duration::from_millis(pause_ms), now, false);
+    for (index, track) in tracks.iter().enumerate() {
+        demand(
+            &mut engine,
+            *track,
+            if scenario == "muted-upgrade" && index == 1 {
+                1
+            } else {
+                2
+            },
+            now,
+        );
+    }
+    engine.events.clear();
+    let mut observations = Vec::new();
+    for at_ms in [
+        0, 100, 200, 300, 1199, 1200, 1499, 1500, 1600, 1700, 1800, 1900, 2000,
+    ] {
+        let at = now + Duration::from_millis(at_ms);
+        engine.dynacast_timers(at);
+        match at_ms {
+            100 if scenario != "unmuted-control" => {
+                engine.set_publisher_muted(&SID.into(), true, at);
+            }
+            200 => demand(
+                &mut engine,
+                tracks[0],
+                if scenario == "off-muted" { 3 } else { 0 },
+                at,
+            ),
+            300 if scenario == "muted-upgrade" => demand(&mut engine, tracks[1], 2, at),
+            1500 | 1600 | 1900 => engine.set_publisher_muted(&SID.into(), false, at),
+            1700 | 1800 => engine.set_publisher_muted(&SID.into(), true, at),
+            _ => {}
+        }
+        let mut events = Vec::new();
+        drain(&mut engine, &mut events);
+        let expected_layers = tracks
+            .iter()
+            .enumerate()
+            .map(|(index, track)| ExpectedLayer {
+                codec: CODECS[index].into(),
+                spatial: engine.ups.get(track.0).unwrap().max_expected_spatial(),
+            })
+            .collect();
+        observations.push(MuteObservation {
+            at_ms,
+            events,
+            expected_layers,
+        });
+    }
+    MuteTrace {
+        scenario: scenario.into(),
+        codec_count: count,
+        pause_ms,
+        observations,
+    }
+}
+
+fn publisher_mute_matrix() -> Vec<MuteTrace> {
+    let mut rows = Vec::new();
+    for scenario in [
+        "muted-downgrade",
+        "muted-upgrade",
+        "zero-muted",
+        "off-muted",
+        "unmuted-control",
+    ] {
+        for count in [1, 2] {
+            if scenario != "muted-upgrade" || count == 2 {
+                rows.push(publisher_mute_trace(scenario, count));
+            }
+        }
+    }
+    rows
+}
+
+fn assert_publisher_mute_trace(scenario: &str, count: usize) {
+    let after = if scenario == "off-muted" { 3 } else { 0 };
+    for observation in publisher_mute_trace(scenario, count).observations {
+        let at = observation.at_ms;
+        let committed = at
+            >= match scenario {
+                "zero-muted" => 200,
+                "muted-upgrade" => 300,
+                _ => 1200,
+            };
+        let states = if committed {
+            vec![after, 2][..count].to_vec()
+        } else if scenario == "muted-upgrade" {
+            vec![2, 1]
+        } else {
+            vec![2; count]
+        };
+        assert_eq!(
+            observation.expected_layers,
+            states
+                .iter()
+                .enumerate()
+                .map(|(index, quality)| ExpectedLayer {
+                    codec: CODECS[index].into(),
+                    spatial: if *quality == 3 { -1 } else { *quality },
+                })
+                .collect::<Vec<_>>(),
+            "scenario={scenario} count={count} at={at} receiver layers"
+        );
+        let emit =
+            matches!(at, 1500 | 1600 | 1900) || (scenario == "unmuted-control" && at == 1200);
+        assert_eq!(
+            observation.events,
+            if emit {
+                vec![expected(&states)]
+            } else {
+                vec![]
+            },
+            "scenario={scenario} count={count} at={at} publisher events"
+        );
+    }
+}
+
+#[test]
+fn publisher_mute_commits_receiver_layers_without_notification() {
+    for scenario in ["muted-downgrade", "zero-muted", "off-muted"] {
+        for count in [1, 2] {
+            assert_publisher_mute_trace(scenario, count);
+        }
+    }
+    assert_publisher_mute_trace("muted-upgrade", 2);
+}
+
+#[test]
+fn publisher_mute_unmuted_control_and_repeated_force() {
+    for count in [1, 2] {
+        assert_publisher_mute_trace("unmuted-control", count);
+    }
+}
+
+#[test]
+#[ignore = "requires C58_GO_JSONL and fresh C58_RUST_JSONL"]
+fn fixed_go_publisher_mute_differential() {
+    use std::io::Write;
+    let actual = publisher_mute_matrix();
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(std::env::var_os("C58_RUST_JSONL").expect("C58_RUST_JSONL"))
+        .unwrap();
+    for row in &actual {
+        writeln!(output, "{}", serde_json::to_string(row).unwrap()).unwrap();
+    }
+    output.sync_all().unwrap();
+    let input =
+        std::fs::read_to_string(std::env::var_os("C58_GO_JSONL").expect("C58_GO_JSONL")).unwrap();
+    let reference: Vec<MuteTrace> = input
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(reference.len(), 9);
+    assert_eq!(actual, reference);
+}
+
+#[test]
 fn initial_update_preserves_receiver_layer_and_unmute_force() {
     let now = Instant::now();
     let (mut engine, tracks) = fixture(2, Duration::from_secs(2), now);
@@ -636,7 +881,7 @@ fn initial_update_preserves_receiver_layer_and_unmute_force() {
     );
     let mut events = Vec::new();
     drain(&mut engine, &mut events);
-    assert_eq!(events, vec![expected(&[0, 2]), expected(&[0, 2])]);
+    assert_eq!(events, vec![expected(&[0, 2])]);
     engine.dynacast_timers(now + Duration::from_millis(11500));
     assert!(engine.events.is_empty());
 }
