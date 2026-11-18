@@ -770,6 +770,70 @@ fn psrpc_and_signal_relay_env_projection_and_cli_precedence() {
 }
 
 // ---------------------------------------------------------------------------
+// enable_participant_data_blob (C45): YAML / ENV / CLI projection + precedence
+// ---------------------------------------------------------------------------
+
+#[test]
+fn enable_participant_data_blob_yaml_env_cli_projection_and_precedence() {
+    // Go config.go EnableParticipantDataBlob defaults to false; the Blob
+    // Store/Get gate must stay off unless an origin explicitly enables it.
+    let base = parse(&[], &Env::default());
+    assert!(!base.official.enable_participant_data_blob);
+    assert!(!base.server.enable_participant_data_blob);
+
+    // YAML (top-level key, not under room:).
+    let cfg = parse(
+        &["--config-body", "enable_participant_data_blob: true\n"],
+        &Env::default(),
+    );
+    assert!(cfg.official.enable_participant_data_blob);
+    // Production projection: normalize.rs copies the gate into ServerConfig,
+    // which the launched signal path consumes. Not a parse-only assertion.
+    assert!(cfg.server.enable_participant_data_blob);
+    assert_ne!(
+        cfg.official.enable_participant_data_blob,
+        base.official.enable_participant_data_blob
+    );
+
+    // ENV: generated.rs env_name -> LIVEKIT_ENABLE_PARTICIPANT_DATA_BLOB.
+    let env = Env::from_pairs([("LIVEKIT_ENABLE_PARTICIPANT_DATA_BLOB", "true")]);
+    let cfg = parse(&[], &env);
+    assert!(cfg.official.enable_participant_data_blob);
+    assert!(cfg.server.enable_participant_data_blob);
+    assert_ne!(
+        cfg.official.enable_participant_data_blob,
+        base.official.enable_participant_data_blob
+    );
+
+    // CLI flag alone.
+    let cfg = parse(&["--enable_participant_data_blob=true"], &Env::default());
+    assert!(cfg.official.enable_participant_data_blob);
+    assert!(cfg.server.enable_participant_data_blob);
+
+    // CLI beats ENV: CLI false overrides ENV true, and the normalized
+    // production gate follows the CLI verdict in both directions.
+    let cfg = parse(&["--enable_participant_data_blob=false"], &env);
+    assert!(!cfg.official.enable_participant_data_blob);
+    assert!(!cfg.server.enable_participant_data_blob);
+    let env_off = Env::from_pairs([("LIVEKIT_ENABLE_PARTICIPANT_DATA_BLOB", "false")]);
+    let cfg = parse(&["--enable_participant_data_blob=true"], &env_off);
+    assert!(cfg.official.enable_participant_data_blob);
+    assert!(cfg.server.enable_participant_data_blob);
+
+    // YAML beats nothing silently: CLI still wins over a YAML true.
+    let cfg = parse(
+        &[
+            "--config-body",
+            "enable_participant_data_blob: true\n",
+            "--enable_participant_data_blob=false",
+        ],
+        &Env::default(),
+    );
+    assert!(!cfg.official.enable_participant_data_blob);
+    assert!(!cfg.server.enable_participant_data_blob);
+}
+
+// ---------------------------------------------------------------------------
 // rtc.reconnect_on_* and rtc.datachannel_data_track_target_latency
 // ---------------------------------------------------------------------------
 
