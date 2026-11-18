@@ -6612,6 +6612,8 @@ fn node_subscribed_track_gauge_uses_actual_sdp_bound_lifecycle_not_pending_graph
 
 #[path = "codec_regression_tests.rs"]
 mod codec_regression_tests;
+#[path = "regression/dynacast_notify.rs"]
+mod dynacast_notify;
 
 #[path = "receiver_traffic_tests.rs"]
 mod receiver_traffic_tests;

@@ -780,17 +780,7 @@ impl MediaEngine {
     }
 
     pub fn drain_events(&mut self, out: &mut Vec<MediaEvent>) {
-        for mut event in std::mem::take(&mut self.events) {
-            if let MediaEvent::SubscribedQuality {
-                track_sid, codecs, ..
-            } = &mut event
-            {
-                if let Some(combined) = self.codec_quality_snapshot(track_sid) {
-                    *codecs = combined;
-                }
-            }
-            out.push(event);
-        }
+        out.append(&mut self.events);
     }
 
     /// Current owner room count, read before every room/media command. Codec
