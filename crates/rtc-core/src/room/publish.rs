@@ -1127,12 +1127,27 @@ fn apply_sdp_receiver_ssrc(
 }
 
 fn apply_sdp_rids(layers: &mut [VideoLayer], rids: &[String]) {
+    if rids.is_empty() {
+        let mut present = [false; 3];
+        for layer in layers.iter() {
+            if let Some(index) = layer.quality.spatial_index() {
+                present[index] = true;
+            }
+        }
+        for layer in layers {
+            layer.spatial_layer = layer
+                .quality
+                .spatial_index()
+                .map(|index| present[..index].iter().filter(|value| **value).count() as i32)
+                .unwrap_or(-1);
+            layer.rid.clear();
+        }
+        return;
+    }
     let n = layers.len();
     for (i, layer) in layers.iter_mut().enumerate() {
         layer.spatial_layer = if n <= 1 { 0 } else { i as i32 };
-        if rids.is_empty() {
-            layer.rid.clear();
-        } else if let Some(rid) = rids.get(i) {
+        if let Some(rid) = rids.get(i) {
             layer.rid = rid.clone();
         } else if layer.rid.is_empty() && n > 1 {
             layer.rid = ["q", "h", "f"]

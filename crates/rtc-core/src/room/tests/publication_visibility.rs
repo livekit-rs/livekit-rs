@@ -453,3 +453,85 @@ fn sdp_preference_does_not_replace_declared_codec_identity() {
         .unwrap();
     assert_eq!(updated.codecs[0].mime_type, ack.codecs[0].mime_type);
 }
+
+fn check_no_rid_layer_presence(qualities: &[VideoQuality], spatial: &[i32]) {
+    use crate::media_api::PublicationRegistration::SdpReceiver;
+    let (mut room, now) = room();
+    let alice = room.join(params("alice", 16, true), now).unwrap();
+    let transport = transport_of(&room.take_effects(), &alice.sid, PcRole::Single);
+    let mut request = add_track("cid", TrackKind::Video, TrackSource::Camera);
+    request.layers = qualities
+        .iter()
+        .enumerate()
+        .map(|(i, quality)| VideoLayer {
+            quality: *quality,
+            width: 320 * (i as u32 + 1),
+            height: 180 * (i as u32 + 1),
+            bitrate: 100_000 * (i as u32 + 1),
+            ssrc: 0,
+            spatial_layer: 17,
+            rid: format!("signalled-{i}"),
+            repair_ssrc: 0,
+        })
+        .collect();
+    request.simulcast_codecs = vec![SimulcastCodecRequest {
+        codec: "VP8".into(),
+        cid: "cid".into(),
+        layers: request.layers.clone(),
+        layer_mode: VideoLayerMode::OneSpatialLayerPerStream,
+    }];
+    let mut expected = request.layers.clone();
+    assert_eq!(expected.len(), spatial.len());
+    for (layer, spatial) in expected.iter_mut().zip(spatial) {
+        layer.spatial_layer = *spatial;
+        layer.rid.clear();
+    }
+    if let Some(layer) = expected.iter_mut().find(|layer| layer.spatial_layer == 0) {
+        layer.ssrc = 424242;
+        layer.repair_ssrc = 424243;
+    }
+    room.handle_request(
+        &alice.sid,
+        alice.generation,
+        SessionRequest::AddTrack(request),
+        now,
+    );
+    connected(&mut room, &alice.sid, transport, now);
+    room.take_effects();
+    let mut media = video_media(&alice, transport, SdpReceiver);
+    media.receiver_ssrc = Some((424242, 424243));
+    room.handle_media_event(MediaEvent::RemoteMediaAdded(media), now);
+    let effects = room.take_effects();
+    let tracks = publication_tracks(&effects);
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].layers, expected);
+    assert_eq!(tracks[0].codecs[0].layers, expected);
+    let updated = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Media(MediaCommand::UpdatePublishedTrack { track }) => Some(track),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(updated.layers, expected);
+    assert_eq!(updated.codecs[0].layers, expected);
+}
+
+#[test]
+fn no_rid_sparse_qualities_use_present_spatial_indices() {
+    use VideoQuality::{High, Low, Medium};
+    check_no_rid_layer_presence(&[Low, High], &[0, 1]);
+    check_no_rid_layer_presence(&[Medium, High], &[0, 1]);
+}
+
+#[test]
+fn no_rid_duplicate_qualities_share_spatial_without_dropping_metadata() {
+    use VideoQuality::{High, Low};
+    check_no_rid_layer_presence(&[Low, Low, High], &[0, 0, 1]);
+}
+
+#[test]
+fn no_rid_unknown_quality_does_not_acquire_a_spatial_index() {
+    use VideoQuality::{High, Low};
+    check_no_rid_layer_presence(&[Low, High, VideoQuality::from_i32(99)], &[0, 1, -1]);
+}

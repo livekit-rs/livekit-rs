@@ -149,8 +149,8 @@ mod c63_publication_metadata {
         }
     }
 
-    fn canonical_cases() -> [MetadataCase; 4] {
-        let cases: [MetadataCase; 4] = serde_json::from_str(include_str!(
+    fn canonical_cases() -> [MetadataCase; 12] {
+        let cases: [MetadataCase; 12] = serde_json::from_str(include_str!(
             "../../../../../tests/oracles/video-publication-metadata/cases.json"
         ))
         .expect("strict canonical C63 input rows");
@@ -168,6 +168,38 @@ mod c63_publication_metadata {
             assert_eq!(case.input.request.simulcast_codecs.len(), 1);
             assert_eq!(case.input.request.simulcast_codecs[0].layers.len(), 1);
             assert_eq!(case.input.request.simulcast_codecs[0].layers[0].rid, rid);
+            assert!(case.input.sdp_rids.is_empty());
+            assert!(!case.input.sdp_simulcast);
+            assert_ne!(case.input.sdp_ssrc, 0);
+            assert_ne!(case.input.rtp.count, 0);
+        }
+        for (case, (name, early, qualities)) in cases[4..].iter().zip([
+            ("c64-sdp-low-high", true, vec![0, 2]),
+            ("c64-rtp-low-high", false, vec![0, 2]),
+            ("c64-sdp-medium-high", true, vec![1, 2]),
+            ("c64-rtp-medium-high", false, vec![1, 2]),
+            ("c64-sdp-low-low-high", true, vec![0, 0, 2]),
+            ("c64-rtp-low-low-high", false, vec![0, 0, 2]),
+            ("c64-sdp-low-high-99", true, vec![0, 2, 99]),
+            ("c64-rtp-low-high-99", false, vec![0, 2, 99]),
+        ]) {
+            assert_eq!(case.schema_version, 1);
+            assert_eq!(case.case, name);
+            assert_eq!(case.input.fire_on_track_by_sdp, early);
+            assert_eq!(
+                case.input
+                    .request
+                    .layers
+                    .iter()
+                    .map(|l| l.quality)
+                    .collect::<Vec<_>>(),
+                qualities
+            );
+            assert_eq!(case.input.request.simulcast_codecs.len(), 1);
+            assert_eq!(
+                case.input.request.layers,
+                case.input.request.simulcast_codecs[0].layers
+            );
             assert!(case.input.sdp_rids.is_empty());
             assert!(!case.input.sdp_simulcast);
             assert_ne!(case.input.sdp_ssrc, 0);
@@ -306,19 +338,37 @@ mod c63_publication_metadata {
         assert_eq!(callback_before_rtp, input.fire_on_track_by_sdp);
         assert_eq!(room.published_track_count(), callbacks.len());
 
-        // One declared SSRC and no SDP RID: the receiver supplies one layer.
-        // Keep dimensions/quality/bitrate from the stimulus; native normalization
-        // supplies empty RID, spatial zero, the input primary SSRC and no repair.
-        let mut receiver_layer = input.request.layers[0].to_model();
-        receiver_layer.rid.clear();
-        receiver_layer.spatial_layer = 0;
-        receiver_layer.ssrc = input.sdp_ssrc;
-        receiver_layer.repair_ssrc = 0;
+        // Synthetic receiver metadata is derived from INPUT, not Go observations.
+        let mut receiver_layers: Vec<_> =
+            input.request.layers.iter().map(Layer::to_model).collect();
+        let mut qualities: Vec<_> = receiver_layers
+            .iter()
+            .filter_map(|layer| layer.quality.spatial_index())
+            .collect();
+        qualities.sort_unstable();
+        qualities.dedup();
+        for layer in &mut receiver_layers {
+            layer.rid.clear();
+            layer.spatial_layer = layer
+                .quality
+                .spatial_index()
+                .and_then(|quality| qualities.iter().position(|candidate| *candidate == quality))
+                .map(|index| index as i32)
+                .unwrap_or(-1);
+        }
+        if let Some(layer) = receiver_layers
+            .iter_mut()
+            .find(|layer| layer.spatial_layer == 0)
+        {
+            if layer.ssrc == 0 {
+                layer.ssrc = input.sdp_ssrc;
+            }
+        }
         room.handle_media_event(
             MediaEvent::TrackMediaStarted {
                 track_sid: ack.sid.clone(),
                 mime_type: input.peer_codec.mime_type.clone(),
-                layers: vec![receiver_layer],
+                layers: receiver_layers,
             },
             now + Duration::from_millis(u64::from(input.rtp.interval_ms)),
         );
@@ -365,7 +415,7 @@ mod c63_publication_metadata {
     fn compare_rows(
         rust: &[MetadataObservation],
         go: &[MetadataObservation],
-        cases: &[MetadataCase; 4],
+        cases: &[MetadataCase; 12],
     ) {
         assert_eq!(rust.len(), cases.len(), "exact Rust membership");
         assert_eq!(go.len(), cases.len(), "exact Go membership");
@@ -402,7 +452,7 @@ mod c63_publication_metadata {
         }
         writer
             .flush()
-            .expect("flush ALL four Rust rows before opening Go");
+            .expect("flush ALL Rust rows before opening Go");
         writer
             .get_ref()
             .sync_all()

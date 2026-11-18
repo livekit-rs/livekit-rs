@@ -203,8 +203,13 @@ impl UpTrack {
         // The observed RTP SSRC binding is sticky metadata (first-SSRC-wins, like
         // upstream SetLayerSsrcsForRid); synthesized layers carry ssrc=0, so carry
         // the bound SSRC/RTX across a rebuild instead of dropping it.
+        // Both lists are stably sorted; consume each duplicate binding only once.
+        let mut previous = self.layers.iter().peekable();
         for new in l.iter_mut() {
-            if let Some(old) = self.layers.iter().find(|o| o.quality == new.quality) {
+            while previous.peek().is_some_and(|old| old.quality < new.quality) {
+                previous.next();
+            }
+            if let Some(old) = previous.next_if(|old| old.quality == new.quality) {
                 if new.ssrc == 0 {
                     new.ssrc = old.ssrc;
                 }
@@ -1230,6 +1235,100 @@ mod svc_tests {
         up.set_mime("video/VP8", now + Duration::from_secs(1));
         assert_eq!(up.layers[0].ssrc, 3_369_745_197);
         assert_eq!(up.layers[0].repair_ssrc, 12_345);
+    }
+
+    // Literal spatial expectations are independent of the production mapper.
+    fn assert_no_sdp_rid_metadata(rows: &[(i32, u32, u32, u32, i32)]) {
+        use rtc_core::model::TrackCodec;
+
+        for codec_layers in [false, true] {
+            let now = Instant::now();
+            let mut up = track(now);
+            assert!(up.sdp_rids.is_empty());
+            let input: Vec<_> = rows
+                .iter()
+                .map(|&(quality, width, height, bitrate, _)| VideoLayer {
+                    quality: VideoQuality::from_i32(quality),
+                    width,
+                    height,
+                    bitrate,
+                    ssrc: 0,
+                    spatial_layer: 7,
+                    rid: "signalled-but-not-in-sdp".into(),
+                    repair_ssrc: 0,
+                })
+                .collect();
+            let mut spec = up.spec.clone();
+            if codec_layers {
+                spec.codecs.push(TrackCodec {
+                    mime_type: up.mime.clone(),
+                    mid: String::new(),
+                    cid: "camera".into(),
+                    sdp_cid: String::new(),
+                    layers: input.clone(),
+                    layer_mode: Default::default(),
+                });
+            } else {
+                spec.layers = input.clone();
+            }
+            up.update_spec(spec.clone(), now);
+            let mut expected: Vec<_> = input
+                .into_iter()
+                .zip(rows)
+                .map(|(mut layer, &(_, _, _, _, spatial))| {
+                    layer.spatial_layer = spatial;
+                    layer.rid.clear();
+                    layer
+                })
+                .collect();
+            assert_eq!(up.layers, expected, "rewrite, codec_layers={codec_layers}");
+            assert_eq!(up.spatial_for_rid(None), 0);
+            assert!(!up.observe_layer_ssrc(0, 0, 424_243));
+            assert_eq!(up.layers, expected, "zero SSRC must not bind repair");
+
+            assert!(up.observe_layer_ssrc(up.spatial_for_rid(None), 424_242, 424_243));
+            expected[0].ssrc = 424_242;
+            expected[0].repair_ssrc = 424_243;
+            assert_eq!(up.layers, expected, "only the first spatial-0 entry binds");
+            assert!(!up.observe_layer_ssrc(0, 424_242, 424_243));
+            assert!(!up.observe_layer_ssrc(0, 999, 777));
+            assert_eq!(up.layers, expected, "reobserving must not bind a duplicate");
+
+            // The unbound spec must retain each duplicate's own observed binding.
+            up.update_spec(spec, now + Duration::from_secs(1));
+            assert_eq!(
+                up.layers, expected,
+                "identical spec rebuild, codec_layers={codec_layers}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_sdp_rid_low_high_metadata_survives_ssrc_binding_and_rebuild() {
+        assert_no_sdp_rid_metadata(&[(0, 320, 180, 150_000, 0), (2, 1280, 720, 1_500_000, 1)]);
+    }
+
+    #[test]
+    fn no_sdp_rid_medium_high_metadata_survives_ssrc_binding_and_rebuild() {
+        assert_no_sdp_rid_metadata(&[(1, 640, 360, 500_000, 0), (2, 1280, 720, 1_500_000, 1)]);
+    }
+
+    #[test]
+    fn no_sdp_rid_duplicate_low_metadata_survives_ssrc_binding_and_rebuild() {
+        assert_no_sdp_rid_metadata(&[
+            (0, 320, 180, 150_000, 0),
+            (0, 480, 270, 300_000, 0),
+            (2, 1280, 720, 1_500_000, 1),
+        ]);
+    }
+
+    #[test]
+    fn no_sdp_rid_unknown_quality_metadata_survives_ssrc_binding_and_rebuild() {
+        assert_no_sdp_rid_metadata(&[
+            (0, 320, 180, 150_000, 0),
+            (2, 1280, 720, 1_500_000, 1),
+            (99, 1920, 1080, 3_000_000, -1),
+        ]);
     }
 
     #[test]
