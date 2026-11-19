@@ -3367,7 +3367,9 @@ fn publication_first_authenticated_primary_rtp_proof_does_not_require_complete_f
                         track_sid,
                         mime_type,
                         payload_type,
+                        receiver_layers,
                     } => {
+                        assert!(receiver_layers.is_none());
                         assert_eq!(participant.as_str(), "PA_test");
                         assert_eq!(transport, tid);
                         assert_eq!(track_sid, sid);
@@ -3788,13 +3790,13 @@ mod f93_closed_write {
     use rtc_core::room::{Effect as RoomEffect, Room};
     use rtc_core::session::*;
     use std::collections::BTreeMap;
-    struct F93Drop;
+    pub(super) struct F93Drop;
     impl DataHandler for F93Drop {
         fn inbound(&self, _: &DataSender<'_>, _: DataKind, _: &str, _: &[u8]) -> DataVerdict {
             DataVerdict::Drop
         }
     }
-    fn f93_policy() -> RoomPolicy {
+    pub(super) fn f93_policy() -> RoomPolicy {
         RoomPolicy {
             transport_fallback: Default::default(),
             enabled_codecs: vec![
@@ -3838,7 +3840,7 @@ mod f93_closed_write {
         }
     }
 
-    fn f93_params(identity: &str, protocol: i32, single_pc: bool) -> JoinParams {
+    pub(super) fn f93_params(identity: &str, protocol: i32, single_pc: bool) -> JoinParams {
         JoinParams {
             room: RoomKey::new(ProjectId::local(), "r1"),
             grants: Grants {
@@ -7011,3 +7013,5 @@ mod remote_close;
 
 #[path = "regression/seq_gap_wire.rs"]
 mod seq_gap_wire;
+
+mod rid_publication;

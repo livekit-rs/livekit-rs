@@ -432,6 +432,193 @@ fn cancelled_deferred_video_ignores_late_receiver_metadata() {
 }
 
 #[test]
+fn raw_rid_registration_publishes_complete_metadata_and_completes_supervision() {
+    use crate::media_api::PublicationRegistration::Pending;
+    for backup in [false, true] {
+        let (mut room, now, alice, transport, ack) = video_metadata_setup("f", 0, 0);
+        Arc::make_mut(&mut room.policy).reconnect_on_publication_error = true;
+        connected(&mut room, &alice.sid, transport, now);
+        let bob = room.join(params("bob", 16, true), now).unwrap();
+        let mut media = video_media(&alice, transport, Pending);
+        media.rids = vec!["f".into()];
+        room.handle_media_event(MediaEvent::RemoteMediaAdded(media), now);
+        let deferred = &mut room
+            .participants
+            .get_mut(&alice.sid)
+            .unwrap()
+            .deferred_publications[0];
+        if backup {
+            let mut codec = deferred.info.codecs[0].clone();
+            codec.mime_type = "video/VP9".into();
+            codec.cid = "backup-cid".into();
+            codec.mid = "1".into();
+            deferred.info.codecs.push(codec);
+        }
+        deferred.info.version = crate::model::TimedVersion {
+            unix_micro: i64::MAX,
+            ticks: 7,
+        };
+        let before = deferred.info.clone();
+        let mut expected = before.layers.clone();
+        expected[0].rid = "f".into();
+        expected[0].spatial_layer = 0;
+        expected[0].ssrc = 23;
+        expected[0].repair_ssrc = 29;
+        let mime = if backup { "video/VP9" } else { "video/VP8" };
+        room.take_effects();
+        let registered = || MediaEvent::PublicationRtpRegistered {
+            participant: alice.sid.clone(),
+            transport,
+            track_sid: ack.sid.clone(),
+            mime_type: mime.into(),
+            payload_type: 96,
+            receiver_layers: Some(expected.clone()),
+        };
+        room.handle_media_event(registered(), now);
+        let effects = room.take_effects();
+        let tracks = publication_tracks(&effects);
+        assert_eq!(tracks.len(), 1);
+        let mut complete = before.clone();
+        complete.codecs[usize::from(backup)].layers = expected.clone();
+        if !backup {
+            complete.layers = expected.clone();
+        }
+        complete.version.advance();
+        assert_eq!(tracks[0], complete);
+        assert_eq!(room.participants[&alice.sid].info.tracks, tracks);
+        let observer_tracks = signals_to(&effects, &bob.sid)
+            .into_iter()
+            .filter_map(|event| match event {
+                SignalEvent::ParticipantUpdate(infos) => infos
+                    .into_iter()
+                    .find(|info| info.sid == alice.sid)
+                    .map(|info| info.tracks),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(observer_tracks, vec![tracks.clone()]);
+        assert!(
+            !room.publication_monitors[&(alice.sid.clone(), ack.sid.clone())]
+                .timed_out(now + Duration::from_secs(31))
+        );
+        room.handle_media_event(registered(), now);
+        assert!(
+            room.take_effects().is_empty(),
+            "duplicate registration is idempotent"
+        );
+        room.tick(now + Duration::from_secs(31));
+        assert!(room.participants.contains_key(&alice.sid));
+        assert!(
+            !signals_to(&room.take_effects(), &alice.sid)
+                .iter()
+                .any(|event| matches!(event, SignalEvent::Leave { .. }))
+        );
+    }
+}
+
+#[test]
+fn raw_rid_registration_rejects_stale_invalid_and_canceled_publications() {
+    use crate::media_api::PublicationRegistration::Pending;
+    let (mut room, now, alice, transport, ack) = video_metadata_setup("f", 0, 0);
+    room.participants
+        .get_mut(&alice.sid)
+        .unwrap()
+        .capabilities
+        .video_publication_requires_rtp = true;
+    connected(&mut room, &alice.sid, transport, now);
+    let mut media = video_media(&alice, transport, Pending);
+    media.rids = vec!["f".into()];
+    room.handle_media_event(MediaEvent::RemoteMediaAdded(media), now);
+    let before = room.participants[&alice.sid].deferred_publications[0]
+        .info
+        .clone();
+    let mut layers = before.layers.clone();
+    layers[0].ssrc = 23;
+    layers[0].repair_ssrc = 29;
+    room.take_effects();
+    for invalid in 0..9 {
+        if invalid == 8 {
+            room.participants.get_mut(&alice.sid).unwrap().info.state =
+                ParticipantState::Disconnected;
+        }
+        room.handle_media_event(
+            MediaEvent::PublicationRtpRegistered {
+                participant: if invalid == 0 {
+                    ParticipantSid::from("PA_old")
+                } else {
+                    alice.sid.clone()
+                },
+                transport: if invalid == 1 {
+                    TransportId::next()
+                } else {
+                    transport
+                },
+                track_sid: if invalid == 2 {
+                    TrackSid::from("TR_old")
+                } else {
+                    ack.sid.clone()
+                },
+                mime_type: match invalid {
+                    4 => "audio/opus",
+                    5 => "video/VP9",
+                    _ => "video/VP8",
+                }
+                .into(),
+                payload_type: if invalid == 3 { 0 } else { 96 },
+                receiver_layers: match invalid {
+                    6 => Some(vec![]),
+                    7 => None,
+                    _ => Some(layers.clone()),
+                },
+            },
+            now,
+        );
+        assert_eq!(
+            room.participants[&alice.sid].deferred_publications[0].info,
+            before
+        );
+        assert_eq!(room.published_track_count(), 0);
+        assert!(
+            room.publication_monitors[&(alice.sid.clone(), ack.sid.clone())]
+                .timed_out(now + Duration::from_secs(31))
+        );
+        assert!(room.take_effects().is_empty(), "invalid case {invalid}");
+    }
+    room.participants.get_mut(&alice.sid).unwrap().info.state = ParticipantState::Active;
+    room.handle_media_event(
+        MediaEvent::RemoteMediaStopped {
+            participant: alice.sid.clone(),
+            track_sid: ack.sid.clone(),
+        },
+        now,
+    );
+    room.take_effects();
+    room.handle_media_event(
+        MediaEvent::PublicationRtpRegistered {
+            participant: alice.sid.clone(),
+            transport,
+            track_sid: ack.sid.clone(),
+            mime_type: "video/VP8".into(),
+            payload_type: 96,
+            receiver_layers: Some(layers),
+        },
+        now,
+    );
+    assert!(
+        room.participants[&alice.sid]
+            .deferred_publications
+            .is_empty()
+    );
+    assert_eq!(room.published_track_count(), 0);
+    assert!(
+        !room
+            .publication_monitors
+            .contains_key(&(alice.sid, ack.sid))
+    );
+    assert!(room.take_effects().is_empty());
+}
+
+#[test]
 fn sdp_preference_does_not_replace_declared_codec_identity() {
     use crate::media_api::PublicationRegistration::SdpReceiver;
     let (mut room, now, alice, transport, ack) = video_metadata_setup("f", 0, 0);

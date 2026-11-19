@@ -1,0 +1,50 @@
+{
+  "kind": "C65-original-Go-single-RID-packet-publication-observer",
+  "status": "Fixture and source-contract review only; no Go build or execution performed. All runtime expectations remain hypotheses.",
+  "reference_heads": {
+    "references/livekit-stable": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+    "references/protocol-stable": "9bb708cdb81918a6c63dd25e915b4644310b45b6",
+    "references/psrpc": "e9701ee1b5a981cfa3c7c69503d4775ddff13729"
+  },
+  "staging_origin": "Independent adaptation of video-publication-metadata main_test.go, prepare.py, run.py, fixtures.py, validate.py and PROVENANCE.json; original oracle untouched.",
+  "scope": "Original public rtc.NewParticipant/SendJoinResponse/SetMigrateState/AddTrack/HandleOffer, signal sink, actual LocalParticipantListener.OnTrackPublished. Full cloned TrackInfo inside callback, never synthetic OnTrack. Real Pion loopback ICE/DTLS/SRTP; no SDK, production, reference or SDP text edits.",
+  "stimulus": "Four rows: LOW/HIGH and LOW/LOW/HIGH with exact C64 dimensions, bitrates, signalled spatial/RID literals and duplicate counts; marker false and marker true. Pion StaticRTP(q) plus AddEncoding(StaticRTP(f)), same c65-video/c65-stream. VP8 PT96/90000 only, SSRC424242 and idle434343, RTX/FEC zero, MID0, generated q;f RID declarations. Exactly one q WriteRTP: seq1000 ts90000 payload1001000000, negotiated MID/RID extensions. Connected 100ms zero-packet quiet window; 5s callback, 5s stats deadline; 100ms settled window. No retry packet, sample writer, complete-frame gate or media decode claim. Marker true is a single-packet RTP frame-boundary control, not a decodable-video control.",
+  "hypotheses": "Both markers publish once after one write. LOW/HIGH published spatial=[0,1], RID=[q,f], SSRC=[424242,0]; LOW/LOW/HIGH spatial=[0,0,1], RID=[q,q,f], SSRC=[424242,0,0]. Duplicate layers remain distinct. Top and codec arrays agree; simulcast=true. ACK retains signalled layers and lowercase video/vp8, empty MID; callback/settled use video/VP8 and MID0. Exact packet receipt=1. Not learned from output.",
+  "source_contract": [
+    "Pinned server go.mod replaces github.com/pion/webrtc/v4 with github.com/livekit/webrtc-pion/v4 v4.2.18-warp.6.",
+    "Pion rtpsender.go152-197: AddEncoding requires nonempty distinct RIDs, identical track ID/stream/kind and must precede Send. 301-374: Send binds exact per-encoding SSRCs. track_local_static.go184-214: WriteRTP substitutes bound SSRC/PT but does not populate MID/RID. Observer explicitly sets both negotiated extensions.",
+    "Pion sdp.go453-528 emits both SSRCs plus q/f send RID and simulcast send q;f without rewriting SDP. 240-252 replaces parsed SSRC track-details with RID-only details when RID/msid present. peerconnection.go1683-1707 refuses legacy undeclared fallback when RID present.",
+    "Pion peerconnection.go1831-1908 peeks first SRTP packet and parses MID/RID; 1912-1976 only probes additional packets if IDs missing, otherwise calls receiveForRid then onTrack. rtpreceiver.go552-592 sets codec/SSRC/streams without needing a frame or another packet. Runtime callback and stats still unverified.",
+    "Server participant.go1113-1169 updates codec spatial/RID from SDP; 3125-3137 sorts layers without deduplication; 3275-3278 sets multi-layer simulcast. 3525-3539 updates MIME/top layers, 3571 adds receiver before 3605 publication; 3787-3798 invokes public listener before telemetry.",
+    "buffer/videolayerutils.go281-345 maps LOW/HIGH to spatial0/1 including duplicate LOW; 210-211 maps quality to RID via spatial; 498-519 preserves sparse q/f order. mediatrackreceiver.go675-729 assigns SSRC only to first matching quality and propagates codec layers to top level. No unknown or negative quality rows."
+  ],
+  "evidence": "Exclusive JSONL and synchronous fsynced eventjournal retain full SID/version-bearing callback/settled TrackInfo, callback write attempts, actual ACK, offer/answer, negotiated extension IDs, exact plaintext RTP handed to bound Pion SRTP writer, write result, quiet/settled/final counts, receiver stats, closure checks and deadline diagnostics. RTP hex is not claimed to be a wire ciphertext capture. Deterministic projection excludes only SID/version; failed cases may lack completed observation rows and remain failures.",
+  "network": "Both endpoints disable mDNS, use UDP4 only with explicit loopback candidate inclusion/filter and retained 127.0.0.1:0 UDP mux sockets; reject ports7880/7881 and non-loopback candidates. No STUN/TURN or HTTP server. Close participant, peer, muxes; verify peer closed callback and closed UDP writes.",
+  "execution": "Deferred until stimulus review. Pinned Go1.26.0 darwin/arm64, offline private APFS cloned checkouts/cache under /private/tmp/video-rid-publication-go-*. Prepare verifies all git archive bytes and retains per-file hashes of every tracked source plus complete mediatransportutil archive inventory. Runner hashes compilation inputs, builds race test once, executes twice, validates literal expectations, tests exclusive-output rejection and preserves failure exits/stdout/stderr/hashes. No commit/push/Cargo/cleanup.",
+  "source_sha256": {
+    "references/livekit-stable/pkg/rtc/participant.go": "f715f1a4b2e354cfa17b23e9f688f17f3a79644a5ebe3696578b2796ec885fd8",
+    "references/livekit-stable/pkg/sfu/buffer/videolayerutils.go": "f1b96b6dda7c885d22a77d3f8ae91b5fc54f4624af28a5d0f508d9156ea14abf",
+    "references/livekit-stable/pkg/rtc/participant_sdp.go": "60b26a7cb58c1bb9cf0d57a0761eca99dca9370574f68abe62ed355d3e252c4e",
+    "references/livekit-stable/pkg/rtc/mediatrack.go": "aff702e5d97ff50456cc2815d38a21aa74497e92c1ba8e0eec679320af686678",
+    "references/livekit-stable/pkg/rtc/mediatrackreceiver.go": "cc6cc4f6b9686d0c3bfb48f080aea29afe6be626535745ce836b8aa94ac8e031",
+    "references/livekit-stable/pkg/rtc/transport.go": "ac66148aaa2da7a006056b608b499324e245902d35b39333592a88843a02ff5d",
+    "references/livekit-stable/pkg/rtc/transportmanager.go": "b8d9ef2ef0bd2059a481ed93682141ee8514ec2d528e3394372324285bc80426",
+    "references/livekit-stable/pkg/rtc/config.go": "904b2d6a0245b1141ce5de9ea7987211d38aa91a986e79d5f3b09150de8074df",
+    "references/livekit-stable/go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5",
+    "references/livekit-stable/go.sum": "bd59b83446453df21c1e81687f321b5ae86665ee507e9a0f405d4c19651e0d85",
+    "references/protocol-stable/go.mod": "98efebcf78d8ef16e7eb4839a6a1027af97fca6dc9b9855ec52c24de0c272861",
+    "references/protocol-stable/go.sum": "a2aec82b7130fd556112bf98fcdfab7a53fcea5d0462cab013587fcab262aa85",
+    "references/psrpc/go.mod": "6b7da53f8ad198246e4eaf023e832624603b31697cb8b13d969e4b21d43e68e0",
+    "references/psrpc/go.sum": "e73e69f3f68df7c646ddbb4c66feb2ca5bbce2c7afd9d615039a862ac30ec173"
+  },
+  "module_source_sha256": {
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/go.mod": "0510d3c6ae499d7b0d5c1a2514ae48f82588faccaa6fc1c32ff53d46c4d54352",
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/go.sum": "6f7fdbe58d4dc45a11ba549bd6f750fb1822ad03585bb6ec8373f86554640b87",
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/rtpsender.go": "76ef72c5b8f742ad7b135d5c23da9e36f63f6e6c2fda6804ed977b68fcbe39ec",
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/track_local_static.go": "2820f15f2e9605786eb0f0219424d5c2f1888d11ded02587bbaaa2ef89e9edcb",
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/sdp.go": "dde8232c5b80afa231b4008b41a720970087ebe3386099d1c2a86f746a243f2f",
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/peerconnection.go": "ed16faf84a4bc813d68a8f119c38f56c50dc5e826d9970ff1d727ad2634fb708",
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/rtpreceiver.go": "e0a3cb2df1ea2e107927d5bd83913096b031f296c0a6a13d13459238d89eb667",
+    "github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/mediaengine.go": "04f4f72a9adc2b658a7144e5692886b986e29a7be6d55c393346e748292c4951"
+  }
+}

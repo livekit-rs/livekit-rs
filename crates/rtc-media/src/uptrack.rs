@@ -76,6 +76,9 @@ pub(crate) struct UpTrack {
     pub sdp_rids: Vec<String>,
     /// Layers with presence-aware spatial/rid (§1.2). Empty for audio.
     pub layers: Vec<VideoLayer>,
+    /// RID receiver bindings are codec-specific, including a first packet whose
+    /// MIME differs from the SDP preference before a complete frame starts it.
+    receiver_layers: std::collections::HashMap<String, Vec<VideoLayer>>,
     pub started: bool,
     pub muted: bool,
     pub stats: [LayerStat; 3],
@@ -137,6 +140,7 @@ impl UpTrack {
             mime: mime.clone(),
             sdp_rids,
             layers: Vec::new(),
+            receiver_layers: Default::default(),
             started: false,
             muted: spec.muted,
             stats: Default::default(),
@@ -181,30 +185,34 @@ impl UpTrack {
         t
     }
 
-    /// Layers from the spec (primary codec layers, else track layers), rewritten
-    /// with the SDP rids; synthesized for SDP-only publishes.
-    pub(crate) fn rebuild_layers(&mut self, now: Instant) {
-        if self.kind != TrackKind::Video {
-            self.layers.clear();
-            return;
-        }
-        let codec_layers = self
-            .spec
-            .codecs
-            .iter()
-            .find(|c| c.mime_type.is_empty() || c.mime_type.eq_ignore_ascii_case(&self.mime))
-            .map(|c| c.layers.clone())
-            .filter(|l| !l.is_empty());
+    fn layers_for_mime(&self, mime: &str) -> Vec<VideoLayer> {
+        let codec = if self.sdp_rids.is_empty() {
+            self.spec
+                .codecs
+                .iter()
+                .find(|c| c.mime_type.is_empty() || c.mime_type.eq_ignore_ascii_case(mime))
+        } else {
+            self.spec
+                .codecs
+                .iter()
+                .find(|c| c.mime_type.eq_ignore_ascii_case(mime))
+                .or_else(|| self.spec.codecs.iter().find(|c| c.mime_type.is_empty()))
+        };
+        let codec_layers = codec.map(|c| c.layers.clone()).filter(|l| !l.is_empty());
         let mut l = codec_layers.unwrap_or_else(|| self.spec.layers.clone());
         if l.is_empty() {
             l = layers::synthesize_layers(&self.sdp_rids);
         }
         layers::rewrite_layers(&mut l, &self.sdp_rids);
+        l
+    }
+
+    fn retain_layer_ssrcs(l: &mut [VideoLayer], previous: &[VideoLayer]) {
         // The observed RTP SSRC binding is sticky metadata (first-SSRC-wins, like
         // upstream SetLayerSsrcsForRid); synthesized layers carry ssrc=0, so carry
         // the bound SSRC/RTX across a rebuild instead of dropping it.
         // Both lists are stably sorted; consume each duplicate binding only once.
-        let mut previous = self.layers.iter().peekable();
+        let mut previous = previous.iter().peekable();
         for new in l.iter_mut() {
             while previous.peek().is_some_and(|old| old.quality < new.quality) {
                 previous.next();
@@ -217,6 +225,21 @@ impl UpTrack {
                     new.repair_ssrc = old.repair_ssrc;
                 }
             }
+        }
+    }
+
+    /// Layers from the observed codec's spec, rewritten with the actual SDP rids.
+    pub(crate) fn rebuild_layers(&mut self, now: Instant) {
+        if self.kind != TrackKind::Video {
+            self.layers.clear();
+            return;
+        }
+        let mut l = self.layers_for_mime(&self.mime);
+        if self.sdp_rids.is_empty() {
+            // Preserve the existing no-RID receiver carry-over semantics.
+            Self::retain_layer_ssrcs(&mut l, &self.layers);
+        } else if let Some(previous) = self.receiver_layers.get(&self.mime.to_ascii_lowercase()) {
+            Self::retain_layer_ssrcs(&mut l, previous);
         }
         // Bitrate/dimension metadata can change without changing the encoding
         // identity. Only actual RID/spatial/SSRC bindings invalidate history.
@@ -232,6 +255,40 @@ impl UpTrack {
             self.reset_cost_measurements(now);
         }
         self.layers = l;
+        self.remember_receiver_layers();
+    }
+
+    fn remember_receiver_layers(&mut self) {
+        if !self.sdp_rids.is_empty() {
+            self.receiver_layers
+                .insert(self.mime.to_ascii_lowercase(), self.layers.clone());
+        }
+    }
+
+    /// Registration is metadata only: never select/start a codec receiver or
+    /// advance frame, keyframe, tracker, or forwarding state here.
+    pub(crate) fn publication_receiver_layers(
+        &mut self,
+        mime: &str,
+        receiver: Option<(Rid, u32, u32)>,
+    ) -> Option<Vec<VideoLayer>> {
+        let (rid, ssrc, repair_ssrc) = receiver?;
+        if self.kind != TrackKind::Video || self.sdp_rids.is_empty() || ssrc == 0 {
+            return None;
+        }
+        if self.mime.eq_ignore_ascii_case(mime) {
+            self.observe_layer_ssrc(self.spatial_for_rid(Some(rid)), ssrc, repair_ssrc);
+            return Some(self.layers.clone());
+        }
+        let mut layers = self.layers_for_mime(mime);
+        let key = mime.to_ascii_lowercase();
+        if let Some(previous) = self.receiver_layers.get(&key) {
+            Self::retain_layer_ssrcs(&mut layers, previous);
+        }
+        let spatial = layers::spatial_for_rid(&layers, &rid);
+        Self::bind_layer_ssrc(&mut layers, spatial, ssrc, repair_ssrc);
+        self.receiver_layers.insert(key, layers.clone());
+        Some(layers)
     }
 
     pub(crate) fn detected_source_restart(&mut self, audio: &AudioLevelParams, now: Instant) {
@@ -334,7 +391,20 @@ impl UpTrack {
         if self.kind != TrackKind::Video || ssrc == 0 {
             return false;
         }
-        let Some(layer) = self.layers.iter_mut().find(|l| l.spatial_layer == spatial) else {
+        let changed = Self::bind_layer_ssrc(&mut self.layers, spatial, ssrc, repair_ssrc);
+        if changed {
+            self.remember_receiver_layers();
+        }
+        changed
+    }
+
+    fn bind_layer_ssrc(
+        layers: &mut [VideoLayer],
+        spatial: i32,
+        ssrc: u32,
+        repair_ssrc: u32,
+    ) -> bool {
+        let Some(layer) = layers.iter_mut().find(|l| l.spatial_layer == spatial) else {
             return false;
         };
         if layer.ssrc != 0 {
@@ -1206,6 +1276,115 @@ mod svc_tests {
             Duration::from_secs(5),
             now,
         )
+    }
+
+    #[test]
+    fn raw_rid_registration_keeps_codec_specific_bindings_without_starting_media() {
+        use rtc_core::model::TrackCodec;
+        for duplicate in [false, true] {
+            for matching_mime in [false, true] {
+                let now = Instant::now();
+                let mut up = track(now);
+                up.sdp_rids = vec!["q".into(), "f".into()];
+                let qualities = if duplicate {
+                    vec![VideoQuality::Low, VideoQuality::Low, VideoQuality::High]
+                } else {
+                    vec![VideoQuality::Low, VideoQuality::High]
+                };
+                let input: Vec<_> = qualities
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, quality)| VideoLayer {
+                        quality,
+                        width: 320 * (i as u32 + 1),
+                        height: 180 * (i as u32 + 1),
+                        bitrate: 150_000 * (i as u32 + 1),
+                        ssrc: 0,
+                        repair_ssrc: 0,
+                        rid: "not-sdp".into(),
+                        spatial_layer: 7,
+                    })
+                    .collect();
+                let mut spec = up.spec.clone();
+                spec.layers = vec![input.last().unwrap().clone()];
+                spec.codecs = vec![
+                    TrackCodec {
+                        mime_type: "video/VP9".into(),
+                        cid: "preferred".into(),
+                        mid: "0".into(),
+                        sdp_cid: String::new(),
+                        layers: spec.layers.clone(),
+                        layer_mode: Default::default(),
+                    },
+                    TrackCodec {
+                        mime_type: "video/VP8".into(),
+                        cid: "observed".into(),
+                        mid: "0".into(),
+                        sdp_cid: String::new(),
+                        layers: input.clone(),
+                        layer_mode: Default::default(),
+                    },
+                ];
+                up.update_spec(spec.clone(), now);
+                if matching_mime {
+                    up.set_mime("video/VP8", now);
+                }
+                let before_mime = up.mime.clone();
+                let before_layers = up.layers.clone();
+                let before_cost = up.cost_generation;
+                let mut expected = input;
+                for layer in &mut expected {
+                    let high = layer.quality == VideoQuality::High;
+                    layer.spatial_layer = i32::from(high);
+                    layer.rid = if high { "f" } else { "q" }.into();
+                }
+                expected[0].ssrc = 42;
+                expected[0].repair_ssrc = 43;
+                let snapshot = up
+                    .publication_receiver_layers("video/VP8", Some((Rid::from("q"), 42, 43)))
+                    .unwrap();
+                assert_eq!(snapshot, expected);
+                assert_eq!(up.mime, before_mime);
+                assert!(!up.started);
+                assert_eq!(up.cost_generation, before_cost);
+                assert_eq!(up.spec.codecs, spec.codecs);
+                if !matching_mime {
+                    assert_eq!(up.layers, before_layers);
+                }
+                assert_eq!(
+                    up.publication_receiver_layers("video/vp8", Some((Rid::from("q"), 99, 100))),
+                    Some(expected.clone())
+                );
+                up.update_spec(spec, now);
+                up.set_mime("video/VP8", now);
+                assert_eq!(
+                    up.layers, expected,
+                    "frame-time MIME selection retains the raw binding"
+                );
+                assert!(!up.observe_layer_ssrc(0, 99, 100));
+                up.set_mime("video/VP9", now);
+                assert!(
+                    up.layers.iter().all(|layer| layer.ssrc == 0),
+                    "no binding leaks to another codec"
+                );
+                up.set_mime("video/VP8", now);
+                assert_eq!(up.layers, snapshot);
+            }
+        }
+    }
+
+    #[test]
+    fn raw_registration_without_native_rid_keeps_existing_layer_state() {
+        let now = Instant::now();
+        let mut up = track(now);
+        let before = up.layers.clone();
+        assert!(up.publication_receiver_layers("video/VP9", None).is_none());
+        assert!(
+            up.publication_receiver_layers("video/VP9", Some((Rid::from("q"), 42, 43)))
+                .is_none()
+        );
+        assert_eq!(up.layers, before);
+        assert!(!up.started);
     }
 
     #[test]

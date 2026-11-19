@@ -1598,23 +1598,21 @@ impl MediaEngine {
         self.select_codec_receivers(ui, now);
         // A first packet can arrive in the same native event drain before core
         // handles RemoteMediaAdded/BindTrack. Replay only its current CID proof.
-        if let Some(t) = self.transports.get(&tid)
-            && let Some((cid, mime, pt)) = t.publication_rtp.get(&mid)
+        if let Some(t) = self.transports.get_mut(&tid)
+            && let Some(proof) = t.publication_rtp.get_mut(&mid)
             && t.remote_info
                 .get(&mid)
-                .is_some_and(|info| &info.msid_track_id == cid)
+                .is_some_and(|info| info.msid_track_id == proof.cid)
         {
+            let up = self.ups.get_mut(ui).expect("bound publication exists");
+            let receiver_layers = up.publication_receiver_layers(&proof.mime, proof.receiver);
             self.events.push(MediaEvent::PublicationRtpRegistered {
                 participant: t.spec.participant.clone(),
                 transport: tid,
-                track_sid: self
-                    .ups
-                    .get(ui)
-                    .expect("bound publication exists")
-                    .sid
-                    .clone(),
-                mime_type: mime.clone(),
-                payload_type: *pt,
+                track_sid: up.sid.clone(),
+                mime_type: proof.mime.clone(),
+                payload_type: proof.payload_type,
+                receiver_layers,
             });
         }
         self.poll_receiver_traffic(now);

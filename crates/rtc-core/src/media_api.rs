@@ -358,6 +358,9 @@ pub enum MediaEvent {
         track_sid: TrackSid,
         mime_type: String,
         payload_type: u8,
+        /// Immutable receiver metadata at first authenticated RID RTP, before
+        /// frame assembly. None preserves the existing no-RID/audio boundary.
+        receiver_layers: Option<Vec<VideoLayer>>,
     },
 
     /// Actual typed SCTP closed-stream write failure; not backpressure/unavailable.

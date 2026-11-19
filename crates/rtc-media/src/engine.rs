@@ -1419,11 +1419,22 @@ impl MediaEngine {
         if mime.is_empty() {
             return;
         } // RTX/FEC/unknown PT is not a primary codec.
-        let mid = {
+        let receiver = {
             let mut direct = t.rtc.direct_api();
-            direct.stream_rx(&header.ssrc).map(|stream| stream.mid())
+            direct.stream_rx(&header.ssrc).map(|stream| {
+                (
+                    stream.mid(),
+                    stream.rid().map(|rid| {
+                        (
+                            rid,
+                            *stream.ssrc(),
+                            stream.rtx().map(|ssrc| *ssrc).unwrap_or(0),
+                        )
+                    }),
+                )
+            })
         };
-        let Some(mid) = mid else {
+        let Some((mid, receiver)) = receiver else {
             return;
         }; // RTX SSRC does not resolve as primary.
         let Some(info) = t.remote_info.get(&mid) else {
@@ -1439,25 +1450,34 @@ impl MediaEngine {
             return;
         }
         let cid = info.msid_track_id.clone();
-        if t.publication_rtp
-            .get(&mid)
-            .is_some_and(|(old, _, pt)| old == &cid && (*pt != 0 || *header.payload_type == 0))
-        {
+        if t.publication_rtp.get(&mid).is_some_and(|old| {
+            old.cid == cid && (old.payload_type != 0 || *header.payload_type == 0)
+        }) {
             return;
         }
-        t.publication_rtp
-            .insert(mid, (cid, mime.to_owned(), *header.payload_type));
+        t.publication_rtp.insert(
+            mid,
+            crate::transport::PublicationRtp {
+                cid,
+                mime: mime.to_owned(),
+                payload_type: *header.payload_type,
+                receiver,
+            },
+        );
         if let Some(up) = self
             .up_by_mid
             .get(&(tid, mid))
-            .and_then(|ui| self.ups.get(*ui))
+            .and_then(|ui| self.ups.get_mut(*ui))
+            .filter(|up| !up.stopped_reported)
         {
+            let receiver_layers = up.publication_receiver_layers(mime, receiver);
             self.events.push(MediaEvent::PublicationRtpRegistered {
                 participant: t.spec.participant.clone(),
                 transport: tid,
                 track_sid: up.sid.clone(),
                 mime_type: mime.into(),
                 payload_type: *header.payload_type,
+                receiver_layers,
             });
         }
     }

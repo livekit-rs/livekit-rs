@@ -77,6 +77,16 @@ pub(crate) struct RemoteInfo {
     pub primary_ssrcs: Option<Vec<u32>>,
 }
 
+/// First authenticated native primary receiver, retained for late BindTrack.
+/// CID guards cached replay, but is not packet-level generation proof for RID
+/// sources reusing a MID without a declared SSRC allowlist.
+pub(crate) struct PublicationRtp {
+    pub cid: String,
+    pub mime: String,
+    pub payload_type: u8,
+    pub receiver: Option<(str0m::media::Rid, u32, u32)>,
+}
+
 #[derive(Default)]
 pub(crate) struct IoCounters {
     pub bytes_in: u64,
@@ -197,7 +207,7 @@ pub(crate) struct Transport {
     /// on its own MID if the next answer makes that transceiver inactive.
     pub publisher_bitrate_hints: HashMap<Mid, String>,
     /// First authenticated primary packet codec, keyed by current MID/CID.
-    pub publication_rtp: HashMap<Mid, (String, String, u8)>,
+    pub publication_rtp: HashMap<Mid, PublicationRtp>,
     /// Announced pending publications (ExpectTrack), not yet bound.
     pub expected: Vec<PublishedTrackSpec>,
 

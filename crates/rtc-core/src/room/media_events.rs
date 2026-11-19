@@ -188,32 +188,74 @@ impl Room {
                 track_sid,
                 mime_type,
                 payload_type,
+                receiver_layers,
             } => {
-                let track = self
+                let Some(p) = self
                     .participants
                     .get(&participant)
                     .filter(|p| !p.is_disconnected() && p.publish_transport() == transport)
-                    .and_then(|p| {
-                        p.info
-                            .tracks
+                else {
+                    return;
+                };
+                // Validate the exact live publication before mutating deferred
+                // metadata. A canceled SID cannot fall back to another track.
+                let Some(track) = p
+                    .info
+                    .tracks
+                    .iter()
+                    .find(|t| t.sid == track_sid)
+                    .or_else(|| {
+                        p.deferred_publications
                             .iter()
-                            .find(|t| {
-                                t.sid == track_sid
-                                    && match t.kind {
-                                        TrackKind::Audio => mime_type.starts_with("audio/"),
-                                        TrackKind::Video => {
-                                            mime_type.starts_with("video/")
-                                                && (!p.capabilities.video_publication_requires_rtp
-                                                    || payload_type != 0)
-                                        }
-                                        TrackKind::Data | TrackKind::Unrecognized(_) => false,
-                                    }
-                            })
-                            .map(|t| t.sid.clone())
-                    });
-                if let Some(track) = track {
-                    self.publication_observed(&participant, &track, now);
+                            .find(|d| d.info.sid == track_sid)
+                            .map(|d| &d.info)
+                    })
+                else {
+                    return;
+                };
+                let eligible = match track.kind {
+                    TrackKind::Audio => mime_type.starts_with("audio/"),
+                    TrackKind::Video => {
+                        mime_type.starts_with("video/")
+                            && (!p.capabilities.video_publication_requires_rtp || payload_type != 0)
+                    }
+                    TrackKind::Data | TrackKind::Unrecognized(_) => false,
+                };
+                if !eligible {
+                    return;
                 }
+                if let Some(layers) = receiver_layers {
+                    // A RID snapshot must not use update_receiver_metadata's
+                    // unknown-MIME fallback to replace a declared codec identity.
+                    if track.kind != TrackKind::Video
+                        || layers.is_empty()
+                        || (!track.codecs.is_empty()
+                            && !track
+                                .codecs
+                                .iter()
+                                .any(|codec| codec.mime_type.eq_ignore_ascii_case(&mime_type)))
+                    {
+                        return;
+                    }
+                    let deferred = self.participants.get_mut(&participant).and_then(|p| {
+                        p.deferred_publications
+                            .iter_mut()
+                            .find(|d| d.info.sid == track_sid)
+                    });
+                    if let Some(deferred) = deferred {
+                        if update_receiver_metadata(&mut deferred.info, &mime_type, &layers) {
+                            deferred.info.version.advance();
+                        }
+                        // Publish only after the observer/webhook snapshot is complete.
+                        self.release_deferred_publications(&participant, Some(&track_sid), now);
+                    } else {
+                        self.track_media_started(&track_sid, mime_type, layers, now);
+                    }
+                } else if !p.info.tracks.iter().any(|t| t.sid == track_sid) {
+                    // No-RID/audio registration retains its existing visibility boundary.
+                    return;
+                }
+                self.publication_observed(&participant, &track_sid, now);
             }
             MediaEvent::RemoteMediaAdded(media) => self.remote_media_added(media, now),
             MediaEvent::TrackMediaStarted {

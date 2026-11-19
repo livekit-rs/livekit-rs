@@ -1020,9 +1020,15 @@ mod c61_video_quality_publish {
 
     fn observe(case: &Case) -> Observation {
         let mut policy = test_policy();
-        policy.enabled_codecs = case.input.enabled_codecs.iter().map(|mime| CodecSpec {
-            mime: mime.clone(), fmtp_line: String::new(),
-        }).collect();
+        policy.enabled_codecs = case
+            .input
+            .enabled_codecs
+            .iter()
+            .map(|mime| CodecSpec {
+                mime: mime.clone(),
+                fmtp_line: String::new(),
+            })
+            .collect();
         observe_with_policy(case, policy, false)
     }
 
@@ -1212,7 +1218,8 @@ mod c61_video_quality_publish {
                         request: case.input.request.clone(),
                     },
                 };
-                let actual = observe_with_policy(&legacy, policy, case.input.browser.contains("OBS"));
+                let actual =
+                    observe_with_policy(&legacy, policy, case.input.browser.contains("OBS"));
                 CodecObservation {
                     schema_version: case.schema_version,
                     case: case.case.clone(),
@@ -1244,7 +1251,11 @@ mod c61_video_quality_publish {
             assert_eq!(go.input, case.input, "immutable full stimulus");
         }
         for (rust, go) in observations.iter().zip(&go) {
-            assert_eq!(rust.output, go.output, "{} Rust versus raw Go ACK", rust.case);
+            assert_eq!(
+                rust.output, go.output,
+                "{} Rust versus raw Go ACK",
+                rust.case
+            );
         }
     }
 
@@ -4463,6 +4474,7 @@ fn reconnect_rtp_fired_profiles_wait_for_real_registration_event_and_reject_old_
             ] {
                 room.handle_media_event(
                     MediaEvent::PublicationRtpRegistered {
+                        receiver_layers: None,
                         participant: p.sid.clone(),
                         transport,
                         track_sid,
@@ -4474,6 +4486,7 @@ fn reconnect_rtp_fired_profiles_wait_for_real_registration_event_and_reject_old_
             }
             room.handle_media_event(
                 MediaEvent::PublicationRtpRegistered {
+                    receiver_layers: None,
                     participant: p.sid.clone(),
                     transport: tid,
                     track_sid: sid.clone(),
@@ -4485,6 +4498,7 @@ fn reconnect_rtp_fired_profiles_wait_for_real_registration_event_and_reject_old_
             if profile == "go-video" {
                 room.handle_media_event(
                     MediaEvent::PublicationRtpRegistered {
+                        receiver_layers: None,
                         participant: p.sid.clone(),
                         transport: tid,
                         track_sid: sid.clone(),
@@ -4497,6 +4511,7 @@ fn reconnect_rtp_fired_profiles_wait_for_real_registration_event_and_reject_old_
             if supply_packet {
                 room.handle_media_event(
                     MediaEvent::PublicationRtpRegistered {
+                        receiver_layers: None,
                         participant: p.sid.clone(),
                         transport: tid,
                         track_sid: sid,
@@ -6327,7 +6342,11 @@ fn check_backup_codec_announcement(announced_mime: &str) {
     room.take_effects();
     let event = |mid: &str, cid: &str, mime: &str, transport| {
         (RemoteMedia {
-            receiver_ssrc: Some(if cid == "primary-cid" { (23, 29) } else { (31, 37) }),
+            receiver_ssrc: Some(if cid == "primary-cid" {
+                (23, 29)
+            } else {
+                (31, 37)
+            }),
             registration: crate::media_api::PublicationRegistration::SdpReceiver,
             participant: owner.sid.clone(),
             transport,
