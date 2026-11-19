@@ -8,7 +8,7 @@ from pathlib import Path
 from validate import decode, equal, validate
 
 
-def check_rows(rows, go_rows):
+def check_rows(rows, go_rows, padding=False):
     equal(len(rows), 8)
     expected_cases = {(duplicate, marker, late) for duplicate in (False, True)
                       for marker in (False, True) for late in (False, True)}
@@ -23,18 +23,22 @@ def check_rows(rows, go_rows):
         if case in seen:
             raise ValueError('duplicate native observation')
         seen.add(case)
-        name = 'c65-' + ('low-low-high' if row['duplicate'] else 'low-high')
-        name += '-complete' if row['marker'] else '-incomplete'
+        name = ('c66-' if padding else 'c65-') + ('low-low-high' if row['duplicate'] else 'low-high')
+        if padding:
+            name += '-marked-padding' if row['marker'] else '-unmarked-padding'
+        else:
+            name += '-complete' if row['marker'] else '-incomplete'
         source = next(go for go in go_rows if go['case'] == name)
         for key in ('sent', 'rejected_bad_auth'):
             equal(row[key], True, name + '.' + key)
         for key in ('authenticated', 'registrations', 'visible'):
             equal(row[key], 1, name + '.' + key)
-        equal(row['receiver'], [424242, 0, 1])
-        equal(row['media_started_events'], int(row['marker'] and not row['late_bind']))
-        equal(row['media_started'], row['marker'] and not row['late_bind'])
+        equal(row['receiver'], [424242, 0, 0 if padding else 1])
+        started = row['marker'] and not row['late_bind'] and not padding
+        equal(row['media_started_events'], int(started))
+        equal(row['media_started'], started)
         equal(row['rtp'], dict(pt=96, ssrc=424242, sequence_number=1000, timestamp=90000,
-                              payload_hex='1001000000', marker=row['marker'], rid='q'))
+                              payload_hex='' if padding else '1001000000', marker=row['marker'], rid='q'))
         mid = row['mid']
         if not isinstance(mid, str) or not mid or any(c.isspace() for c in mid):
             raise ValueError('invalid actual native MID')
@@ -93,7 +97,35 @@ def check_rebind(rows, initial):
     return len(rows)
 
 
-def controls(rows, go_rows):
+def check_padding_phases(wire, recovery, initial):
+    import struct
+    expected = {tuple(r[k] for k in ('duplicate', 'marker', 'late_bind')) for r in initial}
+    for rows, kind in ((wire, 'wire'), (recovery, 'recovery')):
+        equal(len(rows), 8)
+        seen = set()
+        for row in rows:
+            for key in ('duplicate', 'marker', 'late_bind'):
+                equal(type(row[key]).__name__, 'bool')
+            case = tuple(row[k] for k in ('duplicate', 'marker', 'late_bind'))
+            if case in seen:
+                raise ValueError('duplicate padding ' + kind)
+            seen.add(case)
+            if kind == 'wire':
+                equal(set(row), {'duplicate', 'marker', 'late_bind', 'packets'})
+                equal(len(row['packets']), 1)
+                packet = row['packets'][0]
+                equal(set(packet), {'header_hex', 'encrypted_len'})
+                equal(packet['header_hex'], struct.pack('!BBHII', 0xb0, 96 | (128 if row['marker'] else 0), 1000, 90000, 424242).hex())
+                if type(packet['encrypted_len']) is not int or packet['encrypted_len'] <= 12:
+                    raise ValueError('missing encrypted padding datagram')
+            else:
+                equal(set(row), {'duplicate', 'marker', 'late_bind', 'media_started', 'media_started_events'})
+                equal(row['media_started'], True)
+                equal(row['media_started_events'], 1)
+        equal(seen, expected)
+
+
+def controls(rows, go_rows, padding=False):
     mutations = [
         ('duplicate-binding-fanout', lambda r: r[next(i for i, v in enumerate(r) if v['duplicate'])]['published'][0]['layers'][1].update(ssrc=424242)),
         ('dropped-callback', lambda r: r[0].update(published=[])),
@@ -104,12 +136,18 @@ def controls(rows, go_rows):
         ('settled-repair-drift', lambda r: r[0]['settled'][0]['codecs'][0]['layers'][0].update(repair_ssrc=424243)),
         ('lost-late-binding', lambda r: r[next(i for i, v in enumerate(r) if v['late_bind'])].update(registrations=0)),
     ]
+    if padding:
+        mutations.extend([
+            ('padding-counted-as-media', lambda r: r[0].update(receiver=[424242, 0, 1])),
+            ('marker-started-padding-media', lambda r: r[next(i for i, v in enumerate(r) if v['marker'] and not v['late_bind'])].update(media_started=True, media_started_events=1)),
+            ('padding-carried-media-payload', lambda r: r[0]['rtp'].update(payload_hex='1001000000')),
+        ])
     rejected = []
     for name, mutate in mutations:
         changed = copy.deepcopy(rows)
         mutate(changed)
         try:
-            check_rows(changed, go_rows)
+            check_rows(changed, go_rows, padding)
         except ValueError as error:
             rejected.append({'name': name, 'rejection': str(error)})
         else:
@@ -124,20 +162,45 @@ if __name__ == '__main__':
     args = parser.parse_args()
     go_count = validate(args.go)
     go_rows = [decode(line) for line in args.go.read_text().splitlines()]
-    prefix = 'C65_RID_NATIVE '
-    rows = [decode(line[len(prefix):]) for line in args.rust_stderr.read_text().splitlines() if line.startswith(prefix)]
-    count = check_rows(rows, go_rows)
-    rebind_prefix = 'C65_RID_REBIND '
-    rebind = [decode(line[len(rebind_prefix):]) for line in args.rust_stderr.read_text().splitlines() if line.startswith(rebind_prefix)]
-    rebind_count = check_rebind(rebind, rows)
-    rejected = controls(rows, go_rows)
-    broken = copy.deepcopy(rebind)
-    broken[0]['after'][0]['layers'][-1]['ssrc'] = 0
-    try:
-        check_rebind(broken, rows)
-    except ValueError as error:
-        rejected.append({'name': 'stale-rebind-snapshot', 'rejection': str(error)})
-    else:
-        raise ValueError('accepted stale rebind metadata')
-    print(json.dumps({'go_rows': go_count, 'native_rows': count, 'native_rebind_rows': rebind_count, 'negative_controls': rejected,
+    lines = args.rust_stderr.read_text().splitlines()
+
+    def records(prefix):
+        return [decode(line[len(prefix):]) for line in lines if line.startswith(prefix)]
+
+    batches = {}
+    for batch, padding in (('C65', False), ('C66', True)):
+        rows = records(batch + '_RID_NATIVE ')
+        count = check_rows(rows, go_rows, padding)
+        rebind = records(batch + '_RID_REBIND ')
+        rebind_count = check_rebind(rebind, rows)
+        rejected = controls(rows, go_rows, padding)
+        broken = copy.deepcopy(rebind)
+        broken[0]['after'][0]['layers'][-1]['ssrc'] = 0
+        try:
+            check_rebind(broken, rows)
+        except ValueError as error:
+            rejected.append({'name': 'stale-rebind-snapshot', 'rejection': str(error)})
+        else:
+            raise ValueError('accepted stale rebind metadata')
+        if padding:
+            wire, recovery = records('C66_RID_WIRE '), records('C66_RID_RECOVERY ')
+            check_padding_phases(wire, recovery, rows)
+            for name in ('missing-padding-bit', 'duplicate-padding-datagram', 'missing-media-recovery', 'duplicate-wire-row'):
+                bad_wire, bad_recovery = copy.deepcopy(wire), copy.deepcopy(recovery)
+                if name == 'missing-padding-bit':
+                    bad_wire[0]['packets'][0]['header_hex'] = '90' + bad_wire[0]['packets'][0]['header_hex'][2:]
+                elif name == 'duplicate-padding-datagram':
+                    bad_wire[0]['packets'] *= 2
+                elif name == 'missing-media-recovery':
+                    bad_recovery[0]['media_started'] = False
+                else:
+                    bad_wire[1] = copy.deepcopy(bad_wire[0])
+                try:
+                    check_padding_phases(bad_wire, bad_recovery, rows)
+                except ValueError as error:
+                    rejected.append({'name': name, 'rejection': str(error)})
+                else:
+                    raise ValueError('accepted padding corruption: ' + name)
+        batches[batch] = dict(native_rows=count, native_rebind_rows=rebind_count, negative_controls=rejected)
+    print(json.dumps({'go_rows': go_count, 'batches': batches,
                       'scope': 'actual native component callback semantics; negotiated MID bijection, not identical SDP/RTP wire or launched MAIN'}, indent=2))

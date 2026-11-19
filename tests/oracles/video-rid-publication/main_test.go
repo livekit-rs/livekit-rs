@@ -71,6 +71,7 @@ type input struct {
 		Timestamp     uint32 `json:"timestamp_start"`
 		Marker        bool   `json:"marker"`
 		PayloadHex    string `json:"payload_hex"`
+		PaddingSize   uint8  `json:"padding_size,omitempty"`
 	} `json:"rtp"`
 }
 type fixture struct {
@@ -236,14 +237,22 @@ func observe(t *testing.T, f fixture, j *journal) observation {
 	var req livekit.AddTrackRequest
 	check(t, protojson.Unmarshal(f.Input.Request, &req))
 	original := proto.Clone(&req)
+	paddingOnly := strings.HasPrefix(f.Case, "c66-")
+	if paddingOnly {
+		if f.Input.RTP.PaddingSize != 1 || f.Input.RTP.PayloadHex != "" {
+			t.Fatal("C66 requires exactly one padding byte and empty payload")
+		}
+	} else if f.Input.RTP.PaddingSize != 0 || f.Input.RTP.PayloadHex != "1001000000" {
+		t.Fatal("unsupported C65 payload/padding stimulus")
+	}
 	if f.Input.FireOnTrackBySDP || !f.Input.Simulcast || strings.Join(f.Input.Rids, ";") != "q;f" ||
 		f.Input.SSRC != 424242 || f.Input.IdleSSRC != 434343 || f.Input.Mid != "0" ||
 		req.Cid != "c65-video" || req.Stream != "c65-stream" ||
 		f.Input.PeerCodec.Mime != "video/VP8" || f.Input.PeerCodec.ClockRate != 90000 || f.Input.PeerCodec.PayloadType != 96 ||
 		f.Input.RTP.Count != 1 || f.Input.RTP.SequenceStart != 1000 || f.Input.RTP.Timestamp != 90000 ||
-		f.Input.RTP.PayloadHex != "1001000000" || f.Input.QuietMS != 100 || f.Input.SettledMS != 100 ||
+		f.Input.QuietMS != 100 || f.Input.SettledMS != 100 ||
 		f.Input.CallbackTimeoutMS != 5000 || f.Input.StatsTimeoutMS != 5000 {
-		t.Fatal("unsupported C65 stimulus")
+		t.Fatal("unsupported C65/C66 stimulus")
 	}
 
 	peerSE := loopbackSettings(t, j, f.Case, "peer")
@@ -509,6 +518,7 @@ connection:
 	payload, err := hex.DecodeString(f.Input.RTP.PayloadHex)
 	check(t, err)
 	packet := &rtp.Packet{Header: rtp.Header{Version: 2, Marker: f.Input.RTP.Marker,
+		Padding: paddingOnly, PaddingSize: f.Input.RTP.PaddingSize,
 		PayloadType: f.Input.PeerCodec.PayloadType, SequenceNumber: f.Input.RTP.SequenceStart,
 		Timestamp: f.Input.RTP.Timestamp, SSRC: f.Input.SSRC}, Payload: payload}
 	check(t, packet.SetExtension(extensions[sdp.SDESMidURI], []byte(f.Input.Mid)))
@@ -545,30 +555,70 @@ connection:
 	}
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	statsDeadline := time.NewTimer(time.Duration(f.Input.StatsTimeoutMS) * time.Millisecond)
-	defer statsDeadline.Stop()
-	for {
-		stats := localTrack.GetTrackStats()
-		if stats != nil && stats.Packets > 0 {
-			j.write(f.Case, "received_rtp_stats", stats)
-			if stats.Packets != 1 {
-				t.Fatal("receiver packet count is not one")
+	if paddingOnly {
+		// RID discovery precedes the buffer's pre-start padding filter.
+		start := time.Now()
+		duration := time.Duration(f.Input.SettledMS) * time.Millisecond
+		settleDeadline := time.NewTimer(duration)
+		defer settleDeadline.Stop()
+		samples := 0
+		for {
+			stats := localTrack.GetTrackStats()
+			samples++
+			if stats != nil {
+				j.write(f.Case, "unexpected_padding_rtp_stats", stats)
+				t.Fatal("padding-only first packet initialized public track stats")
 			}
-			break
+			if samples == 1 {
+				// Untyped nil ensures JSON null, not an empty protobuf object.
+				j.write(f.Case, "received_rtp_stats", nil)
+			}
+			if time.Since(start) >= duration {
+				break
+			}
+			select {
+			case <-ticker.C:
+			case <-settleDeadline.C:
+			}
 		}
-		select {
-		case <-ticker.C:
-		case <-statsDeadline.C:
-			j.write(f.Case, "received_rtp_stats_deadline", stats)
-			t.Fatal("receiver did not ingest the sole RTP packet; no extra packet sent")
+		j.write(f.Case, "padding_stats_observation", map[string]any{
+			"samples": samples, "elapsed_ns": time.Since(start).Nanoseconds(), "stats": nil,
+		})
+	} else {
+		statsDeadline := time.NewTimer(time.Duration(f.Input.StatsTimeoutMS) * time.Millisecond)
+		defer statsDeadline.Stop()
+		for {
+			stats := localTrack.GetTrackStats()
+			if stats != nil && stats.Packets > 0 {
+				j.write(f.Case, "received_rtp_stats", stats)
+				if stats.Packets != 1 {
+					t.Fatal("receiver packet count is not one")
+				}
+				break
+			}
+			select {
+			case <-ticker.C:
+			case <-statsDeadline.C:
+				j.write(f.Case, "received_rtp_stats_deadline", stats)
+				t.Fatal("receiver did not ingest the sole RTP packet; no extra packet sent")
+			}
 		}
+		<-time.After(time.Duration(f.Input.SettledMS) * time.Millisecond)
 	}
-	<-time.After(time.Duration(f.Input.SettledMS) * time.Millisecond)
 	settled := publication.track.ToProto()
 	j.write(f.Case, "settled_track", settled)
 	j.write(f.Case, "settled_counts", map[string]any{"publications": publicationCount.Load(),
 		"published_tracks": len(p.GetPublishedTracks()), "rtp_writes": writes.Load(), "idle_rtp_writes": 0})
-	j.write(f.Case, "settled_rtp_stats", localTrack.GetTrackStats())
+	settledStats := localTrack.GetTrackStats()
+	if paddingOnly {
+		if settledStats != nil {
+			j.write(f.Case, "unexpected_padding_rtp_stats", settledStats)
+			t.Fatal("padding-only settled public track stats must remain nil")
+		}
+		j.write(f.Case, "settled_rtp_stats", nil)
+	} else {
+		j.write(f.Case, "settled_rtp_stats", settledStats)
+	}
 	if !proto.Equal(original, &req) {
 		t.Fatal("public methods mutated AddTrack request")
 	}

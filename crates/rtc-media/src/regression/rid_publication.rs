@@ -145,6 +145,10 @@ fn pump(room: &mut Room, engine: &mut MediaEngine, observed: &mut Observed, now:
 }
 
 fn check_first_rid_packet(duplicate: bool, marker: bool, late_bind: bool) {
+    check_rid_packet(duplicate, marker, late_bind, false);
+}
+
+fn check_rid_packet(duplicate: bool, marker: bool, late_bind: bool, padding: bool) {
     let start = Instant::now();
     let mut policy = f93_policy();
     policy.use_ice_lite = true;
@@ -299,6 +303,7 @@ fn check_first_rid_packet(duplicate: bool, marker: bool, late_bind: bool) {
     let mut connected_at = None;
     let mut sent = false;
     let mut rejected_bad_auth = false;
+    let mut rtp_wire = vec![];
     for tick in 0..2000u64 {
         let now = start + Duration::from_millis(tick);
         peer.handle_input(Input::Timeout(now)).unwrap();
@@ -319,19 +324,37 @@ fn check_first_rid_packet(duplicate: bool, marker: bool, late_bind: bool) {
                     .unwrap()
                     .pt();
                 assert_eq!(*pt, 96);
+                let write = if padding {
+                    RtpWrite::padding_only(pt, 1000.into(), 90_000, now)
+                } else {
+                    RtpWrite::new(pt, 1000.into(), 90_000, now, vec![0x10, 0x01, 0, 0, 0])
+                };
                 peer.direct_api()
                     .stream_tx_by_mid(mid, Some("q".into()))
                     .unwrap()
-                    .write_rtp(
-                        RtpWrite::new(pt, 1000.into(), 90_000, now, vec![0x10, 0x01, 0, 0, 0])
-                            .marker(marker),
-                    );
+                    .write_rtp(write.marker(marker));
                 sent = true;
             }
         }
         loop {
             match peer.poll_output().unwrap() {
                 Output::Transmit(packet) => {
+                    if sent
+                        && packet.contents.len() > 12
+                        && packet.contents[0] >> 6 == 2
+                        && packet.contents[1] & 0x7f == 96
+                    {
+                        let bytes = &packet.contents;
+                        assert_eq!(bytes[0] & 0x20 != 0, padding);
+                        assert_eq!(bytes[1] & 0x80 != 0, marker);
+                        assert_eq!(u16::from_be_bytes(bytes[2..4].try_into().unwrap()), 1000);
+                        assert_eq!(u32::from_be_bytes(bytes[4..8].try_into().unwrap()), 90_000);
+                        assert_eq!(u32::from_be_bytes(bytes[8..12].try_into().unwrap()), 424242);
+                        rtp_wire.push(serde_json::json!({
+                            "header_hex":bytes[..12].iter().map(|b| format!("{b:02x}")).collect::<String>(),
+                            "encrypted_len":bytes.len(),
+                        }));
+                    }
                     if sent
                         && !rejected_bad_auth
                         && packet.contents.len() > 12
@@ -411,13 +434,21 @@ fn check_first_rid_packet(duplicate: bool, marker: bool, late_bind: bool) {
         .and_then(|ui| engine.ups.get(*ui))
         .is_some_and(|up| up.started);
     let settled = room.get_participant(&"c65".into()).unwrap().tracks;
+    let batch = if padding { "C66" } else { "C65" };
+    assert_eq!(rtp_wire.len(), 1, "exactly one actual SRTP datagram");
+    if padding {
+        eprintln!(
+            "C66_RID_WIRE {}",
+            serde_json::json!({"duplicate":duplicate,"marker":marker,"late_bind":late_bind,"packets":rtp_wire})
+        );
+    }
     eprintln!(
-        "C65_RID_NATIVE {}",
+        "{batch}_RID_NATIVE {}",
         serde_json::json!({
             "duplicate": duplicate, "marker": marker, "late_bind": late_bind, "mid": mid.to_string(), "sent": sent,
             "offer_sdp": offer_sdp, "answer_sdp": answer_sdp, "receiver": receiver,
             "rejected_bad_auth": rejected_bad_auth,
-            "rtp": {"pt":96,"ssrc":424242,"sequence_number":1000,"timestamp":90000,"payload_hex":"1001000000","marker":marker,"rid":"q"},
+            "rtp": {"pt":96,"ssrc":424242,"sequence_number":1000,"timestamp":90000,"payload_hex":if padding { "" } else { "1001000000" },"marker":marker,"rid":"q"},
             "authenticated": authenticated, "registrations": observed.registrations,
             "media_started_events": observed.starts, "media_started": media_started, "visible": visible,
             "ack": observed.ack.iter().map(track_json).collect::<Vec<_>>(),
@@ -436,8 +467,8 @@ fn check_first_rid_packet(duplicate: bool, marker: bool, late_bind: bool) {
     assert_eq!(observed.pending_media, 1);
     assert_eq!(
         receiver,
-        Some((424242, 0, 1)),
-        "exactly one native primary packet on RID q"
+        Some((424242, 0, if padding { 0 } else { 1 })),
+        "padding must not initialize the native media packet counter"
     );
     assert_eq!(observed.ack[0].layers, layers);
     assert_eq!(observed.ack[0].codecs[0].layers, layers);
@@ -448,7 +479,7 @@ fn check_first_rid_packet(duplicate: bool, marker: bool, late_bind: bool) {
     assert_eq!(observed.registrations, 1);
     assert_eq!(
         media_started,
-        marker && !late_bind,
+        marker && !late_bind && !padding,
         "publication must not activate frame forwarding"
     );
     assert_eq!(
@@ -543,8 +574,18 @@ fn check_first_rid_packet(duplicate: bool, marker: bool, late_bind: bool) {
     );
     pump(&mut room, &mut engine, &mut observed, rebind_at);
     let after_rebind = room.get_participant(&"c65".into()).unwrap().tracks;
+    if padding {
+        assert_eq!(observed.starts, 1, "later real media must still start");
+        let up = engine.ups.get(engine.up_by_mid[&(tid, mid)]).unwrap();
+        assert!(up.started);
+        eprintln!(
+            "C66_RID_RECOVERY {}",
+            serde_json::json!({"duplicate":duplicate,"marker":marker,"late_bind":late_bind,
+                "media_started":up.started,"media_started_events":observed.starts})
+        );
+    }
     eprintln!(
-        "C65_RID_REBIND {}",
+        "{batch}_RID_REBIND {}",
         serde_json::json!({
             "duplicate":duplicate,"marker":marker,"late_bind":late_bind,
             "before":before_rebind.iter().map(track_json).collect::<Vec<_>>(),
@@ -600,4 +641,44 @@ fn c65_rid_duplicate_first_fragment_before_bind_publishes() {
 #[test]
 fn c65_rid_duplicate_complete_frame_before_bind_publishes() {
     check_first_rid_packet(true, true, true);
+}
+
+#[test]
+fn c66_rid_sparse_unmarked_padding_publishes() {
+    check_rid_packet(false, false, false, true);
+}
+
+#[test]
+fn c66_rid_sparse_marked_padding_publishes() {
+    check_rid_packet(false, true, false, true);
+}
+
+#[test]
+fn c66_rid_duplicate_unmarked_padding_publishes() {
+    check_rid_packet(true, false, false, true);
+}
+
+#[test]
+fn c66_rid_duplicate_marked_padding_publishes() {
+    check_rid_packet(true, true, false, true);
+}
+
+#[test]
+fn c66_rid_sparse_unmarked_padding_before_bind_publishes() {
+    check_rid_packet(false, false, true, true);
+}
+
+#[test]
+fn c66_rid_sparse_marked_padding_before_bind_publishes() {
+    check_rid_packet(false, true, true, true);
+}
+
+#[test]
+fn c66_rid_duplicate_unmarked_padding_before_bind_publishes() {
+    check_rid_packet(true, false, true, true);
+}
+
+#[test]
+fn c66_rid_duplicate_marked_padding_before_bind_publishes() {
+    check_rid_packet(true, true, true, true);
 }

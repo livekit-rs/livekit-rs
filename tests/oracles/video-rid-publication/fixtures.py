@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C65 literal hypotheses, fixed before execution; never read observed output."""
+"""C65/C66 literal hypotheses, fixed before execution; never read observed output."""
 import copy
 import json
 from pathlib import Path
@@ -57,6 +57,13 @@ def fixtures():
                                  rtp_write_attempts=1, rtp_write_successes=1, idle_rtp_writes=0,
                                  quiet_publication_count=0, quiet_published_track_count=0,
                                  publication_count=1, settled_published_track_count=1)))
+    for original in copy.deepcopy(expected):
+        marker = original['input']['rtp']['marker']
+        shape = original['case'].removeprefix('c65-').rsplit('-', 1)[0]
+        original['case'] = 'c66-' + shape + ('-marked-padding' if marker else '-unmarked-padding')
+        original['input']['rtp'].update(payload_hex='', padding_size=1)
+        rows.append({k: original[k] for k in ('schema_version', 'case', 'input')})
+        expected.append(original)
     return copy.deepcopy(rows), copy.deepcopy(expected)
 
 
