@@ -1,0 +1,27 @@
+{
+  "commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/sfu/rtpstats/rtpstats_base.go": "8757c6c3375120bc62de9500756b0de9f9081c3155233f7824e1d313cbe59c9d",
+    "pkg/sfu/rtpstats/rtpstats_base_lite.go": "b60ddf58682326c34522ee64abe38667c539d61d1e480b1fcdc85966d7a602e9",
+    "pkg/sfu/rtpstats/rtpstats_sender.go": "bc5244e1f16f13a8a8d89369659e1d6070f03b5a36dfd5516dcd52fa39b5400f",
+    "pkg/sfu/rtpstats/rtpstats_receiver.go": "6b7c3659adfa297297075588bbba8446c59b87d92aff66cc3f05b09367d05b26",
+    "pkg/sfu/connectionquality/connectionstats.go": "37169fa0c34da7b179a601738afa827badc03aa350b9a77a6bdbbcbccf01bc59",
+    "pkg/sfu/downtrack.go": "8fe93a5a773de34408be61d3b8917e1da60f766f2c13c61bd774aab14321fc8d",
+    "pkg/sfu/buffer/buffer_base.go": "29d6e77102c60e6defd12550c3e9b2877325c339da2e008713ef1ff80303e403",
+    "pkg/telemetry/stats.go": "53e1aff63d72fe90c0864ab6d09071ef7dddc5e922bd6055fe3c153671b62429"
+  },
+  "observer": "boundary_observer_test.go",
+  "staged_as": "pkg/sfu/connectionquality/source_media_counting_boundary_test.go",
+  "rows": "SOURCE_MEDIA_BOUNDARY",
+  "invoked_production_apis": [
+    "rtpstats.NewRTPStatsSender(RTPStatsParams{IsRTX}, mdCacheSize) (pkg/sfu/downtrack.go:391-402)",
+    "(*rtpstats.RTPStatsSender).Update (pkg/sfu/rtpstats/rtpstats_sender.go:459)",
+    "(*rtpstats.RTPStatsSender).NewSnapshotId / NewSenderSnapshotId (rtpstats_sender.go:433-457)",
+    "(*rtpstats.RTPStatsSender).DeltaInfo / DeltaInfoSender (rtpstats_sender.go:1031-1190)",
+    "(*rtpstats.RTPStatsSender).GetPacketsSeenMinusPadding (rtpstats_sender.go:675)",
+    "rtpstats.ReconcileRTPDeltaInfoWithRTX (rtpstats_base.go:974)",
+    "rtpstats.NewRTPStatsReceiver(RTPStatsParams{}) (pkg/sfu/buffer/buffer_base.go:469) + (*rtpstats.RTPStatsReceiver).Update / NewSnapshotId / DeltaInfo / ExtendedHighestSequenceNumber (pkg/sfu/rtpstats/rtpstats_receiver.go:200-960)",
+    "connectionquality.toAnalyticsStream (pkg/sfu/connectionquality/connectionstats.go:455-504)",
+    "connectionquality.toAnalyticsVideoLayer (pkg/sfu/connectionquality/connectionstats.go:506-521)"
+  ]
+}

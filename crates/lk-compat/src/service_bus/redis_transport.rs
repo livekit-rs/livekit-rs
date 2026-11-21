@@ -6,9 +6,7 @@
 
 use super::channels::Channel;
 use super::wire::{self, BusMessage, CompressionPolicy, WireLimits};
-use crate::redis_endpoint::{
-    RedisEndpoint, SharedConnection, go_dial_error_text, go_error_text,
-};
+use crate::redis_endpoint::{RedisEndpoint, SharedConnection, go_dial_error_text, go_error_text};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use redis::AsyncConnectionConfig;
 use sha2::{Digest, Sha256};

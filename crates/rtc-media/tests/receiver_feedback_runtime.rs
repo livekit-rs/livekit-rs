@@ -213,9 +213,20 @@ mod remote_bwe {
     pub use rtc_media::remote_bwe::*;
 }
 // Exact production owner has additional hooks exercised by library tests.
+// The owner is loaded from the real source, so every crate-root module it
+// reaches has to exist here too; they are the same files, not a second copy.
+#[allow(dead_code)]
+#[path = "../src/allocator.rs"]
+mod allocator;
 #[allow(dead_code)]
 #[path = "../src/feedback.rs"]
 mod feedback;
+#[allow(dead_code)]
+#[path = "../src/layers.rs"]
+mod layers;
+#[allow(dead_code)]
+#[path = "../src/send_side_bwe/mod.rs"]
+mod send_side_bwe;
 mod pion_gcc {
     pub use rtc_media::pion_gcc::*;
 }

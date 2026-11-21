@@ -202,6 +202,34 @@ impl MediaEngine {
         (!result.is_empty()).then_some(result)
     }
 
+    /// Go `HandleCodecRegression` up to the point where the source receivers are transferred:
+    /// `OnRegressCodec` puts HIGH into the demand map of a backup codec that has no entry of
+    /// its own (that is what tells the publisher to start it), the manager commits that pair
+    /// immediately, and `RegressTo` -> `Replace` -> `Restart` re-arms the backup's forced
+    /// initial update. Returns true when HIGH was injected, i.e. the backup demand is not yet
+    /// this codec's own aggregate and must not be merged from the transferred receivers.
+    fn regress_dynacast_to(&mut self, target: usize, now: Instant) -> bool {
+        let pause_delay = self.cfg.video.dynacast_pause_delay;
+        let Some(up) = self.ups.get_mut(target) else {
+            return false;
+        };
+        // Go `getOrCreateDynacastQuality(toMime)`: the backup codec joins the demand map even
+        // when no subscriber ever named it.
+        let codec = crate::codecs::dynacast_codec_name(&up.mime);
+        let muted = up.muted;
+        let woken = up
+            .dynacast
+            .get_or_insert_with(|| crate::dynacast::Dynacast::new(codec, pause_delay, now, muted))
+            .wake_for_regression();
+        if woken {
+            self.commit_dynacast(target, false, now);
+        }
+        if let Some(dynacast) = self.ups.get_mut(target).and_then(|up| up.dynacast.as_mut()) {
+            dynacast.reinitialize(now);
+        }
+        woken
+    }
+
     pub(crate) fn codec_receiver_started(&mut self, ui: usize, observed_mime: &str, now: Instant) {
         let Some(up) = self.ups.get(ui) else {
             return;
@@ -240,6 +268,7 @@ impl MediaEngine {
         });
         if let Some(target) = regressed {
             self.up_by_sid.insert(sid.clone(), target);
+            let woken = self.regress_dynacast_to(target, now);
             let sources = self.codec_receivers[&sid]
                 .receivers
                 .iter()
@@ -258,8 +287,9 @@ impl MediaEngine {
                     self.move_codec_subscription(down, target, now);
                 }
             }
-            self.refresh_down_layers(target, now);
-            self.update_dynacast(target, now);
+            if !woken {
+                self.update_dynacast(target, now);
+            }
         }
         self.activate_invalid_receivers(&sid, now);
     }
@@ -323,6 +353,7 @@ impl MediaEngine {
             })
             .map(|receiver| receiver.up)
             .collect::<Vec<_>>();
+        let woken = self.regress_dynacast_to(target, now);
         for old in old {
             if let Some(receiver) = self
                 .codec_receivers
@@ -361,8 +392,9 @@ impl MediaEngine {
             if self.up_by_sid.get(sid) == Some(&old) {
                 self.up_by_sid.insert(sid.clone(), target);
             }
-            self.refresh_down_layers(target, now);
-            self.update_dynacast(target, now);
+            if !woken {
+                self.update_dynacast(target, now);
+            }
         }
     }
     pub(crate) fn codec_receiver_unavailable(&self, ui: usize) -> bool {
@@ -443,7 +475,6 @@ impl MediaEngine {
         let Some(up) = self.ups.get(target) else {
             return;
         };
-        let layers = up.layers.clone();
         let mime = up.mime.clone();
         let muted = up.muted;
         let Some(down) = self.downs.get_mut(di) else {
@@ -463,7 +494,11 @@ impl MediaEngine {
         // Keep SDP, SSRC, RTP clock continuity and bound lifecycle intact; the
         // new codec must pass its own keyframe gate before any media forwarding.
         down.stop_forwarding();
-        down.apply_settings_layers(&layers);
+        // `DownTrack.SetReceiver` -> `handleUpstreamCodecChange` restarts the forwarder but keeps
+        // the downtrack's own max layer: only `UpdateTrackSettings` re-derives it. Re-reading the
+        // settings here would replace the transferred demand (`RegressTo` -> `Replace`) with the
+        // subscription's nominal quality. The retained spatial index is mapped through the new
+        // codec's layer set when the demand is aggregated, which is `GetVideoQualityForSpatialLayer`.
         if let Some(up) = self.ups.get_mut(previous) {
             up.subscribers.retain(|other| *other != di);
         }

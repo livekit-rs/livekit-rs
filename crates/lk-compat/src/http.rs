@@ -860,7 +860,10 @@ mod tests {
             ("", "/"),
             ("/", "/"),
             ("//", "/"),
-            ("///twirp/livekit.RoomService/ListRooms", "/twirp/livekit.RoomService/ListRooms"),
+            (
+                "///twirp/livekit.RoomService/ListRooms",
+                "/twirp/livekit.RoomService/ListRooms",
+            ),
             ("//twirp/x", "/twirp/x"),
             ("/twirp//x", "/twirp/x"),
             ("/a/./b", "/a/b"),
@@ -943,9 +946,7 @@ mod tests {
 
     #[test]
     fn serve_mux_redirect_preserves_query() {
-        let (s, h, _) = run(get("/whoami/../boom?x=1&y=2")
-            .body(Body::empty())
-            .unwrap());
+        let (s, h, _) = run(get("/whoami/../boom?x=1&y=2").body(Body::empty()).unwrap());
         assert_eq!(s, StatusCode::TEMPORARY_REDIRECT);
         assert_eq!(h.get(header::LOCATION).unwrap(), "/boom?x=1&y=2");
     }

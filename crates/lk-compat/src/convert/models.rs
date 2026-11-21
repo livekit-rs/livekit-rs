@@ -835,7 +835,9 @@ mod tests {
         let deflate = pb::client_info::Capability::CapCompressionDeflateRaw as i32;
         // Declaration order preserved, unknown names dropped, empties skipped.
         assert_eq!(
-            capabilities_from_query("CAP_COMPRESSION_DEFLATE_RAW, CAP_UNKNOWN_NAME ,CAP_PACKET_TRAILER,"),
+            capabilities_from_query(
+                "CAP_COMPRESSION_DEFLATE_RAW, CAP_UNKNOWN_NAME ,CAP_PACKET_TRAILER,"
+            ),
             vec![deflate, CAP_PACKET_TRAILER]
         );
         assert_eq!(capabilities_from_query(""), Vec::<i32>::new());

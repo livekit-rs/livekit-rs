@@ -229,7 +229,19 @@ pub(crate) struct Transport {
 
     // ---- bandwidth ----
     pub estimate_bps: Option<u64>,
+    /// Native-mode allocation/probe policy (HEAD semantics). This is the
+    /// authority that produces `capacity()`; nothing else may rewrite it.
     pub probes: crate::probe_controller::ProbeController,
+    /// The application-owned Go-parity send-side estimator, native mode only.
+    ///
+    /// It ingests the real vendor `SendSideFeedback` observations and derives
+    /// its own capacity/congestion state, but it is **not yet the allocation
+    /// authority**: `capacity()`, the allocator and the vendor snapshot path all
+    /// ignore it. Its latest estimate lives here purely for diagnostics.
+    pub send_side: Option<crate::send_side_bwe::SendSideBwe>,
+    /// Last diagnostic view of [`Self::send_side`]: the detector's own capacity
+    /// ceiling plus its congestion state, recorded when an input was handled.
+    pub send_side_observed: Option<SendSideObservation>,
     pub layer_bitrates: crate::allocator::LayerBitrateCache,
     pub allocated_bps: u64,
     pub allocation_overshoot_bps: u64,
@@ -238,6 +250,18 @@ pub(crate) struct Transport {
     pub twcc_estimates: bool,
     pub bw_override_bps: u64,
     pub rtt: Option<Duration>,
+}
+
+/// Diagnostic snapshot of the application-owned send-side estimator. Read-only:
+/// no consumer below may turn a value here into an allocation decision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SendSideObservation {
+    /// The detector's own estimated available channel capacity in bits/s.
+    pub estimate_bps: i64,
+    /// The detector's own congestion state as last observed.
+    pub congestion: crate::send_side_bwe::CongestionState,
+    /// Wall clock of the observation that produced this view.
+    pub at: Instant,
 }
 
 impl Transport {
@@ -330,6 +354,8 @@ impl Transport {
             requirement_force: false,
             estimate_bps: has_bwe.then_some(crate::allocator::INITIAL_CAPACITY_BPS),
             probes: crate::probe_controller::ProbeController::new(now),
+            send_side: None,
+            send_side_observed: None,
             layer_bitrates: Default::default(),
             allocated_bps: 0,
             allocation_overshoot_bps: 0,
@@ -384,18 +410,16 @@ impl Transport {
         if self.has_bwe && self.bw_override_bps > 0 {
             return Some(self.bw_override_bps);
         }
-        match (
-            if self.has_bwe {
-                if let Some(remote) = &self.remote_feedback {
-                    Some(remote.capacity())
-                } else {
-                    self.probes.capacity(self.estimate_bps)
-                }
+        let estimate = if self.has_bwe {
+            if let Some(remote) = &self.remote_feedback {
+                Some(remote.capacity())
             } else {
-                self.estimate_bps
-            },
-            self.bw_override_bps,
-        ) {
+                self.probes.capacity(self.estimate_bps)
+            }
+        } else {
+            self.estimate_bps
+        };
+        match (estimate, self.bw_override_bps) {
             (Some(e), 0) => Some(e),
             (Some(e), o) => Some(e.min(o)),
             (None, 0) => None,

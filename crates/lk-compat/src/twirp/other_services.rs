@@ -825,7 +825,12 @@ mod http_integration_tests {
             buf.extend_from_slice(&tmp[..n]);
         };
         let head = String::from_utf8_lossy(&buf[..header_end]).into_owned();
-        let status = head.split_whitespace().nth(1).unwrap().parse::<u16>().unwrap();
+        let status = head
+            .split_whitespace()
+            .nth(1)
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
         let lower = head.to_lowercase();
         let content_length: usize = lower
             .lines()
@@ -869,8 +874,7 @@ mod http_integration_tests {
             let (status, head, body) = read_http_response(&mut guard).await;
             assert_eq!(status, 500, "{method}");
             assert_eq!(
-                body,
-                r#"{"code":"internal","msg":"ingress not connected (redis required)"}"#,
+                body, r#"{"code":"internal","msg":"ingress not connected (redis required)"}"#,
                 "{method}"
             );
             assert!(
@@ -887,8 +891,7 @@ mod http_integration_tests {
             let (status, head, body) = read_http_response(&mut panic).await;
             assert_eq!(status, 500, "{method}");
             assert_eq!(
-                body,
-                r#"{"code":"internal","msg":"Internal service panic"}"#,
+                body, r#"{"code":"internal","msg":"Internal service panic"}"#,
                 "{method}"
             );
             assert!(
@@ -901,7 +904,10 @@ mod http_integration_tests {
                 .await
                 .expect("server must close the connection after the panic response")
                 .unwrap();
-            assert_eq!(n, 0, "{method}: connection must be closed (EOF), not reusable");
+            assert_eq!(
+                n, 0,
+                "{method}: connection must be closed (EOF), not reusable"
+            );
         }
 
         server.abort();

@@ -134,8 +134,11 @@ impl SentinelEvents {
             Err(error) => {
                 write_redis_diagnostic(
                     "sentinel.go:1215",
-                    format!("sentinel: Sentinels master={name} failed: {}", go_error_text(&error))
-                        .as_bytes(),
+                    format!(
+                        "sentinel: Sentinels master={name} failed: {}",
+                        go_error_text(&error)
+                    )
+                    .as_bytes(),
                 );
                 return;
             }
@@ -342,7 +345,8 @@ async fn consume(
                         install_master(&mut guard, epoch, address, &target.master_name);
                         if first_event {
                             epoch.send_modify(|value| {
-                                *value = value.checked_add(1).expect("Sentinel generation exhausted")
+                                *value =
+                                    value.checked_add(1).expect("Sentinel generation exhausted")
                             });
                         }
                     }
@@ -388,10 +392,7 @@ mod tests {
         assert!(switch_address("main", b"main a 6379 b 999999").is_none());
         assert!(switch_address("main", b"main malformed").is_none());
     }
-    fn peer_row(
-        ip: Option<&str>,
-        port: Option<&str>,
-    ) -> std::collections::HashMap<String, String> {
+    fn peer_row(ip: Option<&str>, port: Option<&str>) -> std::collections::HashMap<String, String> {
         let mut row = std::collections::HashMap::new();
         if let Some(ip) = ip {
             row.insert("ip".to_string(), ip.to_string());
@@ -406,12 +407,20 @@ mod tests {
         let configured = vec!["127.0.0.1:23401".to_string()];
         // A new peer is reported with net.JoinHostPort formatting.
         assert_eq!(
-            discovered_peer(&peer_row(Some("127.0.0.1"), Some("23402")), &configured, &[]),
+            discovered_peer(
+                &peer_row(Some("127.0.0.1"), Some("23402")),
+                &configured,
+                &[]
+            ),
             Some("127.0.0.1:23402".to_string())
         );
         // A configured peer and an already-discovered peer are not re-reported.
         assert_eq!(
-            discovered_peer(&peer_row(Some("127.0.0.1"), Some("23401")), &configured, &[]),
+            discovered_peer(
+                &peer_row(Some("127.0.0.1"), Some("23401")),
+                &configured,
+                &[]
+            ),
             None
         );
         assert_eq!(
@@ -423,10 +432,22 @@ mod tests {
             None
         );
         // Missing or empty ip/port rows are skipped (sentinel.go:1219-1227).
-        assert_eq!(discovered_peer(&peer_row(None, Some("23402")), &[], &[]), None);
-        assert_eq!(discovered_peer(&peer_row(Some("127.0.0.1"), None), &[], &[]), None);
-        assert_eq!(discovered_peer(&peer_row(Some(""), Some("23402")), &[], &[]), None);
-        assert_eq!(discovered_peer(&peer_row(Some("127.0.0.1"), Some("")), &[], &[]), None);
+        assert_eq!(
+            discovered_peer(&peer_row(None, Some("23402")), &[], &[]),
+            None
+        );
+        assert_eq!(
+            discovered_peer(&peer_row(Some("127.0.0.1"), None), &[], &[]),
+            None
+        );
+        assert_eq!(
+            discovered_peer(&peer_row(Some(""), Some("23402")), &[], &[]),
+            None
+        );
+        assert_eq!(
+            discovered_peer(&peer_row(Some("127.0.0.1"), Some("")), &[], &[]),
+            None
+        );
         // IPv6 hosts are bracketed; the port stays a string (no numeric parse),
         // exactly like net.JoinHostPort.
         assert_eq!(

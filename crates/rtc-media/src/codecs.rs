@@ -64,6 +64,13 @@ pub(crate) fn configure_codecs(
         // PT 111, fmtp minptime=10;useinbandfec=1, RED PT 63 with fmtp 111/111.
         cfg = cfg.enable_opus(true, red);
     }
+    if red {
+        // str0m defaults to one redundant level; Go's `RedReceiver` keeps `maxRedCount = 2` frames
+        // of history (`redreceiver.go`), i.e. levels 1 and 2, so a RED-wrapped packet repeats the
+        // two previous frames. RED that is registered but not used keeps the default, because only
+        // the negotiated path wraps and `set_red_distances` is read when a packet is payloadised.
+        cfg = cfg.set_red_distances(&[1, 2]);
+    }
     if en.mime("audio/pcmu") {
         cfg = cfg.enable_pcmu(true, false);
     }

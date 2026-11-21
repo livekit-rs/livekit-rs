@@ -117,11 +117,19 @@ impl RtpHeader {
 
     /// Returns `buf` with any trailing SRTP padding removed, or `None` if the
     /// trailing padding length is invalid.
+    ///
+    /// Fixed livekit/webrtc-pion parity: `rtp.Packet.Unmarshal` rejects a set
+    /// padding bit with no trailing byte (`errTooSmall`) and a zero pad count
+    /// (`errInvalidRTPPadding`). Both must drop the whole packet rather than
+    /// publish an empty/zero-padded payload as media.
     pub(crate) fn unpad_payload(buf: &[u8]) -> Option<&[u8]> {
         if buf.is_empty() {
-            return Some(buf);
+            return None;
         }
         let pad_len = buf[buf.len() - 1] as usize;
+        if pad_len == 0 {
+            return None;
+        }
         let unpadded_len = buf.len().checked_sub(pad_len)?;
         Some(&buf[..unpadded_len])
     }
@@ -917,7 +925,8 @@ mod test {
             }
         };
 
-        assert_eq!(Ok(vec![1, 2, 3, 4, 0]), truncate(vec![1, 2, 3, 4, 0]));
+        // A zero pad count is invalid (Pion errInvalidRTPPadding), not media.
+        assert_eq!(Err(()), truncate(vec![1, 2, 3, 4, 0]));
         assert_eq!(Ok(vec![1, 2, 3, 4]), truncate(vec![1, 2, 3, 4, 1]));
         assert_eq!(Ok(vec![1, 2, 3]), truncate(vec![1, 2, 3, 4, 2]));
         assert_eq!(Ok(vec![1, 2]), truncate(vec![1, 2, 3, 4, 3]));
@@ -925,8 +934,538 @@ mod test {
         assert_eq!(Ok(vec![]), truncate(vec![1, 2, 3, 4, 5]));
         assert_eq!(Err(()), truncate(vec![1, 2, 3, 4, 6]));
         assert_eq!(Err(()), truncate(vec![1, 2, 3, 4, 255]));
-        assert_eq!(Ok(vec![0]), truncate(vec![0]));
+        assert_eq!(Err(()), truncate(vec![0]));
         assert_eq!(Ok(vec![]), truncate(vec![1]));
-        assert_eq!(Ok(vec![]), truncate(vec![]));
+        // A set padding bit with no trailing byte is invalid (Pion errTooSmall).
+        assert_eq!(Err(()), truncate(vec![]));
+    }
+
+    /// Frozen `tests/oracles/pion-rtp-padding/cases.jsonl` decision rows. Every
+    /// field is what the corresponding fixed Go parser reports, so a drift in
+    /// either parser fails this table before any paired run is needed.
+    #[derive(Clone, Copy)]
+    struct Admission {
+        case: &'static str,
+        bytes_hex: &'static str,
+        accepted: bool,
+        payload_hex: &'static str,
+        padding_only: bool,
+        padding_bit: bool,
+        padding_size: usize,
+    }
+
+    const FROZEN_PADDING_ADMISSION: [Admission; 13] = [
+        Admission {
+            case: "pad_no_tail_byte",
+            bytes_hex: "a06003e8000186a000067532",
+            accepted: false,
+            payload_hex: "",
+            padding_only: false,
+            padding_bit: true,
+            padding_size: 0,
+        },
+        Admission {
+            case: "pad_zero_count",
+            bytes_hex: "a06003e8000186a0000675321001000000",
+            accepted: false,
+            payload_hex: "",
+            padding_only: false,
+            padding_bit: true,
+            padding_size: 0,
+        },
+        Admission {
+            case: "pad_count_exceeds_data",
+            bytes_hex: "a06003e8000186a00006753203",
+            accepted: false,
+            payload_hex: "",
+            padding_only: false,
+            padding_bit: true,
+            padding_size: 3,
+        },
+        Admission {
+            case: "pad_count_equals_data",
+            bytes_hex: "a06003e8000186a0000675320202",
+            accepted: true,
+            payload_hex: "",
+            padding_only: true,
+            padding_bit: true,
+            padding_size: 2,
+        },
+        Admission {
+            case: "pad_only_single_byte",
+            bytes_hex: "a06003e8000186a00006753201",
+            accepted: true,
+            payload_hex: "",
+            padding_only: true,
+            padding_bit: true,
+            padding_size: 1,
+        },
+        Admission {
+            case: "pad_full_255",
+            bytes_hex: concat!(
+                "a06003e8000186a000067532",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000000000000000",
+                "0000000000000000000000000000ff"
+            ),
+            accepted: true,
+            payload_hex: "",
+            padding_only: true,
+            padding_bit: true,
+            padding_size: 255,
+        },
+        Admission {
+            case: "pad_blank_before_count",
+            bytes_hex: "a06003e8000186a000067532000002",
+            accepted: true,
+            payload_hex: "00",
+            padding_only: false,
+            padding_bit: true,
+            padding_size: 2,
+        },
+        Admission {
+            case: "pad_unaligned_block",
+            bytes_hex: "a06003e8000186a00006753210010003",
+            accepted: true,
+            payload_hex: "10",
+            padding_only: false,
+            padding_bit: true,
+            padding_size: 3,
+        },
+        Admission {
+            case: "payload_with_padding",
+            bytes_hex: "a06003e8000186a0000675321001000001",
+            accepted: true,
+            payload_hex: "10010000",
+            padding_only: false,
+            padding_bit: true,
+            padding_size: 1,
+        },
+        Admission {
+            case: "no_padding_empty_payload",
+            bytes_hex: "806003e8000186a000067532",
+            accepted: true,
+            payload_hex: "",
+            padding_only: false,
+            padding_bit: false,
+            padding_size: 0,
+        },
+        Admission {
+            case: "no_padding_real_payload",
+            bytes_hex: "806003e8000186a0000675321001000000",
+            accepted: true,
+            payload_hex: "1001000000",
+            padding_only: false,
+            padding_bit: false,
+            padding_size: 0,
+        },
+        Admission {
+            case: "truncated_header",
+            bytes_hex: "a06003e8000186",
+            accepted: false,
+            payload_hex: "",
+            padding_only: false,
+            padding_bit: true,
+            padding_size: 0,
+        },
+        Admission {
+            case: "header_below_four_bytes",
+            bytes_hex: "a0",
+            accepted: false,
+            payload_hex: "",
+            padding_only: false,
+            padding_bit: false,
+            padding_size: 0,
+        },
+    ];
+
+    fn hex_bytes(text: &str) -> Vec<u8> {
+        assert!(text.len() % 2 == 0, "hex vector has odd length");
+        (0..text.len() / 2)
+            .map(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).expect("hex byte"))
+            .collect()
+    }
+
+    fn hex_string(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Everything one parser reports for a vector: the admission decision plus
+    /// the padding state the receiver keeps afterwards. `padding_bit` and
+    /// `padding_size` are Pion struct state; Pion leaves them partially
+    /// populated even for a packet it rejects, which is why the table freezes
+    /// them separately from the verdict.
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    struct Observation {
+        accepted: bool,
+        payload_hex: String,
+        padding_only: bool,
+        padding_bit: bool,
+        padding_size: usize,
+    }
+
+    impl From<&Admission> for Observation {
+        fn from(row: &Admission) -> Observation {
+            Observation {
+                accepted: row.accepted,
+                payload_hex: row.payload_hex.to_string(),
+                padding_only: row.padding_only,
+                padding_bit: row.padding_bit,
+                padding_size: row.padding_size,
+            }
+        }
+    }
+
+    /// The verdict str0m can actually reproduce: survive or not, which payload
+    /// bytes reach the receive path, and whether the packet is padding-only.
+    #[derive(Clone, PartialEq, Eq, Debug)]
+    struct Decision {
+        accepted: bool,
+        payload_hex: String,
+        padding_only: bool,
+    }
+
+    fn decision_of(observation: &Observation) -> Decision {
+        Decision {
+            accepted: observation.accepted,
+            payload_hex: observation.payload_hex.clone(),
+            padding_only: observation.padding_only,
+        }
+    }
+
+    /// Native verdict, computed the way `Session::handle_rtp_packet` does:
+    /// header parse, then unpadding only when the padding bit is set.
+    fn native_decision(bytes: &[u8]) -> Decision {
+        let reject = || Decision {
+            accepted: false,
+            payload_hex: String::new(),
+            padding_only: false,
+        };
+        let exts = ExtensionMap::empty();
+        let Some(header) = RtpHeader::parse(bytes, &exts) else {
+            return reject();
+        };
+        let rest = &bytes[header.header_len..];
+        let payload = if header.has_padding {
+            match RtpHeader::unpad_payload(rest) {
+                Some(unpadded) => unpadded,
+                None => return reject(),
+            }
+        } else {
+            rest
+        };
+        Decision {
+            accepted: true,
+            payload_hex: hex_string(payload),
+            padding_only: header.has_padding && payload.is_empty(),
+        }
+    }
+
+    fn observation_of(row: &serde_json::Value) -> Observation {
+        Observation {
+            accepted: row["accepted"].as_bool().expect("accepted is a Go bool"),
+            payload_hex: row["payload_hex"]
+                .as_str()
+                .expect("payload_hex is a Go string")
+                .to_string(),
+            padding_only: row["padding_only"]
+                .as_bool()
+                .expect("padding_only is a Go bool"),
+            padding_bit: row["padding_bit"]
+                .as_bool()
+                .expect("padding_bit is a Go bool"),
+            padding_size: usize::try_from(
+                row["padding_size"]
+                    .as_u64()
+                    .expect("padding_size is a Go int"),
+            )
+            .expect("padding_size fits usize"),
+        }
+    }
+
+    /// One formatter for every comparison so no field can be dropped silently.
+    fn check_drift(case: &str, fields: Vec<(&str, String, String)>) -> Result<(), String> {
+        let drift = fields
+            .into_iter()
+            .filter(|(_, expected, actual)| expected != actual)
+            .map(|(field, expected, actual)| {
+                format!("{field}: frozen {expected} != actual {actual}")
+            })
+            .collect::<Vec<_>>();
+        if drift.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("{case}: {}", drift.join("; ")))
+        }
+    }
+
+    fn compare_observation(
+        case: &str,
+        frozen: &Observation,
+        actual: &Observation,
+    ) -> Result<(), String> {
+        check_drift(
+            case,
+            vec![
+                (
+                    "accepted",
+                    frozen.accepted.to_string(),
+                    actual.accepted.to_string(),
+                ),
+                (
+                    "payload_hex",
+                    frozen.payload_hex.clone(),
+                    actual.payload_hex.clone(),
+                ),
+                (
+                    "padding_only",
+                    frozen.padding_only.to_string(),
+                    actual.padding_only.to_string(),
+                ),
+                (
+                    "padding_bit",
+                    frozen.padding_bit.to_string(),
+                    actual.padding_bit.to_string(),
+                ),
+                (
+                    "padding_size",
+                    frozen.padding_size.to_string(),
+                    actual.padding_size.to_string(),
+                ),
+            ],
+        )
+    }
+
+    fn compare_native(
+        case: &str,
+        reference: &Observation,
+        native: &Decision,
+    ) -> Result<(), String> {
+        let expected = decision_of(reference);
+        check_drift(
+            case,
+            vec![
+                (
+                    "accepted",
+                    expected.accepted.to_string(),
+                    native.accepted.to_string(),
+                ),
+                (
+                    "payload_hex",
+                    expected.payload_hex.clone(),
+                    native.payload_hex.clone(),
+                ),
+                (
+                    "padding_only",
+                    expected.padding_only.to_string(),
+                    native.padding_only.to_string(),
+                ),
+            ],
+        )
+    }
+
+    fn frozen_vector(case: &str) -> serde_json::Value {
+        include_str!("../../../../tests/oracles/pion-rtp-padding/cases.jsonl")
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| -> serde_json::Value {
+                serde_json::from_str(line).expect("padding vector")
+            })
+            .find(|vector| vector["case"] == serde_json::json!(case))
+            .unwrap_or_else(|| panic!("committed padding vectors are missing {case}"))
+    }
+
+    /// The Go `error_text` must agree with the acceptance it accompanies,
+    /// otherwise a row could report a rejection with an empty reason and match.
+    fn error_agrees_with_acceptance(row: &serde_json::Value) -> Result<(), String> {
+        let accepted = row["accepted"].as_bool().expect("accepted is a Go bool");
+        let error_text = row["error_text"]
+            .as_str()
+            .expect("error_text is a Go string");
+        if error_text.is_empty() == accepted {
+            Ok(())
+        } else {
+            Err(format!(
+                "error_text {error_text:?} disagrees with accepted {accepted}"
+            ))
+        }
+    }
+
+    #[test]
+    fn frozen_rtp_padding_admission_table_matches_native_parser() {
+        for row in FROZEN_PADDING_ADMISSION.iter() {
+            let vector = frozen_vector(row.case);
+            assert_eq!(
+                vector["bytes_hex"],
+                serde_json::json!(row.bytes_hex),
+                "{}: table hex drifted from the committed vector",
+                row.case
+            );
+            let bytes = hex_bytes(row.bytes_hex);
+            assert_eq!(
+                hex_string(&bytes),
+                row.bytes_hex,
+                "{}: committed hex vector is not canonical",
+                row.case
+            );
+            let frozen = Observation::from(row);
+            assert_eq!(
+                Ok(()),
+                compare_observation(row.case, &frozen, &observation_of(&vector["expected"])),
+                "{}: table drifted from the committed vector",
+                row.case
+            );
+            assert_eq!(
+                Ok(()),
+                compare_native(row.case, &frozen, &native_decision(&bytes)),
+                "{}: native parser disagrees with the frozen decision",
+                row.case
+            );
+        }
+
+        // Every compared field must be able to fail, otherwise the table is a
+        // tautology instead of a check.
+        let row = FROZEN_PADDING_ADMISSION
+            .iter()
+            .find(|r| r.case == "pad_zero_count")
+            .expect("pad_zero_count row");
+        let frozen = Observation::from(row);
+        for (field, value) in [
+            ("accepted", serde_json::json!(true)),
+            ("payload_hex", serde_json::json!("1001000000")),
+            ("padding_only", serde_json::json!(true)),
+            ("padding_bit", serde_json::json!(false)),
+            ("padding_size", serde_json::json!(7)),
+        ] {
+            let mut vector = frozen_vector(row.case);
+            vector["expected"][field] = value;
+            assert!(
+                compare_observation(row.case, &frozen, &observation_of(&vector["expected"]))
+                    .is_err(),
+                "vector mutation {}.{field} was not detected",
+                row.case
+            );
+        }
+        assert!(
+            compare_native(
+                row.case,
+                &frozen,
+                &Decision {
+                    accepted: true,
+                    payload_hex: String::new(),
+                    padding_only: true,
+                }
+            )
+            .is_err(),
+            "a native parser that accepted a rejected packet was not detected"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires actual fixed-Pion rtp.Packet.Unmarshal observer rows"]
+    fn original_go_rtp_padding_admission_rows_match_native_parser() {
+        let read_rows = |path: String, prefix: &str| -> Vec<serde_json::Value> {
+            std::fs::read_to_string(path)
+                .expect("observer file")
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .filter_map(|line| line.strip_prefix(prefix))
+                .map(|line| -> serde_json::Value {
+                    serde_json::from_str(line).expect("observer row")
+                })
+                .collect()
+        };
+        let vectors = read_rows(
+            std::env::var("PION_RTP_PADDING_GO_CASES").expect("fixed-Pion observer cases"),
+            "",
+        );
+        let rows = read_rows(
+            std::env::var("PION_RTP_PADDING_GO_RESULTS").expect("fixed-Pion observer results"),
+            "SOURCE_PION_RTP_PADDING ",
+        );
+        assert_eq!(
+            vectors.len(),
+            FROZEN_PADDING_ADMISSION.len(),
+            "one committed vector per frozen row"
+        );
+        assert_eq!(
+            rows.len(),
+            FROZEN_PADDING_ADMISSION.len(),
+            "one actual observer row per vector"
+        );
+
+        let mut seen = std::collections::HashSet::new();
+        for row in &rows {
+            let case = row["case"].as_str().expect("actual row case");
+            assert!(seen.insert(case), "repeated actual row: {case}");
+            let table = FROZEN_PADDING_ADMISSION
+                .iter()
+                .find(|r| r.case == case)
+                .unwrap_or_else(|| panic!("unexpected actual row: {case}"));
+            let vector = vectors
+                .iter()
+                .find(|v| v["case"] == serde_json::json!(case))
+                .unwrap_or_else(|| panic!("observer input is missing {case}"));
+            assert_eq!(
+                row["bytes_hex"],
+                serde_json::json!(table.bytes_hex),
+                "{case}: observer input drifted from the frozen table"
+            );
+            assert_eq!(
+                row["bytes_hex"], vector["bytes_hex"],
+                "{case}: actual row does not match the vector it was given"
+            );
+            assert_eq!(
+                Ok(()),
+                error_agrees_with_acceptance(row),
+                "{case}: actual Pion rejection reason"
+            );
+            let actual = observation_of(row);
+            assert_eq!(
+                Ok(()),
+                compare_observation(case, &Observation::from(table), &actual),
+                "{case}: actual fixed-Pion verdict drifted from the frozen table"
+            );
+            assert_eq!(
+                Ok(()),
+                compare_native(case, &actual, &native_decision(&hex_bytes(table.bytes_hex))),
+                "{case}: native parser drifted from the actual fixed-Pion verdict"
+            );
+        }
+
+        // Differential-level falsifiability: the Go↔table↔native comparison must
+        // reject a Pion row that only looks equivalent.
+        for (case, field, value) in [
+            ("pad_zero_count", "accepted", serde_json::json!(true)),
+            ("pad_zero_count", "padding_size", serde_json::json!(1)),
+            ("payload_with_padding", "payload_hex", serde_json::json!("")),
+            ("payload_with_padding", "padding_size", serde_json::json!(0)),
+        ] {
+            let table = FROZEN_PADDING_ADMISSION
+                .iter()
+                .find(|r| r.case == case)
+                .expect("mutation row");
+            let row = rows
+                .iter()
+                .find(|r| r["case"] == serde_json::json!(case))
+                .expect("mutation actual row");
+            let mut broken = row.clone();
+            broken[field] = value;
+            assert!(
+                compare_observation(case, &Observation::from(table), &observation_of(&broken))
+                    .is_err(),
+                "actual-row mutation {case}.{field} was not detected"
+            );
+        }
     }
 }

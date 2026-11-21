@@ -535,7 +535,10 @@ impl ClientStreams {
         let mut streams = bus.subscribe::<pb::Stream>(&stream_target, false).await?;
         // Release already-acquired channels if a later subscribe fails; a Redis
         // Subscription has no Drop unsubscribe, so partial init must not leak it.
-        let claims = match bus.subscribe::<pb::ClaimRequest>(&claim_target, false).await {
+        let claims = match bus
+            .subscribe::<pb::ClaimRequest>(&claim_target, false)
+            .await
+        {
             Ok(sub) => sub,
             Err(error) => {
                 let _ = streams.unsubscribe(&stream_target).await;
@@ -613,11 +616,7 @@ impl ClientStreams {
     pub fn client_id(&self) -> &str {
         &self.inner.client_id
     }
-    fn register(
-        &self,
-        stream_id: &str,
-        sender: mpsc::Sender<pb::Stream>,
-    ) -> Result<(), RpcError> {
+    fn register(&self, stream_id: &str, sender: mpsc::Sender<pb::Stream>) -> Result<(), RpcError> {
         let mut state = lock(&self.inner.state);
         if let Some(error) = &state.terminal {
             return Err(error.clone());

@@ -303,7 +303,9 @@ mod packet_bytes_counter_tests {
         // The Agent sums every outgoing line, so the split must not change the total.
         let total: u64 = out
             .lines()
-            .filter(|l| l.starts_with("livekit_packet_bytes{") && l.contains("direction=\"outgoing\""))
+            .filter(|l| {
+                l.starts_with("livekit_packet_bytes{") && l.contains("direction=\"outgoing\"")
+            })
             .map(|l| l.rsplit(' ').next().unwrap().parse::<u64>().unwrap())
             .sum();
         assert_eq!(total, 1000);
@@ -322,7 +324,10 @@ mod packet_bytes_counter_tests {
         let mut out = "# EOF\n".to_string();
         append_packet_bytes(&mut out, "ND_x", &stats(0, 900, 0));
         assert!(out.contains("direction=\"outgoing\""));
-        assert!(!out.contains("direction=\"incoming\""), "Go creates each direction's child separately");
+        assert!(
+            !out.contains("direction=\"incoming\""),
+            "Go creates each direction's child separately"
+        );
         assert_eq!(out.matches("# EOF").count(), 1);
     }
 

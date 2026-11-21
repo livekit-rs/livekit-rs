@@ -78,7 +78,9 @@ pub(super) struct SharedSubscriptions {
 }
 
 fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
-    state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// The single push sender installed on the shared connection. It routes by channel
@@ -142,10 +144,7 @@ fn push_sender(state: Arc<Mutex<State>>, generation: u64) -> impl redis::aio::As
 }
 
 impl SharedSubscriptions {
-    pub fn new(
-        endpoint: RedisEndpoint,
-        limits: super::TransportLimits,
-    ) -> Self {
+    pub fn new(endpoint: RedisEndpoint, limits: super::TransportLimits) -> Self {
         Self {
             endpoint,
             base_config: config(limits),
@@ -198,8 +197,15 @@ impl SharedSubscriptions {
         channel: &[u8],
         inbox: usize,
         cap: usize,
-    ) -> Result<(SubHandle, mpsc::Receiver<Vec<u8>>, watch::Receiver<Option<TransportError>>, u64), TransportError>
-    {
+    ) -> Result<
+        (
+            SubHandle,
+            mpsc::Receiver<Vec<u8>>,
+            watch::Receiver<Option<TransportError>>,
+            u64,
+        ),
+        TransportError,
+    > {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = mpsc::channel(inbox);
         let (fault, failure) = watch::channel(None);
@@ -240,7 +246,8 @@ impl SharedSubscriptions {
                 (need, st.generation + 1)
             };
             if need_dial {
-                let conn = match tokio::time::timeout(self.io_timeout, self.dial(generation)).await {
+                let conn = match tokio::time::timeout(self.io_timeout, self.dial(generation)).await
+                {
                     Ok(Ok(conn)) => conn,
                     Ok(Err(error)) => return Err(error),
                     Err(_) => return Err(TransportError::Timeout),

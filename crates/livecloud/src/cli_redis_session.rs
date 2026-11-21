@@ -447,8 +447,7 @@ impl Session {
             // validation, so the suffix is `-fqdn` when TLS material is loaded and
             // `-ip` otherwise. Hardcoding `false` here sent `-ip` on TLS too, a
             // wire-only divergence no stdout differential could see.
-            let endpoint =
-                endpoint_type(&self.pool.address, self.pool.options.tls.is_some()).await;
+            let endpoint = endpoint_type(&self.pool.address, self.pool.options.tls.is_some()).await;
             match handshake_command(
                 &mut wire,
                 maint_notifications_command(&endpoint),

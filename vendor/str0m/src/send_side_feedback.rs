@@ -15,6 +15,14 @@ pub struct SendSidePacket {
     pub header_bytes: usize,
     /// RTP payload bytes, excluding RTP padding and SRTP authentication bytes.
     pub payload_bytes: usize,
+    /// Full plain RTP datagram bytes as handed to SRTP: header + payload +
+    /// RTP padding. This is what an estimator must meter, because it is what
+    /// actually goes onto the network.
+    pub packet_bytes: usize,
+    /// Whether this datagram is padding (blank padding or probe padding).
+    pub is_padding: bool,
+    /// Whether this datagram is an RTX retransmission.
+    pub is_rtx: bool,
     /// Whether this media negotiated the transport sequence extension.
     pub twcc_negotiated: bool,
     /// Transport sequence actually encoded in this packet, when present.

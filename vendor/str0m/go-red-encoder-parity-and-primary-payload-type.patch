@@ -1,0 +1,1035 @@
+diff --git a/src/packet/payload.rs b/src/packet/payload.rs
+index 4f0b069..e258f71 100644
+--- a/src/packet/payload.rs
++++ b/src/packet/payload.rs
+@@ -192,16 +192,20 @@ impl PacketSink for RedSink<'_> {
+     }
+ 
+     fn send(&mut self, packet: OutgoingPacket) {
+-        // Wrap the primary Vec before it becomes an Arc, so RED adds no extra allocation. Swap to
+-        // the RED payload type; everything else on the packet is preserved.
+-        let payload = self.red.wrap(packet.payload, packet.rtp_time, self.budget);
++        // Wrap the primary Vec before it becomes an Arc, so RED adds no extra allocation. Go's
++        // `RedReceiver.ForwardRTP` writes a wrapped packet on the RED PT and a frame too large for
++        // a redundant block on the primary PT, so the payload type follows the wrap result here too
++        // — everything else on the packet is preserved either way.
++        let seq_no = packet.seq_no;
++        let wrapped = self.red.wrap(packet.payload, seq_no, packet.rtp_time, self.budget);
++        let pt = wrapped.pt(self.red.red_pt(), self.red.primary_pt());
+         self.stream.write_rtp(
+             RtpWrite::new(
+-                self.red.red_pt(),
+-                packet.seq_no,
++                pt,
++                seq_no,
+                 packet.rtp_time,
+                 packet.wallclock,
+-                payload,
++                wrapped.into_payload(),
+             )
+             .marker(packet.marker)
+             .ext_vals(packet.ext_vals)
+diff --git a/src/packet/red.rs b/src/packet/red.rs
+index 0948796..d18126c 100644
+--- a/src/packet/red.rs
++++ b/src/packet/red.rs
+@@ -6,7 +6,7 @@
+ 
+ use std::collections::VecDeque;
+ 
+-use crate::rtp_::Pt;
++use crate::rtp_::{Pt, SeqNo};
+ 
+ use super::PacketError;
+ 
+@@ -200,9 +200,39 @@ pub(crate) fn red_same_pt_blocks<'a>(
+         .filter(move |b| b.pt == primary_pt && b.timestamp_offset > 0)
+ }
+ 
+-/// Send-side RFC 2198 RED state. `distances` lists how many packets back each redundant level
+-/// carries (`[1]` = one level, the previous packet; `[1, 3, 5]` = three levels for higher loss),
+-/// always sorted, distinct and >= 1. `history` keeps the most recent `max(distances)` payloads.
++/// Go `maxRedPayload` in livekit-server `pkg/sfu/redreceiver.go`: a primary frame of at least
++/// this size cannot be stored as a redundant block (the RFC 2198 block length field is 10 bits),
++/// so Go broadcasts the original packet and never records the frame for redundancy.
++const MAX_RED_PAYLOAD: usize = 1 << 10;
++
++/// Go's timestamp test for a redundant block: an offset of `1 << 14` RTP ticks or more is a
++/// different talk-spurt and is not repeated.
++const MAX_RED_TS_GAP: u32 = 1 << 14;
++
++/// RFC 2198 redundant block header size in bytes (4), as used by Go's `encodeRedForPrimary`
++/// budget accounting.
++const REDUNDANT_HEADER_LEN: usize = 4;
++
++/// Half the 16-bit sequence space, i.e. RTP serial-number arithmetic: `a - b < 1 << 15` means `a`
++/// is more recent than `b` (Go's slot-selection test in `encodeRedForPrimary`).
++const SEQ_IS_MORE_RECENT: u16 = 1 << 15;
++
++/// One `pktBuff` entry of Go's `RedReceiver`: the parts of a primary frame kept for redundancy.
++#[derive(Debug, Clone)]
++struct HistPacket {
++    /// Wire sequence number, compared with 16-bit modular arithmetic like Go.
++    seq: u16,
++    rtp_time: u32,
++    payload: Vec<u8>,
++}
++
++/// Send-side RFC 2198 RED state, ported from livekit-server `pkg/sfu/redreceiver.go`.
++///
++/// `distances` lists how many packets back each redundant level carries (`[1, 2]` is LiveKit's
++/// pattern and the equivalent of Go's fixed `maxRedCount = 2` window over the two previous
++/// frames; `[1, 3, 5]` = three levels for higher loss), always sorted, distinct and >= 1.
++/// `history` is Go's `pktBuff`: a window of `max(distances)` frames whose front slots stay unfilled
++/// while a talk-spurt starts up.
+ ///
+ /// This is the send-side companion to [`RedDecoder`]: [`Payloader`][crate::packet::Payloader]
+ /// stays codec- and RED-agnostic; the `Media` layer owns the `RedSender` and applies it through a
+@@ -212,113 +242,217 @@ pub(crate) struct RedSender {
+     red_pt: Pt,
+     primary_pt: Pt,
+     distances: Box<[u32]>,
+-    /// The most recent payloads as `(payload, rtp_time)`, oldest at the front, capped at the
+-    /// deepest configured distance so it never grows without bound.
+-    history: VecDeque<(Vec<u8>, u32)>,
++    /// Go `pktBuff`: oldest at index 0, `None` = slot not filled yet. Its length is the deepest
++    /// configured distance, which for LiveKit's `[1, 2]` equals Go's `maxRedCount`.
++    history: Vec<Option<HistPacket>>,
++}
++
++/// [`RedSender::wrap`] output: the payload bytes plus the payload type they must go out on.
++///
++/// Go's `RedReceiver.ForwardRTP` either broadcasts the wrapped packet on `opusRedPT` or, for a
++/// frame too large to be a redundant block, the *original* packet on the primary PT. Labelling
++/// plain Opus bytes with the RED payload type would make the peer parse them as a RED payload, so
++/// the choice travels with the payload instead of being decided by the caller.
++pub(crate) enum RedWrapped {
++    /// An RFC 2198 payload: the primary block plus redundant blocks when history allowed them.
++    Redundant(Vec<u8>),
++    /// The primary frame unwrapped — Go's fallback, sent on the primary payload type.
++    Primary(Vec<u8>),
++}
++
++impl RedWrapped {
++    /// The payload type this packet must be written with.
++    pub(crate) fn pt(&self, red_pt: Pt, primary_pt: Pt) -> Pt {
++        match self {
++            RedWrapped::Redundant(_) => red_pt,
++            RedWrapped::Primary(_) => primary_pt,
++        }
++    }
++
++    /// The payload bytes.
++    pub(crate) fn into_payload(self) -> Vec<u8> {
++        match self {
++            RedWrapped::Redundant(payload) | RedWrapped::Primary(payload) => payload,
++        }
++    }
+ }
+ 
+ impl RedSender {
+     /// Create a RED sender for `primary_pt`, wrapping into `red_pt`, with the given distance
+     /// pattern (must be sorted, distinct and >= 1).
+     pub(crate) fn new(red_pt: Pt, primary_pt: Pt, distances: &[u32]) -> Self {
+-        RedSender {
++        let mut sender = RedSender {
+             red_pt,
+             primary_pt,
+             distances: distances.into(),
+-            history: VecDeque::new(),
+-        }
++            history: Vec::new(),
++        };
++        sender.resize_history();
++        sender
+     }
+ 
+-    /// The RED payload type outgoing packets are sent on.
++    /// The RED payload type a wrapped packet is sent on.
+     pub(crate) fn red_pt(&self) -> Pt {
+         self.red_pt
+     }
+ 
++    /// The primary payload type, used for the frames that bypass RED wrapping.
++    pub(crate) fn primary_pt(&self) -> Pt {
++        self.primary_pt
++    }
++
+     /// Keep the sender current with the negotiated RED PT, primary PT and distance pattern without
+-    /// discarding a live talk-spurt's redundancy history. If the pattern changed, adopt it and trim
+-    /// history to the new deepest distance. `distances` must be sorted, distinct and >= 1.
++    /// discarding a live talk-spurt's redundancy history. If the pattern changed, adopt it and
++    /// resize the window to the new deepest distance. `distances` must be sorted, distinct and >= 1.
+     pub(crate) fn sync(&mut self, red_pt: Pt, primary_pt: Pt, distances: &[u32]) {
+         self.red_pt = red_pt;
+         self.primary_pt = primary_pt;
+         if *self.distances != *distances {
+             self.distances = distances.into();
+-            self.trim_history();
++            self.resize_history();
+         }
+     }
+ 
+-    /// Wrap the primary `payload` (at `rtp_time`) into a RED payload, prepending one redundant
+-    /// block per configured distance that has a matching history entry and fits RFC 2198's field
+-    /// limits (a block over the 10-bit, 1023-byte length field does not fit and is dropped, so RED
+-    /// adds no protection for audio frames that large). The most recent (shallowest, most valuable)
+-    /// levels are added first and the deepest are dropped once the encoded packet would exceed
+-    /// `budget` bytes. That size guard keeps the RED packet within the send MTU, which both avoids
+-    /// IP fragmentation (a fragmented RED packet loses all its redundancy if any fragment drops) and
+-    /// prevents overflowing the fixed datagram buffer downstream. Kept blocks are emitted
+-    /// oldest-first as RFC 2198 requires, then the primary. Updates history.
+-    pub(crate) fn wrap(&mut self, payload: Vec<u8>, rtp_time: u32, budget: usize) -> Vec<u8> {
+-        let primary_pt = *self.primary_pt;
+-        let len = self.history.len();
+-
+-        // Even the mandatory 1-byte primary RED header must fit the budget. When it cannot (a
+-        // primary that already fills the MTU), emit the payload unwrapped so RED never pushes the
+-        // packet past `budget`. The `Media` layer reserves this header byte when packetizing for
+-        // RED, so in normal operation the primary always leaves room and this only guards a
+-        // pathological input.
++    /// Wrap the primary frame `payload` (sequence number `seq`, timestamp `rtp_time`) into a RED
++    /// payload, following Go's `RedReceiver.encodeRedForPrimary` step for step:
++    ///
++    /// 1. A frame of [`MAX_RED_PAYLOAD`] or more, or one that leaves no room for the mandatory
++    ///    1-byte primary block header, is [`RedWrapped::Primary`] and records nothing — Go
++    ///    broadcasts the original packet in that case, before touching the history.
++    /// 2. The redundant blocks are the recorded history slots at the configured recency ranks, and
++    ///    Go's own filters apply to each candidate: the same sequence number (a repeat), a sequence
++    ///    gap larger than the window (an unordered, i.e. older, frame) or a timestamp gap of
++    ///    `1 << 14` ticks (another talk-spurt) never become redundancy.
++    /// 3. If the primary plus every accepted block does not fit `budget`, ALL redundancy is
++    ///    dropped (Go `redPkts = redPkts[:0]`) instead of shedding only the deepest level, so a
++    ///    packet is either fully protected or plain.
++    ///
++    /// Finally the primary frame is recorded exactly like Go (see [`Self::insert_history`]) and the
++    /// blocks are emitted oldest-first as RFC 2198 requires.
++    pub(crate) fn wrap(
++        &mut self,
++        payload: Vec<u8>,
++        seq: SeqNo,
++        rtp_time: u32,
++        budget: usize,
++    ) -> RedWrapped {
++        // Go: `if len(pkt.Packet.Payload) >= maxRedPayload { broadcast the original }`.
++        if payload.len() >= MAX_RED_PAYLOAD {
++            return RedWrapped::Primary(payload);
++        }
++        // The primary block header is mandatory, so a frame with no room left for it cannot be
++        // wrapped. Go's fixed 1500-byte RED buffer makes this unreachable; a small configured send
++        // MTU does not, and sending the frame unwrapped on the primary PT is the same fallback Go
++        // uses for an oversized frame instead of pushing the packet past the MTU.
+         if payload.len() + 1 > budget {
+-            self.history.push_back((payload.clone(), rtp_time));
+-            self.trim_history();
+-            return payload;
++            return RedWrapped::Primary(payload);
+         }
+ 
+-        // Room for redundancy after the primary payload and its 1-byte RED header. The guard above
+-        // makes the subtraction safe. RFC 2198 headers: 1 byte primary, 4 bytes per redundant block.
+-        let mut remaining = budget - payload.len() - 1;
+-
+-        // Add the most recent levels first (distance 1 is the most valuable). Collected here
+-        // shallowest-first, then reversed to oldest-first for the wire.
+-        let mut kept: Vec<RedundantBlock> = Vec::new();
+-        for &d in self.distances.iter() {
+-            let Some((prev, prev_time)) = len
+-                .checked_sub(d as usize)
+-                .and_then(|i| self.history.get(i))
+-            else {
++        let primary_pt = *self.primary_pt;
++        let seq16 = seq.as_u16();
++        let depth = self.history.len();
++        // Go's `redLength`: the window size, which is what the sequence-gap filter compares against.
++        let window = depth as u16;
++        // Go's `lastNilPkt`: the highest still-empty slot (-1 once the window is full), so only
++        // frames that were actually recorded are candidates.
++        let start = match (0..depth).rev().find(|&i| self.history[i].is_none()) {
++            Some(nil) => nil + 1,
++            None => 0,
++        };
++
++        let mut blocks: Vec<RedundantBlock> = Vec::new();
++        for i in (start..depth).rev() {
++            // Recency rank 1 is the newest slot, i.e. a distance of 1.
++            let distance = (depth - i) as u32;
++            if !self.distances.contains(&distance) {
++                continue;
++            }
++            let Some(prev) = self.history[i].as_ref() else {
+                 continue;
+             };
+-            let block = RedundantBlock {
++            if prev.seq == seq16 {
++                continue; // the very same frame again (Go: repeat)
++            }
++            if seq16.wrapping_sub(prev.seq) > window {
++                // Outside the window — including a frame that is *older* than this slot, whose
++                // subtraction wraps past the 16-bit range (Go: unordered frame).
++                continue;
++            }
++            let timestamp_offset = rtp_time.wrapping_sub(prev.rtp_time);
++            if timestamp_offset >= MAX_RED_TS_GAP {
++                // A different talk-spurt (Go: `>= 1<<14`), or a backwards timestamp.
++                continue;
++            }
++            blocks.push(RedundantBlock {
+                 pt: primary_pt,
+-                timestamp_offset: rtp_time.wrapping_sub(*prev_time),
+-                payload: prev.clone(),
++                timestamp_offset,
++                payload: prev.payload.clone(),
++            });
++        }
++        // Collected newest-first; Go's `redPkts` is history order, which is oldest-first.
++        blocks.reverse();
++
++        // Go `encodeRedForPrimary` budget: primary payload + 1 header byte + (4 header bytes +
++        // payload) per block; over the buffer means no redundancy at all.
++        let needed = payload.len()
++            + 1
++            + blocks
++                .iter()
++                .map(|b| b.payload.len() + REDUNDANT_HEADER_LEN)
++                .sum::<usize>();
++        if needed > budget {
++            blocks.clear();
++        }
++
++        let bytes = RedEncoder::encode(primary_pt, &payload, &blocks);
++
++        self.insert_history(seq16, rtp_time, payload);
++        RedWrapped::Redundant(bytes)
++    }
++
++    /// Record the primary frame in the window exactly like Go's insert loop: scan from the newest
++    /// slot backwards and use the first slot that is still empty or holds a frame older than this
++    /// one (`seq - slot_seq < 1<<15`, RTP serial arithmetic), aging the frames below it out of the
++    /// way. A frame older than every recorded frame is not recorded at all, as in Go.
++    fn insert_history(&mut self, seq: u16, rtp_time: u32, payload: Vec<u8>) {
++        let depth = self.history.len();
++        for i in (0..depth).rev() {
++            let more_recent = match self.history[i].as_ref() {
++                None => true,
++                Some(slot) => seq.wrapping_sub(slot.seq) < SEQ_IS_MORE_RECENT,
+             };
+-            // A distance whose offset or length overflows RFC 2198's fields is skipped, not sent
+-            // malformed; the primary still goes out, so this only drops redundancy.
+-            if !block.fits() {
++            if !more_recent {
+                 continue;
+             }
+-            let cost = 4 + block.payload.len();
+-            if cost > remaining {
+-                // Out of budget: stop so the kept (shallowest) levels stay contiguous. The primary
+-                // and its header are already guaranteed to fit, so the encoded RED stays within
+-                // `budget`.
+-                break;
++            // Go ages the older frames out (`for j := 0; j < i; j++ { pktBuff[j] = pktBuff[j+1] }`)
++            // and then writes the new frame into slot `i`. Go's `freeHistSlot`/`histPayloads` only
++            // recycle those buffers; owning each payload here makes the equivalent move.
++            for j in 0..i {
++                self.history[j] = self.history[j + 1].take();
+             }
+-            remaining -= cost;
+-            kept.push(block);
++            self.history[i] = Some(HistPacket {
++                seq,
++                rtp_time,
++                payload,
++            });
++            return;
+         }
+-        // RFC 2198 requires redundant blocks oldest-first (largest distance first), then primary.
+-        kept.reverse();
+-
+-        let bytes = RedEncoder::encode(primary_pt, &payload, &kept);
+-        self.history.push_back((payload, rtp_time));
+-        self.trim_history();
+-        bytes
+     }
+ 
+-    /// Cap history at the deepest configured distance so it never grows without bound.
+-    fn trim_history(&mut self) {
+-        let max_distance = self.distances.last().copied().unwrap_or(1) as usize;
+-        while self.history.len() > max_distance {
+-            self.history.pop_front();
++    /// Size the window to the deepest configured distance (Go's `maxRedCount`), keeping the newest
++    /// frames when the pattern changes and leaving the front slots empty for a fresh talk-spurt.
++    fn resize_history(&mut self) {
++        let depth = self.distances.last().copied().unwrap_or(1) as usize;
++        let mut kept: Vec<_> = std::mem::take(&mut self.history)
++            .into_iter()
++            .flatten()
++            .collect();
++        let skip = kept.len().saturating_sub(depth);
++        let mut history: Vec<Option<HistPacket>> = kept.drain(skip..).map(Some).collect();
++        while history.len() < depth {
++            history.insert(0, None);
+         }
++        self.history = history;
+     }
+ }
+ 
+@@ -330,128 +464,570 @@ mod test {
+         RedSender::new(Pt::new_with_value(63), Pt::new_with_value(111), distances)
+     }
+ 
+-    // A budget large enough not to interfere with the small-payload wrap tests.
++    // ---- Go-faithful vectors (livekit-server pkg/sfu/redreceiver.go) ------------------------
++    //
++    // `redreceiver.go` fixes `maxRedCount = 2`, `mtuSize = 1500`, `maxRedPayload = 1 << 10`,
++    // `opusPT = 111` and `opusRedPT = 63`, so these tests mirror Go's constants instead of reading
++    // them from configuration. Every vector is the frozen fixture of Go's `TestRedReceiver`
++    // subtests: 48 kHz frames 10 ms apart starting at sequence number 65534 (so the sequence number
++    // wraps through 0 inside the vector) and RTP timestamp `(1 << 31) - 2*tsStep`, with the
++    // marshalled RTP header as the payload so each frame's redundant bytes are distinguishable.
++
++    /// Go `tsStep = uint32(48000 / 1000 * 10)`.
++    const TS_STEP: u32 = 48_000 / 1000 * 10;
++
++    /// Go `rtp.Header{SequenceNumber: 65534, ...}`.
++    const BASE_SEQ: u16 = 65534;
++
++    /// Go `Timestamp: (uint32(1) << 31) - 2*tsStep`.
++    const BASE_TS: u32 = (1 << 31) - 2 * TS_STEP;
++
++    /// Go `mtuSize`: the length of `redPayloadBuf`, i.e. the budget `ForwardRTP` gives the encoder.
++    const GO_BUDGET: usize = 1500;
++
++    /// A budget small enough to reach the fit check without involving Go's constants.
+     const WRAP_BUDGET: usize = 1200;
+ 
+-    #[test]
+-    fn red_sender_wrap_builds_redundancy_from_history() {
+-        let mut red = red_sender(&[1]);
++    /// One input frame: `(wire sequence number, RTP timestamp, primary payload)`.
++    type Frame = (u16, u32, Vec<u8>);
+ 
+-        // First packet: primary-only RED (no history yet).
+-        let first = red.wrap(vec![1, 2, 3], 1000, WRAP_BUDGET);
+-        let blocks = RedDecoder::decode(&first).unwrap();
+-        assert_eq!(blocks.len(), 1);
+-        assert!(blocks[0].is_primary);
+-        assert_eq!(blocks[0].payload, &[1, 2, 3]);
++    /// Go's `header.Marshal()` for the fixture header (V=2, PT=111, no extension, SSRC 0).
++    fn go_payload(seq: u16, rtp_time: u32) -> Vec<u8> {
++        let mut payload = vec![0x80, 111, (seq >> 8) as u8, seq as u8];
++        payload.extend_from_slice(&rtp_time.to_be_bytes());
++        payload.extend_from_slice(&[0, 0, 0, 0]);
++        payload
++    }
+ 
+-        // Second packet: carries the first frame as redundancy.
+-        let second = red.wrap(vec![4, 5], 1960, WRAP_BUDGET);
+-        let blocks = RedDecoder::decode(&second).unwrap();
+-        assert_eq!(blocks.len(), 2);
+-        assert!(!blocks[0].is_primary);
+-        assert_eq!(blocks[0].pt, 111);
+-        assert_eq!(blocks[0].timestamp_offset, 960); // 1960 - 1000
+-        assert_eq!(blocks[0].payload, &[1, 2, 3]);
+-        assert!(blocks[1].is_primary);
+-        assert_eq!(blocks[1].payload, &[4, 5]);
++    /// Go `generatePkts`: `count` frames `step` ticks apart, sequence numbers wrapping on the wire.
++    fn go_frames(seq: u16, rtp_time: u32, count: usize, step: u32) -> Vec<Frame> {
++        (0..count)
++            .map(|i| {
++                let seq = seq.wrapping_add(i as u16);
++                let rtp_time = rtp_time.wrapping_add(i as u32 * step);
++                (seq, rtp_time, go_payload(seq, rtp_time))
++            })
++            .collect()
+     }
+ 
+-    #[test]
+-    fn red_sender_wrap_multi_distance_emits_levels_oldest_first() {
+-        // A [1, 3] pattern: once enough history exists, each packet carries the previous frame
+-        // (distance 1) and the frame three back (distance 3), emitted oldest-first before primary.
+-        let mut red = red_sender(&[1, 3]);
++    /// A wire sequence number as str0m's `SeqNo`; RED only uses the 16-bit wire value, so the
++    /// rollover counter is irrelevant here.
++    fn seq_no(seq: u16) -> SeqNo {
++        u64::from(seq).into()
++    }
+ 
+-        for i in 0..4u32 {
+-            red.wrap(vec![i as u8], i * 960, WRAP_BUDGET);
++    /// Wrap each frame the way `RedReceiver.ForwardRTP` does for one down track, reporting whether
++    /// the packet went out on the RED payload type (`true`) or on the primary payload type.
++    fn forward_all(red: &mut RedSender, frames: &[Frame], budget: usize) -> Vec<(bool, Vec<u8>)> {
++        frames
++            .iter()
++            .map(|(seq, rtp_time, payload)| {
++                let wrapped = red.wrap(payload.clone(), seq_no(*seq), *rtp_time, budget);
++                match wrapped {
++                    RedWrapped::Redundant(bytes) => (true, bytes),
++                    RedWrapped::Primary(bytes) => (false, bytes),
++                }
++            })
++            .collect()
++    }
++
++    /// The RFC 2198 header chain of an encoded payload as `(pt, timestamp_offset, payload)`,
++    /// oldest block first with the primary block last.
++    fn red_blocks(bytes: &[u8]) -> Vec<(u8, u32, Vec<u8>)> {
++        RedDecoder::decode(bytes)
++            .expect("a RED payload must decode")
++            .iter()
++            .map(|b| (b.pt, b.timestamp_offset, b.payload.to_vec()))
++            .collect()
++    }
++
++    /// Check every wrapped output against `expect[index]`, the redundant blocks as
++    /// `(timestamp_offset, source frame index)` in wire order; the primary block is the frame
++    /// itself. `bypass` lists the frames Go broadcasts unwrapped on the primary payload type.
++    fn assert_outputs(
++        outputs: &[(bool, Vec<u8>)],
++        frames: &[Frame],
++        expect: &[Vec<(u32, usize)>],
++        bypass: &[usize],
++    ) {
++        assert_eq!(outputs.len(), frames.len());
++        assert_eq!(expect.len(), frames.len(), "one expectation per frame");
++        for (index, ((on_red_pt, bytes), blocks)) in outputs.iter().zip(expect).enumerate() {
++            let is_bypass = bypass.contains(&index);
++            assert_eq!(
++                *on_red_pt, !is_bypass,
++                "frame {index} payload type (bypassed frames: {bypass:?})"
++            );
++            if is_bypass {
++                assert_eq!(
++                    bytes, &frames[index].2,
++                    "frame {index} must go out as the original payload"
++                );
++                continue;
++            }
++            let decoded = red_blocks(bytes);
++            assert_eq!(
++                decoded.len(),
++                blocks.len() + 1,
++                "frame {index} redundant block count"
++            );
++            for (block_index, (offset, source)) in blocks.iter().enumerate() {
++                let (pt, actual_offset, payload) = &decoded[block_index];
++                assert_eq!(*pt, 111, "frame {index} block {block_index} payload type");
++                assert_eq!(
++                    *actual_offset, *offset,
++                    "frame {index} block {block_index} timestamp offset"
++                );
++                assert_eq!(
++                    payload, &frames[*source].2,
++                    "frame {index} block {block_index} must repeat frame {source}"
++                );
++            }
++            let (pt, offset, payload) = decoded.last().unwrap();
++            assert_eq!(*pt, 111, "frame {index} primary payload type");
++            assert_eq!(*offset, 0, "frame {index} primary block has no timestamp offset");
++            assert_eq!(payload, &frames[index].2, "frame {index} primary payload");
+         }
+-        let fifth = red.wrap(vec![42], 4 * 960, WRAP_BUDGET);
+-        let blocks = RedDecoder::decode(&fifth).unwrap();
++    }
+ 
+-        assert_eq!(blocks.len(), 3);
+-        assert!(!blocks[0].is_primary);
+-        assert_eq!(blocks[0].timestamp_offset, 3 * 960);
+-        assert_eq!(blocks[0].payload, &[1]);
+-        assert!(!blocks[1].is_primary);
+-        assert_eq!(blocks[1].timestamp_offset, 960);
+-        assert_eq!(blocks[1].payload, &[3]);
+-        assert!(blocks[2].is_primary);
+-        assert_eq!(blocks[2].payload, &[42]);
++    #[test]
++    fn red_sender_matches_go_normal_consecutive_frames() {
++        let mut red = red_sender(&[1, 2]);
++        let frames = go_frames(BASE_SEQ, BASE_TS, 10, TS_STEP);
++        let outputs = forward_all(&mut red, &frames, GO_BUDGET);
++
++        // Go's window is two frames deep: the second frame repeats the first, every later frame
++        // repeats both, oldest first.
++        let expect: Vec<Vec<(u32, usize)>> = (0..10)
++            .map(|i| match i {
++                0 => vec![],
++                1 => vec![(TS_STEP, 0)],
++                _ => vec![(2 * TS_STEP, i - 2), (TS_STEP, i - 1)],
++            })
++            .collect();
++        assert_outputs(&outputs, &frames, &expect, &[]);
++
++        // Wire check of the third frame: redundant headers for offsets 960 and 480 with 12-byte
++        // blocks, the primary header byte, then the three payloads.
++        let (_, bytes) = &outputs[2];
++        assert_eq!(
++            bytes.len(),
++            45,
++            "two redundant headers, one primary header and three payloads"
++        );
++        assert_eq!(
++            &bytes[..9],
++            &[0xEF, 0x0F, 0x00, 0x0C, 0xEF, 0x07, 0x80, 0x0C, 111],
++            "F|PT, timestamp offset and block length fields of both redundant blocks"
++        );
+     }
+ 
+     #[test]
+-    fn red_sender_wrap_skips_redundancy_that_overflows_rfc_fields() {
+-        let mut red = red_sender(&[1]);
+-        red.wrap(vec![1], 0, WRAP_BUDGET);
+-        // Offset 16384 overflows the 14-bit field, so no redundant block, just the primary.
+-        let out = red.wrap(vec![2], 0x4000, WRAP_BUDGET);
+-        let blocks = RedDecoder::decode(&out).unwrap();
+-        assert_eq!(blocks.len(), 1);
+-        assert!(blocks[0].is_primary);
++    fn red_sender_matches_go_packet_loss_and_sequence_jump() {
++        let mut red = red_sender(&[1, 2]);
++        // Go "packet lost and jump": every other frame is dropped, then a ten-sequence jump.
++        let mut frames: Vec<Frame> = go_frames(BASE_SEQ, BASE_TS, 10, TS_STEP)
++            .into_iter()
++            .filter(|(seq, _, _)| seq.wrapping_sub(BASE_SEQ) % 2 == 1)
++            .collect();
++        frames.extend(go_frames(
++            BASE_SEQ.wrapping_add(20),
++            BASE_TS.wrapping_add(20 * TS_STEP),
++            3,
++            TS_STEP,
++        ));
++        let outputs = forward_all(&mut red, &frames, GO_BUDGET);
++
++        // A loss leaves a surviving frame a whole step behind the newest slot, so each survivor
++        // repeats only its predecessor. After the jump the gap exceeds the window, so the first
++        // frame of the new run is plain and redundancy rebuilds as the window fills again.
++        let expect: Vec<Vec<(u32, usize)>> = vec![
++            vec![],
++            vec![(2 * TS_STEP, 0)],
++            vec![(2 * TS_STEP, 1)],
++            vec![(2 * TS_STEP, 2)],
++            vec![(2 * TS_STEP, 3)],
++            vec![],
++            vec![(TS_STEP, 5)],
++            vec![(2 * TS_STEP, 5), (TS_STEP, 6)],
++        ];
++        assert_eq!(expect.len(), frames.len(), "5 survivors plus 3 frames after the jump");
++        assert_outputs(&outputs, &frames, &expect, &[]);
++
++        // The jump is what removes the redundancy, not an encoder failure: the frame is still
++        // wrapped, just primary-only.
++        assert_eq!(outputs[5].1.len(), 13, "post-jump frame carries no redundant block");
+     }
+ 
+     #[test]
+-    fn red_sender_wrap_sheds_deepest_redundancy_to_fit_budget() {
++    fn red_sender_matches_go_unordered_and_repeated_frames() {
+         let mut red = red_sender(&[1, 2]);
+-        let budget = 300;
+-        let frame = |b: u8| vec![b; 100];
++        let mut frames = go_frames(BASE_SEQ, BASE_TS, 10, TS_STEP);
++        // Go "unorder and repeat": an old frame arrives late, then the newest frame arrives again.
++        let unordered = frames[7].clone();
++        let repeated = frames[9].clone();
++        frames.push(unordered);
++        frames.push(repeated);
++        let outputs = forward_all(&mut red, &frames, GO_BUDGET);
++
++        let mut expect: Vec<Vec<(u32, usize)>> = (0..10)
++            .map(|i| match i {
++                0 => vec![],
++                1 => vec![(TS_STEP, 0)],
++                _ => vec![(2 * TS_STEP, i - 2), (TS_STEP, i - 1)],
++            })
++            .collect();
++        // The late frame is older than both slots, so Go's sequence-gap test (which wraps through the
++        // 16-bit range) rejects it as redundancy and it is not recorded either.
++        expect.push(vec![]);
++        // The repeat is skipped as a repeat, but its older neighbour is still redundant for it.
++        expect.push(vec![(TS_STEP, 8)]);
++        assert_outputs(&outputs, &frames, &expect, &[]);
++
++        // Repeating the newest frame writes it into both slots of the window, so the next frame
++        // carries the same block twice. That is Go's behaviour, not a Rust-side artefact: a
++        // receiver deduplicates the equal payloads by sequence number.
++        let seq = BASE_SEQ.wrapping_add(10);
++        let rtp_time = BASE_TS.wrapping_add(10 * TS_STEP);
++        let after_repeat = red.wrap(go_payload(seq, rtp_time), seq_no(seq), rtp_time, GO_BUDGET);
++        let RedWrapped::Redundant(bytes) = after_repeat else {
++            panic!("a consecutive frame must be wrapped as RED");
++        };
++        let blocks = red_blocks(&bytes);
++        assert_eq!(blocks.len(), 3, "the duplicated history yields two redundant blocks");
++        assert_eq!(blocks[0].1, blocks[1].1, "both blocks have the same offset");
++        assert_eq!(blocks[0].2, blocks[1].2, "both blocks carry the repeated frame");
++    }
++
++    #[test]
++    fn red_sender_matches_go_large_timestamp_gap_drops_redundancy() {
++        let mut red = red_sender(&[1, 2]);
++        // Go "large timestamp gap": normal frames, then frames 40*tsStep apart.
++        let mut frames = go_frames(BASE_SEQ, BASE_TS, 4, TS_STEP);
++        frames.extend(go_frames(
++            BASE_SEQ.wrapping_add(4),
++            BASE_TS.wrapping_add(4 * TS_STEP),
++            4,
++            40 * TS_STEP,
++        ));
++        let outputs = forward_all(&mut red, &frames, GO_BUDGET);
++
++        let mut expect = vec![
++            vec![],
++            vec![(TS_STEP, 0)],
++            vec![(2 * TS_STEP, 0), (TS_STEP, 1)],
++            vec![(2 * TS_STEP, 1), (TS_STEP, 2)],
++            // The first jumped frame is still one step behind its predecessor, so the ramp holds.
++            vec![(2 * TS_STEP, 2), (TS_STEP, 3)],
++        ];
++        expect.extend((0..3).map(|_| vec![]));
++        assert_outputs(&outputs, &frames, &expect, &[]);
++
++        // 40*480 = 19200 >= 1<<14, so the timestamp test (not the window) is what removes the
++        // redundancy, and the frame is still wrapped on the RED payload type.
++        assert!(40 * TS_STEP >= MAX_RED_TS_GAP, "the vector must cross the 1<<14 test");
++        assert_eq!(frames[6].1.wrapping_sub(frames[5].1), 40 * TS_STEP);
++        assert_eq!(outputs[5].1.len(), 13, "primary-only RED payload after the gap");
++    }
+ 
+-        red.wrap(frame(0xAA), 0, budget); // distance-2 source
+-        red.wrap(frame(0xBB), 960, budget); // distance-1 source
+-        let out = red.wrap(frame(0xCC), 1920, budget);
++    #[test]
++    fn red_sender_matches_go_drop_all_redundancy_when_blocks_do_not_fit() {
++        // Go's budget check is all-or-nothing (`redPkts = redPkts[:0]`), not "shed the deepest level".
++        let frames: Vec<Frame> = (0..4)
++            .map(|i| (100u16 + i as u16, i as u32 * TS_STEP, vec![i as u8 + 1; 500]))
++            .collect();
+ 
+-        assert!(
+-            out.len() <= budget,
+-            "encoded RED {} > budget {budget}",
+-            out.len()
++        let mut tight = red_sender(&[1, 2]);
++        let outputs = forward_all(&mut tight, &frames, WRAP_BUDGET);
++        assert_outputs(
++            &outputs,
++            &frames,
++            &[vec![], vec![(TS_STEP, 0)], vec![], vec![]],
++            &[],
+         );
+-        let blocks = RedDecoder::decode(&out).unwrap();
+-        assert_eq!(blocks.len(), 2, "distance 2 shed to fit budget");
+-        assert!(!blocks[0].is_primary);
+-        assert_eq!(
+-            blocks[0].payload,
+-            &frame(0xBB)[..],
+-            "kept the shallowest (distance 1)"
++        for (index, (_, bytes)) in outputs.iter().enumerate() {
++            assert!(
++                bytes.len() <= WRAP_BUDGET,
++                "frame {index} must fit the budget, got {}",
++                bytes.len()
++            );
++        }
++        assert_eq!(outputs[2].1.len(), 501, "both blocks do not fit, so neither is used");
++
++        // Control: the same frames with room for both blocks keep both, which proves it is the
++        // budget that dropped them and not the selection rules.
++        let mut ample = red_sender(&[1, 2]);
++        let outputs = forward_all(&mut ample, &frames, 1600);
++        assert_outputs(
++            &outputs,
++            &frames,
++            &[
++                vec![],
++                vec![(TS_STEP, 0)],
++                vec![(2 * TS_STEP, 0), (TS_STEP, 1)],
++                vec![(2 * TS_STEP, 1), (TS_STEP, 2)],
++            ],
++            &[],
+         );
+-        assert!(blocks[1].is_primary);
+-        assert_eq!(blocks[1].payload, &frame(0xCC)[..]);
++        assert_eq!(outputs[2].1.len(), 1509, "both redundant blocks fit in 1600 bytes");
++    }
+ 
+-        // Ample budget keeps both levels, confirming the guard is what sheds.
++    #[test]
++    fn red_sender_matches_go_oversized_frame_is_broadcast_unwrapped() {
+         let mut red = red_sender(&[1, 2]);
+-        red.wrap(frame(0xAA), 0, WRAP_BUDGET);
+-        red.wrap(frame(0xBB), 960, WRAP_BUDGET);
+-        let out = red.wrap(frame(0xCC), 1920, WRAP_BUDGET);
+-        assert_eq!(
+-            RedDecoder::decode(&out).unwrap().len(),
+-            3,
+-            "all levels fit a large budget"
++        // A frame of at least `maxRedPayload` cannot be expressed as a 10-bit block length, so Go
++        // broadcasts the original packet on the primary payload type and records nothing.
++        let frames = vec![
++            (100u16, 0u32, vec![0xAAu8; MAX_RED_PAYLOAD]),
++            (101, TS_STEP, vec![0xBBu8; MAX_RED_PAYLOAD - 1]),
++            (102, 2 * TS_STEP, vec![0xCCu8; 20]),
++            (103, 3 * TS_STEP, vec![0xDDu8; 20]),
++        ];
++        let outputs = forward_all(&mut red, &frames, GO_BUDGET);
++
++        assert_outputs(
++            &outputs,
++            &frames,
++            &[
++                vec![],
++                vec![],
++                // Only the 1023-byte frame is in history: the 1024-byte frame was never recorded.
++                vec![(TS_STEP, 1)],
++                vec![(2 * TS_STEP, 1), (TS_STEP, 2)],
++            ],
++            &[0],
+         );
++        assert_eq!(outputs[0].1.len(), MAX_RED_PAYLOAD, "byte-for-byte the original payload");
++        assert_eq!(outputs[2].1.len(), 4 + 1 + 1023 + 20, "one 1023-byte redundant block");
++        assert_eq!(&outputs[2].1[..4], &[0xEF, 0x07, 0x83, 0xFF], "offset 480, length 1023");
++        assert_eq!(outputs[3].1.len(), 8 + 1 + 1023 + 20 + 20, "both blocks fit the budget");
+     }
+ 
+     #[test]
+-    fn red_sender_wrap_primary_header_does_not_exceed_budget() {
+-        let mut red = red_sender(&[1]);
+-        let out = red.wrap(vec![0xAA; WRAP_BUDGET], 960, WRAP_BUDGET);
+-        assert!(
+-            out.len() <= WRAP_BUDGET,
+-            "RED payload {} > budget {WRAP_BUDGET}",
+-            out.len()
++    fn red_sender_frame_without_room_for_primary_header_stays_on_primary_pt() {
++        let mut red = red_sender(&[1, 2]);
++        // The primary block header is mandatory, so a frame that leaves no room for it is not
++        // wrapped — and, like Go's oversized branch, it is not recorded either.
++        let budget = 64;
++        let frames = vec![
++            (100u16, 0u32, vec![0x11u8; budget]),
++            (101, TS_STEP, vec![0x22u8; 8]),
++            (102, 2 * TS_STEP, vec![0x33u8; 8]),
++        ];
++        let outputs = forward_all(&mut red, &frames, budget);
++        assert_outputs(&outputs, &frames, &[vec![], vec![], vec![(TS_STEP, 1)]], &[0]);
++
++        // Control: the same frames with room for the header are wrapped, so the room test — not the
++        // frame size — is what bypassed the first one.
++        let mut red = red_sender(&[1, 2]);
++        let outputs = forward_all(&mut red, &frames, 200);
++        assert_outputs(
++            &outputs,
++            &frames,
++            &[vec![], vec![(TS_STEP, 0)], vec![(2 * TS_STEP, 0), (TS_STEP, 1)]],
++            &[],
+         );
+     }
+ 
+     #[test]
+-    fn red_sender_sync_trims_history_on_pattern_change() {
++    fn red_sender_multi_distance_pattern_emits_levels_oldest_first() {
++        // LiveKit and Go use `[1, 2]`; a deeper `distances` pattern is str0m's extension for higher
++        // loss. The window grows with the deepest distance and only the configured ranks repeat,
++        // always oldest first, with Go's recency and timestamp filters unchanged.
++        let frames: Vec<Frame> = (0..6)
++            .map(|i| (100u16 + i as u16, i as u32 * 960, vec![i as u8 + 1; 8]))
++            .collect();
++
+         let mut red = red_sender(&[1, 3]);
+-        for i in 0..4u32 {
+-            red.wrap(vec![i as u8], i * 960, WRAP_BUDGET);
+-        }
+-        // Shrinking the pattern trims history to the new deepest distance, so the next packet only
+-        // has a distance-1 block available.
++        let outputs = forward_all(&mut red, &frames, WRAP_BUDGET);
++        assert_outputs(
++            &outputs,
++            &frames,
++            &[
++                vec![],
++                vec![(960, 0)],
++                vec![(960, 1)],
++                vec![(3 * 960, 0), (960, 2)],
++                vec![(3 * 960, 1), (960, 3)],
++                vec![(3 * 960, 2), (960, 4)],
++            ],
++            &[],
++        );
++        assert_eq!(&outputs[5].1[..4], &[0xEF, 0x2D, 0x00, 0x08], "distance 3 block first");
++        assert_eq!(&outputs[5].1[4..8], &[0xEF, 0x0F, 0x00, 0x08], "then the distance 1 block");
++
++        // A rank that is not configured is never repeated even when it sits in the window: frame 5
++        // of `[1, 3]` skips the distance 2 frame. With `[1, 2, 3]` all three levels appear.
++        let mut red = red_sender(&[1, 2, 3]);
++        let outputs = forward_all(&mut red, &frames, WRAP_BUDGET);
++        assert_outputs(
++            &outputs,
++            &frames,
++            &[
++                vec![],
++                vec![(960, 0)],
++                vec![(2 * 960, 0), (960, 1)],
++                vec![(3 * 960, 0), (2 * 960, 1), (960, 2)],
++                vec![(3 * 960, 1), (2 * 960, 2), (960, 3)],
++                vec![(3 * 960, 2), (2 * 960, 3), (960, 4)],
++            ],
++            &[],
++        );
++    }
++
++    #[test]
++    fn red_sender_sync_resizes_window_on_pattern_change() {
++        let frames: Vec<Frame> = (0..5)
++            .map(|i| (100u16 + i as u16, i as u32 * 960, vec![i as u8 + 1; 8]))
++            .collect();
++
++        // Shrink the pattern: the window becomes one frame deep and keeps the newest frame, so the
++        // next packet has a single distance 1 block instead of the two a `[1, 3]` window yields.
++        let mut red = red_sender(&[1, 3]);
++        let before = forward_all(&mut red, &frames[..4], WRAP_BUDGET);
++        assert_eq!(red_blocks(&before[3].1).len(), 3, "[1, 3] yields two redundant blocks");
+         red.sync(Pt::new_with_value(63), Pt::new_with_value(111), &[1]);
+-        let out = red.wrap(vec![42], 4 * 960, WRAP_BUDGET);
+-        let blocks = RedDecoder::decode(&out).unwrap();
+-        assert_eq!(blocks.len(), 2, "only distance 1 survives the trim");
+-        assert_eq!(blocks[0].timestamp_offset, 960);
++        let (seq, rtp_time, payload) = &frames[4];
++        let after = red.wrap(payload.clone(), seq_no(*seq), *rtp_time, WRAP_BUDGET);
++        let RedWrapped::Redundant(bytes) = after else {
++            panic!("a consecutive frame must be wrapped as RED");
++        };
++        let blocks = red_blocks(&bytes);
++        assert_eq!(blocks.len(), 2, "only distance 1 survives the shrink");
++        assert_eq!(blocks[0].1, 960);
++        assert_eq!(blocks[0].2, frames[3].2, "the newest frame is kept");
++
++        // Grow the pattern: the window deepens with empty front slots, so the ramp continues exactly
++        // like a sender that was configured with the deeper pattern from the start.
++        let mut grown = red_sender(&[1]);
++        let mut fresh = red_sender(&[1, 2]);
++        for (index, (seq, rtp_time, payload)) in frames.iter().take(4).enumerate() {
++            if index == 1 {
++                grown.sync(Pt::new_with_value(63), Pt::new_with_value(111), &[1, 2]);
++            }
++            let g = grown.wrap(payload.clone(), seq_no(*seq), *rtp_time, WRAP_BUDGET);
++            let f = fresh.wrap(payload.clone(), seq_no(*seq), *rtp_time, WRAP_BUDGET);
++            assert!(
++                matches!((&g, &f), (RedWrapped::Redundant(_), RedWrapped::Redundant(_))),
++                "frame {index}: both senders must wrap on the RED payload type"
++            );
++            assert_eq!(
++                g.into_payload(),
++                f.into_payload(),
++                "a deepened window must ramp like a fresh sender at frame {index}"
++            );
++        }
++    }
++
++    #[test]
++    fn red_sender_labels_only_wrapped_bytes_with_the_red_payload_type() {
++        // The defect this fixes: primary bytes that bypass RED wrapping must not be labelled with
++        // the RED payload type, or the peer parses plain Opus as an RFC 2198 payload.
++        let red_pt = Pt::new_with_value(63);
++        let primary_pt = Pt::new_with_value(111);
++        assert_eq!(*red_sender(&[1, 2]).red_pt(), 63);
++        assert_eq!(*red_sender(&[1, 2]).primary_pt(), 111);
++
++        let mut red = red_sender(&[1, 2]);
++        let oversized = red.wrap(vec![0x55u8; MAX_RED_PAYLOAD], seq_no(100), 0, GO_BUDGET);
++        assert_eq!(*oversized.pt(red_pt, primary_pt), *primary_pt);
++        assert_eq!(oversized.into_payload(), vec![0x55u8; MAX_RED_PAYLOAD]);
++
++        let wrapped = red.wrap(vec![0x77u8; 40], seq_no(101), TS_STEP, GO_BUDGET);
++        assert_eq!(*wrapped.pt(red_pt, primary_pt), *red_pt);
++        let bytes = wrapped.into_payload();
++        assert_ne!(bytes, vec![0x77u8; 40], "a wrapped frame is never the raw payload");
++        assert_eq!(bytes.len(), 1 + 40, "the oversized frame was not recorded, so no block");
++        assert_eq!(bytes[0], 111, "primary block header with F = 0");
++        assert_eq!(&bytes[1..], &[0x77u8; 40]);
++
++        // A frame with a redundant block sets the continuation bit on the first header byte only.
++        let third = red.wrap(vec![0x88u8; 40], seq_no(102), 2 * TS_STEP, GO_BUDGET);
++        assert_eq!(*third.pt(red_pt, primary_pt), *red_pt);
++        let bytes = third.into_payload();
++        assert_eq!(bytes[0] & 0x80, 0x80, "first block is followed by another header");
++        assert_eq!(bytes[4] & 0x80, 0, "the primary header ends the chain");
++        assert_eq!(&bytes[5..], &[0x88u8; 40], "the primary payload is last");
++    }
++
++    #[test]
++    #[ignore = "requires actual fixed-Go SOURCE_RED_ENCODE rows"]
++    fn original_go_red_encoder_vectors_match_red_sender_byte_for_byte() {
++        // Fixed Go: livekit-stable `pkg/sfu/redreceiver.go` through `tests/oracles/red-encode`;
++        // see that directory's README for the run command. Every row is one
++        // `RedReceiver.ForwardRTP` call with a single down track, so the comparison covers the
++        // payload type choice and the complete encoded payload rather than a summary of it.
++        let path = std::env::var("GO_RED_ENCODE_RESULTS").expect("original observer log");
++        let log = std::fs::read_to_string(path).unwrap();
++
++        // case -> rows of `(index, seq, ts, input payload, Go payload type, Go payload)`
++        let mut order: Vec<String> = Vec::new();
++        let mut cases: std::collections::HashMap<String, Vec<(usize, u16, u32, Vec<u8>, u8, Vec<u8>)>> =
++            std::collections::HashMap::new();
++        let mut rows = 0;
++        for line in log.lines() {
++            let Some((_, row)) = line.split_once("SOURCE_RED_ENCODE ") else {
++                continue;
++            };
++            let v: serde_json::Value = serde_json::from_str(row).unwrap();
++            let case = v["case"].as_str().unwrap().to_owned();
++            let entry = cases.entry(case.clone()).or_default();
++            if entry.is_empty() {
++                order.push(case);
++            }
++            entry.push((
++                v["index"].as_u64().unwrap() as usize,
++                v["seq"].as_u64().unwrap() as u16,
++                v["ts"].as_u64().unwrap() as u32,
++                hex_bytes(v["payload_hex"].as_str().unwrap()),
++                v["out_pt"].as_u64().unwrap() as u8,
++                hex_bytes(v["out_payload_hex"].as_str().unwrap()),
++            ));
++            rows += 1;
++        }
++
++        // Anti-vacuity: the six frozen vectors must all be present, with both the wrapped and the
++        // bypassed branch and plenty of redundancy, otherwise "every row is equal" would prove
++        // nothing. normal 10 + loss/jump 8 + unorder/repeat 12 + budget 5 + timestamp gap 8 +
++        // oversized 4.
++        assert_eq!(rows, 47, "the frozen Go vectors must contribute all 47 rows");
++        assert_eq!(order.len(), 6, "every frozen vector must be present, got {order:?}");
++        let wrapped_rows = cases.values().flatten().filter(|r| r.4 == 63).count();
++        let bypassed_rows = rows - wrapped_rows;
++        assert!(wrapped_rows >= 40, "most rows must exercise RED wrapping, got {wrapped_rows}");
++        assert_eq!(
++            bypassed_rows, 1,
++            "only the frame of 1 KiB or more may bypass RED wrapping, got {bypassed_rows}"
++        );
++
++        for case in &order {
++            let mut vector = cases.get(case).unwrap().clone();
++            vector.sort_by_key(|row| row.0);
++            assert_eq!(
++                vector.iter().map(|row| row.0).collect::<Vec<_>>(),
++                (0..vector.len()).collect::<Vec<_>>(),
++                "{case}: row indexes must be contiguous, a truncated vector would pass silently"
++            );
++            // Go builds a fresh `RedReceiver` per subtest, so each vector starts with an empty window.
++            let mut red = RedSender::new(Pt::new_with_value(63), Pt::new_with_value(111), &[1, 2]);
++            for (index, seq, rtp_time, payload, go_pt, go_bytes) in &vector {
++                let wrapped = red.wrap(payload.clone(), seq_no(*seq), *rtp_time, GO_BUDGET);
++                let pt = wrapped.pt(Pt::new_with_value(63), Pt::new_with_value(111));
++                assert_eq!(*pt, *go_pt, "{case} frame {index} payload type");
++                assert_eq!(
++                    wrapped.into_payload(),
++                    *go_bytes,
++                    "{case} frame {index} encoded RED payload bytes"
++                );
++            }
++        }
++    }
++
++    /// Decode a hex string emitted by the fixed-Go observer.
++    fn hex_bytes(text: &str) -> Vec<u8> {
++        (0..text.len() / 2)
++            .map(|i| u8::from_str_radix(&text[i * 2..i * 2 + 2], 16).expect("hex byte"))
++            .collect()
+     }
+ 
+     #[test]

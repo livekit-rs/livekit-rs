@@ -2,7 +2,7 @@
 //! Same real Pair driver, 50 KiB bytes, and 12-second bound as the original MaxRTX0 gate.
 use super::*;
 
-fn reliable_pair() -> Pair {
+pub(super) fn reliable_pair() -> Pair {
     let start = Instant::now();
     let mut engine = engine(start);
     engine.cfg.rtc.sctp.fast_rtx_wnd = 0;
@@ -51,7 +51,7 @@ fn reliable_pair() -> Pair {
     }
 }
 
-fn reliable_buffered(pair: &mut Pair) -> usize {
+pub(super) fn reliable_buffered(pair: &mut Pair) -> usize {
     let (cid, kind) = pair.engine.transports[&pair.tid]
         .channel_for(DataKind::Reliable)
         .expect("real reliable DCEP channel");

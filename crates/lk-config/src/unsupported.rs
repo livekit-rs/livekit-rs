@@ -192,11 +192,20 @@ mod tests {
         // validation upstream and are never invoked in a single standalone
         // node, so they must start (not be rejected).
         c.node_selector.kind = "cpuload".into();
-        assert!(check_selector(&c).is_ok(), "cpuload must start in standalone");
+        assert!(
+            check_selector(&c).is_ok(),
+            "cpuload must start in standalone"
+        );
         c.node_selector.kind = "sysload".into();
-        assert!(check_selector(&c).is_ok(), "sysload must start in standalone");
+        assert!(
+            check_selector(&c).is_ok(),
+            "sysload must start in standalone"
+        );
         c.node_selector.kind = "random".into();
-        assert!(check_selector(&c).is_ok(), "random must start in standalone");
+        assert!(
+            check_selector(&c).is_ok(),
+            "random must start in standalone"
+        );
         let mut c = Config::default();
         c.prometheus.port = 9100;
         c.prometheus.username = "u".into();
@@ -270,7 +279,10 @@ mod tests {
         // which consumes rather than rejects them.
         let mut c = Config::default();
         c.rtc.force_tcp = true;
-        assert!(check(&c).is_ok(), "force_tcp must be accepted, not rejected");
+        assert!(
+            check(&c).is_ok(),
+            "force_tcp must be accepted, not rejected"
+        );
         c.rtc.force_tcp = false;
         c.rtc.use_mdns = true;
         assert!(check(&c).is_ok(), "use_mdns must be accepted, not rejected");

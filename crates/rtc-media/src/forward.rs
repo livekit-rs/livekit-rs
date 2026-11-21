@@ -1140,6 +1140,11 @@ impl MediaEngine {
             })
             .collect::<Vec<_>>();
         for ui in initial {
+            let recompute = self
+                .ups
+                .get(ui)
+                .and_then(|up| up.dynacast.as_ref())
+                .is_some_and(|d| d.needs_recompute());
             if self
                 .ups
                 .get_mut(ui)
@@ -1149,7 +1154,14 @@ impl MediaEngine {
                 .unwrap()
                 .take_initial_update(now)
             {
-                self.commit_dynacast(ui, false, now);
+                if recompute {
+                    // A codec regression injected HIGH for a codec that had no demand of its
+                    // own. Go's forced update re-reads that codec's subscribers, so the
+                    // injection must give way to the real aggregate here.
+                    self.update_dynacast(ui, now);
+                } else {
+                    self.commit_dynacast(ui, false, now);
+                }
             }
         }
         let due = self
@@ -1176,7 +1188,7 @@ impl MediaEngine {
         }
     }
 
-    fn commit_dynacast(&mut self, ui: usize, force: bool, now: Instant) {
+    pub(crate) fn commit_dynacast(&mut self, ui: usize, force: bool, now: Instant) {
         let Some(up) = self.ups.get(ui) else { return };
         let sid = up.sid.clone();
         let publisher = up.publisher.clone();
@@ -1336,6 +1348,60 @@ impl MediaEngine {
             .collect();
         for tid in tids {
             self.allocate_transport(tid, now);
+        }
+    }
+
+    /// Production router for the vendor's send-side observation stream. The
+    /// mode decides which consumer handles it.
+    pub(crate) fn on_send_side_input(&mut self, tid: TransportId, event: str0m::SendSideFeedback) {
+        if self.cfg.rtc.congestion_control.effective_feedback_mode()
+            == rtc_core::config::FeedbackMode::NativeSendSide
+        {
+            self.on_native_input(tid, event);
+        } else {
+            self.on_interceptor_input(tid, event);
+        }
+    }
+
+    /// Feed one real vendor observation to the application-owned Go-parity
+    /// send-side estimator in native mode.
+    ///
+    /// This is an **observer-only** path: the detector ingests the authenticated
+    /// TWCC report / sending record and derives its own capacity ceiling,
+    /// congestion state and probe-cluster state, and those values are recorded
+    /// for diagnostics (`Transport::send_side_observed`). It deliberately does
+    /// **not** touch `Transport::capacity()`, the allocator, the vendor BWE
+    /// snapshot or the pacer: in native mode the allocation authority remains
+    /// str0m's vendor estimator plus `Transport::probes`, exactly as before this
+    /// detector existed. Making the detector the authority is later work.
+    pub(crate) fn on_native_input(&mut self, tid: TransportId, event: str0m::SendSideFeedback) {
+        let Some(t) = self.transports.get_mut(&tid).filter(|t| !t.failed) else {
+            return;
+        };
+        let Some(send_side) = &mut t.send_side else {
+            return;
+        };
+        match send_side.handle(event) {
+            Ok(outcome) => {
+                t.send_side_observed = Some(crate::transport::SendSideObservation {
+                    estimate_bps: send_side.capacity(),
+                    congestion: send_side.congestion_state(),
+                    at: outcome.at,
+                });
+                // Observer-only: no allocation, no pacer control, no vendor
+                // estimate rewrite happens from here.
+                tracing::debug!(transport = %tid,
+                    go_parities_estimate_bps = send_side.capacity(),
+                    go_parities_congestion = ?send_side.congestion_state(),
+                    state_changes = outcome.state_changes.len(),
+                    inputs = ?send_side.stats(),
+                    "application-owned Go-parity send-side estimator observed the real TWCC feed (not yet the allocation authority)");
+            }
+            Err(error) => {
+                // Upstream drops a rejected report at the RTCP reader, before
+                // any BWE signal reaches an estimator, so nothing is due.
+                tracing::debug!(%error, "send side BWE input rejected");
+            }
         }
     }
 

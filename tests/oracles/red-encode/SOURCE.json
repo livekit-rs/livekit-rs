@@ -1,0 +1,9 @@
+{
+  "commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/sfu/redreceiver.go": "51b3375aab9f994e2352b9f75bda29c2230db947919d8dfc4b84ee7c060adc52",
+    "pkg/sfu/redreceiver_test.go": "770b4fa91d2509e211fb2de17e2163ed045175fe9c57d46712ec34811a597fb5",
+    "pkg/sfu/receiver_base.go": "38620b025861461becd90a2c9c413bb1bd06e8f56cba686300a3c7e0b274832d",
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5"
+  }
+}

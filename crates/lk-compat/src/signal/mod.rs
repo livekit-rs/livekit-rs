@@ -605,11 +605,19 @@ mod signal_http_integration_tests {
         for method in ["POST", "PUT", "DELETE", "OPTIONS", "PATCH"] {
             for uri in ["/rtc?room=r", "/rtc/v1?room=r"] {
                 let (status, _cors) = method_response(&state, method, uri).await;
-                assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri} must 404 (non-WS)");
+                assert_eq!(
+                    status,
+                    StatusCode::NOT_FOUND,
+                    "{method} {uri} must 404 (non-WS)"
+                );
             }
             for uri in ["/rtc/validate?room=r", "/rtc/v1/validate?room=r"] {
                 let (status, cors) = method_response(&state, method, uri).await;
-                assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri} must run auth (401)");
+                assert_eq!(
+                    status,
+                    StatusCode::UNAUTHORIZED,
+                    "{method} {uri} must run auth (401)"
+                );
                 assert!(cors, "{method} {uri} validate must include CORS");
             }
         }

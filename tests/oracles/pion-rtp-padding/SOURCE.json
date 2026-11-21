@@ -1,0 +1,59 @@
+{
+  "fixed_go_commit": "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07",
+  "original_inputs": {
+    "pkg/sfu/buffer/buffer.go": "a342e16f0a5672079b663dc5d66e8623c3c3afd39e92edcfa9bb1c5d15c516cb",
+    "pkg/sfu/rtpstats/rtpstats_receiver.go": "6b7c3659adfa297297075588bbba8446c59b87d92aff66cc3f05b09367d05b26",
+    "go.mod": "6521db4db45f8b0a1f8b2a314b89c4d35c2db3fd72a417036a374eec6829b2b5"
+  },
+  "observer": "main.go",
+  "observer_sha256": "3b9a2cf44c94392fe8446b68ee8b08b1357795eff8c48c3ad8a96670e4920bcf",
+  "cases_sha256": "a148ac50a7595468fe0958dd84b48eb4d08694480ca61ce7519185c9c07676a6",
+  "module": {
+    "name": "livekit-rs-tests/pionrtppaddingoracle",
+    "go_directive": "1.24.0",
+    "go_mod_sha256": "898ed47bf42e384d57c457d07c5d98c7e88625b88cd4c7bf82fbf321d3f2f716",
+    "go_sum_sha256": "6dcabcb622f6c4e5f1c84cd76b74465d87188833dd4737e451a3a50de92c7ad2",
+    "requirements": {
+      "github.com/pion/rtp": "v1.10.5",
+      "github.com/pion/randutil": "v0.1.0"
+    },
+    "resolution": "committed go.sum plus GOPROXY=off and -mod=readonly; no network fetch"
+  },
+  "pion_inputs": [
+    {
+      "path": "/Users/zoujiaqing/go/pkg/mod/github.com/pion/rtp@v1.10.5/packet.go",
+      "sha256": "bb0f45d4e1d368ca5065f4f1c0695197641eefca0560922b2dfa0d9a923969a3",
+      "consumer": "Header.Unmarshal and Packet.Unmarshal padding admission (errTooSmall, errInvalidRTPPadding, PaddingSize assignment order)"
+    },
+    {
+      "path": "/Users/zoujiaqing/go/pkg/mod/github.com/pion/rtp@v1.10.5/error.go",
+      "sha256": "6f66716f8d510f6366038d8b3fb372b3a5497d9fc141457667d4cf9204e6541f",
+      "consumer": "sentinel error texts reported as error_text"
+    },
+    {
+      "path": "/Users/zoujiaqing/go/pkg/mod/github.com/pion/rtp@v1.10.5/go.mod",
+      "sha256": "7f132f63de5e5ce3faee1a8dee62894d985e1ba81595b824f3a0140e48079fef",
+      "consumer": "pinned parser revision"
+    }
+  ],
+  "warp_inputs": [
+    {
+      "path": "/Users/zoujiaqing/go/pkg/mod/github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/rtptransceiver.go",
+      "sha256": "2f14f6c0bc2634af6d00fd1002d6a2a9dc8e62104a4d66e0db075fa44797b7db",
+      "consumer": "handleUnknownRTPPacket (427-458) runs rtp.Packet.Unmarshal on the first packet of an unknown SSRC and isPaddingOnlyPacket (440)"
+    },
+    {
+      "path": "/Users/zoujiaqing/go/pkg/mod/github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/peerconnection.go",
+      "sha256": "ed16faf84a4bc813d68a8f119c38f56c50dc5e826d9970ff1d727ad2634fb708",
+      "consumer": "1899 returns the Unmarshal error so no receiver, RID/mid metadata or publication exists; 1929 skips padding-only probes"
+    },
+    {
+      "path": "/Users/zoujiaqing/go/pkg/mod/github.com/livekit/webrtc-pion/v4@v4.2.18-warp.6/track_remote.go",
+      "sha256": "a96cec031ddd83689b337f252850f4137fb738e38ac90286cd5495231ebb63d5",
+      "consumer": "publication objects that a rejection prevents"
+    }
+  ],
+  "command": "go run -mod=readonly . < cases.jsonl",
+  "pairing": "cargo test --release --locked -p str0m rtp::header::test::original_go_rtp_padding_admission_rows_match_native_parser -- --ignored --exact",
+  "not_run": true
+}

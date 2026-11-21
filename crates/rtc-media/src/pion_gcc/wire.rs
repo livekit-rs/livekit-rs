@@ -5,8 +5,15 @@
 use super::{Chunk, FeedbackError};
 #[derive(Clone, Debug)]
 pub struct TwccReport {
+    /// `MediaSSRC`: the stream the reported packets belong to, at bytes 8..12.
+    pub media_ssrc: u32,
     pub base: u16,
+    /// `PacketStatusCount`: how many sequence numbers the walk may consume.
+    pub status_count: u16,
     pub reference: u32,
+    /// `FeedbackCount`: the low 8 bits of the second reference time, used for
+    /// report loss reconstruction.
+    pub fb_pkt_count: u8,
     pub chunks: Vec<Chunk>,
     pub deltas_us: Vec<i64>,
 }
@@ -30,6 +37,8 @@ pub fn parse_twcc(raw: &[u8]) -> Result<TwccReport, FeedbackError> {
     let base = u16::from_be_bytes([raw[12], raw[13]]);
     let count = u16::from_be_bytes([raw[14], raw[15]]);
     let reference = u32::from_be_bytes([0, raw[16], raw[17], raw[18]]);
+    let media_ssrc = u32::from_be_bytes([raw[8], raw[9], raw[10], raw[11]]);
+    let fb_pkt_count = raw[19];
     let mut at = 20;
     let mut processed = 0u16;
     let mut chunks = vec![];
@@ -86,8 +95,11 @@ pub fn parse_twcc(raw: &[u8]) -> Result<TwccReport, FeedbackError> {
         deltas_us.push(delta);
     }
     Ok(TwccReport {
+        media_ssrc,
         base,
+        status_count: count,
         reference,
+        fb_pkt_count,
         chunks,
         deltas_us,
     })

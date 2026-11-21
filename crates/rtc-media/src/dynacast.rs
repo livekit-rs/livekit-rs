@@ -13,6 +13,10 @@ pub(crate) struct Dynacast {
     initialized: bool,
     committed: Option<VideoQuality>,
     initial_at: Option<Instant>,
+    // Go keeps the regressed-to mime's demand entry only once its own quality object
+    // reports one, so a codec regression writes HIGH into that entry until the real
+    // subscriber aggregate is computed.
+    woken: bool,
     muted: bool,
 }
 
@@ -90,8 +94,32 @@ impl Dynacast {
             initialized: false,
             committed: None,
             initial_at: Some(now + INITIAL_UPDATE_WAIT),
+            woken: false,
             muted,
         }
+    }
+
+    /// Go `OnRegressCodec`: HIGH enters the demand map only when the regressed-to mime has
+    /// no entry of its own, which is what tells the publisher to start that codec.
+    pub(crate) fn wake_for_regression(&mut self) -> bool {
+        if self.aggregated.is_some() {
+            return false;
+        }
+        self.aggregated = Some(VideoQuality::High);
+        self.woken = true;
+        true
+    }
+
+    /// Go `dynacastQualityVideo.Replace` -> `Restart`: the transferred subscriber demands are
+    /// not evaluated here, only the initial forced update is re-armed.
+    pub(crate) fn reinitialize(&mut self, now: Instant) {
+        self.initialized = false;
+        self.initial_at = Some(now + INITIAL_UPDATE_WAIT);
+    }
+
+    /// The current aggregate is a regression wake-up rather than this codec's own demand.
+    pub(crate) fn needs_recompute(&self) -> bool {
+        self.woken
     }
 
     pub(crate) fn committed_message(&self) -> Option<Vec<SubscribedCodec>> {
@@ -117,6 +145,7 @@ impl Dynacast {
             return false;
         }
         self.initialized = true;
+        self.woken = false;
         self.aggregated = Some(quality);
         true
     }
@@ -127,6 +156,12 @@ impl Dynacast {
         }
         self.initial_at = None;
         self.initialized = true;
+        if self.woken {
+            // Go's forced `updateQualityChange(true)` re-reads the codec's own subscribers, so
+            // the injected wake-up must not survive as if it were a reported demand.
+            self.woken = false;
+            return true;
+        }
         self.aggregated.get_or_insert(VideoQuality::Off);
         true
     }
@@ -322,6 +357,44 @@ mod tests {
         assert!(d.codec.take_initial_update(restart + INITIAL_UPDATE_WAIT));
         assert!(d.codec.initialized);
         assert!(!d.codec.set_demand(Low));
+    }
+
+    #[test]
+    fn regression_wake_publishes_high_and_the_forced_update_replaces_it() {
+        let now = Instant::now();
+        let delay = Duration::from_secs(1);
+        let mut d = Driver::new(delay, now, false);
+        assert!(
+            d.codec.wake_for_regression(),
+            "a codec with no demand of its own can be woken"
+        );
+        assert_eq!(d.codec.aggregated, Some(High));
+        assert_eq!(enabled(&d.update(false, now).unwrap()), vec![true; 3]);
+        assert!(
+            !d.codec.wake_for_regression(),
+            "a second regression must not invent another demand"
+        );
+        let at = now + INITIAL_UPDATE_WAIT;
+        d.codec.reinitialize(at);
+        assert_eq!(d.codec.committed, Some(High));
+        assert_eq!(d.codec.next_deadline(), Some(at + INITIAL_UPDATE_WAIT));
+        assert!(d.codec.take_initial_update(at + INITIAL_UPDATE_WAIT));
+        assert!(
+            !d.codec.needs_recompute(),
+            "the forced update owns the aggregate from now on"
+        );
+        assert!(
+            d.demand(Low, at + INITIAL_UPDATE_WAIT).is_none(),
+            "replacing HIGH with a real demand is a debounced downgrade"
+        );
+        assert_eq!(
+            enabled(&d.tick(at + INITIAL_UPDATE_WAIT + delay).unwrap()),
+            vec![true, false, false]
+        );
+        assert!(
+            !d.codec.wake_for_regression(),
+            "a reported demand blocks the wake-up"
+        );
     }
 
     #[test]

@@ -79,6 +79,40 @@ func preset(name string) RemoteBWEConfig {
  c.ProbeController.SettleWaitMin=-2*time.Millisecond;c.ProbeController.SettleWaitMax=-time.Millisecond
  c.ProbeController.ProbeRegulator.BaseInterval=-3*time.Millisecond;c.ProbeController.ProbeRegulator.MinDuration=-200*time.Millisecond
  }
+ // C71 single-leaf overrides: each preset changes exactly one remote_bwe leaf unless
+ // the name carries an explicit pair, so a baseline/variant case pair isolates that leaf.
+ switch name {
+ case "att0": c.NackRatioAttenuator=0.0
+ case "eut05": c.ExpectedUsageThreshold=0.5
+ case "npTh0": c.ChannelObserverNonProbe.Estimate.DownwardTrendThreshold=0.0
+ case "npMw0": c.ChannelObserverNonProbe.Estimate.DownwardTrendMaxWait=0
+ case "npVw0": c.ChannelObserverNonProbe.Estimate.ValidityWindow=0
+ case "npNrt09": c.ChannelObserverNonProbe.Nack.RatioThreshold=0.9
+ case "prbRs5": c.ChannelObserverProbe.Estimate.RequiredSamples=5
+ case "prbRsm4": c.ChannelObserverProbe.Estimate.RequiredSamplesMin=4
+ case "prbThM1": c.ChannelObserverProbe.Estimate.DownwardTrendThreshold=-1.0
+ case "prbCt10s": c.ChannelObserverProbe.Estimate.CollapseThreshold=10*time.Second
+ case "prbVw0": c.ChannelObserverProbe.Estimate.ValidityWindow=0
+ case "prbRs5Mw5": c.ChannelObserverProbe.Estimate.RequiredSamples=5;c.ChannelObserverProbe.Estimate.DownwardTrendMaxWait=5*time.Second
+ case "prbRs5Mw0": c.ChannelObserverProbe.Estimate.RequiredSamples=5;c.ChannelObserverProbe.Estimate.DownwardTrendMaxWait=0
+ case "prbNm0": c.ChannelObserverProbe.Nack.WindowMinDuration=0
+ case "prbNx0": c.ChannelObserverProbe.Nack.WindowMaxDuration=0
+ case "prbNrt09": c.ChannelObserverProbe.Nack.RatioThreshold=0.9
+ case "npRs9": c.ChannelObserverNonProbe.Estimate.RequiredSamples=9
+ case "npRsm6": c.ChannelObserverNonProbe.Estimate.RequiredSamplesMin=6
+ case "npCt0": c.ChannelObserverNonProbe.Estimate.CollapseThreshold=0
+ case "npNm0": c.ChannelObserverNonProbe.Nack.WindowMinDuration=0
+ case "npX0": c.ChannelObserverNonProbe.Nack.WindowMaxDuration=0
+ case "swNr0": c.ProbeController.SettleWaitNumRTT=0
+ case "swMin1": c.ProbeController.SettleWaitMin=1*time.Second
+ case "swMax100ms": c.ProbeController.SettleWaitMax=100*time.Millisecond
+ case "bi1": c.ProbeController.ProbeRegulator.BaseInterval=1*time.Second
+ case "mind1": c.ProbeController.ProbeRegulator.MinDuration=1*time.Second
+ case "bf3": c.ProbeController.ProbeRegulator.BackoffFactor=3.0
+ case "mi4": c.ProbeController.ProbeRegulator.MaxInterval=4*time.Second
+ case "md1": c.ProbeController.ProbeRegulator.MaxDuration=1*time.Second
+ case "dif3": c.ProbeController.ProbeRegulator.DurationIncreaseFactor=3.0
+ }
  return c
 }
 func number(s string) int64 { n,e:=strconv.ParseInt(s,10,64);if e!=nil {panic(e)};return n }

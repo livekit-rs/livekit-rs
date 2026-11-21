@@ -233,14 +233,20 @@ async fn wait_surface(bus: &RpcBus, node: &str, want: u64) {
             let c = bus
                 .publish(
                     &claim_channel,
-                    &pb::ClaimRequest { request_id: "none".into(), ..Default::default() },
+                    &pb::ClaimRequest {
+                        request_id: "none".into(),
+                        ..Default::default()
+                    },
                 )
                 .await
                 .unwrap();
             let r = bus
                 .publish(
                     &res_channel,
-                    &pb::Response { request_id: "none".into(), ..Default::default() },
+                    &pb::Response {
+                        request_id: "none".into(),
+                        ..Default::default()
+                    },
                 )
                 .await
                 .unwrap();
@@ -264,7 +270,9 @@ async fn real_redis_shared_identity_drop_releases_claim_res_str_surface() {
     let bus = redis_bus().await;
     let node = id("node_");
     wait_surface(&bus, &node, 0).await;
-    let identity = ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap();
+    let identity = ClientStreams::new(bus.clone(), "Signal", &node)
+        .await
+        .unwrap();
     wait_surface(&bus, &node, 1).await;
     drop(identity);
     wait_surface(&bus, &node, 0).await;
@@ -277,7 +285,11 @@ async fn real_redis_shared_identity_drop_releases_claim_res_str_surface() {
 async fn real_redis_shared_identity_register_after_retire_returns_terminal_cause() {
     let bus = redis_bus().await;
     let node = id("node_");
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", &node)
+            .await
+            .unwrap(),
+    );
     wait_surface(&bus, &node, 1).await;
     identity.close().await;
     wait_surface(&bus, &node, 0).await;
@@ -299,11 +311,17 @@ async fn real_redis_shared_identity_register_after_retire_returns_terminal_cause
 async fn real_redis_shared_identity_recovers_with_fresh_identity_after_loss() {
     let bus = redis_bus().await;
     let node = id("node_");
-    let old = ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap();
+    let old = ClientStreams::new(bus.clone(), "Signal", &node)
+        .await
+        .unwrap();
     wait_surface(&bus, &node, 1).await;
     old.close().await;
     wait_surface(&bus, &node, 0).await;
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", &node)
+            .await
+            .unwrap(),
+    );
     wait_surface(&bus, &node, 1).await;
     let method = signal_spec_topic(&id("owner_"));
     let mut listener =
@@ -312,8 +330,9 @@ async fn real_redis_shared_identity_recovers_with_fresh_identity_after_loss() {
             .unwrap();
     let mut opts = options();
     opts.client = Some(identity.clone());
-    let mut client =
-        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts).await.unwrap();
+    let mut client = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
+        .await
+        .unwrap();
     let mut server = listener.accept().await.unwrap();
     assert_eq!(server.header.as_ref().unwrap().remote_id, node);
     server.send(&request("recovered")).await.unwrap();
@@ -326,8 +345,14 @@ async fn real_redis_shared_identity_recovers_with_fresh_identity_after_loss() {
             .name,
         "recovered"
     );
-    client.send(&request("client-after-recovery")).await.unwrap();
-    assert_eq!(server.recv().await.unwrap().message.name, "client-after-recovery");
+    client
+        .send(&request("client-after-recovery"))
+        .await
+        .unwrap();
+    assert_eq!(
+        server.recv().await.unwrap().message.name,
+        "client-after-recovery"
+    );
     client.close(None).await.unwrap();
     listener.close().await;
     identity.close().await;
@@ -342,7 +367,11 @@ async fn real_redis_shared_identity_recovers_with_fresh_identity_after_loss() {
 async fn real_redis_shared_identity_demultiplexes_concurrent_streams() {
     let bus = redis_bus().await;
     let node = id("node_");
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", &node)
+            .await
+            .unwrap(),
+    );
     wait_surface(&bus, &node, 1).await;
     let method = signal_spec_topic(&id("owner_"));
     let mut listener =
@@ -351,10 +380,9 @@ async fn real_redis_shared_identity_demultiplexes_concurrent_streams() {
             .unwrap();
     let mut opts = options();
     opts.client = Some(identity.clone());
-    let mut c1 =
-        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts.clone())
-            .await
-            .unwrap();
+    let mut c1 = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts.clone())
+        .await
+        .unwrap();
     let mut s1 = listener.accept().await.unwrap();
     let mut c2 = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
         .await
@@ -366,11 +394,21 @@ async fn real_redis_shared_identity_demultiplexes_concurrent_streams() {
     s1.send(&request("reply-one")).await.unwrap();
     s2.send(&request("reply-two")).await.unwrap();
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(3), c1.recv()).await.unwrap().unwrap().message.name,
+        tokio::time::timeout(Duration::from_secs(3), c1.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .message
+            .name,
         "reply-one"
     );
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(3), c2.recv()).await.unwrap().unwrap().message.name,
+        tokio::time::timeout(Duration::from_secs(3), c2.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .message
+            .name,
         "reply-two"
     );
     c1.send(&request("one")).await.unwrap();
@@ -392,7 +430,11 @@ async fn real_redis_shared_identity_demultiplexes_concurrent_streams() {
 async fn real_redis_shared_identity_relay_preserves_bidirectional_unknown_fields() {
     let bus = redis_bus().await;
     let node = id("node_");
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", &node)
+            .await
+            .unwrap(),
+    );
     wait_surface(&bus, &node, 1).await;
     let method = signal_spec_topic(&id("owner_"));
     let mut listener =
@@ -401,8 +443,9 @@ async fn real_redis_shared_identity_relay_preserves_bidirectional_unknown_fields
             .unwrap();
     let mut opts = options();
     opts.client = Some(identity.clone());
-    let mut client =
-        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts).await.unwrap();
+    let mut client = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
+        .await
+        .unwrap();
     let mut server = listener.accept().await.unwrap();
     let mut up = request("unknown-up").encode_to_vec();
     up.extend_from_slice(&[0xa0, 0x06, 0x07]);
@@ -434,7 +477,9 @@ async fn real_redis_shared_identity_partial_init_failure_releases_surface() {
     let bus = redis_bus_with(tight).await;
     let node = id("node_");
     assert!(
-        ClientStreams::new(bus.clone(), "Signal", &node).await.is_err(),
+        ClientStreams::new(bus.clone(), "Signal", &node)
+            .await
+            .is_err(),
         "the third subscribe must fail under a two-permit budget"
     );
     wait_surface(&bus, &node, 0).await;
@@ -461,7 +506,11 @@ async fn real_redis_shared_identity_partial_init_failure_releases_surface() {
 async fn real_redis_shared_identity_backpressure_withholds_ack_until_consumed() {
     let bus = redis_bus().await;
     let node = id("node_");
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", &node)
+            .await
+            .unwrap(),
+    );
     wait_surface(&bus, &node, 1).await;
     let method = signal_spec_topic(&id("owner_"));
     let mut cfg = config();
@@ -472,8 +521,9 @@ async fn real_redis_shared_identity_backpressure_withholds_ack_until_consumed() 
             .unwrap();
     let mut opts = options();
     opts.client = Some(identity.clone());
-    let mut client =
-        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, cfg, opts).await.unwrap();
+    let mut client = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, cfg, opts)
+        .await
+        .unwrap();
     let mut server = listener.accept().await.unwrap();
     client.send(&request("first")).await.unwrap();
     let error = client.send(&request("second")).await.unwrap_err();
@@ -494,7 +544,11 @@ async fn real_redis_shared_identity_backpressure_withholds_ack_until_consumed() 
 async fn real_redis_shared_identity_cancel_closes_peer_and_releases_surface() {
     let bus = redis_bus().await;
     let node = id("node_");
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", &node).await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", &node)
+            .await
+            .unwrap(),
+    );
     wait_surface(&bus, &node, 1).await;
     let method = signal_spec_topic(&id("owner_"));
     let mut listener =
@@ -504,12 +558,16 @@ async fn real_redis_shared_identity_cancel_closes_peer_and_releases_surface() {
     let mut opts = options();
     opts.client = Some(identity.clone());
     let cancel = opts.cancel.clone();
-    let mut client =
-        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts).await.unwrap();
+    let mut client = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
+        .await
+        .unwrap();
     let mut server = listener.accept().await.unwrap();
     cancel.cancel();
     assert!(
-        tokio::time::timeout(Duration::from_secs(2), server.recv()).await.unwrap().is_none(),
+        tokio::time::timeout(Duration::from_secs(2), server.recv())
+            .await
+            .unwrap()
+            .is_none(),
         "cancel must close the peer stream"
     );
     assert!(server.error().is_some());
@@ -868,7 +926,11 @@ fn signal_spec() -> MethodSpec {
     }
 }
 fn ack_frame(stream_id: &str) -> pb::Stream {
-    frame(stream_id, Duration::from_secs(1), Body::Ack(pb::StreamAck {}))
+    frame(
+        stream_id,
+        Duration::from_secs(1),
+        Body::Ack(pb::StreamAck {}),
+    )
 }
 
 /// G04: the official typed Signal client subscribes CLAIM/RES/STR for its whole
@@ -881,10 +943,18 @@ async fn shared_client_identity_holds_claim_res_str_surface_until_close() {
     let str_channel = channels::stream_client("Signal", "nodeX");
     let claim_channel = channels::claim_request("Signal", "nodeX");
     let res_channel = channels::response("Signal", "nodeX");
-    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 0);
-    let identity = ClientStreams::new(bus.clone(), "Signal", "nodeX").await.unwrap();
+    assert_eq!(
+        bus.publish(&str_channel, &ack_frame("none")).await.unwrap(),
+        0
+    );
+    let identity = ClientStreams::new(bus.clone(), "Signal", "nodeX")
+        .await
+        .unwrap();
     assert_eq!(identity.client_id(), "nodeX");
-    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 1);
+    assert_eq!(
+        bus.publish(&str_channel, &ack_frame("none")).await.unwrap(),
+        1
+    );
     assert_eq!(
         bus.publish(
             &claim_channel,
@@ -910,7 +980,10 @@ async fn shared_client_identity_holds_claim_res_str_surface_until_close() {
         1
     );
     identity.close().await;
-    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 0);
+    assert_eq!(
+        bus.publish(&str_channel, &ack_frame("none")).await.unwrap(),
+        0
+    );
     assert_eq!(
         bus.publish(
             &claim_channel,
@@ -943,7 +1016,11 @@ async fn shared_client_identity_holds_claim_res_str_surface_until_close() {
 #[tokio::test]
 async fn shared_client_identity_demultiplexes_concurrent_streams() {
     let bus: RpcBus = LocalTransport::new(limits()).unwrap().into();
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", "nodeX").await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", "nodeX")
+            .await
+            .unwrap(),
+    );
     let method = signal_spec();
     let mut listener =
         register_stream::<lk::Room, lk::Room>(bus.clone(), method.clone(), config(), None)
@@ -951,10 +1028,9 @@ async fn shared_client_identity_demultiplexes_concurrent_streams() {
             .unwrap();
     let mut opts = options();
     opts.client = Some(identity.clone());
-    let mut c1 =
-        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts.clone())
-            .await
-            .unwrap();
+    let mut c1 = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts.clone())
+        .await
+        .unwrap();
     let mut s1 = listener.accept().await.unwrap();
     let mut c2 = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
         .await
@@ -1016,7 +1092,11 @@ async fn shared_client_identity_demultiplexes_concurrent_streams() {
 #[tokio::test]
 async fn shared_client_identity_without_listener_times_out() {
     let bus: RpcBus = LocalTransport::new(limits()).unwrap().into();
-    let identity = Arc::new(ClientStreams::new(bus.clone(), "Signal", "nodeX").await.unwrap());
+    let identity = Arc::new(
+        ClientStreams::new(bus.clone(), "Signal", "nodeX")
+            .await
+            .unwrap(),
+    );
     let mut opts = options();
     opts.timeout = Duration::from_millis(30);
     opts.client = Some(identity.clone());
@@ -1038,7 +1118,10 @@ async fn shared_client_identity_drop_releases_claim_res_str_surface() {
     let identity = ClientStreams::new(bus.clone(), "Signal", "nodeX")
         .await
         .unwrap();
-    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 1);
+    assert_eq!(
+        bus.publish(&str_channel, &ack_frame("none")).await.unwrap(),
+        1
+    );
     assert_eq!(
         bus.publish(
             &claim_channel,
@@ -1133,15 +1216,24 @@ async fn shared_client_identity_recovers_with_fresh_identity_after_loss() {
     let old = ClientStreams::new(bus.clone(), "Signal", "nodeX")
         .await
         .unwrap();
-    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 1);
+    assert_eq!(
+        bus.publish(&str_channel, &ack_frame("none")).await.unwrap(),
+        1
+    );
     old.close().await;
-    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 0);
+    assert_eq!(
+        bus.publish(&str_channel, &ack_frame("none")).await.unwrap(),
+        0
+    );
     let identity = Arc::new(
         ClientStreams::new(bus.clone(), "Signal", "nodeX")
             .await
             .unwrap(),
     );
-    assert_eq!(bus.publish(&str_channel, &ack_frame("none")).await.unwrap(), 1);
+    assert_eq!(
+        bus.publish(&str_channel, &ack_frame("none")).await.unwrap(),
+        1
+    );
     let method = signal_spec();
     let mut listener =
         register_stream::<lk::Room, lk::Room>(bus.clone(), method.clone(), config(), None)
@@ -1149,10 +1241,9 @@ async fn shared_client_identity_recovers_with_fresh_identity_after_loss() {
             .unwrap();
     let mut opts = options();
     opts.client = Some(identity.clone());
-    let mut client =
-        open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
-            .await
-            .unwrap();
+    let mut client = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
+        .await
+        .unwrap();
     let mut server = listener.accept().await.unwrap();
     assert_eq!(server.header.as_ref().unwrap().remote_id, "nodeX");
     server.send(&request("recovered")).await.unwrap();
@@ -1165,8 +1256,14 @@ async fn shared_client_identity_recovers_with_fresh_identity_after_loss() {
             .name,
         "recovered"
     );
-    client.send(&request("client-after-recovery")).await.unwrap();
-    assert_eq!(server.recv().await.unwrap().message.name, "client-after-recovery");
+    client
+        .send(&request("client-after-recovery"))
+        .await
+        .unwrap();
+    assert_eq!(
+        server.recv().await.unwrap().message.name,
+        "client-after-recovery"
+    );
     client.close(None).await.unwrap();
     listener.close().await;
     identity.close().await;

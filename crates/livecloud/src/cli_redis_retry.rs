@@ -142,15 +142,12 @@ async fn ping_existing(
     // no single static dial address, so it keeps the aggregate-unreachable reply
     // text (`redis: all sentinels … : <joined attempts>`) instead of redis-rs'
     // `"{trace} - Client: {detail}"` rendering (SPEC-0074 §2.5-B, SPEC-0077 C43).
-    let connection = endpoint
-        .connect(&config)
-        .await
-        .map_err(|e| {
-            fail(match endpoint.dial_address() {
-                Some(address) => lk_compat::redis_endpoint::go_dial_error_text(&e, &address),
-                None => lk_compat::redis_endpoint::go_error_text(&e),
-            })
-        })?;
+    let connection = endpoint.connect(&config).await.map_err(|e| {
+        fail(match endpoint.dial_address() {
+            Some(address) => lk_compat::redis_endpoint::go_dial_error_text(&e, &address),
+            None => lk_compat::redis_endpoint::go_error_text(&e),
+        })
+    })?;
     wire::command("ping", &[])
         .query_async::<()>(&mut connection.begin())
         .await
@@ -290,7 +287,11 @@ mod tests {
             listener.local_addr().unwrap()
         };
         let endpoint = RedisEndpoint::cluster(
-            vec![format!("redis://{refused}/").into_connection_info().unwrap()],
+            vec![
+                format!("redis://{refused}/")
+                    .into_connection_info()
+                    .unwrap(),
+            ],
             2,
         );
         let Err(error) =

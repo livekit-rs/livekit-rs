@@ -1180,7 +1180,8 @@ impl AsyncConnectionLike for ManagedLease<'_> {
                         lease.req_packed_command(cmd).await
                     }
                     SharedConnection::Cluster(connection) => {
-                        ClusterConnection::req_packed_command(&mut { connection.clone() }, cmd).await
+                        ClusterConnection::req_packed_command(&mut { connection.clone() }, cmd)
+                            .await
                     }
                 }
             };
@@ -2461,8 +2462,7 @@ mod tests {
     /// upstream strings (SPEC-0077 C43), not redis-rs' capitalized std wording.
     #[test]
     fn go_dial_error_text_renders_the_upstream_net_operror_vectors() {
-        let auth: RedisError =
-            (ErrorKind::AuthenticationFailed, "arbitrary driver wording").into();
+        let auth: RedisError = (ErrorKind::AuthenticationFailed, "arbitrary driver wording").into();
         assert_eq!(
             go_dial_error_text(&auth, "127.0.0.1:6379"),
             "WRONGPASS invalid username-password pair or user is disabled."
@@ -2488,8 +2488,7 @@ mod tests {
             go_dial_error_text(&permission, "127.0.0.1:6379"),
             "dial tcp 127.0.0.1:6379: connect: permission denied"
         );
-        let invalid: RedisError =
-            std::io::Error::from(std::io::ErrorKind::InvalidInput).into();
+        let invalid: RedisError = std::io::Error::from(std::io::ErrorKind::InvalidInput).into();
         assert_eq!(
             go_dial_error_text(&invalid, "127.0.0.1:6379"),
             "dial tcp 127.0.0.1:6379: connect: invalid argument"
@@ -2502,8 +2501,7 @@ mod tests {
             "dial tcp 127.0.0.1:0: connect: cannot assign requested address"
         };
         assert_eq!(go_dial_error_text(&unavailable, "127.0.0.1:0"), expected);
-        let host: RedisError =
-            std::io::Error::from(std::io::ErrorKind::HostUnreachable).into();
+        let host: RedisError = std::io::Error::from(std::io::ErrorKind::HostUnreachable).into();
         assert_eq!(
             go_dial_error_text(&host, "127.0.0.1:0"),
             "dial tcp 127.0.0.1:0: connect: no route to host"
@@ -2540,8 +2538,7 @@ mod tests {
             2,
         );
         assert_eq!(cluster.dial_address().as_deref(), Some("127.0.0.1:7000"));
-        let sentinel =
-            RedisEndpoint::sentinel(plaintext_target(vec!["127.0.0.1:26379".into()]));
+        let sentinel = RedisEndpoint::sentinel(plaintext_target(vec!["127.0.0.1:26379".into()]));
         assert_eq!(sentinel.dial_address(), None);
     }
 
@@ -2561,7 +2558,9 @@ mod tests {
             listener.local_addr().unwrap()
         };
         let endpoint = RedisEndpoint::simple(
-            format!("redis://{refused}/").into_connection_info().unwrap(),
+            format!("redis://{refused}/")
+                .into_connection_info()
+                .unwrap(),
         );
         let limits = TransportLimits {
             wire: WireLimits {
@@ -2600,7 +2599,11 @@ mod tests {
             listener.local_addr().unwrap()
         };
         let endpoint = RedisEndpoint::cluster(
-            vec![format!("redis://{refused}/").into_connection_info().unwrap()],
+            vec![
+                format!("redis://{refused}/")
+                    .into_connection_info()
+                    .unwrap(),
+            ],
             2,
         );
         let config = redis::AsyncConnectionConfig::new()

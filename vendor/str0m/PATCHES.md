@@ -944,3 +944,36 @@ depacketization behavior.
 through Direct API. Generic str0m retains its default preferences. The
 LiveKit engine supplies fixed Pion's preference for UDP host candidates
 while delegating other candidates to the existing policy.
+
+## Go RED encoder history and primary payload type
+
+`go-red-encoder-parity-and-primary-payload-type.patch` replaces the
+historical RED window with the pinned pion/webrtc encoder sequence
+semantics: history is keyed by RTP sequence number, resized on pattern
+change, and the wrap result is returned as `RedWrapped`. `RedSink` now
+takes the payload type from that result, so bytes the encoder actually
+wrapped leave on the RED payload type and a frame too large for a
+redundant block leaves unwrapped on the primary payload type, exactly as
+`RedReceiver.ForwardRTP` reports. Frozen Go encoder vectors byte-compare
+the emitted blocks.
+
+## Pinned Pion RTP padding admission
+
+`pion-rtp-padding-admission-parity.patch` makes the header parser reject
+the same packets `rtp.Packet.Unmarshal` rejects: a set padding bit with
+no trailing octet (`errTooSmall`), a zero pad count
+(`errInvalidRTPPadding`) and a pad count beyond the payload. The verdict,
+the payload bytes that survive and the partially populated parser state
+are compared against the frozen `tests/oracles/pion-rtp-padding` table
+row by row, so a drift in either parser fails before a paired run.
+
+## Send metering and first-packet padding drop
+
+`send-metering-and-first-packet-padding-drop.patch` extends each
+`SendSideFeedback::Sent` observation with the plain RTP datagram size
+plus padding and RTX classification, which is what the application-owned
+send-side estimator must meter because it is what reaches the network.
+The accompanying session test keeps the pinned Pion order on the
+first-packet path: malformed padding drops before publication, a valid
+padding-only primary still publishes metadata without starting media, and
+RTX alone never initializes the primary source.

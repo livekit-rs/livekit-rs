@@ -242,6 +242,21 @@ impl MediaEngine {
                 now,
             ));
         }
+        // Native mode additionally gets the application-owned Go-parity
+        // send-side estimator as an *observer*: it ingests the real vendor
+        // TWCC/sending observations for its own estimate, state machine and
+        // probe clusters, but it does not own the allocation. The vendor str0m
+        // BWE plus `Transport::probes` remain the allocation authority, exactly
+        // as before this detector existed. See `MediaEngine::on_send_side_input`.
+        if has_bwe
+            && self.cfg.rtc.congestion_control.effective_feedback_mode()
+                == rtc_core::config::FeedbackMode::NativeSendSide
+        {
+            t.send_side = Some(crate::send_side_bwe::SendSideBwe::new(
+                &self.cfg.rtc.congestion_control,
+                now,
+            ));
+        }
         for c in candidates {
             let built = match c.proto {
                 Proto::Udp => Candidate::builder()
@@ -453,6 +468,18 @@ impl MediaEngine {
             if mode == rtc_core::config::FeedbackMode::InterceptorEstimate {
                 rtc.direct_api().set_send_side_feedback(true);
             }
+        } else if sending {
+            // Native mode keeps the vendor str0m estimator as the allocation
+            // authority (HEAD semantics) and additionally installs the vendor's
+            // additive `SendSideObserver` feed. That observer only forwards real
+            // authenticated TWCC reports and sending records as
+            // `Event::SendSideFeedback`; it neither disables nor competes with
+            // the vendor estimate. The observations go to the application-owned
+            // Go-parity estimator, which is **not yet** the allocation authority
+            // (see `MediaEngine::on_send_side_input`). This must be installed
+            // before the first RTP output, which this build order guarantees.
+            rtc.direct_api().set_remote_feedback_meter(true);
+            rtc.direct_api().set_send_side_feedback(true);
         }
         rtc
     }
@@ -1127,7 +1154,7 @@ impl MediaEngine {
                 self.on_peer_stats(tid, p, snapshot, now);
             }
             Event::EgressBitrateEstimate(kind) => self.on_bwe(tid, kind, now),
-            Event::SendSideFeedback(event) => self.on_interceptor_input(tid, event),
+            Event::SendSideFeedback(event) => self.on_send_side_input(tid, event),
             Event::StreamPaused(p) => {
                 if p.paused
                     && let Some(&ui) = self.up_by_mid.get(&(tid, p.mid))

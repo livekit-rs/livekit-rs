@@ -1721,6 +1721,9 @@ impl Session {
                 ssrc: *header.ssrc,
                 header_bytes: header.header_len,
                 payload_bytes: pion_payload_size,
+                packet_bytes: plain_size,
+                is_padding,
+                is_rtx: is_retransmission,
                 twcc_negotiated: twcc_enabled,
                 transport_sequence: header.ext_vals.transport_cc,
             }));
@@ -3598,6 +3601,140 @@ mod tests {
                 "non-media transport input cannot deliver an RTP payload"
             );
         }
+    }
+
+    #[test]
+    fn authenticated_malformed_padding_drops_before_publication() {
+        let now = Instant::now();
+        let crypto = crate::crypto::test_default_provider();
+        let profile = SrtpProfile::AES128_CM_SHA1_80;
+        let material = vec![0x43; profile.keying_material_len()];
+        let key = KeyingMaterial::new(&material);
+        let mut tx = SrtpContext::new(crypto, profile, &key, true);
+        let mut session = Session::new(
+            &RtcConfig::default()
+                .set_rtp_mode(true)
+                .enable_raw_packets(true),
+        );
+        session.srtp_rx = Some(SrtpContext::new(crypto, profile, &key, true));
+        let params = session
+            .codec_config
+            .params()
+            .iter()
+            .find(|p| p.spec().codec == crate::format::Codec::Vp8 && p.resend().is_some())
+            .copied()
+            .unwrap();
+        let mid = Mid::from("v");
+        session
+            .streams
+            .expect_stream_rx(101.into(), Some(201.into()), MidRid(mid, None), false);
+        let mut exts = ExtensionMap::empty();
+        exts.set(3, Extension::TransportSequenceNumber);
+        session.exts = exts.clone();
+
+        let mut send = |session: &mut Session,
+                        ssrc: u32,
+                        pt: u8,
+                        first: u8,
+                        seq: u16,
+                        transport_seq: u16,
+                        tail: &[u8]| {
+            let mut bytes = vec![0u8; 12];
+            bytes[0] = first;
+            bytes[1] = pt;
+            bytes[2..4].copy_from_slice(&seq.to_be_bytes());
+            bytes[4..8].copy_from_slice(&3000u32.to_be_bytes());
+            bytes[8..12].copy_from_slice(&ssrc.to_be_bytes());
+            bytes.extend_from_slice(&[
+                0xbe,
+                0xde,
+                0,
+                1,
+                0x31,
+                (transport_seq >> 8) as u8,
+                transport_seq as u8,
+                0,
+            ]);
+            bytes.extend_from_slice(tail);
+            let header = RtpHeader::parse(&bytes, &exts).unwrap();
+            let protected = tx.protect_rtp(&bytes, &header, u64::from(seq));
+            session.handle_rtp_receive(now, &protected);
+        };
+
+        // Pion rtp.Packet.Unmarshal rejects these before handleUnknownRTPPacket
+        // creates a track: zero pad count (errInvalidRTPPadding), a set padding
+        // bit with no trailing byte (errTooSmall) and oversize padding. None may
+        // emit RawPacket::RtpRx (the publication stimulus), logical traffic or
+        // transport feedback on this first-packet path.
+        let before = session.node_traffic;
+        for (seq, transport_seq, tail) in [
+            (97u16, 396u16, vec![0x10, 0, 1, 0]),
+            (98, 397, vec![]),
+            (99, 398, vec![0, 0, 0, 255]),
+        ] {
+            send(
+                &mut session,
+                101,
+                *params.pt(),
+                0xb0,
+                seq,
+                transport_seq,
+                &tail,
+            );
+            assert!(
+                session.raw_packets.as_ref().unwrap().is_empty(),
+                "malformed padding must not reach the publication boundary"
+            );
+            assert!(session.pending_packet.is_none());
+            assert!(session.streams.take_receive_traffic().is_empty());
+            assert_eq!(session.node_traffic, before);
+            assert!(
+                session.twcc_rx_register.max_seq().is_none(),
+                "first-packet Unmarshal failure precedes TWCC registration"
+            );
+        }
+
+        // Valid padding-only primary still publishes metadata without starting
+        // media (C66 semantics): RtpRx with an empty payload, TWCC acknowledged.
+        send(&mut session, 101, *params.pt(), 0xb0, 100, 399, &[0, 0, 0, 4]);
+        assert_eq!(session.twcc_rx_register.max_seq().map(|v| *v), Some(399));
+        let raw = session.raw_packets.as_mut().unwrap().pop_front().unwrap();
+        assert!(matches!(&*raw, RawPacket::RtpRx(_, payload) if payload.is_empty()));
+        assert!(session.pending_packet.is_none());
+        assert!(session.streams.take_receive_traffic().is_empty());
+
+        // RTX-only before the primary starts: repair transport is received but
+        // no media is delivered and the primary source stays uninitialized.
+        send(
+            &mut session,
+            201,
+            *params.resend().unwrap(),
+            0x80,
+            8,
+            400,
+            &[0, 100, 0x10, 0, 1],
+        );
+        assert!(session.pending_packet.is_none());
+        assert!(
+            session
+                .streams
+                .take_receive_traffic()
+                .iter()
+                .all(|s| s.first_at.is_none())
+        );
+        let raw = session.raw_packets.as_mut().unwrap().pop_front().unwrap();
+        assert!(matches!(&*raw, RawPacket::RtpRx(header, _) if *header.ssrc == 201));
+
+        // The real primary frame at the same SN as the padding still delivers:
+        // neither malformed drops nor padding poisoned the replay register.
+        send(&mut session, 101, *params.pt(), 0x80, 100, 401, &[0x10, 0, 1]);
+        assert!(
+            session.pending_packet.take().is_some(),
+            "real primary initializes and delivers"
+        );
+        let started = session.streams.take_receive_traffic().pop().unwrap();
+        assert!(started.first_at.is_some());
+        assert_eq!(started.packets, 1);
     }
 
     #[test]

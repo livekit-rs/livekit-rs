@@ -570,7 +570,10 @@ async fn nil_named_preset_returns_clean_internal_error_instead_of_crashing() {
     .await
     .unwrap_err();
     assert_eq!(absent.code, Code::InvalidArgument);
-    assert_eq!(absent.msg, "unknown room configuration in create room request");
+    assert_eq!(
+        absent.msg,
+        "unknown room configuration in create room request"
+    );
     // A valid preset still applies after the nil case (parity control, server alive).
     token.grants.video.room = "valid-preset-room".into();
     let room: pb::Room = response(

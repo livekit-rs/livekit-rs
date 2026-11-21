@@ -192,16 +192,20 @@ impl PacketSink for RedSink<'_> {
     }
 
     fn send(&mut self, packet: OutgoingPacket) {
-        // Wrap the primary Vec before it becomes an Arc, so RED adds no extra allocation. Swap to
-        // the RED payload type; everything else on the packet is preserved.
-        let payload = self.red.wrap(packet.payload, packet.rtp_time, self.budget);
+        // Wrap the primary Vec before it becomes an Arc, so RED adds no extra allocation. Go's
+        // `RedReceiver.ForwardRTP` writes a wrapped packet on the RED PT and a frame too large for
+        // a redundant block on the primary PT, so the payload type follows the wrap result here too
+        // — everything else on the packet is preserved either way.
+        let seq_no = packet.seq_no;
+        let wrapped = self.red.wrap(packet.payload, seq_no, packet.rtp_time, self.budget);
+        let pt = wrapped.pt(self.red.red_pt(), self.red.primary_pt());
         self.stream.write_rtp(
             RtpWrite::new(
-                self.red.red_pt(),
-                packet.seq_no,
+                pt,
+                seq_no,
                 packet.rtp_time,
                 packet.wallclock,
-                payload,
+                wrapped.into_payload(),
             )
             .marker(packet.marker)
             .ext_vals(packet.ext_vals)

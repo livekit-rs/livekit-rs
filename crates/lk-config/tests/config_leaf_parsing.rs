@@ -795,7 +795,10 @@ fn psrpc_and_signal_relay_env_projection_and_cli_precedence() {
     assert_eq!(cfg.official.psrpc.buffer_size, 3000);
     assert_eq!(cfg.official.psrpc.compression.quality, 4);
     assert_eq!(cfg.official.psrpc.compression.threshold, 2048);
-    assert_eq!(cfg.official.psrpc.compression.max_decompressed_size, 1048576);
+    assert_eq!(
+        cfg.official.psrpc.compression.max_decompressed_size,
+        1048576
+    );
     assert_eq!(
         cfg.official.signal_relay.retry_timeout,
         GoDuration::from_secs(12)
@@ -813,8 +816,14 @@ fn psrpc_and_signal_relay_env_projection_and_cli_precedence() {
 
     // Falsifiability: ENV must actually move each leaf off its Go default, so an
     // ignored/unprojected ENV path fails here rather than passing vacuously.
-    assert_ne!(cfg.official.psrpc.max_attempts, base.official.psrpc.max_attempts);
-    assert_ne!(cfg.official.psrpc.buffer_size, base.official.psrpc.buffer_size);
+    assert_ne!(
+        cfg.official.psrpc.max_attempts,
+        base.official.psrpc.max_attempts
+    );
+    assert_ne!(
+        cfg.official.psrpc.buffer_size,
+        base.official.psrpc.buffer_size
+    );
     assert_ne!(
         cfg.official.psrpc.compression.quality,
         base.official.psrpc.compression.quality
@@ -3328,7 +3337,10 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         base.official.video.dynacast_pause_delay,
         GoDuration::from_secs(5)
     );
-    assert_eq!(base.server.video.dynacast_pause_delay, Duration::from_secs(5));
+    assert_eq!(
+        base.server.video.dynacast_pause_delay,
+        Duration::from_secs(5)
+    );
 
     // YAML 10s -> official GoDuration AND effective Duration. assert_ne vs the
     // 5s default proves the normalized production value moved, not just parse.
@@ -3340,7 +3352,10 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(10)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(10));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(10)
+    );
     assert_ne!(
         cfg.server.video.dynacast_pause_delay,
         base.server.video.dynacast_pause_delay
@@ -3355,7 +3370,10 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(2)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(2));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(2)
+    );
 
     // Sub-second YAML 1500ms: the effective Duration carries nanosecond
     // fidelity through .to_std(), not a whole-second truncation.
@@ -3379,7 +3397,10 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(10)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(10));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(10)
+    );
     assert_ne!(
         cfg.server.video.dynacast_pause_delay,
         base.server.video.dynacast_pause_delay
@@ -3392,7 +3413,10 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(2)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(2));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(2)
+    );
 
     // CLI flag alone, both values; the effective Duration follows.
     let cfg = parse(&["--video.dynacast_pause_delay=10s"], &Env::default());
@@ -3400,13 +3424,19 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(10)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(10));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(10)
+    );
     let cfg = parse(&["--video.dynacast_pause_delay=2s"], &Env::default());
     assert_eq!(
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(2)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(2));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(2)
+    );
 
     // CLI beats ENV in both directions; the normalized production Duration
     // follows the CLI verdict, not the ENV value.
@@ -3415,13 +3445,19 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(2)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(2));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(2)
+    );
     let cfg = parse(&["--video.dynacast_pause_delay=10s"], &env_off);
     assert_eq!(
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(10)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(10));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(10)
+    );
 
     // CLI beats YAML: a YAML 10s is overridden by CLI 2s on both fields.
     let cfg = parse(
@@ -3436,7 +3472,10 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(2)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(2));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(2)
+    );
 
     // ENV beats YAML: a YAML 2s is overridden by ENV 10s on both fields.
     let cfg = parse(
@@ -3447,5 +3486,8 @@ fn video_dynacast_pause_delay_yaml_env_cli_projection_and_precedence() {
         cfg.official.video.dynacast_pause_delay,
         GoDuration::from_secs(10)
     );
-    assert_eq!(cfg.server.video.dynacast_pause_delay, Duration::from_secs(10));
+    assert_eq!(
+        cfg.server.video.dynacast_pause_delay,
+        Duration::from_secs(10)
+    );
 }

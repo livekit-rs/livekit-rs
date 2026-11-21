@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 const MIN_BYTES: i64 = 1100;
 #[derive(Debug)]
-pub(super) struct Uniform {
+pub(crate) struct Uniform {
     pub desired_bytes: i64,
     pub count: u64,
     pub base: Duration,

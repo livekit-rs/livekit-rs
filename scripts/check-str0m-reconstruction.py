@@ -60,6 +60,15 @@ def main():
         touched.update(re.findall(r"^\+\+\+ b/(.+)$", data.decode(), re.MULTILINE))
     check(touched == set(reconstruction["exact_files"]), "declared files differ from patch paths")
     check(len(touched) == reconstruction["count"], "declared reconstruction count differs")
+    # A vendored file can only differ from the published inputs because a patch
+    # changed it, so drift that no patch header names would otherwise stay
+    # invisible: the reconstruction below only ever compares patch-touched files.
+    undeclared = sorted(str(p.relative_to(reference)) for p in files
+                        if str(p.relative_to(reference)) not in touched
+                        and (vendor / p.relative_to(reference)).is_file()
+                        and p.read_bytes() != (vendor / p.relative_to(reference)).read_bytes())
+    check(not undeclared,
+          f"vendored files differ from upstream without a declared patch: {undeclared}")
     results = {}
     with tempfile.TemporaryDirectory(prefix="livekit-rs-str0m-reconstruction-") as temporary:
         rebuilt = Path(temporary) / "str0m"
@@ -69,10 +78,12 @@ def main():
                            cwd=rebuilt, check=True, capture_output=True)
             subprocess.run(["git", "apply", str(vendor / name)],
                            cwd=rebuilt, check=True, capture_output=True)
+        differing = sorted(name for name in touched
+                           if (rebuilt / name).read_bytes() != (vendor / name).read_bytes())
+        check(not differing, f"reconstructed files differ: {differing}")
         for name in sorted(touched):
             actual = (rebuilt / name).read_bytes()
             expected = (vendor / name).read_bytes()
-            check(actual == expected, f"reconstructed file differs: {name}")
             results[name] = {"reconstructed_sha256": digest(actual),
                              "vendored_sha256": digest(expected), "identical": True}
     print(json.dumps({"status": "PASS", "package": source["package"],

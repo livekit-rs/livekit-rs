@@ -501,7 +501,10 @@ async fn two_node_remote_join_case(
             &[0xa8, 0x06, 9],
             "get response blob unknown cohort must survive the relay"
         );
-        assert_eq!(resp_blob.project::<pb::DataBlob>().contents, vec![0, 255, 1]);
+        assert_eq!(
+            resp_blob.project::<pb::DataBlob>().contents,
+            vec![0, 255, 1]
+        );
         assert_eq!(
             resp_blob.nested("key").unwrap().unknown_wire(),
             &[0xa0, 0x06, 7],

@@ -38,6 +38,10 @@ mod quality;
 /// Deterministic receiver-estimate policy, consumed by the Remote feedback owner.
 pub mod remote_bwe;
 mod sdp_munge;
+/// Application-owned send-side BWE for `use_send_side_bwe`, see its module header.
+/// In native mode it is currently the Go-parity estimator observer: it consumes
+/// the real vendor TWCC observations but does not own the allocation yet.
+mod send_side_bwe;
 mod signaling;
 mod slab;
 mod stream_tracker;

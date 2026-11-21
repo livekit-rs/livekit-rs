@@ -16,12 +16,12 @@
   "port_sha256": {
     "trend.rs": "dcf2dc41f925c484e865b91777a7af0c7bc62a05d46ef36b1b0183a722ebbbf0",
     "time.rs": "62f49c9f47cd035b9b847afb7e81d7dd900fdc51d9de378771e9d2d04585563d",
-    "golden.py": "48aa942438903361985e1df655e408862cf6610e7245899cbff6fb19d5202b4c",
+    "golden.py": "58c66d54f630da0f80ca2ebb0a8869a0fec2af83b74416aa6d629cc6f109637c",
     "observer.rs": "89958225065e466453caec093ccf5a69e7daa1f49afd2d415c656ebb6804c48a",
-    "operations.csv": "f556a32068425c390b95a6ca67a7f5f43b867d74cd7689cf62effe3de9b65792",
-    "golden.tsv": "78a48e2ad48f5672e72a50a359f126aa49a629c5b357fdfb02e8c1954ec9dfdc",
-    "mod.rs": "3a5723b24a2544fa6d2f092aec416f5294bbc037252041a885f12c3ff629d643",
-    "tests.rs": "4f4f3d11eb4f7853857b963102df860f12ca9e47cf5e5da34821c057c38b3453",
+    "operations.csv": "156d05875b2d2e79aa158b3ad6b3d33f75abc9c5675a45b6bf822e10ef3b7825",
+    "golden.tsv": "f7ff886da7e0828d3e34abcd85e2e8a4284208c74ef03c2c76a059ebec7c6435",
+    "mod.rs": "adc2822614a2b56d2512df52c0b8841ee76e754006fdc46c3becc482d20106d0",
+    "tests.rs": "bc8d794b9e49af184bc44f579a5d2973b667183451fc659aa757296d4b1aeb90",
     "probe.rs": "06604841933ce0bf0f9c2fd741a466584f31582fa1eabe98fce913f6c8ed5885"
   },
   "scope": "Single-owner pure sender REMB RemoteBWE policy foundation; not receiver-side ABS estimator, actual prober/pacer, stream allocator integration or SDK acceptance. No production feedback strategy switched by these files.",
@@ -34,7 +34,9 @@
   ],
   "verification": {
     "rust": "NOT_RUN coordinator owns compilers",
-    "go_golden": "PASS: 462 rows actual pinned Go1.26; coordinator evidence livekit-rs-docs/evidence/2026-10-24/remote-bwe-go-golden.json",
+    "go_golden": "PASS: 1010 rows actual pinned Go1.26 at e5655ac20267fa5005dccaf3f0e3bfc3ea688c07; the C71 run reproduced byte-identically twice and keeps the 462 rows shipped since 2026-10-24 unchanged (livekit-rs-docs/server/evidence/2026-11-20/spec0077-c71-remote-bwe-leaves/work/go-golden-2026-11-20.json)",
+    "go_golden_discrimination": "C71 adds 29 baseline/variant case pairs, one isolated remote_bwe config leaf each; every pair differs in the actual Go rows, so all 29 rtc.congestion_control.remote_bwe leaves are bound to observed Go policy output instead of a Rust self-assertion. Pair-to-leaf table and differing-row counts: livekit-rs-docs/server/evidence/2026-11-20/spec0077-c71-remote-bwe-leaves/README.md",
+    "preset_table_parity": "PASS: work/check-preset-parity.py compares the Go preset switch in golden.py with the Rust mirror in tests.rs field by field; work/negative-control-preset-check.py shows four drifts fail and the unmutated copy passes",
     "static": "rustfmt completed; independent review confirmed trend/NACK and state transition formula semantics; Rust/compiler results pending"
   }
 }

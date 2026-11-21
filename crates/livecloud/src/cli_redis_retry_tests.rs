@@ -253,7 +253,11 @@ mod unix {
         assert!(result.is_ok(), "list-nodes must succeed: {result:?}");
         assert_eq!(peer.accepts.load(Ordering::SeqCst), 2);
         let traces = peer.traces.lock().unwrap().clone();
-        assert_eq!(traces.len(), 2, "command connection + message-bus connection");
+        assert_eq!(
+            traces.len(),
+            2,
+            "command connection + message-bus connection"
+        );
         let mut init_only = Vec::new();
         let mut command = Vec::new();
         for trace in &traces {

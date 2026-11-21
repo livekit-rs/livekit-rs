@@ -130,7 +130,15 @@ impl WorkerServices {
         events: Arc<dyn IoEvents>,
     ) -> Result<Arc<WorkerServices>, RpcError> {
         let policy = config.policy();
-        Self::build(Some(config.redis), Some(base), policy, manager, catalog, events).await
+        Self::build(
+            Some(config.redis),
+            Some(base),
+            policy,
+            manager,
+            catalog,
+            events,
+        )
+        .await
     }
     async fn build(
         redis: Option<RedisEndpoint>,

@@ -19,6 +19,58 @@ fn config(preset: &str) -> RemoteBweConfig {
         c.probe_controller.probe_regulator.base_interval = PolicyDuration::from_millis(-3);
         c.probe_controller.probe_regulator.min_duration = PolicyDuration::from_millis(-200);
     }
+    // C71 single-leaf overrides; each arm must mirror the Go harness preset of the same
+    // name in golden.py, because golden.tsv rows are produced from that Go preset.
+    match preset {
+        "att0" => c.nack_ratio_attenuator = 0.0,
+        "eut05" => c.expected_usage_threshold = 0.5,
+        "npTh0" => {
+            c.channel_observer_non_probe
+                .estimate
+                .downward_trend_threshold = 0.0
+        }
+        "npMw0" => {
+            c.channel_observer_non_probe
+                .estimate
+                .downward_trend_max_wait = PolicyDuration::ZERO
+        }
+        "npVw0" => c.channel_observer_non_probe.estimate.validity_window = PolicyDuration::ZERO,
+        "npNrt09" => c.channel_observer_non_probe.nack.ratio_threshold = 0.9,
+        "prbRs5" => c.channel_observer_probe.estimate.required_samples = 5,
+        "prbRsm4" => c.channel_observer_probe.estimate.required_samples_min = 4,
+        "prbThM1" => c.channel_observer_probe.estimate.downward_trend_threshold = -1.0,
+        "prbCt10s" => {
+            c.channel_observer_probe.estimate.collapse_threshold = PolicyDuration::from_secs(10)
+        }
+        "prbVw0" => c.channel_observer_probe.estimate.validity_window = PolicyDuration::ZERO,
+        "prbRs5Mw5" => {
+            c.channel_observer_probe.estimate.required_samples = 5;
+            c.channel_observer_probe.estimate.downward_trend_max_wait =
+                PolicyDuration::from_secs(5);
+        }
+        "prbRs5Mw0" => {
+            c.channel_observer_probe.estimate.required_samples = 5;
+            c.channel_observer_probe.estimate.downward_trend_max_wait = PolicyDuration::ZERO;
+        }
+        "prbNm0" => c.channel_observer_probe.nack.window_min_duration = PolicyDuration::ZERO,
+        "prbNx0" => c.channel_observer_probe.nack.window_max_duration = PolicyDuration::ZERO,
+        "prbNrt09" => c.channel_observer_probe.nack.ratio_threshold = 0.9,
+        "npRs9" => c.channel_observer_non_probe.estimate.required_samples = 9,
+        "npRsm6" => c.channel_observer_non_probe.estimate.required_samples_min = 6,
+        "npCt0" => c.channel_observer_non_probe.estimate.collapse_threshold = PolicyDuration::ZERO,
+        "npNm0" => c.channel_observer_non_probe.nack.window_min_duration = PolicyDuration::ZERO,
+        "npX0" => c.channel_observer_non_probe.nack.window_max_duration = PolicyDuration::ZERO,
+        "swNr0" => c.probe_controller.settle_wait_num_rtt = 0,
+        "swMin1" => c.probe_controller.settle_wait_min = PolicyDuration::from_secs(1),
+        "swMax100ms" => c.probe_controller.settle_wait_max = PolicyDuration::from_millis(100),
+        "bi1" => c.probe_controller.probe_regulator.base_interval = PolicyDuration::from_secs(1),
+        "mind1" => c.probe_controller.probe_regulator.min_duration = PolicyDuration::from_secs(1),
+        "bf3" => c.probe_controller.probe_regulator.backoff_factor = 3.0,
+        "mi4" => c.probe_controller.probe_regulator.max_interval = PolicyDuration::from_secs(4),
+        "md1" => c.probe_controller.probe_regulator.max_duration = PolicyDuration::from_secs(1),
+        "dif3" => c.probe_controller.probe_regulator.duration_increase_factor = 3.0,
+        _ => {}
+    }
     c
 }
 fn signal_code(value: ProbeSignal) -> i32 {

@@ -1,0 +1,598 @@
+# case	config	at_us	op	a	b	c	d	extra
+# Pinned Go (e5655ac) stimulus campaign for the Rust send_side_bwe unit tests.
+# Every row is one policy step; the clock of the step is at_us microseconds from
+# the fixed Go origin. Column a/b/c/d are the integer op arguments, extra carries
+# the leaf keys. Detector cases use sn_start=1 because the Rust tracker mirrors
+# str0m's wire sequence, which the test helper starts at ordinal+1.
+#
+# --- units: microseconds everywhere, and the key says so ---
+# Every time value in this file is a count of MICROSECONDS and every time-valued
+# leaf key ends in _us: pstart dur_us, pdone start_us/end_us, settle rtt_us, the
+# rtt op's rtt_us, and the config duration keys (grp_win, max_age, settle_min,
+# wl_mindur, ctr_wait, pr_base, ...), which golden.py parses through its us()
+# helper. Positional time arguments are microseconds too: at_us, the msend
+# cadence (column c), the gadd/pgadd send and receive times (columns b and c)
+# and the thresh argument (column a). The twcc states= deltas are microseconds
+# and ref= is a count of the 64 ms TWCC reference-time quanta, not a duration.
+# The declared suffix is load-bearing, not decoration: inside the pinned Go
+# types the same quantity lives at three different scales (Goal.Duration is a
+# time.Duration, ProbeClusterResult.StartTime/EndTime are raw int64 nanoseconds
+# and congestionDetector.rtt is a float count of seconds). A bare or _ns/_ms
+# spelling aborts generation instead of silently changing scale, which is how a
+# 600 ms probe cluster turned into a 600 s one when end=600000000 was read as
+# milliseconds.
+#
+# --- detector: symbol walk, group bookkeeping, pruning ---
+firstpkt	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	2	100000	1200	
+firstpkt	sn_start=1;grp_min=2;grp_win=5000000	200000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:100000
+symcls	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	5	100000	1200	
+symcls	sn_start=1;grp_min=2;grp_win=5000000	500000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=1:0,1:100000,3,0
+symcls	sn_start=1;grp_min=2;grp_win=5000000	500000	gsel	0	0	0	0	
+symcls	sn_start=1;grp_min=2;grp_win=5000000	500000	gsel	1	0	0	0	
+symcls	sn_start=1;grp_min=2;grp_win=5000000	600000	twcc	0	0	0	0	base=3;ref=1000;fb=0;states=2:150000
+symcls	sn_start=1;grp_min=2;grp_win=5000000	600000	gsel	0	0	0	0	
+symcls	sn_start=1;grp_min=2;grp_win=5000000	600000	gsel	1	0	0	0	
+symcls	sn_start=1;grp_min=2;grp_win=5000000	700000	twcc	0	0	0	0	base=4;count=1;ref=1000;fb=0;states=2:100000,2:100000
+symcls	sn_start=1;grp_min=2;grp_win=5000000	700000	gsel	0	0	0	0	
+symcls	sn_start=1;grp_min=2;grp_win=5000000	700000	gsel	1	0	0	0	
+deltax	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	4	100000	1200	
+deltax	sn_start=1;grp_min=2;grp_win=5000000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000,2
+wrap16	sn_start=65530;grp_min=2;grp_win=5000000	0	msend	0	8	100000	1200	
+wrap16	sn_start=65530;grp_min=2;grp_win=5000000	800000	twcc	0	0	0	0	base=65531;ref=1000;fb=0;states=2:0,2:100000#6
+repeat	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	3	100000	1200	
+repeat	sn_start=1;grp_min=2;grp_win=5000000	300000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000
+repeat	sn_start=1;grp_min=2;grp_win=5000000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	0	msend	0	8	100000	1200	
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	600000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000#4
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	600000	thresh	300000	0	0	0	
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	600000	gsel	0	0	0	0	
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	600000	gsel	1	0	0	0	
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	800000	twcc	0	0	0	0	base=7;ref=1000;fb=0;states=2:100000,2:100000
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	800000	gsel	0	0	0	0	
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	800000	gsel	1	0	0	0	
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	800000	thresh	300000	0	0	0	
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	5000000	twcc	0	0	0	0	base=9;ref=1000;fb=0;states=
+prune	sn_start=1;grp_min=2;grp_win=5000000;max_age=300000	5000000	gsel	0	0	0	0	
+#
+# --- detector: state machine and loss region ---
+esm9	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	9	100000	1200	
+esm9	sn_start=1;grp_min=2;grp_win=5000000	900000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:155000,2:105000#5
+esm9	sn_start=1;grp_min=2;grp_win=5000000	1300000	twcc	0	0	0	0	base=10;ref=1000;fb=0;states=2:890000,2:105000#2,2:145000
+esm13	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	13	100000	1200	
+esm13	sn_start=1;grp_min=2;grp_win=5000000	900000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:155000,2:105000#5
+esm13	sn_start=1;grp_min=2;grp_win=5000000	1300000	twcc	0	0	0	0	base=10;ref=1000;fb=0;states=2:890000,2:105000#2,2:145000
+# esmwins is the stimulus of the engine regression
+# regression::send_side_twcc_reports_drive_the_app_owned_estimator_without_ownership
+# read verbatim: no grp_min/grp_win override, so the group rules are
+# DefaultSendSideBWEConfig's (30 packets / 500 ms) and the estimation window is
+# the default 1 s. The first two legs are that test's nine- and three-packet
+# runs; the third leg adds a seven-packet group whose span, merged with an
+# already finalized older group, crosses the 1 s window so the windowed
+# capacity path becomes valid.
+esmwins	sn_start=1	100000	msend	0	9	100000	1200	
+esmwins	sn_start=1	900000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:155000,2:105000#6
+esmwins	sn_start=1	1000000	msend	0	3	100000	1200	
+esmwins	sn_start=1	1300000	twcc	0	0	0	0	base=11;ref=1000;fb=0;states=2:890000,2:105000#2,2:145000
+esmwins	sn_start=1	2000000	msend	0	8	100000	1200	
+esmwins	sn_start=1	2700000	twcc	0	0	0	0	base=13;ref=1000;fb=0;states=2:0,2:105000#7
+# esmj15/esmj25 are the same twelve-packet/three-report run under the DEFAULT group
+# config (30 packets or 500 ms finalizes a group, 1 s estimation window) with a
+# receive cadence that drifts 15 ms and 25 ms per packet above the 100 ms send
+# cadence. They exist to find the stimulus that actually escalates the shipped
+# configuration: a group only counts as a queuing-delay JQR group once its
+# propagated queuing delay exceeds JQRMinDelay (50 ms) and two such consecutive
+# groups spanning more than 200 ms are needed for EarlyWarning.
+esmj15	sn_start=1	100000	msend	0	12	100000	1200	
+esmj15	sn_start=1	1300000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#11
+esmj15	sn_start=1	1400000	msend	0	12	100000	1200	
+esmj15	sn_start=1	2600000	twcc	0	0	0	0	base=13;ref=1000;fb=0;states=2:0,2:115000#11
+esmj15	sn_start=1	2700000	msend	0	12	100000	1200	
+esmj15	sn_start=1	3900000	twcc	0	0	0	0	base=25;ref=1000;fb=0;states=2:0,2:115000#11
+esmj25	sn_start=1	100000	msend	0	12	100000	1200	
+esmj25	sn_start=1	1300000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:125000#11
+esmj25	sn_start=1	1400000	msend	0	12	100000	1200	
+esmj25	sn_start=1	2600000	twcc	0	0	0	0	base=13;ref=1000;fb=0;states=2:0,2:125000#11
+esmj25	sn_start=1	2700000	msend	0	12	100000	1200	
+esmj25	sn_start=1	3900000	twcc	0	0	0	0	base=25;ref=1000;fb=0;states=2:0,2:125000#11
+# esmjdbg is esmj15 with the group inspector parked after every report, to see
+# which group the walk classifies as JQR and which as DQR under the default
+# 500 ms group window.
+esmjdbg	sn_start=1	100000	msend	0	12	100000	1200	
+esmjdbg	sn_start=1	1300000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#11
+esmjdbg	sn_start=1	1300000	gsel	0	0	0	0	
+esmjdbg	sn_start=1	1300000	gsel	1	0	0	0	
+esmjdbg	sn_start=1	1400000	msend	0	12	100000	1200	
+esmjdbg	sn_start=1	2600000	twcc	0	0	0	0	base=13;ref=1000;fb=0;states=2:0,2:115000#11
+esmjdbg	sn_start=1	2600000	gsel	0	0	0	0	
+esmjdbg	sn_start=1	2600000	gsel	1	0	0	0	
+esmjdbg	sn_start=1	2600000	gsel	2	0	0	0	
+esmjdbg	sn_start=1	2600000	gsel	3	0	0	0	
+# esmj30/esmj30h are one-report runs under the DEFAULT group config: thirty
+# 1200-byte packets at a 100 ms send cadence, acknowledged by a single report so
+# every group shares one receive clock (a second report re-uses the reference
+# time and the two reports' receive windows overlap). The receive cadence drifts
+# 15 ms (esmj30) and 25 ms (esmj30h) above the send cadence.
+esmj30	sn_start=1	100000	msend	0	30	100000	1200	
+esmj30	sn_start=1	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+esmj30h	sn_start=1	100000	msend	0	30	100000	1200	
+esmj30h	sn_start=1	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:125000#29
+# esmj30x is esmj30 with a second thirty-packet report whose reference time is
+# advanced by 48 units (64 ms each) so the two reports do not share one receive
+# window, and whose drift grows to 35 ms per packet.
+esmj30x	sn_start=1	100000	msend	0	30	100000	1200	
+esmj30x	sn_start=1	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+esmj30x	sn_start=1	3200000	msend	0	30	100000	1200	
+esmj30x	sn_start=1	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+esmj30y	sn_start=1	100000	msend	0	30	100000	1200	
+esmj30y	sn_start=1	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+esmj30y	sn_start=1	3200000	msend	0	30	100000	1200	
+esmj30y	sn_start=1	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:175000#29
+# ctrfeed is the only campaign case that keeps sending AFTER the detector has entered
+# Congested. That matters because the detector's own CongestedCTR trend is created at
+# the transition (congestion_detector.go:1009-1027) and only fed while it exists
+# (:634 updateCTRTrend), so a case that ends at the congestion-entering report can
+# never show a sample: esm13/esmj30x/esmj30y all report ctr_samples=0 for exactly
+# that reason. Here four thirty-packet rounds with a growing receive cadence let the
+# congested packet group (20 acked packets or a 150 ms window) finalize inside
+# reports 3 and 4, which is what puts real values into the ctr_* columns.
+# The six ctr_* keys are written at their Go defaults so every pair built on this
+# case moves exactly one leaf away from the default, and the default-pinned mutant
+# can only fail on those pairs.
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+# PROBE ctrfeed2: five rounds whose receive cadence dips in the middle, so the
+# congested group CTR values are NOT monotonic and kendallsTau() can land strictly
+# between -1 and 0, which is the only region where DownwardTrendThreshold and
+# DownwardTrendMaxWait can separate at the detector boundary.
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:185000#29
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:125000#29
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12800000	msend	0	30	100000	1200	
+ctrfeed2	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	15900000	twcc	0	0	0	0	base=121;ref=1192;fb=0;states=2:0,2:175000#29
+loss_region	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	13	35000	1200	
+loss_region	sn_start=1;grp_min=2;grp_win=5000000	600000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=0,2:0,0,2:100000,0,2:72500,0,2:72500,0,2:72500,0,2:72500
+#
+# --- detector: probe cluster outcomes ---
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	0	send	1200	0	0	0	
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	0	msend	1	4	100000	1200	cluster=7;probe=1
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	400000	poll	0	0	0	0	
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	500000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000#3
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	600000	pdone	8	12000	0	0	start_us=0;end_us=600000
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	600000	pfin	0	0	0	0	
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	700000	pdone	7	12000	0	0	start_us=0;end_us=600000
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	700000	pfin	0	0	0	0	
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	2999000	poll	0	0	0	0	
+probe_nc	sn_start=1;grp_min=2;grp_win=5000000	3001000	poll	0	0	0	0	
+probe_inc	sn_start=1;grp_min=2;grp_win=5000000	0	send	1200	0	0	0	
+probe_inc	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+probe_inc	sn_start=1;grp_min=2;grp_win=5000000	0	msend	1	4	100000	1200	cluster=7;probe=1
+probe_inc	sn_start=1;grp_min=2;grp_win=5000000	500000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:110000#3
+probe_inc	sn_start=1;grp_min=2;grp_win=5000000	600000	pdone	7	12000	0	0	start_us=0;end_us=600000
+probe_inc	sn_start=1;grp_min=2;grp_win=5000000	600000	pfin	0	0	0	0	
+probe_state	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	9	100000	1200	
+probe_state	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	8	100000	0	0	bytes=20000;dur_us=1000000
+probe_state	sn_start=1;grp_min=2;grp_win=5000000	900000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:155000,2:105000#5
+probe_state	sn_start=1;grp_min=2;grp_win=5000000	1000000	pdone	8	10000	0	0	start_us=0;end_us=600000
+probe_state	sn_start=1;grp_min=2;grp_win=5000000	1349000	pfin	0	0	0	0	
+probe_state	sn_start=1;grp_min=2;grp_win=5000000	1000000	pdone	8	12000	0	0	start_us=0;end_us=600000
+probe_state	sn_start=1;grp_min=2;grp_win=5000000	1350000	pfin	0	0	0	0	
+psettle	sn_start=1;grp_min=2;grp_win=5000000	0	send	1200	0	0	0	
+psettle	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+psettle	sn_start=1;grp_min=2;grp_win=5000000	1000000	pdone	7	12000	0	0	start_us=0;end_us=600000
+psettle	sn_start=1;grp_min=2;grp_win=5000000	1349000	pfin	0	0	0	0	
+psettle	sn_start=1;grp_min=2;grp_win=5000000	1350000	pfin	0	0	0	0	
+psettle	sn_start=1;grp_min=2;grp_win=5000000	1000000	rtt	0	0	0	0	rtt_us=100000
+psettle	sn_start=1;grp_min=2;grp_win=5000000	1000000	pstart	9	100000	0	0	bytes=20000;dur_us=1000000
+psettle	sn_start=1;grp_min=2;grp_win=5000000	2000000	pdone	9	12000	0	0	start_us=0;end_us=600000
+psettle	sn_start=1;grp_min=2;grp_win=5000000	2400000	pfin	0	0	0	0	
+psettle	sn_start=1;grp_min=2;grp_win=5000000	2424000	pfin	0	0	0	0	
+psettle	sn_start=1;grp_min=2;grp_win=5000000	2425000	pfin	0	0	0	0	
+psettle	sn_start=1;grp_min=2;grp_win=5000000	2430000	pfin	0	0	0	0	
+#
+# --- detector: rtt smoothing and reset ---
+lrtt	sn_start=1;grp_min=2;grp_win=5000000	0	rtt	0	0	0	0	rtt_us=100000
+lrtt	sn_start=1;grp_min=2;grp_win=5000000	0	rtt	0	0	0	0	rtt_us=200000
+lrtt	sn_start=1;grp_min=2;grp_win=5000000	0	rtt	0	0	0	0	rtt_us=0
+zrst	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	3	100000	1200	
+zrst	sn_start=1;grp_min=2;grp_win=5000000	300000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:155000,2:105000
+zrst	sn_start=1;grp_min=2;grp_win=5000000	300000	rtt	0	0	0	0	rtt_us=500000
+zrst	sn_start=1;grp_min=2;grp_win=5000000	300000	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+zrst	sn_start=1;grp_min=2;grp_win=5000000	1000000	reset	0	0	0	0	
+zrst	sn_start=1;grp_min=2;grp_win=5000000	1000000	poll	0	0	0	0	
+zrst	sn_start=1;grp_min=2;grp_win=5000000	1001000	poll	0	0	0	0	
+zrst	sn_start=1;grp_min=2;grp_win=5000000	0	msend	3	1	100000	1200	
+zrst	sn_start=1;grp_min=2;grp_win=5000000	1100000	twcc	0	0	0	0	base=4;ref=1000;fb=0;states=2:200000
+ooo	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	11	100000	1200	
+ooo	sn_start=1;grp_min=2;grp_win=5000000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=10;states=2:0,2:100000#3
+ooo	sn_start=1;grp_min=2;grp_win=5000000	800000	twcc	0	0	0	0	base=6;ref=1000;fb=200;states=2:400000,2:100000#3
+ooo	sn_start=1;grp_min=2;grp_win=5000000	1300000	twcc	0	0	0	0	base=10;ref=1000;fb=11;states=2:800000,2:100000
+#
+# --- packet group leaf (gadd drives the standalone group) ---
+grpwin	grp_min=5;grp_win=500000	0	gadd	10	100	150	20	size=10;rd=40
+grpwin	grp_min=5;grp_win=500000	0	gadd	11	300	320	500	size=20;rd=10
+grpfin	grp_min=2;grp_win=500000	0	gadd	10	100	180	0	size=10
+grpfin	grp_min=2;grp_win=500000	0	gadd	11	120	200	0	size=10
+grpfin	grp_min=2;grp_win=500000	0	gadd	12	140	220	0	size=10
+grpfin	grp_min=2;grp_win=500000	0	gadd	9	90	170	0	size=10
+grprecv	grp_min=30;grp_win=500000	0	gadd	12	0	0	0	size=7;lost=1
+grprecv	grp_min=30;grp_win=500000	0	gadd	12	100	130	0	size=7;lost=1
+grprecv	grp_min=30;grp_win=500000	0	gadd	12	100	130	0	size=7
+grpcls	grp_min=30;grp_win=500000	0	gadd	10	100	150	0	size=10;rtx=1
+grpcls	grp_min=30;grp_win=500000	0	gadd	10	100	150	0	size=10;rtx=1;probe=1
+grpcls	grp_min=30;grp_win=500000	0	gadd	11	110	160	0	size=20;probe=1;lost=1
+grpcls	grp_min=30;grp_win=500000	0	gadd	11	110	0	0	size=20;probe=1;lost=1
+grpgap	grp_min=30;grp_win=500000	0	gadd	10	0	0	0	size=5;lost=1
+grpgap	grp_min=30;grp_win=500000	0	gadd	200	0	0	0	size=5;lost=1
+grpgap	grp_min=30;grp_win=500000	0	gadd	10	100	120	0	size=5
+grpgap	grp_min=30;grp_win=500000	0	gadd	200	110	130	0	size=5
+grpwl	grp_min=30;grp_win=500000;wl_mindur=500000	0	gadd	10	0	10	0	size=10;rd=100
+grpwl	grp_min=30;grp_win=500000;wl_mindur=500000	0	gadd	11	0	0	0	size=10;lost=1
+grpwl	grp_min=30;grp_win=500000;wl_mindur=500000	0	gadd	12	200	210	0	size=10;rd=100
+grpprop	grp_min=30;grp_win=500000	0	lginh	100	0	0	0	
+grpprop	grp_min=30;grp_win=500000	0	gadd	10	100	260	20	size=10;rd=40
+grpprop2	grp_min=30;grp_win=500000	0	lginh	100	0	0	0	
+grpprop2	grp_min=30;grp_win=500000	0	gadd	10	100	110	400	size=10;rd=10
+#
+# --- weighted loss leaf (traffic drives a detached TrafficStats) ---
+tr_zero_rd	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	100000	50000	0	apk=100;aby=100000;lpk=0;lb=0
+tr_cap	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	100000	200000	10000	apk=100;aby=100000;lpk=0;lb=0
+tr_short	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	50000	50000	50000	apk=100;aby=100000;lpk=10;lb=1000
+tr_long	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_sparse	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	5000000	5000000	5000000	apk=10;aby=10000;lpk=5;lb=500
+tr_pen	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_pen0	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_zero	wl_mindur=0;wl_base=0;wl_pps=1;wl_pen=0.25	0	traffic	0	1	1	1	apk=1;aby=100;lpk=1;lb=100
+#
+# --- packet tracker leaf ---
+trk_sent	sn_start=0	0	msend	0	3	1000	1200	
+trk_ind	sn_start=0	0	msend	0	3	1000	1200	
+trk_ind	sn_start=0	0	recv	9	5000	0	0	
+trk_ind	sn_start=0	0	recv	1	5000	0	0	
+trk_ind	sn_start=0	0	recv	1	7000	0	0	
+trk_none	sn_start=0	11000	thresh	10000000	0	0	0	
+trk_thr	sn_start=0	0	msend	0	1	1000	1200	
+trk_thr	sn_start=0	11000	thresh	10000000	0	0	0	
+trk_alias	sn_start=0	0	msend	0	1	1	1200	
+trk_alias	sn_start=0	0	recv	0	1000	0	0	
+trk_alias	sn_start=0	0	msend	1	2046	1	1200	
+trk_alias	sn_start=0	0	msend	2047	2	1	1200	
+#
+# --- trend detector leaf (tadd samples with the row clock) ---
+tr_dw	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw2	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw2	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	2001000	tadd	0	0	0	0	0.9
+tr_clp	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_clp	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	499000	tadd	0	0	0	0	1.0
+tr_clp	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	500000	tadd	0	0	0	0	1.0
+# CollapseThreshold is only observable when the repeated sample is followed by a CHANGED
+# one: with all samples equal, prune rule 3 (trenddetector.go:217-234) collapses the whole
+# front anyway, so the 499 ms repeat is recorded or dropped without trace. tr_clp2 keeps
+# the same three times but moves the last value, which leaves lr_span_us depending on
+# whether the middle sample survived the collapse window.
+tr_clp2	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_clp2	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	499000	tadd	0	0	0	0	1.0
+tr_clp2	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	500000	tadd	0	0	0	0	0.9
+tr_cfront	ctr_collapse=0;ctr_valid=0	0	tadd	0	0	0	0	1.0
+tr_cfront	ctr_collapse=0;ctr_valid=0	600000	tadd	0	0	0	0	1.0
+tr_cfront	ctr_collapse=0;ctr_valid=0	1200000	tadd	0	0	0	0	1.0
+tr_cfront	ctr_collapse=0;ctr_valid=0	1800000	tadd	0	0	0	0	0.5
+tr_up	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_up	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	1.1
+tr_up	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	1200000	tadd	0	0	0	0	1.2
+tr_up	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	1800000	tadd	0	0	0	0	1.3
+#
+# --- probe packet group leaf (pgadd drives the detector's live probe group) ---
+pgforeign	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+pgforeign	sn_start=1;grp_min=2;grp_win=5000000	0	pgadd	5	100	150	0	size=1000;cluster=7;probe=1
+pgforeign	sn_start=1;grp_min=2;grp_win=5000000	0	pgadd	3	80	120	0	size=1000;cluster=7;probe=1
+pgforeign	sn_start=1;grp_min=2;grp_win=5000000	0	pgadd	6	110	170	0	size=1000;cluster=0;probe=1
+pgdone	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+pgdone	sn_start=1;grp_min=2;grp_win=5000000	600000	pdone	8	12000	0	0	start_us=0;end_us=600000
+pgdone	sn_start=1;grp_min=2;grp_win=5000000	700000	pdone	7	12000	0	0	start_us=0;end_us=600000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	0	pdone	7	12000	0	0	start_us=0;end_us=600000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	99000	settle	0	0	0	0	rtt_us=20000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	100000	settle	0	0	0	0	rtt_us=20000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	249000	settle	0	0	0	0	rtt_us=20000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	250000	settle	0	0	0	0	rtt_us=20000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	499000	settle	0	0	0	0	rtt_us=100000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	500000	settle	0	0	0	0	rtt_us=100000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	4999000	settle	0	0	0	0	rtt_us=2000000
+pgsettle	sn_start=1;grp_min=2;grp_win=5000000	5000000	settle	0	0	0	0	rtt_us=2000000
+pgmax	sn_start=1;grp_min=2;grp_win=5000000	0	send	1200	0	0	0	
+pgmax	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+pgmax	sn_start=1;grp_min=2;grp_win=5000000	0	msend	1	1	100000	1200	cluster=7;probe=1
+pgmax	sn_start=1;grp_min=2;grp_win=5000000	0	pgadd	2	100	200	0	size=1000;cluster=7;probe=1
+pgmax	sn_start=1;grp_min=2;grp_win=5000000	0	pdone	7	12000	0	0	start_us=0;end_us=600000
+pgmax	sn_start=1;grp_min=2;grp_win=5000000	1000	settle	0	0	0	0	rtt_us=20000
+tr_lowpps	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	100000	100000	100000	apk=0;aby=0;lpk=1;lb=100
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	0	send	1200	0	0	0	
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	0	pstart	7	100000	0	0	bytes=20000;dur_us=1000000
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	0	msend	1	4	100	1200	cluster=7;probe=1
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	400000	poll	0	0	0	0	
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	500000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100#3
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	600000	pdone	8	12000	0	0	start_us=0;end_us=600000
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	600000	pfin	0	0	0	0	
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	700000	pdone	7	12000	0	0	start_us=0;end_us=600000
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	700000	pfin	0	0	0	0	
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	2999000	poll	0	0	0	0	
+probe_raise	sn_start=1;grp_min=2;grp_win=5000000	3001000	poll	0	0	0	0	
+# --- C73 leaf-baseline block (managed: work/extend-campaign-with-baselines.py) ---
+# One twin per config leaf exercised by the campaign. Each twin replays the
+# IDENTICAL op stream of the smallest case that sets the leaf, with that single
+# key removed so the leaf falls back to the pinned Go default. Together with its
+# parent these pairs are what let a leaf be called component_behavior observed:
+# if the Go output does not move between the pair, the leaf drives nothing the
+# Rust differential compares, and work/check-leaf-discrimination.py says so.
+# Regenerate with work/extend-campaign-with-baselines.py --apply; do not hand-edit.
+tr_dw__dflt_ctr_collapse	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__dflt_ctr_collapse	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw__dflt_ctr_req	ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__dflt_ctr_req	ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw__dflt_ctr_req_min	ctr_req=4;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__dflt_ctr_req_min	ctr_req=4;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw__dflt_ctr_th	ctr_req=4;ctr_req_min=2;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__dflt_ctr_th	ctr_req=4;ctr_req_min=2;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw__dflt_ctr_valid	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000	0	tadd	0	0	0	0	1.0
+tr_dw__dflt_ctr_valid	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000	600000	tadd	0	0	0	0	0.9
+tr_dw__dflt_ctr_wait	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__dflt_ctr_wait	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+deltax__dflt_grp_min	sn_start=1;grp_win=5000000	0	msend	0	4	100000	1200	
+deltax__dflt_grp_min	sn_start=1;grp_win=5000000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000,2
+deltax__dflt_grp_win	sn_start=1;grp_min=2	0	msend	0	4	100000	1200	
+deltax__dflt_grp_win	sn_start=1;grp_min=2	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000,2
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	0	msend	0	8	100000	1200	
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	600000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000#4
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	600000	thresh	300000	0	0	0	
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	600000	gsel	0	0	0	0	
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	600000	gsel	1	0	0	0	
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	800000	twcc	0	0	0	0	base=7;ref=1000;fb=0;states=2:100000,2:100000
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	800000	gsel	0	0	0	0	
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	800000	gsel	1	0	0	0	
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	800000	thresh	300000	0	0	0	
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	5000000	twcc	0	0	0	0	base=9;ref=1000;fb=0;states=
+prune__dflt_max_age	sn_start=1;grp_min=2;grp_win=5000000	5000000	gsel	0	0	0	0	
+trk_none__dflt_sn_start		11000	thresh	10000000	0	0	0	
+tr_cap__dflt_wl_base	wl_mindur=100000;wl_pps=30;wl_pen=0.25	0	traffic	0	100000	200000	10000	apk=100;aby=100000;lpk=0;lb=0
+tr_cap__dflt_wl_mindur	wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	100000	200000	10000	apk=100;aby=100000;lpk=0;lb=0
+tr_cap__dflt_wl_pen	wl_mindur=100000;wl_base=500000;wl_pps=30	0	traffic	0	100000	200000	10000	apk=100;aby=100000;lpk=0;lb=0
+tr_cap__dflt_wl_pps	wl_mindur=100000;wl_base=500000;wl_pen=0.25	0	traffic	0	100000	200000	10000	apk=100;aby=100000;lpk=0;lb=0
+# --- C73 leaf-baseline block end ---
+# --- armed-column per-row rule: the group and leaf-trend echoes belong to the row
+# that ran gadd/lginh or tseed/tadd, so the poll rows between them must print the
+# NOT_ATTEMPTED sentinels even though the harness objects keep their state.
+lgarm	grp_min=2;grp_win=5000000;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	gadd	10	100	150	20	size=10;rd=40
+lgarm	grp_min=2;grp_win=5000000;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	1000000	poll	0	0	0	0	
+lgarm	grp_min=2;grp_win=5000000;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	2000000	tadd	0	0	0	0	1.0
+lgarm	grp_min=2;grp_win=5000000;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	2600000	tadd	0	0	0	0	0.9
+lgarm	grp_min=2;grp_win=5000000;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3000000	poll	0	0	0	0	
+lgarm	grp_min=2;grp_win=5000000;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	4000000	lginh	100	0	0	0	
+# --- C73 leaf-variant block (managed: work/extend-campaign-with-variants.py) ---
+# One case per config-leaf value probe. Each replays the IDENTICAL op stream of
+# its parent with exactly one key moved to a value the parent does not use, so
+# the pair says what that leaf's VALUE does, not whether the key is present.
+# The six trend keys are probed twice: once on a trend-ops parent, which drives
+# the replay driver's own TrendDetector, and once on ctrfeed, which is the only
+# case that keeps sending after the detector enters Congested and so the only
+# case that can move the detector's own ctr_* columns.
+# Together with the leaf-baseline block these are the input to
+# work/check-leaf-discrimination.py. Regenerate with
+# work/extend-campaign-with-variants.py --apply; do not hand-edit.
+deltax__v_grp_min_3	sn_start=1;grp_min=3;grp_win=5000000	0	msend	0	4	100000	1200	
+deltax__v_grp_min_3	sn_start=1;grp_min=3;grp_win=5000000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000,2
+deltax__v_grp_min_5	sn_start=1;grp_min=5;grp_win=5000000	0	msend	0	4	100000	1200	
+deltax__v_grp_min_5	sn_start=1;grp_min=5;grp_win=5000000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000,2
+deltax__v_grp_min_5__v_grp_win_50000	sn_start=1;grp_min=5;grp_win=50000	0	msend	0	4	100000	1200	
+deltax__v_grp_min_5__v_grp_win_50000	sn_start=1;grp_min=5;grp_win=50000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000,2
+deltax__v_grp_min_5__v_grp_win_1000000	sn_start=1;grp_min=5;grp_win=1000000	0	msend	0	4	100000	1200	
+deltax__v_grp_min_5__v_grp_win_1000000	sn_start=1;grp_min=5;grp_win=1000000	400000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000,2
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	0	msend	0	8	100000	1200	
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	600000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000#4
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	600000	thresh	300000	0	0	0	
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	600000	gsel	0	0	0	0	
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	600000	gsel	1	0	0	0	
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	800000	twcc	0	0	0	0	base=7;ref=1000;fb=0;states=2:100000,2:100000
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	800000	gsel	0	0	0	0	
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	800000	gsel	1	0	0	0	
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	800000	thresh	300000	0	0	0	
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	5000000	twcc	0	0	0	0	base=9;ref=1000;fb=0;states=
+prune__v_max_age_120000	sn_start=1;grp_min=2;grp_win=5000000;max_age=120000	5000000	gsel	0	0	0	0	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	0	msend	0	8	100000	1200	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	600000	twcc	0	0	0	0	base=2;ref=1000;fb=0;states=2:0,2:100000#4
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	600000	thresh	300000	0	0	0	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	600000	gsel	0	0	0	0	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	600000	gsel	1	0	0	0	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	800000	twcc	0	0	0	0	base=7;ref=1000;fb=0;states=2:100000,2:100000
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	800000	gsel	0	0	0	0	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	800000	gsel	1	0	0	0	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	800000	thresh	300000	0	0	0	
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	5000000	twcc	0	0	0	0	base=9;ref=1000;fb=0;states=
+prune__v_max_age_1000000	sn_start=1;grp_min=2;grp_win=5000000;max_age=1000000	5000000	gsel	0	0	0	0	
+tr_short__v_wl_mindur_0	wl_mindur=0;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	50000	50000	50000	apk=100;aby=100000;lpk=10;lb=1000
+tr_short__v_wl_mindur_500000	wl_mindur=500000;wl_base=500000;wl_pps=30;wl_pen=0.25	0	traffic	0	50000	50000	50000	apk=100;aby=100000;lpk=10;lb=1000
+tr_sparse__v_wl_base_100000	wl_mindur=100000;wl_base=100000;wl_pps=30;wl_pen=0.25	0	traffic	0	5000000	5000000	5000000	apk=10;aby=10000;lpk=5;lb=500
+tr_sparse__v_wl_base_3000000	wl_mindur=100000;wl_base=3000000;wl_pps=30;wl_pen=0.25	0	traffic	0	5000000	5000000	5000000	apk=10;aby=10000;lpk=5;lb=500
+tr_long__v_wl_pps_600	wl_mindur=100000;wl_base=500000;wl_pps=600;wl_pen=0.25	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_long__v_wl_pps_1000	wl_mindur=100000;wl_base=500000;wl_pps=1000;wl_pen=0.25	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_long__v_wl_pen_0p0	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.0	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_long__v_wl_pen_0p5	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=0.5	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_long__v_wl_pen_1p0	wl_mindur=100000;wl_base=500000;wl_pps=30;wl_pen=1.0	0	traffic	0	200000	200000	200000	apk=100;aby=100000;lpk=10;lb=1000
+tr_dw__v_ctr_req_2	ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__v_ctr_req_2	ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw__v_ctr_req_8	ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__v_ctr_req_8	ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw2__v_ctr_req_min_1	ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw2__v_ctr_req_min_1	ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	2001000	tadd	0	0	0	0	0.9
+tr_dw2__v_ctr_req_min_4	ctr_req=4;ctr_req_min=4;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw2__v_ctr_req_min_4	ctr_req=4;ctr_req_min=4;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	2001000	tadd	0	0	0	0	0.9
+tr_dw2__v_ctr_th_m2p0	ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw2__v_ctr_th_m2p0	ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	2001000	tadd	0	0	0	0	0.9
+tr_dw2__v_ctr_th_0p0	ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw2__v_ctr_th_0p0	ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	2001000	tadd	0	0	0	0	0.9
+tr_dw__v_ctr_wait_300000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__v_ctr_wait_300000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_dw__v_ctr_wait_6000000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_dw__v_ctr_wait_6000000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	600000	tadd	0	0	0	0	0.9
+tr_clp2__v_ctr_collapse_0	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_clp2__v_ctr_collapse_0	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	499000	tadd	0	0	0	0	1.0
+tr_clp2__v_ctr_collapse_0	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	500000	tadd	0	0	0	0	0.9
+tr_clp2__v_ctr_collapse_100000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=100000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_clp2__v_ctr_collapse_100000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=100000;ctr_valid=10000000	499000	tadd	0	0	0	0	1.0
+tr_clp2__v_ctr_collapse_100000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=100000;ctr_valid=10000000	500000	tadd	0	0	0	0	0.9
+tr_clp2__v_ctr_collapse_1000000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	0	tadd	0	0	0	0	1.0
+tr_clp2__v_ctr_collapse_1000000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	499000	tadd	0	0	0	0	1.0
+tr_clp2__v_ctr_collapse_1000000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	500000	tadd	0	0	0	0	0.9
+tr_dw__v_ctr_valid_300000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	0	tadd	0	0	0	0	1.0
+tr_dw__v_ctr_valid_300000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	600000	tadd	0	0	0	0	0.9
+tr_dw__v_ctr_valid_30000000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	0	tadd	0	0	0	0	1.0
+tr_dw__v_ctr_valid_30000000	ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	600000	tadd	0	0	0	0	0.9
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_2	sn_start=1;ctr_req=2;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_8	sn_start=1;ctr_req=8;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_1	sn_start=1;ctr_req=4;ctr_req_min=1;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_req_min_5	sn_start=1;ctr_req=4;ctr_req_min=5;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=0;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_collapse_1000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=1000000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=300000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	100000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	3200000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	6400000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:155000#29
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	9600000	msend	0	30	100000	1200	
+ctrfeed__v_ctr_valid_30000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=30000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:175000#29
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:185000#29
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:125000#29
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12800000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_m2p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-2.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	15900000	twcc	0	0	0	0	base=121;ref=1192;fb=0;states=2:0,2:175000#29
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:185000#29
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:125000#29
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	12800000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_th_0p0	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=0.0;ctr_wait=2000000;ctr_collapse=500000;ctr_valid=10000000	15900000	twcc	0	0	0	0	base=121;ref=1192;fb=0;states=2:0,2:175000#29
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:185000#29
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:125000#29
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	12800000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_300000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=300000;ctr_collapse=500000;ctr_valid=10000000	15900000	twcc	0	0	0	0	base=121;ref=1192;fb=0;states=2:0,2:175000#29
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	100000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	3100000	twcc	0	0	0	0	base=1;ref=1000;fb=0;states=2:0,2:115000#29
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	3200000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	6300000	twcc	0	0	0	0	base=31;ref=1048;fb=0;states=2:0,2:135000#29
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	6400000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	9500000	twcc	0	0	0	0	base=61;ref=1096;fb=0;states=2:0,2:185000#29
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	9600000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	12700000	twcc	0	0	0	0	base=91;ref=1144;fb=0;states=2:0,2:125000#29
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	12800000	msend	0	30	100000	1200	
+ctrfeed2__v_ctr_wait_6000000	sn_start=1;ctr_req=4;ctr_req_min=2;ctr_th=-0.5;ctr_wait=6000000;ctr_collapse=500000;ctr_valid=10000000	15900000	twcc	0	0	0	0	base=121;ref=1192;fb=0;states=2:0,2:175000#29
+# --- C73 leaf-variant block end ---

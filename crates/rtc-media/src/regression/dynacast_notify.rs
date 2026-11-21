@@ -504,6 +504,137 @@ fn shared_debounce_survives_origin_invalidation() {
 }
 
 #[test]
+fn codec_regression_wakes_backup_to_high_then_decays_forced() {
+    let now = Instant::now();
+    let sid = TrackSid::from(SID);
+    let mut engine = engine(now);
+    engine.cfg.video.dynacast_pause_delay = Duration::from_secs(1);
+    let spec = PublishedTrackSpec {
+        backup_codec_policy: BackupCodecPolicy::Regression,
+        sid: sid.clone(),
+        kind: TrackKind::Video,
+        source: TrackSource::Camera,
+        cid: "notify".into(),
+        layers: vec![],
+        codecs: CODECS[..2]
+            .iter()
+            .map(|codec| TrackCodec {
+                mime_type: format!("video/{codec}"),
+                ..Default::default()
+            })
+            .collect(),
+        stereo: false,
+        disable_dtx: false,
+        disable_red: false,
+        encrypted: false,
+        muted: false,
+    };
+    engine.published.insert(sid.clone(), spec.clone());
+    let mut receivers = Vec::new();
+    for (index, codec) in CODECS[..2].iter().enumerate() {
+        let mime = format!("video/{codec}");
+        let ui = engine.ups.insert(crate::uptrack::UpTrack::new(
+            spec.clone(),
+            "PA_notify".into(),
+            TransportId::next(),
+            Mid::from(index.to_string().as_str()),
+            TrackKind::Video,
+            mime.clone(),
+            vec!["q".into(), "h".into(), "f".into()],
+            &engine.audio_params,
+            Duration::from_secs(1),
+            now,
+        ));
+        engine.up_by_sid.entry(sid.clone()).or_insert(ui);
+        engine
+            .codec_receivers
+            .entry(sid.clone())
+            .or_default()
+            .bind(&mime, ui);
+        receivers.push(ui);
+    }
+    let (ui_vp8, ui_vp9) = (receivers[0], receivers[1]);
+    let mut down = crate::downtrack::DownTrack::new(
+        DownTrackSpec {
+            subscriber: "PA_sub".into(),
+            publisher: "PA_notify".into(),
+            track_sid: sid.clone(),
+            stream_id: "notify".into(),
+            settings: TrackSettings::default(),
+            adaptive_stream: false,
+        },
+        TrackKind::Video,
+        ui_vp8,
+        false,
+        "video/vp8",
+        now,
+    );
+    down.max_spatial = 1;
+    let di = engine.downs.insert(down);
+    engine.ups.get_mut(ui_vp8).unwrap().subscribers.push(di);
+    engine.update_dynacast(ui_vp8, now);
+    engine.events.clear();
+
+    // Go `HandleCodecRegression` -> `OnRegressCodec`: a backup codec that no subscriber ever
+    // demanded joins the map with HIGH, which is what tells the publisher to start it.
+    engine.codec_receiver_started(ui_vp9, "video/vp9", now);
+    let mut snapshots = Vec::new();
+    drain(&mut engine, &mut snapshots);
+    assert_eq!(snapshots, vec![expected(&[3, 2])]);
+    let backup = engine.ups.get(ui_vp9).unwrap().dynacast.as_ref().unwrap();
+    assert_eq!(
+        backup.committed_message().unwrap()[0]
+            .qualities
+            .iter()
+            .filter(|quality| quality.enabled)
+            .count(),
+        3
+    );
+    assert!(backup.needs_recompute());
+    assert_eq!(
+        backup.next_deadline(),
+        Some(now + crate::dynacast::INITIAL_UPDATE_WAIT)
+    );
+    assert_eq!(
+        engine.poll_timeout(),
+        Some(now + crate::dynacast::INITIAL_UPDATE_WAIT)
+    );
+    assert!(engine.ups.get(ui_vp8).unwrap().dynacast.is_none());
+    assert_eq!(engine.ups.get(ui_vp9).unwrap().subscribers, vec![di]);
+
+    // `Replace` -> `Restart` only re-arms the forced update; `RegressTo` never evaluates the
+    // transferred demand early, so the wake-up survives the initial callback.
+    engine.dynacast_timers(now + crate::dynacast::INITIAL_UPDATE_WAIT);
+    let mut snapshots = Vec::new();
+    drain(&mut engine, &mut snapshots);
+    assert!(snapshots.is_empty());
+    assert_eq!(
+        engine.poll_timeout(),
+        Some(now + crate::dynacast::INITIAL_UPDATE_WAIT + Duration::from_secs(1))
+    );
+    // The forced initial update re-reads the backup's own subscribers, turning HIGH into the
+    // real MEDIUM demand through one shared downgrade debounce.
+    engine.dynacast_timers(now + crate::dynacast::INITIAL_UPDATE_WAIT + Duration::from_millis(999));
+    let mut snapshots = Vec::new();
+    drain(&mut engine, &mut snapshots);
+    assert!(snapshots.is_empty());
+    engine.dynacast_timers(now + crate::dynacast::INITIAL_UPDATE_WAIT + Duration::from_secs(1));
+    let mut snapshots = Vec::new();
+    drain(&mut engine, &mut snapshots);
+    assert_eq!(snapshots, vec![expected(&[3, 1])]);
+    assert!(
+        !engine
+            .ups
+            .get(ui_vp9)
+            .unwrap()
+            .dynacast
+            .as_ref()
+            .unwrap()
+            .needs_recompute()
+    );
+}
+
+#[test]
 fn shared_debounce_updates_each_receiver_expected_layer() {
     for upgrade in [false, true] {
         let now = Instant::now();

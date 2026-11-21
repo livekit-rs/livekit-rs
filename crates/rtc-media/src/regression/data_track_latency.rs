@@ -495,3 +495,6 @@ fn default_fast_zero_actual_encrypted_fragmented_max_retransmits_zero_recovers_l
 
 #[path = "data_track_latency/wire_alignment_consumers.rs"]
 mod wire_alignment_consumers;
+
+#[path = "data_track_latency/main_chain_timers.rs"]
+mod main_chain_timers;

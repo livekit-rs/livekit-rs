@@ -1992,37 +1992,6 @@ fn av1_fragmented_dd_metadata_survives_public_webrtc_frame_pipeline() {
     panic!("AV1/DD public API metadata path did not converge");
 }
 
-#[test]
-fn managed_discovery_uses_recoverable_ice_state_without_clearing_handshake_latch() {
-    let now = Instant::now();
-    let mut engine = engine(now);
-    let tid = transport(&mut engine, PcRole::Subscriber, now);
-    let t = engine.transports.get_mut(&tid).unwrap();
-    t.connected = true;
-    let capacity = t.capacity().unwrap();
-    let demand = capacity + 100_000;
-    let connected = t.probe_path_connected();
-    let action = t.probes.tick(now, demand, 150_000, None, connected, false);
-    assert!(action.discovery_needed);
-    t.disconnected_since = Some(now);
-    assert!(
-        t.connected,
-        "recoverable ICE loss preserves the handshake latch"
-    );
-    let connected = t.probe_path_connected();
-    let action = t.probes.tick(now, demand, 150_000, None, connected, false);
-    assert!(!action.discovery_needed);
-    t.disconnected_since = None;
-    assert!(t.connected);
-    let connected = t.probe_path_connected();
-    let action = t.probes.tick(now, demand, 150_000, None, connected, false);
-    assert!(action.discovery_needed);
-    assert_eq!(t.capacity(), Some(capacity));
-    assert_eq!(t.probes.counters.successes, 0);
-}
-
-// Synthetic native observations exercise the actual engine PeerStats consumer
-// with real SDP objects/downtracks. They are not encrypted-network capacity proof.
 fn peer_stats_allocation_fixture(start: Instant) -> (MediaEngine, TransportId, usize) {
     let (engine, tid, di, _, _) = peer_stats_connected_fixture(start);
     (engine, tid, di)
@@ -2124,6 +2093,7 @@ fn peer_stats_observation(at: Instant, raw: u64) -> str0m::bwe::BweSnapshot {
         ack_fast_rate_changes: 0,
     }
 }
+
 fn peer_stats_event(at: Instant, loss: f32) -> str0m::stats::PeerStats {
     str0m::stats::PeerStats {
         peer_bytes_rx: 0,
@@ -2139,6 +2109,157 @@ fn peer_stats_event(at: Instant, loss: f32) -> str0m::stats::PeerStats {
     }
 }
 
+fn peer_stats_start_request(engine: &mut MediaEngine, tid: TransportId, start: Instant) -> Instant {
+    use str0m::bwe::Bitrate;
+    let t = engine.transports.get_mut(&tid).unwrap();
+    t.probes.on_remb(100_000, start);
+    t.probes.on_estimate(100_000, true, start);
+    t.probes
+        .prepare_admission(1_000_000, Some(1_000_000), None, true);
+    let requested = start + Duration::from_secs(3);
+    let action = t.probes.tick(requested, 1_000_000, 0, None, true, true);
+    assert_eq!(action.start_validation_bps, Some(1_000_000));
+    t.probes.validation_started(Some(77), requested);
+    t.estimate_bps = Some(Bitrate::bps(100_000).as_u64());
+    requested
+}
+
+const SEND_SIDE_SSRC: u32 = 600;
+
+fn send_side_sent(at: Instant, sequence: u16) -> str0m::SendSideFeedback {
+    str0m::SendSideFeedback::Sent(str0m::SendSidePacket {
+        at,
+        sequence,
+        ssrc: SEND_SIDE_SSRC,
+        header_bytes: 20,
+        payload_bytes: 1_180,
+        packet_bytes: 1_200,
+        is_padding: false,
+        is_rtx: false,
+        twcc_negotiated: true,
+        transport_sequence: Some(sequence),
+    })
+}
+
+fn send_side_report(
+    at: Instant,
+    base: u16,
+    reference_time: u32,
+    deltas_us: &[i64],
+) -> str0m::SendSideFeedback {
+    str0m::SendSideFeedback::Report {
+        at,
+        packet: send_side_twcc(base, reference_time, deltas_us),
+    }
+}
+
+/// Encode one TWCC feedback block exactly as the oracle's `report()` does: a
+/// two-bit status vector of `ReceivedLargeOrNegativeDelta` symbols followed by
+/// one 250 us-unit delta per received symbol, with the 24-bit reference time and
+/// the feedback packet count taken from the row.
+fn send_side_twcc(base: u16, reference_time: u32, deltas_us: &[i64]) -> Vec<u8> {
+    let mut raw = vec![0x8f, 205, 0, 0];
+    raw.extend_from_slice(&7u32.to_be_bytes());
+    raw.extend_from_slice(&SEND_SIDE_SSRC.to_be_bytes());
+    raw.extend_from_slice(&base.to_be_bytes());
+    raw.extend_from_slice(&(deltas_us.len() as u16).to_be_bytes());
+    raw.extend_from_slice(&[
+        (reference_time >> 16) as u8,
+        (reference_time >> 8) as u8,
+        reference_time as u8,
+    ]);
+    raw.push(0); // feedback packet count
+    for group in deltas_us.chunks(7) {
+        let mut chunk = 0xC000u16; // vector chunk with 16-bit deltas
+        for index in 0..group.len() {
+            chunk |= 2u16 << (12 - 2 * index); // symbol 2 = received, large delta
+        }
+        raw.extend_from_slice(&chunk.to_be_bytes());
+    }
+    for delta in deltas_us {
+        raw.extend_from_slice(&((*delta / 250) as i16).to_be_bytes());
+    }
+    while raw.len() % 4 != 0 {
+        raw.push(0);
+    }
+    let words = (raw.len() / 4 - 1) as u16;
+    raw[2..4].copy_from_slice(&words.to_be_bytes());
+    raw
+}
+
+/// One oracle `states=` list: `symbol 2` with the first delta then `count-1`
+/// copies of `drift_us`.
+fn esmj30x_deltas(first: i64, drift_us: i64, count: usize) -> Vec<i64> {
+    let mut deltas = vec![first];
+    deltas.extend(std::iter::repeat_n(drift_us, count - 1));
+    deltas
+}
+
+/// The send-side estimator owner's own cluster accounting.
+fn estimator_stats(engine: &MediaEngine, tid: TransportId) -> crate::send_side_bwe::Stats {
+    engine.transports[&tid]
+        .send_side
+        .as_ref()
+        .expect("native send-side mode installs the application-owned Go-parity estimator")
+        .stats()
+}
+
+/// The Go-parity estimator's own channel capacity, read straight off the
+/// estimator. In native mode this is an observed value: Go lowers it only when
+/// a probe cluster finalizes or a congestion estimate is committed, never on an
+/// RTT or a receiver estimate.
+fn estimator_capacity(engine: &MediaEngine, tid: TransportId) -> i64 {
+    engine.transports[&tid]
+        .send_side
+        .as_ref()
+        .expect("native send-side mode installs the application-owned Go-parity estimator")
+        .capacity()
+}
+
+fn probe_counters(
+    engine: &MediaEngine,
+    tid: rtc_core::ids::TransportId,
+) -> crate::probe_controller::ProbeCounters {
+    engine.transports[&tid].probes.counters
+}
+
+/// The application-owned Go-parity send-side estimator's last recorded
+/// diagnostic view. It is an observer in native mode, so this proves ingestion
+/// of real reports, not ownership of the allocation.
+fn go_parities_estimate(engine: &MediaEngine, tid: rtc_core::ids::TransportId) -> Option<i64> {
+    engine.transports[&tid]
+        .send_side_observed
+        .map(|obs| obs.estimate_bps)
+}
+
+#[test]
+fn managed_discovery_uses_recoverable_ice_state_without_clearing_handshake_latch() {
+    let now = Instant::now();
+    let mut engine = engine(now);
+    let tid = transport(&mut engine, PcRole::Subscriber, now);
+    let t = engine.transports.get_mut(&tid).unwrap();
+    t.connected = true;
+    let capacity = t.capacity().unwrap();
+    let demand = capacity + 100_000;
+    let connected = t.probe_path_connected();
+    let action = t.probes.tick(now, demand, 150_000, None, connected, false);
+    assert!(action.discovery_needed);
+    t.disconnected_since = Some(now);
+    assert!(
+        t.connected,
+        "recoverable ICE loss preserves the handshake latch"
+    );
+    let connected = t.probe_path_connected();
+    let action = t.probes.tick(now, demand, 150_000, None, connected, false);
+    assert!(!action.discovery_needed);
+    t.disconnected_since = None;
+    assert!(t.connected);
+    let connected = t.probe_path_connected();
+    let action = t.probes.tick(now, demand, 150_000, None, connected, false);
+    assert!(action.discovery_needed);
+    assert_eq!(t.capacity(), Some(capacity));
+    assert_eq!(t.probes.counters.successes, 0);
+}
 #[test]
 fn peer_stats_native_cut_applies_allocation_before_the_next_periodic_tick() {
     use crate::downtrack::Forward;
@@ -2262,21 +2383,6 @@ fn peer_stats_native_cut_with_clean_stats_still_applies_allocation_immediately()
         Forward::Drop,
         "actual forwarding state must stop"
     );
-}
-
-fn peer_stats_start_request(engine: &mut MediaEngine, tid: TransportId, start: Instant) -> Instant {
-    use str0m::bwe::Bitrate;
-    let t = engine.transports.get_mut(&tid).unwrap();
-    t.probes.on_remb(100_000, start);
-    t.probes.on_estimate(100_000, true, start);
-    t.probes
-        .prepare_admission(1_000_000, Some(1_000_000), None, true);
-    let requested = start + Duration::from_secs(3);
-    let action = t.probes.tick(requested, 1_000_000, 0, None, true, true);
-    assert_eq!(action.start_validation_bps, Some(1_000_000));
-    t.probes.validation_started(Some(77), requested);
-    t.estimate_bps = Some(Bitrate::bps(100_000).as_u64());
-    requested
 }
 
 #[test]
@@ -2488,6 +2594,336 @@ fn peer_stats_native_existing_pending_cancel_survives_cached_snapshot_early_retu
     // edge detector would lose this outstanding cancellation level.
     engine.on_peer_stats(tid, peer_stats_event(now, 0.0), Some(snapshot), now);
     assert!(!engine.transports[&tid].probes.has_pending_control());
+}
+
+#[test]
+fn send_side_twcc_reports_drive_the_app_owned_estimator_without_ownership() {
+    use crate::send_side_bwe::CongestionState;
+    let start = Instant::now();
+    let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
+    assert!(
+        engine.transports[&tid].remote_feedback.is_none(),
+        "native mode keeps HEAD's rule: no receiver-estimate Feedback owner"
+    );
+    // Replay of `operations.tsv` case `esmj30x` at the shipped group
+    // configuration (30 acked packets or a 500 ms span finalizes a group). The
+    // oracle's clock origin is `time.Unix(1000, 0)`, and this detector counts
+    // from `start`, so every event is offset by the same 1000 s. Without that
+    // offset the TWCC reference time would not sit at the same distance from the
+    // send clock as it does in the fixed Go run.
+    let at = |us: u64| start + Duration::from_micros(1_000_000_000 + us);
+    // Capture the identity of the allocation authority before the stimulus: the observer may only
+    // be proven not to move it against its own earlier value, not against a number guessed here.
+    let capacity_before = engine.transports[&tid].capacity();
+    let down = engine.downs.get(di).unwrap();
+    let forwarding_before = (down.bw_paused, down.alloc_cap, down.target, down.current);
+    let mut sequence = 0u16;
+    for step in 0..30u16 {
+        sequence += 1;
+        engine.on_send_side_input(
+            tid,
+            send_side_sent(at(u64::from(100_000 + u32::from(step) * 100_000)), sequence),
+        );
+    }
+    engine.on_send_side_input(
+        tid,
+        send_side_report(at(3_100_000), 1, 1_000, &esmj30x_deltas(0, 115_000, 30)),
+    );
+    assert_eq!(
+        go_parities_estimate(&engine, tid),
+        Some(83_478),
+        "the fixed Go detector commits 83_478 bps on the early-warning \
+         escalation of this exact stimulus"
+    );
+    assert_eq!(
+        engine.transports[&tid]
+            .send_side
+            .as_ref()
+            .unwrap()
+            .congestion_state(),
+        CongestionState::EarlyWarning,
+        "Go escalates None -> EarlyWarning with reason QueuingDelay here"
+    );
+    assert_eq!(
+        engine.transports[&tid].capacity(),
+        capacity_before,
+        "the vendor/probe-controller channel capacity is untouched by an observer"
+    );
+    assert_ne!(
+        capacity_before,
+        Some(83_478),
+        "the equality above would be vacuous if the channel capacity were the detector estimate"
+    );
+    assert_eq!(engine.transports[&tid].allocated_bps, 500_000);
+    assert!(!engine.downs.get(di).unwrap().bw_paused);
+    assert_eq!(probe_counters(&engine, tid).congestion_events, 0);
+
+    for step in 0..30u16 {
+        sequence += 1;
+        engine.on_send_side_input(
+            tid,
+            send_side_sent(at(3_200_000 + u64::from(step) * 100_000), sequence),
+        );
+    }
+    engine.on_send_side_input(
+        tid,
+        send_side_report(at(6_300_000), 31, 1_048, &esmj30x_deltas(0, 135_000, 30)),
+    );
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        go_parities_estimate(&engine, tid),
+        Some(71_111),
+        "the congested escalation commits the Go estimator's own 71_111 bps"
+    );
+    assert_eq!(
+        t.send_side.as_ref().unwrap().congestion_state(),
+        CongestionState::Congested,
+        "the second leg seals the congested gate of the same run"
+    );
+    assert_eq!(
+        estimator_stats(&engine, tid).state_changes,
+        2,
+        "Go records exactly the two escalations of this stimulus"
+    );
+    assert_eq!(
+        t.capacity(),
+        capacity_before,
+        "an observed congestion state must not rewrite the allocation authority"
+    );
+    assert_eq!(
+        t.allocated_bps, 500_000,
+        "the last reallocation stands until a vendor snapshot moves it"
+    );
+    let down = engine.downs.get(di).unwrap();
+    assert!(!down.bw_paused);
+    assert_eq!(
+        (down.bw_paused, down.alloc_cap, down.target, down.current),
+        forwarding_before,
+        "the frame-forwarding state is untouched: the estimator has no path to the \
+         allocator, so a congested reading cannot pause or re-cap this subscriber"
+    );
+    let counters = probe_counters(&engine, tid);
+    assert_eq!(
+        (
+            counters.attempts,
+            counters.successes,
+            counters.failures,
+            counters.congestion_events
+        ),
+        (0, 0, 0, 0),
+        "the native policy owner saw neither a probe nor a congestion event"
+    );
+    // Negative control for the equality above: the same fixture must move the very
+    // same fields when the real authority (the vendor snapshot feeding the
+    // allocator) cuts, otherwise comparing them before and after the send-side
+    // stimulus would prove nothing.
+    use str0m::bwe::BweEstimateCause;
+    let control_at = at(6_400_000);
+    let mut snapshot = peer_stats_observation(control_at, 100_000);
+    snapshot.cause = BweEstimateCause::DelayOveruse;
+    snapshot.latest_feedback.as_mut().unwrap().lost_packets = 1;
+    engine.on_peer_stats(
+        tid,
+        peer_stats_event(control_at, 0.2),
+        Some(snapshot),
+        control_at,
+    );
+    let down = engine.downs.get(di).unwrap();
+    let forwarding_after_cut = (down.bw_paused, down.alloc_cap, down.target, down.current);
+    assert!(
+        down.bw_paused,
+        "a vendor cut pauses this fixture's subscriber, so the pause gate is live here"
+    );
+    assert_ne!(
+        forwarding_after_cut, forwarding_before,
+        "the before/after equality above is only falsifiable if a real cut moves the state"
+    );
+}
+
+#[test]
+fn peer_stats_rtt_latches_the_selected_pair_without_moving_the_allocation() {
+    let start = Instant::now();
+    let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
+    let at = start + Duration::from_secs(2);
+    // The real handshake already pushed genuine observations into the
+    // Go-parity estimator, so its channel capacity is whatever its own state
+    // machine committed. What an RTT must never do is move it: capture the
+    // identity of both surfaces first and compare after the stimulus.
+    let observed_before = (
+        estimator_capacity(&engine, tid),
+        estimator_stats(&engine, tid).state_changes,
+    );
+    engine.on_peer_stats(tid, peer_stats_event(at, 0.0), None, at);
+    assert_eq!(
+        engine.transports[&tid].rtt,
+        Some(Duration::from_millis(20)),
+        "the report's own RTT is latched"
+    );
+
+    let mut pair = peer_stats_event(at, 0.0);
+    pair.rtt = None;
+    pair.selected_candidate_pair = Some(str0m::stats::CandidatePairStats {
+        protocol: str0m::net::Protocol::Udp,
+        local: str0m::stats::CandidateStats {
+            addr: "127.0.0.1:9401".parse().unwrap(),
+        },
+        remote: str0m::stats::CandidateStats {
+            addr: "127.0.0.1:9402".parse().unwrap(),
+        },
+        current_round_trip_time: Some(Duration::from_millis(30)),
+        total_round_trip_time: Duration::from_millis(30),
+        responses_received: 1,
+    });
+    engine.on_peer_stats(tid, pair, None, at);
+    assert_eq!(
+        engine.transports[&tid].rtt,
+        Some(Duration::from_millis(30)),
+        "the selected candidate pair is the ICE liveness source"
+    );
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.capacity(),
+        Some(crate::allocator::INITIAL_CAPACITY_BPS),
+        "an RTT is never a capacity: the native probe controller stays the allocation authority"
+    );
+    assert_eq!(
+        (
+            estimator_capacity(&engine, tid),
+            estimator_stats(&engine, tid).state_changes
+        ),
+        observed_before,
+        "Go moves `estimatedAvailableChannelCapacity` only on a probe-cluster \
+         finalization or a congestion-state transition, so an RTT — which is only \
+         fed through `UpdateRTT` — can move neither the capacity nor the state machine"
+    );
+    assert_eq!(
+        t.allocated_bps, 500_000,
+        "the fixture's committed allocation is unchanged by an RTT"
+    );
+    let counters = probe_counters(&engine, tid);
+    assert_eq!(
+        (
+            counters.attempts,
+            counters.successes,
+            counters.failures,
+            counters.congestion_events
+        ),
+        (0, 0, 0, 0),
+        "an RTT is not a probe and not a congestion event"
+    );
+    assert!(!engine.downs.get(di).unwrap().bw_paused);
+}
+
+#[test]
+fn receiver_estimate_is_a_null_bwe_noop_in_send_side_mode_and_an_override_allocates() {
+    use str0m::bwe::{Bitrate, BweKind};
+    let start = Instant::now();
+    let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
+    let participant = ParticipantSid::from("PA_test");
+    // The handshake already pushed real vendor observations into the Go-parity
+    // estimator, so its channel capacity is traffic dependent. The invariant is
+    // that neither a receiver estimate nor an override can move it.
+    let observed_before = (
+        estimator_capacity(&engine, tid),
+        estimator_stats(&engine, tid).state_changes,
+    );
+    engine.on_bwe(
+        tid,
+        BweKind::ReceiverEstimate {
+            estimate: Bitrate::bps(100_000),
+            ssrcs: vec![1],
+        },
+        start,
+    );
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.estimate_bps,
+        Some(crate::allocator::INITIAL_CAPACITY_BPS),
+        "in send-side mode REMB reaches NullBWE, so it cannot even become a diagnostic estimate"
+    );
+    assert_eq!(
+        t.capacity(),
+        Some(crate::allocator::INITIAL_CAPACITY_BPS),
+        "the native probe controller is still the allocation authority"
+    );
+    assert_eq!(
+        (
+            estimator_capacity(&engine, tid),
+            estimator_stats(&engine, tid).state_changes
+        ),
+        observed_before,
+        "Go's send-side path has no REMB handler at all: a receiver estimate \
+         cannot move the estimator's capacity or its state machine"
+    );
+    let counters = probe_counters(&engine, tid);
+    assert_eq!(
+        (
+            counters.attempts,
+            counters.successes,
+            counters.failures,
+            counters.congestion_events
+        ),
+        (0, 0, 0, 0),
+        "a receiver estimate is not a probe and not a congestion event"
+    );
+
+    let at = start + Duration::from_millis(100);
+    engine.handle_command(
+        rtc_core::media_api::MediaCommand::SetBandwidthOverride {
+            participant: participant.clone(),
+            bps: 5_000_000,
+        },
+        at,
+    );
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.capacity(),
+        Some(5_000_000),
+        "explicit allocation capacity"
+    );
+    assert_eq!(
+        t.allocated_bps, 500_000,
+        "the override raises the ceiling; the committed allocation only moves on \
+         the next allocator pass"
+    );
+    assert_eq!(
+        (
+            estimator_capacity(&engine, tid),
+            estimator_stats(&engine, tid).state_changes
+        ),
+        observed_before,
+        "the override never rewrites the estimator"
+    );
+    assert_eq!(
+        probe_counters(&engine, tid).attempts,
+        0,
+        "an overridden transport cannot start a probe"
+    );
+    assert!(!engine.downs.get(di).unwrap().bw_paused);
+
+    let at = at + Duration::from_millis(100);
+    engine.handle_command(
+        rtc_core::media_api::MediaCommand::SetBandwidthOverride {
+            participant,
+            bps: 0,
+        },
+        at,
+    );
+    assert_eq!(
+        engine.transports[&tid].capacity(),
+        Some(crate::allocator::INITIAL_CAPACITY_BPS),
+        "clearing the override returns to the native allocation authority, not to the \
+         observed estimator"
+    );
+    assert_eq!(
+        (
+            estimator_capacity(&engine, tid),
+            estimator_stats(&engine, tid).state_changes
+        ),
+        observed_before,
+        "the estimator's own capacity is unchanged across the override window, in \
+         which the engine was driven twice"
+    );
 }
 
 #[test]
@@ -4866,11 +5302,15 @@ fn real_feedback_mode_factory_selects_source_direction_without_native_fallback()
             let t = e.transports.get_mut(&tid).unwrap();
             assert_eq!(
                 t.remote_feedback.is_some(),
-                role != PcRole::Publisher && mode != FeedbackMode::NativeSendSide
+                role != PcRole::Publisher && mode != FeedbackMode::NativeSendSide,
+                "the application-owned feedback driver exists only in the modes \
+                 where it owns the allocation"
             );
             assert_eq!(
                 t.rtc.bwe().snapshot().is_some(),
-                role != PcRole::Publisher && mode == FeedbackMode::NativeSendSide
+                role != PcRole::Publisher && mode == FeedbackMode::NativeSendSide,
+                "native send-side mode keeps str0m's vendor estimator as the \
+                 allocation authority; the application-owned modes do not enable it"
             );
             if role != PcRole::Publisher && mode == FeedbackMode::InterceptorEstimate {
                 assert_eq!(
@@ -4986,6 +5426,11 @@ fn pion_feedback_owner_generation_is_retired_on_transport_failure() {
         ssrc: 44,
         header_bytes: 20,
         payload_bytes: 100,
+        // The interceptor path sizes an ack from header plus payload; the
+        // padding fields only matter to the native send-side owner.
+        packet_bytes: 120,
+        is_padding: false,
+        is_rtx: false,
         twcc_negotiated: true,
         transport_sequence: Some(1),
     };
@@ -5074,12 +5519,17 @@ fn actual_source_owner_dispatches_prefix_before_later_admitted_error() {
             assert_eq!(row["index"].as_u64().unwrap(), index as u64);
             let at = now + Duration::from_nanos(step["at_ns"].as_u64().unwrap());
             let event = if step["kind"] == "sent" {
+                let header_bytes = step["header_bytes"].as_u64().unwrap() as usize;
+                let payload_bytes = step["payload_bytes"].as_u64().unwrap() as usize;
                 str0m::SendSideFeedback::Sent(str0m::SendSidePacket {
                     at,
                     sequence: step["sequence"].as_u64().unwrap() as u16,
                     ssrc: step["ssrc"].as_u64().unwrap() as u32,
-                    header_bytes: step["header_bytes"].as_u64().unwrap() as usize,
-                    payload_bytes: step["payload_bytes"].as_u64().unwrap() as usize,
+                    header_bytes,
+                    payload_bytes,
+                    packet_bytes: header_bytes + payload_bytes,
+                    is_padding: false,
+                    is_rtx: false,
                     twcc_negotiated: true,
                     transport_sequence: Some(step["transport_sequence"].as_u64().unwrap() as u16),
                 })
@@ -5277,6 +5727,277 @@ fn actual_transport_offer_keeps_enabled_red_for_false_client_red_capability() {
         );
         assert!(sdp.lines().any(|line| line.starts_with("a=rtpmap:")
             && line.to_ascii_lowercase().contains(" opus/48000/2")));
+    }
+}
+
+/// One forwarded audio frame: a plausible Opus packet (the upstream silence TOC) plus a per-frame
+/// marker so the redundancy chain can be attributed to the exact frames it must carry.
+fn opus_frame(marker: u8) -> Vec<u8> {
+    vec![0xf8, 0xff, 0xfe, marker]
+}
+
+/// The marker byte of a payload that must be exactly one forwarded Opus frame.
+fn opus_frame_marker(payload: &[u8]) -> u8 {
+    assert_eq!(
+        payload,
+        opus_frame(*payload.last().unwrap_or(&0xFF)).as_slice(),
+        "every forwarded block must be one whole marker-carrying Opus frame, got {payload:02x?}"
+    );
+    payload[3]
+}
+
+/// The RFC 2198 chain of a real egress payload as `(block PT, timestamp offset, block marker)`,
+/// oldest block first with the primary last.
+fn red_chain(payload: &[u8]) -> Vec<(u8, u32, u8)> {
+    let blocks = str0m::rtp::RedDecoder::decode(payload)
+        .expect("the SFU must emit a decodable RFC 2198 payload on the RED PT");
+    blocks
+        .iter()
+        .map(|b| (b.pt, b.timestamp_offset, opus_frame_marker(b.payload)))
+        .collect()
+}
+
+struct RedWire {
+    /// Payload type of every authenticated audio packet the subscriber received.
+    all_pts: Vec<u8>,
+    /// The last `RED_WINDOW` frames as `(payload type, primary marker, RED chain)`.
+    window: Vec<(u8, u8, Vec<(u8, u32, u8)>)>,
+    /// Markers of the Opus frames the subscriber depayloaded, in receive order.
+    delivered: Vec<u8>,
+}
+
+const RED_WINDOW: usize = 8;
+
+/// Real ICE/DTLS/SRTP one-PC audio forwarding with `room.enabled_codecs = [audio/opus, audio/red]`
+/// and a subscriber that negotiates RED PT 63, driven only by `audio.active_red_encoding`.
+///
+/// Go computes `DisableRed = !IsRedEnabled(ti) || !ActiveREDEncoding`
+/// (`pkg/rtc/mediatrackreceiver.go:578`); that one flag both adds `audio/red` to the codec set
+/// offered to the subscriber (`pkg/rtc/wrappedreceiver.go:70-74`) and selects the encoding
+/// `RedReceiver` (`pkg/sfu/receiver_base.go:1056`) which prepends Go's `maxRedCount = 2` previous
+/// frames (`pkg/sfu/redreceiver.go:176`). The SDP therefore looks identical either way, and the
+/// only observable difference may be the egress payload type and its redundancy chain.
+fn single_pc_active_red_encoding(active_red: bool) -> RedWire {
+    use crate::net::Datagram;
+    use rtc_core::media_api::DownTrackSpec;
+    use rtc_core::model::TrackSettings;
+    use str0m::media::{Frequency, MediaTime};
+    use str0m::net::{Protocol, Receive};
+    use str0m::{Candidate, Event, Input, Output};
+
+    let start = Instant::now();
+    let mut engine = engine(start);
+    engine.cfg.audio.active_red_encoding = active_red;
+    engine.cfg.enabled_codecs.push(CodecSpec {
+        mime: "audio/red".into(),
+        fmtp_line: String::new(),
+    });
+    let packets = PacketQueue::default();
+    engine.out = Box::new(packets.clone());
+    let tid = transport(&mut engine, PcRole::Single, start);
+    let server_addr: std::net::SocketAddr = "127.0.0.1:9011".parse().unwrap();
+    let client_addr: std::net::SocketAddr = "127.0.0.1:9012".parse().unwrap();
+    let t = engine.transports.get_mut(&tid).unwrap();
+    let candidate = t
+        .rtc
+        .add_local_candidate(Candidate::host(server_addr, "udp").unwrap())
+        .unwrap()
+        .clone();
+    t.candidates.push(candidate);
+    let mut client = Rtc::builder()
+        .set_crypto_provider(rtc_crypto::provider().into())
+        .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+        .enable_opus(true, true)
+        .enable_raw_packets(true)
+        .build(start);
+    client.add_local_candidate(Candidate::host(client_addr, "udp").unwrap());
+    let tx_mid = published_mid(&offer(&mut engine, &mut client, tid, start, |change| {
+        change.add_media(MediaKind::Audio, Direction::SendOnly, None, None, None);
+    }));
+    let track = TrackSid::from("TR_red");
+    engine.bind_track(tid, &tx_mid.to_string(), track.clone(), start);
+    engine.subscribe(
+        DownTrackSpec {
+            subscriber: ParticipantSid::from("PA_test"),
+            publisher: ParticipantSid::from("PA_test"),
+            track_sid: track.clone(),
+            stream_id: "PA_test|TR_red".into(),
+            settings: TrackSettings::default(),
+            adaptive_stream: false,
+        },
+        start,
+    );
+    let mut rx_mid = None;
+    let events = offer(&mut engine, &mut client, tid, start, |change| {
+        rx_mid = Some(change.add_media(MediaKind::Audio, Direction::RecvOnly, None, None, None));
+    });
+    let rx_mid = rx_mid.unwrap();
+    let answer = events
+        .iter()
+        .find_map(|e| match e {
+            MediaEvent::LocalDescription {
+                kind: SdpType::Answer,
+                sdp,
+                ..
+            } => Some(sdp.clone()),
+            _ => None,
+        })
+        .expect("server answers the subscription");
+    assert!(
+        answer
+            .lines()
+            .any(|line| line.starts_with("a=rtpmap:63 red")),
+        "RED must stay negotiated on the subscription m-line for active_red={active_red}: {answer}"
+    );
+
+    let mut all_pts = vec![];
+    let mut observed: Vec<(u8, u8, Vec<(u8, u32, u8)>)> = vec![];
+    let mut delivered = vec![];
+    let mut marker: u8 = 0;
+    for tick in 0..3000u64 {
+        let now = start + Duration::from_millis(tick * 10);
+        client.handle_input(Input::Timeout(now)).unwrap();
+        if client.is_connected() && observed.len() < RED_WINDOW + 2 {
+            let writer = client.writer(tx_mid).unwrap();
+            let pt = writer
+                .payload_params()
+                .find(|p| p.spec().codec == str0m::format::Codec::Opus)
+                .unwrap()
+                .pt();
+            writer
+                .write(
+                    pt,
+                    now,
+                    MediaTime::new(tick * 480, Frequency::FORTY_EIGHT_KHZ),
+                    opus_frame(marker),
+                )
+                .unwrap();
+            marker = marker.wrapping_add(1);
+        }
+        loop {
+            match client.poll_output().unwrap() {
+                Output::Transmit(p) => {
+                    engine.handle_datagram(Datagram {
+                        transport: tid,
+                        proto: Proto::Udp,
+                        source: client_addr,
+                        destination: server_addr,
+                        data: &p.contents,
+                        received_at: now,
+                    });
+                }
+                Output::Event(Event::MediaData(d)) if d.mid == rx_mid => {
+                    let primary: &[u8] = d.data.as_ref();
+                    delivered.push(opus_frame_marker(primary));
+                }
+                Output::Event(Event::RawPacket(packet)) => {
+                    if let str0m::rtp::RawPacket::RtpRx(header, payload) = &*packet {
+                        let pt = *header.payload_type;
+                        if pt == 63 || pt == 111 {
+                            all_pts.push(pt);
+                            let chain = if pt == 63 {
+                                red_chain(payload)
+                            } else {
+                                vec![(111, 0, opus_frame_marker(payload))]
+                            };
+                            let primary = chain.last().expect("a RED payload has a primary block");
+                            assert_eq!(
+                                (primary.0, primary.1),
+                                (111, 0),
+                                "the primary block is last, unoffset and Opus: {chain:?}"
+                            );
+                            observed.push((pt, primary.2, chain));
+                        }
+                    }
+                }
+                Output::Timeout(_) => break,
+                _ => {}
+            }
+        }
+        engine.handle_timeout(now);
+        let mut engine_events = vec![];
+        engine.drain_events(&mut engine_events);
+        for bytes in packets.0.lock().unwrap().drain(..).collect::<Vec<_>>() {
+            client
+                .handle_input(Input::Receive(
+                    now,
+                    Receive::new(Protocol::Udp, server_addr, client_addr, &bytes).unwrap(),
+                ))
+                .unwrap();
+        }
+        if observed.len() >= RED_WINDOW + 2 {
+            break;
+        }
+    }
+    assert!(
+        observed.len() >= RED_WINDOW,
+        "audio forwarding did not converge: pts={all_pts:?}, delivered={delivered:?}"
+    );
+    let window: Vec<_> = observed.drain(observed.len() - RED_WINDOW..).collect();
+    for pair in window.windows(2) {
+        assert_eq!(
+            pair[1].1,
+            pair[0].1.wrapping_add(1),
+            "the window must be consecutive forwarded frames: {:?}",
+            window.iter().map(|w| w.1).collect::<Vec<_>>()
+        );
+    }
+    let markers: Vec<u8> = window.iter().map(|w| w.1).collect();
+    assert!(
+        delivered.len() >= RED_WINDOW,
+        "the subscriber must depayload {RED_WINDOW} Opus frames, got {delivered:?}"
+    );
+    assert_eq!(
+        &delivered[delivered.len() - RED_WINDOW..],
+        markers.as_slice(),
+        "the subscriber's RED decode yields the primary frames in order"
+    );
+    RedWire {
+        all_pts,
+        window,
+        delivered,
+    }
+}
+
+#[test]
+fn active_red_encoding_forwards_two_redundant_opus_levels_on_the_red_payload_type() {
+    let wire = single_pc_active_red_encoding(true);
+    assert!(
+        wire.all_pts.iter().all(|pt| *pt == 63),
+        "active encoding must wrap every forwarded audio packet in RED: {:?}",
+        wire.all_pts
+    );
+    for (pt, marker, chain) in &wire.window {
+        assert_eq!(
+            (pt, chain),
+            (
+                &63,
+                &vec![
+                    (111, 960, marker.wrapping_sub(2)),
+                    (111, 480, marker.wrapping_sub(1)),
+                    (111, 0, *marker),
+                ],
+            ),
+            "Go's maxRedCount=2 window must carry the two previous frames, oldest first at \
+             20 ms and 10 ms of timestamp offset, for frame {marker}"
+        );
+    }
+}
+
+#[test]
+fn inactive_red_encoding_forwards_plain_opus_and_never_wraps() {
+    let wire = single_pc_active_red_encoding(false);
+    assert!(
+        wire.all_pts.iter().all(|pt| *pt == 111),
+        "the disabled gate must forward the original Opus payload type: {:?}",
+        wire.all_pts
+    );
+    for (pt, marker, chain) in &wire.window {
+        assert_eq!(
+            (pt, chain),
+            (&111, &vec![(111, 0, *marker)]),
+            "no redundancy may be added while active_red_encoding is off, frame {marker}"
+        );
     }
 }
 
@@ -7015,3 +7736,5 @@ mod remote_close;
 mod seq_gap_wire;
 
 mod rid_publication;
+
+mod media_counting_boundary;

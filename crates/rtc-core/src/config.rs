@@ -225,6 +225,21 @@ impl PolicyDuration {
     pub const fn as_nanos_i64(self) -> i64 {
         self.0
     }
+    /// `Duration.Microseconds()`: signed truncation toward zero, as Go defines it.
+    pub const fn as_micros_i64(self) -> i64 {
+        self.0 / 1_000
+    }
+    /// `Duration.Milliseconds()`: signed truncation toward zero, as Go defines it.
+    pub const fn as_millis_i64(self) -> i64 {
+        self.0 / 1_000_000
+    }
+    pub const fn from_micros(micros: i64) -> Self {
+        Self(
+            micros
+                .checked_mul(1_000)
+                .expect("policy duration microseconds overflow"),
+        )
+    }
     pub const fn from_millis(millis: i64) -> Self {
         Self(
             millis
@@ -370,7 +385,7 @@ pub struct ChannelObserverConfig {
 }
 
 /// Normalized policy values; defaults are frozen independently of YAML decoding.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TrendDetectorConfig {
     pub required_samples: i64,
     pub required_samples_min: i64,
@@ -552,7 +567,7 @@ impl Default for ProbeSignalConfig {
 }
 
 /// Normalized policy values; defaults are frozen independently of YAML decoding.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WeightedLossConfig {
     pub min_duration_for_loss_validity: PolicyDuration,
     pub base_duration: PolicyDuration,

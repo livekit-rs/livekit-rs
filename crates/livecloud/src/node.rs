@@ -804,7 +804,10 @@ mod tests {
             format!("could not subscribe to keepalive pings: {dial}")
         );
         assert_eq!(error_code(TransportError::Redis), "Redis operation failed");
-        assert_eq!(error_code(TransportError::Timeout), "Redis operation timed out");
+        assert_eq!(
+            error_code(TransportError::Timeout),
+            "Redis operation timed out"
+        );
         assert_eq!(
             error_code(TransportError::Disconnected),
             "Redis subscription disconnected"

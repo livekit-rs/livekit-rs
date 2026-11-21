@@ -303,8 +303,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
             commands: 1000,
             io_timeout: Duration::from_secs(5),
         };
-        let topology =
-            !redis.sentinel_addresses.is_empty() || !redis.cluster_addresses.is_empty();
+        let topology = !redis.sentinel_addresses.is_empty() || !redis.cluster_addresses.is_empty();
         // Upstream `GetRedisClient` wraps a failed client dial/Ping with
         // `unable to connect to redis: %w` (`redis.go:158-161`). The eager
         // command-pool dial surfaces that failure as `TransportError::Connect`
@@ -341,13 +340,12 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
             // so a successful start opens one command connection + one pub/sub
             // multiplexer — Go's two-connection shape — instead of a throwaway
             // Ping dial plus a separate bus pool.
-            let base =
-                lk_compat::service_bus::redis_transport::RedisTransport::connect_endpoint(
-                    endpoint.clone(),
-                    limits,
-                )
-                .await
-                .map_err(redis_connect_err)?;
+            let base = lk_compat::service_bus::redis_transport::RedisTransport::connect_endpoint(
+                endpoint.clone(),
+                limits,
+            )
+            .await
+            .map_err(redis_connect_err)?;
             crate::cli_nodes::cli_redis_retry::ping_base(base.command_connection(), redis)
                 .await
                 .map_err(|e| ServerError::RedisConnect(e.to_string()))?;
@@ -1433,7 +1431,7 @@ mod https_startup_tests {
 mod bind_address_tests {
     use super::*;
     use crate::COMPAT_VERSION;
-    use lk_config::{netdetect::NetProbe, EntryAction, Env, ProgramInfo};
+    use lk_config::{EntryAction, Env, ProgramInfo, netdetect::NetProbe};
     use std::ffi::OsString;
     use std::net::IpAddr;
 
@@ -1472,10 +1470,13 @@ mod bind_address_tests {
     const BODY: &str = "port: 7880\nkeys:\n  devkey: secret\nrtc:\n  node_ip: 127.0.0.1\n  use_external_ip: false\n";
 
     async fn reachable(addr: SocketAddr) -> bool {
-        tokio::time::timeout(Duration::from_millis(800), tokio::net::TcpStream::connect(addr))
-            .await
-            .map(|r| r.is_ok())
-            .unwrap_or(false)
+        tokio::time::timeout(
+            Duration::from_millis(800),
+            tokio::net::TcpStream::connect(addr),
+        )
+        .await
+        .map(|r| r.is_ok())
+        .unwrap_or(false)
     }
 
     #[test]
@@ -1513,8 +1514,14 @@ mod bind_address_tests {
             shapes.push((local.is_ipv6(), v4, v6));
             drop(listener);
         }
-        assert_eq!(shapes[0], shapes[1], "0.0.0.0 must match the empty-host wildcard");
-        assert_eq!(shapes[0], shapes[2], ":: must match the empty-host wildcard");
+        assert_eq!(
+            shapes[0], shapes[1],
+            "0.0.0.0 must match the empty-host wildcard"
+        );
+        assert_eq!(
+            shapes[0], shapes[2],
+            ":: must match the empty-host wildcard"
+        );
         if shapes[0].0 {
             assert!(
                 shapes[0].1 && shapes[0].2,
@@ -1528,7 +1535,10 @@ mod bind_address_tests {
         let listener = listen("127.0.0.1", 0).await.unwrap();
         let local = listener.local_addr().unwrap();
         let port = local.port();
-        assert!(local.is_ipv4(), "concrete 127.0.0.1 must bind IPv4, got {local}");
+        assert!(
+            local.is_ipv4(),
+            "concrete 127.0.0.1 must bind IPv4, got {local}"
+        );
         assert_eq!(local.ip(), IpAddr::from(Ipv4Addr::LOCALHOST));
         assert!(reachable(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)).await);
         assert!(
@@ -1703,6 +1713,20 @@ mod worker_lifecycle_tests {
 mod signal_registration_tests {
     use super::Signals;
 
+    /// `libc::raise` is process-wide and one arrival wakes every `Signal` that tokio's registry has
+    /// for that kind (`registry.rs: register_listener` subscribes to the kind's watch channel, and
+    /// `broadcast` sends on it), so two tests that raise while another is awaiting would steal each
+    /// other's signal. The raises are serialized, and each test builds its `Signals` only after
+    /// taking the guard: a subscription starts at the channel's current value, so a signal raised by
+    /// an earlier test cannot leak into a later one.
+    static SIGNAL_RAISE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn raise_lock() -> std::sync::MutexGuard<'static, ()> {
+        SIGNAL_RAISE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// `signal.Notify` covers SIGINT alongside SIGTERM/SIGQUIT before `Start()`
     /// (`cmd/server/main.go:310`). Raising SIGINT after `new()` but before the
     /// first `next()` poll must be captured, not taken at the default
@@ -1710,9 +1734,62 @@ mod signal_registration_tests {
     /// this process instead of returning "interrupt".
     #[tokio::test]
     async fn sigint_is_registered_before_the_first_poll() {
+        let _guard = raise_lock();
         let mut signals = Signals::new();
         assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
         assert_eq!(signals.next().await, "interrupt");
+    }
+
+    /// `RUNTIME:Server.InterruptBeforeRunningRace`: the reason the candidate does not
+    /// reproduce the upstream stall is that nothing here gates the shutdown on a
+    /// "start completed" flag — the three handlers exist before the first listener accepts
+    /// and the signal read is the last statement of `run()`. SIGTERM and SIGQUIT are covered
+    /// alongside SIGINT because `signal.Notify` registers all three together
+    /// (`cmd/server/main.go:310`); a handler missing for one kind takes the default
+    /// disposition and kills this process instead of returning the name.
+    #[tokio::test]
+    async fn sigterm_and_sigquit_raised_before_the_first_poll_are_also_captured() {
+        let _guard = raise_lock();
+        let mut signals = Signals::new();
+        assert_eq!(unsafe { libc::raise(libc::SIGTERM) }, 0);
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), signals.next())
+                .await
+                .expect("a pre-poll SIGTERM must be remembered, not missed"),
+            "terminated"
+        );
+        assert_eq!(unsafe { libc::raise(libc::SIGQUIT) }, 0);
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), signals.next())
+                .await
+                .expect("a pre-poll SIGQUIT must be remembered, not missed"),
+            "quit"
+        );
+    }
+
+    /// The window itself: upstream sets `running` 100ms *after* the listeners already answer
+    /// (`pkg/service/server.go:343-347`), and `Stop()` returns early when the flag was never
+    /// set (`:375-399`), so an interrupt landing inside that window leaves `Start()` blocked
+    /// on `<-s.doneChan` forever — measured at delays 0.00/0.03/0.08s after the first HTTP 200.
+    /// Here the same arrival order (signal, then real startup work still awaiting, then the
+    /// shutdown wait) must still reach the drain sequence instead of blocking. Timing out is a
+    /// failure, not a hang: a design that drops the pending signal when entering the wait, or
+    /// that refuses to stop before "running", would fail this assertion rather than stall the
+    /// suite.
+    #[tokio::test]
+    async fn interrupt_during_the_startup_window_still_reaches_the_shutdown_wait() {
+        let _guard = raise_lock();
+        let mut signals = Signals::new();
+        assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
+        // Upstream's post-listener sleep, measured from the first HTTP 200. The task yields
+        // here, so the shutdown wait below starts *after* the signal already arrived.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), signals.next())
+                .await
+                .expect("an interrupt inside the startup window must not be lost"),
+            "interrupt"
+        );
     }
 }
 

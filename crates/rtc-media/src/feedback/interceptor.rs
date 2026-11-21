@@ -182,6 +182,11 @@ mod tests {
             ssrc: 44,
             header_bytes: 24,
             payload_bytes: 0,
+            // The interceptor path sizes an ack from header plus payload; the
+            // padding fields only matter to the native send-side owner.
+            packet_bytes: 24,
+            is_padding: false,
+            is_rtx: false,
             twcc_negotiated: true,
             transport_sequence: Some(7),
         };
@@ -232,6 +237,9 @@ mod tests {
             ssrc: 44,
             header_bytes: 20,
             payload_bytes: 100,
+            packet_bytes: 120,
+            is_padding: false,
+            is_rtx: false,
             twcc_negotiated: true,
             transport_sequence: Some(1),
         })
@@ -302,12 +310,19 @@ mod sent_source_oracle {
             let now = Instant::now();
             let origin = (62_135_596_800i128 + 1000) * 1_000_000_000;
             let mut provider = Provider::new_at(now, origin);
+            let header_bytes = row["header_bytes"].as_u64().unwrap() as usize;
+            let payload_bytes = case["payload_bytes"].as_u64().unwrap() as usize;
             let packet = SendSidePacket {
                 at: now,
                 sequence: case["sequence"].as_u64().unwrap() as u16,
                 ssrc: case["ssrc"].as_u64().unwrap() as u32,
-                header_bytes: row["header_bytes"].as_u64().unwrap() as usize,
-                payload_bytes: case["payload_bytes"].as_u64().unwrap() as usize,
+                header_bytes,
+                payload_bytes,
+                // The pinned Go source has no RTP padding in these cases, so
+                // the plain datagram is exactly header plus payload.
+                packet_bytes: header_bytes + payload_bytes,
+                is_padding: false,
+                is_rtx: false,
                 twcc_negotiated: case["twcc_negotiated"].as_bool().unwrap(),
                 transport_sequence: case["extension_present"]
                     .as_bool()
@@ -400,12 +415,19 @@ mod prefix_wire_source_oracle {
                 let before_target = p.target();
                 let before_feedback = p.stats.feedback_packets;
                 let event = if step["kind"] == "sent" {
+                    let header_bytes = step["header_bytes"].as_u64().unwrap() as usize;
+                    let payload_bytes = step["payload_bytes"].as_u64().unwrap() as usize;
                     SendSideFeedback::Sent(SendSidePacket {
                         at,
                         sequence: step["sequence"].as_u64().unwrap() as u16,
                         ssrc: step["ssrc"].as_u64().unwrap() as u32,
-                        header_bytes: step["header_bytes"].as_u64().unwrap() as usize,
-                        payload_bytes: step["payload_bytes"].as_u64().unwrap() as usize,
+                        header_bytes,
+                        payload_bytes,
+                        // The pinned Go source has no RTP padding in these cases, so
+                        // the plain datagram is exactly header plus payload.
+                        packet_bytes: header_bytes + payload_bytes,
+                        is_padding: false,
+                        is_rtx: false,
                         twcc_negotiated: true,
                         transport_sequence: Some(
                             step["transport_sequence"].as_u64().unwrap() as u16
