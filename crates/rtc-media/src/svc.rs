@@ -248,6 +248,8 @@ impl TemporalRate {
         self.last = Some(time);
     }
 
+    /// Median-interval frame rate, the read-back the cadence tests assert on.
+    #[cfg(test)]
     pub(crate) fn fps(&self) -> Option<f64> {
         if self.samples < 3 {
             return None;

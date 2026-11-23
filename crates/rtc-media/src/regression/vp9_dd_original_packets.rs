@@ -328,7 +328,7 @@ fn raw_chain_descriptor(
         }
         write(0, 1); // no resolutions
     }
-    let mut bytes = vec![0; (bits.len() + 7) / 8];
+    let mut bytes = vec![0; bits.len().div_ceil(8)];
     for (i, bit) in bits.into_iter().enumerate() {
         bytes[i / 8] |= bit << (7 - i % 8);
     }
@@ -582,7 +582,7 @@ fn vp9_dd_original_packets_case(
             let template = match sent / 2 {
                 1 => 2,
                 2 | 4 => 1,
-                5 | 6 | 7 => 3,
+                5..=7 => 3,
                 _ => 0,
             };
             let mut values = str0m::rtp::ExtensionValues::default();
@@ -591,7 +591,7 @@ fn vp9_dd_original_packets_case(
                     source_frames[sent / 2],
                     template,
                     sent == 0,
-                    sent % 2 == 0,
+                    sent.is_multiple_of(2),
                     sent % 2 == 1,
                 )
                 .into(),
@@ -610,7 +610,7 @@ fn vp9_dd_original_packets_case(
                                 .into(),
                             u32::from(source_frames[sent / 2]) * 3000,
                             now,
-                            source_payload(source_frames[sent / 2] as u8, sent % 2 == 0),
+                            source_payload(source_frames[sent / 2] as u8, sent.is_multiple_of(2)),
                         )
                         .marker(sent % 2 == 1 && source_frames[sent / 2] != 14)
                         .ext_vals(values),

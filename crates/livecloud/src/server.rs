@@ -1026,10 +1026,10 @@ impl ClusterShutdownGuard {
         if let Some(signal) = self.signal.as_ref() {
             signal.shutdown().await;
         }
-        if let Some(rooms) = self.rooms.as_ref() {
-            if let Err(error) = rooms.shutdown().await {
-                tracing::error!(%error,"cluster owner shutdown failed");
-            }
+        if let Some(rooms) = self.rooms.as_ref()
+            && let Err(error) = rooms.shutdown().await
+        {
+            tracing::error!(%error,"cluster owner shutdown failed");
         }
         self.signal.take();
         self.rooms.take();
@@ -1047,10 +1047,10 @@ impl Drop for ClusterShutdownGuard {
                 if let Some(signal) = signal {
                     signal.shutdown().await;
                 }
-                if let Some(rooms) = rooms {
-                    if let Err(error) = rooms.shutdown().await {
-                        tracing::error!(%error,"cancelled cluster shutdown failed");
-                    }
+                if let Some(rooms) = rooms
+                    && let Err(error) = rooms.shutdown().await
+                {
+                    tracing::error!(%error,"cancelled cluster shutdown failed");
                 }
             });
         }
@@ -1718,13 +1718,12 @@ mod signal_registration_tests {
     /// `broadcast` sends on it), so two tests that raise while another is awaiting would steal each
     /// other's signal. The raises are serialized, and each test builds its `Signals` only after
     /// taking the guard: a subscription starts at the channel's current value, so a signal raised by
-    /// an earlier test cannot leak into a later one.
-    static SIGNAL_RAISE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// an earlier test cannot leak into a later one. The lock is async-aware because
+    /// the signal read is awaited while it is held.
+    static SIGNAL_RAISE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    fn raise_lock() -> std::sync::MutexGuard<'static, ()> {
-        SIGNAL_RAISE
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    async fn raise_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        SIGNAL_RAISE.lock().await
     }
 
     /// `signal.Notify` covers SIGINT alongside SIGTERM/SIGQUIT before `Start()`
@@ -1734,7 +1733,7 @@ mod signal_registration_tests {
     /// this process instead of returning "interrupt".
     #[tokio::test]
     async fn sigint_is_registered_before_the_first_poll() {
-        let _guard = raise_lock();
+        let _guard = raise_lock().await;
         let mut signals = Signals::new();
         assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
         assert_eq!(signals.next().await, "interrupt");
@@ -1749,7 +1748,7 @@ mod signal_registration_tests {
     /// disposition and kills this process instead of returning the name.
     #[tokio::test]
     async fn sigterm_and_sigquit_raised_before_the_first_poll_are_also_captured() {
-        let _guard = raise_lock();
+        let _guard = raise_lock().await;
         let mut signals = Signals::new();
         assert_eq!(unsafe { libc::raise(libc::SIGTERM) }, 0);
         assert_eq!(
@@ -1778,7 +1777,7 @@ mod signal_registration_tests {
     /// suite.
     #[tokio::test]
     async fn interrupt_during_the_startup_window_still_reaches_the_shutdown_wait() {
-        let _guard = raise_lock();
+        let _guard = raise_lock().await;
         let mut signals = Signals::new();
         assert_eq!(unsafe { libc::raise(libc::SIGINT) }, 0);
         // Upstream's post-listener sleep, measured from the first HTTP 200. The task yields

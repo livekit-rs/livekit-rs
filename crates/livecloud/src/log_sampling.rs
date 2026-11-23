@@ -41,7 +41,7 @@ impl Sampler {
             c.reset_at = now.as_nanos().saturating_add(self.tick.as_nanos());
         }
         c.count <= self.first
-            || (self.thereafter != 0 && (c.count - self.first) % self.thereafter == 0)
+            || (self.thereafter != 0 && (c.count - self.first).is_multiple_of(self.thereafter))
     }
 }
 

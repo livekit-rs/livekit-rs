@@ -359,10 +359,9 @@ mod c63_publication_metadata {
         if let Some(layer) = receiver_layers
             .iter_mut()
             .find(|layer| layer.spatial_layer == 0)
+            && layer.ssrc == 0
         {
-            if layer.ssrc == 0 {
-                layer.ssrc = input.sdp_ssrc;
-            }
+            layer.ssrc = input.sdp_ssrc;
         }
         room.handle_media_event(
             MediaEvent::TrackMediaStarted {

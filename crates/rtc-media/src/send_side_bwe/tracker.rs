@@ -39,6 +39,7 @@ pub(crate) struct PacketInfo {
 
 impl PacketInfo {
     /// `int(pi.size)` as used by the group statistics.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn size_i64(&self) -> i64 {
         i64::from(self.size)
     }
@@ -170,11 +171,13 @@ impl PacketTracker {
     }
 
     /// `ProbeClusterStarting`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_cluster_starting(&mut self, probe_cluster_id: ProbeClusterId) {
         self.probe_cluster_id = probe_cluster_id;
     }
 
     /// `ProbeClusterDone`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_cluster_done(&mut self, probe_cluster_id: ProbeClusterId) {
         if self.probe_cluster_id == probe_cluster_id {
             self.probe_cluster_id = super::ccutils::PROBE_CLUSTER_ID_INVALID;
@@ -182,6 +185,7 @@ impl PacketTracker {
     }
 
     /// `ProbeMaxSequenceNumber`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_max_sequence_number(&self) -> u64 {
         self.probe_max_sequence_number
     }

@@ -27,7 +27,9 @@ struct Launch {
     group: WorkerKey,
     // One real accepted launch/discovery lifetime. All queue/task/commit clones
     // retain this receipt; panic/cancel/error Drop releases it without a counter.
-    receipt: Arc<()>,
+    // Named with the leading underscore because the refcount, not a read of the
+    // field, is what the `launch_receipts` probes observe.
+    _receipt: Arc<()>,
 }
 #[derive(Clone)]
 struct Assigned {
@@ -152,7 +154,7 @@ impl Bridge {
              _=self.shutdown.changed()=>{break;},
              event=self.runtime.recv(),if runtime_open&&self.queue.len()<self.launch_queue_limit&&self.discoveries.len()<50=>match event {Some(event)=>self.runtime_event(event),None=>runtime_open=false},
              event=self.workers.recv(),if workers_open=>match event {Some(event)=>self.worker_event(event),None=>workers_open=false},
-             discovered=self.discovered.recv(),if self.queue.len()<self.launch_queue_limit&&(!self.discoveries.is_empty()||!self.discovered.is_empty())=>if let Some(context)=discovered {if !self.closed.contains(&context.room_sid){self.queue.push_back(context);}},
+             discovered=self.discovered.recv(),if self.queue.len()<self.launch_queue_limit&&(!self.discoveries.is_empty()||!self.discovered.is_empty())=>if let Some(context)=discovered&& !self.closed.contains(&context.room_sid){self.queue.push_back(context);},
              _=self.discoveries.join_next(),if !self.discoveries.is_empty()=>{},
              done=self.tasks.join_next_with_id(),if !self.tasks.is_empty()=>{match done {
                 Some(Ok((task,(id,result))))=>{self.task_jobs.remove(&task);match result {
@@ -245,7 +247,7 @@ impl Bridge {
                                     room_sid: room.sid.clone(),
                                     job,
                                     group,
-                                    receipt: receipt.clone(),
+                                    _receipt: receipt.clone(),
                                 })
                                 .await
                                 .is_err()
@@ -267,7 +269,7 @@ impl Bridge {
                             room_sid: room.sid.clone(),
                             job,
                             group,
-                            receipt: receipt.clone(),
+                            _receipt: receipt.clone(),
                         });
                     }
                 }

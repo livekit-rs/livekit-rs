@@ -346,15 +346,13 @@ async fn create(state: AppState, request: Request) -> Response {
         }
     };
     let room = state.room_key(&grants.video.room);
-    if state.whip_rpc.is_none() {
-        if let Err(e) = prepare_owner(&state, &mut grants) {
-            if matches!(&e,Failure::Internal(message) if message=="nil room configuration") {
-                return axum::response::IntoResponse::into_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                );
-            }
-            return runtime_error(e, CONTENT, true, false);
+    if state.whip_rpc.is_none()
+        && let Err(e) = prepare_owner(&state, &mut grants)
+    {
+        if matches!(&e,Failure::Internal(message) if message=="nil room configuration") {
+            return axum::response::IntoResponse::into_response(StatusCode::INTERNAL_SERVER_ERROR);
         }
+        return runtime_error(e, CONTENT, true, false);
     }
     let identity = Identity(grants.identity.clone());
     let mut capabilities = crate::profile::capabilities(&meta);

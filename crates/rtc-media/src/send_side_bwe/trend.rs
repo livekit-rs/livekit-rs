@@ -58,6 +58,7 @@ impl TrendDetector {
 
     /// `Reset()`: upstream replaces the detector with a fresh one built from the
     /// same parameters, so lifetime extrema and the sample count restart too.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn reset(&mut self) {
         *self = Self::new(self.config);
     }
@@ -66,15 +67,18 @@ impl TrendDetector {
         self.direction
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn highest(&self) -> f64 {
         self.highest_value
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn lowest(&self) -> f64 {
         self.lowest_value
     }
 
     /// `HasEnoughSamples()`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn has_enough_samples(&self) -> bool {
         self.num_samples >= self.config.required_samples
     }

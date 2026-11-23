@@ -59,7 +59,7 @@ async fn actual_websocket_application_counts_survive_room_shutdown_and_recreatio
             let mut peer = connect(address, &token).await;
             let (opcode, initial) = read(&mut peer).await;
             assert_eq!(opcode, 2);
-            assert!(matches!(decode_binary_request(&[]).unwrap().message, None));
+            assert!(decode_binary_request(&[]).unwrap().message.is_none());
             let initial_response = pb::SignalResponse::decode(initial.as_slice()).unwrap();
             assert!(matches!(initial_response.message, Some(Resp::Join(_))));
             out_bytes += initial.len() as u64;

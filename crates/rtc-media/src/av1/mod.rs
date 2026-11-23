@@ -453,14 +453,13 @@ impl Forwarder {
             let mut active = vec![false; self.source_chains.len()];
             if structure.chains > 0 {
                 for target in 0..structure.targets {
-                    if mask & (1u32 << target) != 0 {
-                        if let Some(chain) = structure
+                    if mask & (1u32 << target) != 0
+                        && let Some(chain) = structure
                             .protected_by_chain
                             .get(target)
                             .and_then(|c| active.get_mut(*c))
-                        {
-                            *chain = true;
-                        }
+                    {
+                        *chain = true;
                     }
                 }
             }
@@ -1258,10 +1257,10 @@ impl RateParser {
         if let Some(structure) = descriptor.attached {
             self.structure = Some(structure)
         }
-        if let Some(mask) = descriptor.active {
-            if self.active.is_none_or(|(last, _)| sequence > last) {
-                self.active = Some((sequence, mask))
-            }
+        if let Some(mask) = descriptor.active
+            && self.active.is_none_or(|(last, _)| sequence > last)
+        {
+            self.active = Some((sequence, mask))
         }
         let structure = self.structure.as_ref()?;
         let mask = self.active.map_or(0, |(_, mask)| mask);

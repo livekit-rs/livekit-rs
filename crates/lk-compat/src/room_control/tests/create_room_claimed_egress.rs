@@ -599,22 +599,24 @@ async fn catalog_existing_room_rehydrates_without_relaunching_create_only_compos
     app.agents().shutdown().await;
     net.shutdown_and_wait().await;
 
-    let launches = launches.lock().unwrap();
-    assert!(
-        !launches
-            .iter()
-            .any(|request| request.room_id == retained_sid),
-        "existing catalog RoomSID relaunched create-only RoomComposite on a new owner actor",
-    );
-    assert_eq!(launches.len(), 1);
-    assert_eq!(launches[0].room_id, fresh_sid);
-    let Some(internal::start_egress_request::Request::RoomComposite(request)) =
-        launches[0].request.as_ref()
-    else {
-        panic!("fresh allocation did not send actual RoomComposite");
-    };
-    assert_eq!(request.room_name, fresh_name);
-    assert!(request.audio_only);
+    {
+        let launches = launches.lock().unwrap();
+        assert!(
+            !launches
+                .iter()
+                .any(|request| request.room_id == retained_sid),
+            "existing catalog RoomSID relaunched create-only RoomComposite on a new owner actor",
+        );
+        assert_eq!(launches.len(), 1);
+        assert_eq!(launches[0].room_id, fresh_sid);
+        let Some(internal::start_egress_request::Request::RoomComposite(request)) =
+            launches[0].request.as_ref()
+        else {
+            panic!("fresh allocation did not send actual RoomComposite");
+        };
+        assert_eq!(request.room_name, fresh_name);
+        assert!(request.audio_only);
+    }
     assert_eq!(
         fresh.unwrap_err().msg,
         "fixture worker observed actual composite launch"

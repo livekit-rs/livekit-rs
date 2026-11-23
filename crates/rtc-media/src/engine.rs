@@ -1251,13 +1251,13 @@ impl MediaEngine {
         let mut neg_failed = Vec::new();
         let mut tcp_failed = Vec::new();
         for t in self.transports.values_mut() {
-            if let Some(pending) = t.recovery_pending {
-                if now >= pending.deadline {
-                    t.recovery_pending = None;
-                    t.failed = false; // emit a current-epoch failure even if old ICE had already failed
-                    failed.push(t.id());
-                    continue;
-                }
+            if let Some(pending) = t.recovery_pending
+                && now >= pending.deadline
+            {
+                t.recovery_pending = None;
+                t.failed = false; // emit a current-epoch failure even if old ICE had already failed
+                failed.push(t.id());
+                continue;
             }
             if t.recovery_pending.is_none()
                 && t.tcp_ice_deadline.is_some_and(|deadline| deadline <= now)

@@ -21,8 +21,11 @@ static HEAP_CONTROL: Mutex<()> = Mutex::new(());
 static HEAP_HTTP: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 static SYMBOLS: Mutex<BTreeMap<u64, String>> = Mutex::new(BTreeMap::new());
 static FUNCTION_ADDRESSES: Mutex<BTreeMap<String, u64>> = Mutex::new(BTreeMap::new());
+/// Serialiser for the tests that own the process-wide CPU/heap samplers. It is an
+/// async mutex because the HTTP producers are awaited while the lock is held;
+/// sync tests take it with `blocking_lock` outside any runtime.
 #[cfg(test)]
-pub(crate) static TEST_SAMPLING: Mutex<()> = Mutex::new(());
+pub(crate) static TEST_SAMPLING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[cfg(test)]
 pub(crate) fn capture_active() -> bool {
@@ -351,9 +354,7 @@ mod tests {
 
     #[test]
     fn actual_cpu_and_live_allocations_are_sampled_and_early_failure_releases_owner() {
-        let _serial = TEST_SAMPLING
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _serial = TEST_SAMPLING.blocking_lock();
         let dir = std::env::temp_dir().join(format!("livecloud-profile-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let cpu = dir.join("cpu.pprof");

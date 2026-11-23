@@ -1628,12 +1628,12 @@ fn dynacast_description(
     );
 }
 
-fn dynacast_resends(effects: &[Effect]) -> Vec<ParticipantSid> {
+fn dynacast_resends(effects: &[Effect]) -> Vec<&ParticipantSid> {
     effects
         .iter()
         .filter_map(|effect| match effect {
             Effect::Media(MediaCommand::ResendSubscribedQualities { participant }) => {
-                Some(participant.clone())
+                Some(participant)
             }
             _ => None,
         })
@@ -1673,7 +1673,7 @@ fn publisher_answer_dynacast_resend_waits_two_seconds_and_runs_once() {
         );
         assert!(dynacast_resends(&room.take_effects()).is_empty());
         room.tick(now + Duration::from_secs(2));
-        assert_eq!(dynacast_resends(&room.take_effects()), [joined.sid.clone()]);
+        assert_eq!(dynacast_resends(&room.take_effects()), [&joined.sid]);
         assert!(room.participants[&joined.sid].dynacast_resend.is_none());
         room.tick(now + Duration::from_secs(20));
         assert!(dynacast_resends(&room.take_effects()).is_empty());
@@ -1709,7 +1709,7 @@ fn publisher_answer_dynacast_resend_caps_bursts_and_starts_a_new_window() {
         assert!(dynacast_resends(&room.take_effects()).is_empty());
     }
     room.tick(now + Duration::from_secs(8));
-    assert_eq!(dynacast_resends(&room.take_effects()), [joined.sid.clone()]);
+    assert_eq!(dynacast_resends(&room.take_effects()), [&joined.sid]);
     dynacast_description(
         &mut room,
         &joined.sid,
@@ -1726,7 +1726,7 @@ fn publisher_answer_dynacast_resend_caps_bursts_and_starts_a_new_window() {
     room.tick(now + Duration::from_millis(10999));
     assert!(dynacast_resends(&room.take_effects()).is_empty());
     room.tick(now + Duration::from_secs(11));
-    assert_eq!(dynacast_resends(&room.take_effects()), [joined.sid]);
+    assert_eq!(dynacast_resends(&room.take_effects()), [&joined.sid]);
 }
 
 #[test]
@@ -1808,11 +1808,11 @@ fn publisher_answer_dynacast_resend_is_per_participant_and_survives_signal_loss(
     assert!(!room.participants[&a.sid].signal_connected);
     room.take_effects();
     room.tick(now + Duration::from_secs(2));
-    assert_eq!(dynacast_resends(&room.take_effects()), [a.sid]);
+    assert_eq!(dynacast_resends(&room.take_effects()), [&a.sid]);
     room.tick(now + Duration::from_millis(2499));
     assert!(dynacast_resends(&room.take_effects()).is_empty());
     room.tick(now + Duration::from_millis(2500));
-    assert_eq!(dynacast_resends(&room.take_effects()), [b.sid]);
+    assert_eq!(dynacast_resends(&room.take_effects()), [&b.sid]);
 }
 
 #[test]
@@ -6340,22 +6340,20 @@ fn check_backup_codec_announcement(announced_mime: &str) {
         now,
     );
     room.take_effects();
-    let event = |mid: &str, cid: &str, mime: &str, transport| {
-        (RemoteMedia {
-            receiver_ssrc: Some(if cid == "primary-cid" {
-                (23, 29)
-            } else {
-                (31, 37)
-            }),
-            registration: crate::media_api::PublicationRegistration::SdpReceiver,
-            participant: owner.sid.clone(),
-            transport,
-            mid: mid.into(),
-            kind: TrackKind::Video,
-            msid_track_id: cid.into(),
-            rids: vec![],
-            mime_type: mime.into(),
-        })
+    let event = |mid: &str, cid: &str, mime: &str, transport| RemoteMedia {
+        receiver_ssrc: Some(if cid == "primary-cid" {
+            (23, 29)
+        } else {
+            (31, 37)
+        }),
+        registration: crate::media_api::PublicationRegistration::SdpReceiver,
+        participant: owner.sid.clone(),
+        transport,
+        mid: mid.into(),
+        kind: TrackKind::Video,
+        msid_track_id: cid.into(),
+        rids: vec![],
+        mime_type: mime.into(),
     };
     room.media_arrives(event("0", "primary-cid", "video/vp9", transport), now);
     room.take_effects();

@@ -195,9 +195,9 @@ impl quic::Algorithm for ExpandedQuicAlgorithm {
     fn packet_key(&self, key: AeadKey, iv: Iv) -> Box<dyn PacketKey> {
         use chacha20poly1305::KeyInit;
         let cipher = match self {
-            Self::Aes256 => ExpandedCipher::Aes256(
+            Self::Aes256 => ExpandedCipher::Aes256(Box::new(
                 aes_gcm_next::Aes256Gcm::new_from_slice(key.as_ref()).expect("AES256 key length"),
-            ),
+            )),
             Self::ChaCha20 => ExpandedCipher::ChaCha20(
                 chacha20poly1305::ChaCha20Poly1305::new_from_slice(key.as_ref())
                     .expect("ChaCha20 key length"),
@@ -208,9 +208,9 @@ impl quic::Algorithm for ExpandedQuicAlgorithm {
     fn header_protection_key(&self, key: AeadKey) -> Box<dyn HeaderProtectionKey> {
         use aes_gcm::aes::cipher::KeyInit;
         let key = match self {
-            Self::Aes256 => ExpandedHeaderKey::Aes256(
+            Self::Aes256 => ExpandedHeaderKey::Aes256(Box::new(
                 aes_gcm::aes::Aes256::new_from_slice(key.as_ref()).expect("AES256 HP key length"),
-            ),
+            )),
             Self::ChaCha20 => ExpandedHeaderKey::ChaCha20(
                 key.as_ref().try_into().expect("ChaCha20 HP key length"),
             ),
@@ -225,8 +225,9 @@ impl quic::Algorithm for ExpandedQuicAlgorithm {
     }
 }
 
+// The AES-256 key schedule is ~1.1 KiB, so it is boxed to keep each derived key cheap.
 enum ExpandedCipher {
-    Aes256(aes_gcm_next::Aes256Gcm),
+    Aes256(Box<aes_gcm_next::Aes256Gcm>),
     ChaCha20(chacha20poly1305::ChaCha20Poly1305),
 }
 struct ExpandedPacketKey {
@@ -299,7 +300,7 @@ impl PacketKey for ExpandedPacketKey {
 }
 
 enum ExpandedHeaderKey {
-    Aes256(aes_gcm::aes::Aes256),
+    Aes256(Box<aes_gcm::aes::Aes256>),
     ChaCha20([u8; 32]),
 }
 impl ExpandedHeaderKey {

@@ -271,10 +271,10 @@ impl Drop for JaegerGuard {
     fn drop(&mut self) {
         // Early startup errors still release the owned exporter thread. The
         // blocking exporter does not depend on polling this Tokio worker.
-        if let Some(provider) = self.0.take() {
-            if let Err(error) = provider.shutdown_with_timeout(std::time::Duration::from_secs(5)) {
-                tracing::warn!(%error, "jaeger shutdown failed");
-            }
+        if let Some(provider) = self.0.take()
+            && let Err(error) = provider.shutdown_with_timeout(std::time::Duration::from_secs(5))
+        {
+            tracing::warn!(%error, "jaeger shutdown failed");
         }
     }
 }

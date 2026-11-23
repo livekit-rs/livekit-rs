@@ -255,6 +255,9 @@ fn cgroup_cpu(host: f64) -> std::io::Result<(Option<&'static str>, f64)> {
 fn cgroup_cpu(host: f64) -> std::io::Result<(Option<&'static str>, f64)> {
     Ok((None, host))
 }
+// The cgroup v2 `cpu.max` parser has a production caller only on Linux, but the
+// suite checks its acceptance set on every host, so it must compile for tests too.
+#[cfg(any(target_os = "linux", test))]
 fn quota(text: &str) -> std::io::Result<f64> {
     let mut v = text.split_whitespace();
     let q = v
@@ -305,6 +308,13 @@ fn read_cpu(cgroup: Option<&str>) -> std::io::Result<CpuTicks> {
 }
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
+    // libc deprecates its `mach_host_self`/`mach_task_self` wrappers in favour of
+    // the `mach2` crate, which itself only declares these two libSystem entries
+    // (`mach2/src/mach_init.rs`, `mach2/src/traps.rs`). Declaring them here keeps
+    // the locked dependency graph unchanged. `mach_task_self` is a data symbol,
+    // not a function: the C macro reads `mach_task_self_`.
+    fn mach_host_self() -> libc::mach_port_t;
+    static mach_task_self_: libc::mach_port_t;
     fn mach_port_deallocate(
         task: libc::mach_port_t,
         name: libc::mach_port_t,
@@ -313,7 +323,7 @@ unsafe extern "C" {
 #[cfg(target_os = "macos")]
 fn read_cpu(_: Option<&str>) -> std::io::Result<CpuTicks> {
     unsafe {
-        let host = libc::mach_host_self();
+        let host = mach_host_self();
         let mut value: libc::host_cpu_load_info = std::mem::zeroed();
         let mut count = libc::HOST_CPU_LOAD_INFO_COUNT;
         let result = libc::host_statistics(
@@ -322,7 +332,7 @@ fn read_cpu(_: Option<&str>) -> std::io::Result<CpuTicks> {
             (&mut value as *mut libc::host_cpu_load_info).cast(),
             &mut count,
         );
-        mach_port_deallocate(libc::mach_task_self(), host);
+        mach_port_deallocate(mach_task_self_, host);
         if result != libc::KERN_SUCCESS {
             return Err(invalid("host_statistics cpu failed"));
         }
@@ -353,7 +363,7 @@ fn load_average() -> std::io::Result<[f64; 3]> {
 #[cfg(target_os = "macos")]
 fn memory() -> std::io::Result<(u64, u64)> {
     unsafe {
-        let host = libc::mach_host_self();
+        let host = mach_host_self();
         let mut v: libc::vm_statistics64 = std::mem::zeroed();
         let mut count = libc::HOST_VM_INFO64_COUNT;
         let result = libc::host_statistics64(
@@ -362,7 +372,7 @@ fn memory() -> std::io::Result<(u64, u64)> {
             (&mut v as *mut libc::vm_statistics64).cast(),
             &mut count,
         );
-        mach_port_deallocate(libc::mach_task_self(), host);
+        mach_port_deallocate(mach_task_self_, host);
         if result != libc::KERN_SUCCESS {
             return Err(invalid("host_statistics64 memory failed"));
         }

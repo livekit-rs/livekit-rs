@@ -1,12 +1,12 @@
 //! Fixed Participant.UpdateMediaRTT: lifetime state independent of signal RTT.
 use super::*;
 #[derive(Debug)]
-pub(super) struct MediaRtt {
+pub(crate) struct MediaRtt {
     updated_at: Instant,
     value: u32,
 }
 impl MediaRtt {
-    pub(super) fn new(now: Instant) -> Self {
+    pub(crate) fn new(now: Instant) -> Self {
         Self {
             updated_at: now,
             value: 0,
@@ -46,14 +46,12 @@ impl Room {
         }) else {
             return;
         };
-        if participant
+        let bound = participant
             .subscriptions
             .get(track)
-            .is_some_and(|s| s.bound && !s.closing)
-        {
-            if participant.media_rtt.observe(rtt, received_at) {
-                participant.fallback.media_rtt(rtt);
-            }
+            .is_some_and(|s| s.bound && !s.closing);
+        if bound && participant.media_rtt.observe(rtt, received_at) {
+            participant.fallback.media_rtt(rtt);
         }
     }
     /// One actor turn binds both the response destination SID and media budget.

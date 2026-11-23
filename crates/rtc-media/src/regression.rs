@@ -672,11 +672,11 @@ fn single_pc_opus_and_data_channel(data_track: bool, nack_loss: bool) {
                     str0m::rtp::RawPacket::RtcpTx(str0m::rtp::rtcp::Rtcp::Nack(_)) => {
                         nack_sent = true
                     }
-                    str0m::rtp::RawPacket::RtpRx(header, _) => {
-                        if dropped_audio == Some((*header.ssrc, header.sequence_number)) {
-                            assert_eq!(header.payload_type, str0m::media::Pt::from(111));
-                            recovered_audio = true;
-                        }
+                    str0m::rtp::RawPacket::RtpRx(header, _)
+                        if dropped_audio == Some((*header.ssrc, header.sequence_number)) =>
+                    {
+                        assert_eq!(header.payload_type, str0m::media::Pt::from(111));
+                        recovered_audio = true;
                     }
                     _ => {}
                 },
@@ -5757,13 +5757,16 @@ fn red_chain(payload: &[u8]) -> Vec<(u8, u32, u8)> {
         .collect()
 }
 
+/// One depayloaded RED frame: `(payload type, primary marker, RED chain)`, where
+/// a chain entry is `(block payload type, timestamp offset, block marker)`.
+type RedChain = Vec<(u8, u32, u8)>;
+type RedFrame = (u8, u8, RedChain);
+
 struct RedWire {
     /// Payload type of every authenticated audio packet the subscriber received.
     all_pts: Vec<u8>,
-    /// The last `RED_WINDOW` frames as `(payload type, primary marker, RED chain)`.
-    window: Vec<(u8, u8, Vec<(u8, u32, u8)>)>,
-    /// Markers of the Opus frames the subscriber depayloaded, in receive order.
-    delivered: Vec<u8>,
+    /// The last `RED_WINDOW` frames the subscriber depayloaded.
+    window: Vec<RedFrame>,
 }
 
 const RED_WINDOW: usize = 8;
@@ -5851,7 +5854,7 @@ fn single_pc_active_red_encoding(active_red: bool) -> RedWire {
     );
 
     let mut all_pts = vec![];
-    let mut observed: Vec<(u8, u8, Vec<(u8, u32, u8)>)> = vec![];
+    let mut observed: Vec<RedFrame> = vec![];
     let mut delivered = vec![];
     let mut marker: u8 = 0;
     for tick in 0..3000u64 {
@@ -5952,11 +5955,7 @@ fn single_pc_active_red_encoding(active_red: bool) -> RedWire {
         markers.as_slice(),
         "the subscriber's RED decode yields the primary frames in order"
     );
-    RedWire {
-        all_pts,
-        window,
-        delivered,
-    }
+    RedWire { all_pts, window }
 }
 
 #[test]

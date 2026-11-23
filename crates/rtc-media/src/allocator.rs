@@ -165,6 +165,9 @@ pub(crate) struct AllocationPlan {
 }
 
 /// Reserve audio plus a 10% RTP/SRTP/RTCP/IP allowance before choosing video.
+/// The upstream-shaped entry the allocator tests drive; production always names
+/// the unmanaged-track policy explicitly.
+#[cfg(test)]
 pub(crate) fn plan(
     capacity: Option<u64>,
     tracks: &[AllocTrack],
@@ -248,7 +251,9 @@ pub(crate) fn desired_usage(tracks: &[AllocTrack]) -> u64 {
 }
 
 /// Returns one spatial cap per input track (same order). `capacity = None` means no
-/// estimate yet: everything gets its desired layer.
+/// estimate yet: everything gets its desired layer. The upstream-shaped entry the
+/// allocator tests drive; production names the unmanaged-track policy explicitly.
+#[cfg(test)]
 pub(crate) fn allocate(
     capacity: Option<u64>,
     tracks: &[AllocTrack],

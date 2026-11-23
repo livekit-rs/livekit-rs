@@ -17,9 +17,17 @@ use super::time::{float_i64, offset};
 
 /// `ccutils.ProbeRegulator`.
 pub(crate) struct ProbeRegulator {
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     config: ProbeRegulatorConfig,
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     probe_interval: PolicyDuration,
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     probe_duration: PolicyDuration,
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     next_probe_earliest_at: Instant,
 }
 
@@ -38,16 +46,19 @@ impl ProbeRegulator {
 
     /// `CanProbe()`: `time.After` is a strict comparison, so a probe exactly at the
     /// earliest instant is still refused.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn can_probe(&self, now: Instant) -> bool {
         now > self.next_probe_earliest_at
     }
 
     /// `ProbeDuration()`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn duration(&self) -> PolicyDuration {
         self.probe_duration
     }
 
     /// The scheduling instant, exposed for the owner's diagnostics and tests.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn next_probe_earliest_at(&self) -> Instant {
         self.next_probe_earliest_at
     }
@@ -55,6 +66,7 @@ impl ProbeRegulator {
     /// `ProbeSignal(signal, baseTime)`. `base_time` is `None` for Go's zero
     /// `time.Time`, which upstream replaces with a fresh clock read, so the caller
     /// must pass `now` in that case rather than a fabricated epoch.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_signal(
         &mut self,
         signal: ProbeSignal,
@@ -84,6 +96,7 @@ impl ProbeRegulator {
 
 /// `time.Duration(float64(d.Milliseconds()) * factor) * time.Millisecond`,
 /// truncated to whole milliseconds then clamped when strictly above the maximum.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 fn scaled_millis(value: PolicyDuration, factor: f64, max: PolicyDuration) -> PolicyDuration {
     let scaled = PolicyDuration::from_millis(float_i64(value.as_millis_i64() as f64 * factor));
     if scaled > max { max } else { scaled }
@@ -156,9 +169,11 @@ mod tests {
     #[test]
     fn both_scales_saturate_at_their_configured_maxima() {
         let now = Instant::now();
-        let mut config = ProbeRegulatorConfig::default();
-        config.max_duration = PolicyDuration::from_millis(1_000);
-        config.max_interval = PolicyDuration::from_secs(6);
+        let config = ProbeRegulatorConfig {
+            max_duration: PolicyDuration::from_millis(1_000),
+            max_interval: PolicyDuration::from_secs(6),
+            ..Default::default()
+        };
         let mut r = ProbeRegulator::new(config, now);
         for _ in 0..40 {
             r.probe_signal(ProbeSignal::NotCongesting, Some(now), now);

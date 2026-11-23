@@ -307,13 +307,13 @@ impl Cluster {
                     method: "JobRequest",
                     topics: job_topics(&key),
                 };
-                if let Some(old) = wanted.insert(route, key.clone()) {
-                    if old != key {
-                        return Err(RpcError::new(
-                            "already_exists",
-                            "agent topic collides with another worker group",
-                        ));
-                    }
+                if let Some(old) = wanted.insert(route, key.clone())
+                    && old != key
+                {
+                    return Err(RpcError::new(
+                        "already_exists",
+                        "agent topic collides with another worker group",
+                    ));
                 }
             }
             let jobs = self.registry.running_jobs();
@@ -444,7 +444,12 @@ impl Cluster {
         *cache = None;
     }
 
-    pub fn discover(self: &Arc<Self>, agent: String, kind: i32, deployment: String) -> Discovery {
+    pub(super) fn discover(
+        self: &Arc<Self>,
+        agent: String,
+        kind: i32,
+        deployment: String,
+    ) -> Discovery {
         self.reap();
         let stop = Cancellation::default();
         let (out, incoming) = mpsc::channel(128);
@@ -531,11 +536,13 @@ impl Cluster {
             let snapshot = responses.borrow_and_update().clone();
             emit(
                 &snapshot,
-                &agent,
-                kind,
-                &deployment,
+                EmitTarget {
+                    agent: &agent,
+                    kind,
+                    deployment: &deployment,
+                    out: &out,
+                },
                 &mut emitted,
-                &out,
                 &child_stop,
                 &self.stop,
             )
@@ -611,16 +618,27 @@ impl Cluster {
         while retiring.join_next().await.is_some() {}
     }
 }
+/// The worker identity a discovered namespace is emitted under, fixing clippy's
+/// `too_many_arguments` on `emit` by bundling the four key fields together.
+struct EmitTarget<'a> {
+    agent: &'a str,
+    kind: i32,
+    deployment: &'a str,
+    out: &'a mpsc::Sender<WorkerKey>,
+}
 async fn emit(
     responses: &[rpc::CheckEnabledResponse],
-    agent: &str,
-    kind: i32,
-    deployment: &str,
+    target: EmitTarget<'_>,
     emitted: &mut BTreeSet<String>,
-    out: &mpsc::Sender<WorkerKey>,
     stop: &Cancellation,
     closed: &Cancellation,
 ) {
+    let EmitTarget {
+        agent,
+        kind,
+        deployment,
+        out,
+    } = target;
     let relevant: Vec<_> = responses
         .iter()
         .filter(|r| match kind {

@@ -125,10 +125,10 @@ impl Room {
         let pending = std::mem::take(&mut self.batch_pending);
         let mut infos = Vec::with_capacity(pending.len());
         for sid in pending {
-            if let Some(p) = self.participants.get_mut(&sid) {
-                if !p.is_hidden() {
-                    infos.push(p.snapshot());
-                }
+            if let Some(p) = self.participants.get_mut(&sid)
+                && !p.is_hidden()
+            {
+                infos.push(p.snapshot());
             }
         }
         // Fixed changeUpdateWorker sends one batch to every room participant,

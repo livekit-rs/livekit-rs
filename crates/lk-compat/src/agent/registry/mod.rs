@@ -298,11 +298,11 @@ impl Registry {
     ) -> Result<(), WorkerError> {
         let id = registration.worker_id.clone();
         self.register(registration, outbound)?;
-        if let Some(cluster) = self.cluster() {
-            if let Err(error) = cluster.reconcile().await {
-                self.disconnect(&id);
-                return Err(WorkerError::Cluster(error.to_string()));
-            }
+        if let Some(cluster) = self.cluster()
+            && let Err(error) = cluster.reconcile().await
+        {
+            self.disconnect(&id);
+            return Err(WorkerError::Cluster(error.to_string()));
         }
         Ok(())
     }
@@ -629,10 +629,10 @@ impl Registry {
             return Err(WorkerError::Closed);
         }
         running_guard.committed = true;
-        if let Some(worker) = self.inner.lock().unwrap().workers.get_mut(id) {
-            if worker.job_generations.get(&job_id) == Some(&generation) {
-                worker.ready_jobs.insert(job_id);
-            }
+        if let Some(worker) = self.inner.lock().unwrap().workers.get_mut(id)
+            && worker.job_generations.get(&job_id) == Some(&generation)
+        {
+            worker.ready_jobs.insert(job_id);
         }
         self.changed();
         Ok(result)

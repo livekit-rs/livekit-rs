@@ -51,6 +51,8 @@ const ROWS: &[(&str, u64)] = &[
     ("upstream_padding_only_first", 2),
     ("upstream_gap_late_and_pre_start", 1),
     ("upstream_gap_late_and_pre_start", 2),
+    ("upstream_pre_start_sequence_number_drop", 1),
+    ("upstream_pre_start_sequence_number_drop", 2),
     ("upstream_duplicate", 1),
     ("upstream_duplicate", 2),
 ];
@@ -190,6 +192,12 @@ fn stream<'a>(row: &'a Value, key: &str, where_: &str) -> Option<&'a Value> {
 }
 
 fn delta<'a>(row: &'a Value, key: &str, where_: &str) -> Option<&'a Value> {
+    assert!(
+        SENDER_VIEWS.contains(&key) || BASE_DELTAS.contains(&key),
+        "{where_}: {key} names neither a sender view (rtpstats_sender.go:1093-1113) nor a base \
+         delta (rtpstats_base.go:535-555), so the frozen row would be read through an unanchored \
+         delta key"
+    );
     let value = object(row, key)?;
     shape(value, DELTA, &format!("{where_} {key}"));
     // `DeltaInfoSender` never assigns PacketsLost or RttMax, so the sender view reports the feed
@@ -206,6 +214,11 @@ fn delta<'a>(row: &'a Value, key: &str, where_: &str) -> Option<&'a Value> {
             );
         }
     } else {
+        assert!(
+            BASE_DELTAS.contains(&key),
+            "{where_}: {key} is neither a sender view nor one of the frozen base-delta keys \
+             (rtpstats_base.go:535-555)"
+        );
         assert_eq!(
             count(value, "nack_repeated", &format!("{where_} {key}")),
             0,
@@ -413,11 +426,42 @@ fn first_window_span(anchor: u64, highest: u64) -> u64 {
     highest - anchor + 1
 }
 
+/// The sequence numbers handed over inside the recorded window (`window_sns`) and the ones that
+/// started the stream before the snapshot ids were created (`start_sns`). Both are stimulus facts,
+/// not observation results: neither the current nor the rewritten `extStartSN` has a getter, so the
+/// reader cannot derive the window span from the API alone.
+fn stimulus_sns(row: &Value, where_: &str) -> (Vec<u64>, Vec<u64>) {
+    let array = |key: &str| -> Vec<u64> {
+        let value = object(row, key)
+            .unwrap_or_else(|| panic!("{where_}: missing array field {key} for the span identity"));
+        let items = value
+            .as_array()
+            .unwrap_or_else(|| panic!("{where_}: field {key} is not an array: {value}"));
+        items
+            .iter()
+            .map(|item| {
+                item.as_u64()
+                    .unwrap_or_else(|| panic!("{where_}: {key} entry is not an integer: {item}"))
+            })
+            .collect()
+    };
+    let window = array("window_sns");
+    let start = array("start_sns");
+    let physical = object(row, "physical").unwrap();
+    let handed = count(physical, "sent_primary", where_) + count(physical, "sent_padding", where_);
+    assert_eq!(
+        window.len() as u64,
+        handed,
+        "{where_}: every packet handed over must appear in window_sns, because the padding \
+         boundary is decided by the payload size of that exact packet"
+    );
+    (window, start)
+}
+
 fn check_downstream_window(row: &Value, case: &str, window: u64, where_: &str) {
     let anchor = count(row, "anchor_ext_highest_sn", where_);
     let highest = count(row, "ext_highest_sn", where_);
     let expected = first_window_span(anchor, highest);
-    let seen = count(row, "seen_minus_padding", where_);
     let sender = delta(row, "sender_view", where_);
     let base = delta(row, "base_delta", where_);
     mirror(row, "stream_down", "sender_view", true, where_);
@@ -462,36 +506,35 @@ fn check_downstream_window(row: &Value, case: &str, window: u64, where_: &str) {
     let d = sender.unwrap_or_else(|| panic!("{where_}: window 1 must produce a sender view"));
     let at = format!("{where_} sender_view");
     let padding = count(d, "packets_padding", &at);
-    if case != "downstream_late_below_start" {
-        // `Packets = packetsExpected - uint32(paddingDelta)` with no guard (:1096, :1245), where the
-        // window start is the sequence number the sender snapshot id was created at. A late packet
-        // below the stream start rewrites that anchor (:523-535), so that one row has no identity.
-        assert_eq!(
-            count(d, "packets", &at),
-            (expected as u32).wrapping_sub(padding as u32) as u64,
-            "{where_}: sender_view.packets must be the window sequence span minus padding \
-             (rtpstats_sender.go:1061-1096)"
-        );
-    }
+    // A packet below the sequence number that initialised the stream drags the window start down
+    // with it: `Update` rewrites every snapshot whose start still equals `r.extStartSN`
+    // (rtpstats_sender.go:523-535), so `packetsExpected` is measured from that late packet and not
+    // from the anchor the snapshot id was created at. The recorded stimulus identifies the row,
+    // because the rewritten start is not reachable through the public API.
+    let (window_sns, start_sns) = stimulus_sns(row, where_);
+    let window_start = match (window_sns.iter().min(), start_sns.iter().min()) {
+        (Some(&lowest), Some(&first)) if lowest < first => lowest,
+        _ => anchor,
+    };
+    let window_span = first_window_span(window_start, highest);
+    // `Packets = packetsExpected - uint32(paddingDelta)` with no guard (:1096, :1245).
+    assert_eq!(
+        count(d, "packets", &at),
+        (window_span as u32).wrapping_sub(padding as u32) as u64,
+        "{where_}: sender_view.packets must be the window sequence span minus padding, which the \
+         sender subtracts unguarded (rtpstats_sender.go:1061-1096)"
+    );
     if let Some(b) = base {
         let bat = format!("{where_} base_delta");
-        // A base snapshot id created after the stream is initialised anchors packetsExpected on
-        // that packet's position but carries no counters at all (rtpstats_base.go:311-324 with
-        // :826-830), so the first read subtracts lifetime counter totals from a window span. For
-        // these rows the stream started at the anchor packet, so the window span and the lifetime
-        // span coincide, and the recorded lifetime seen-minus-padding is that span minus the
-        // lifetime loss minus the lifetime padding (rtpstats_base.go:459-466 with
-        // rtpstats_base_lite.go:308-316). Therefore packets == seen + loss, except in the one row
-        // where the padding guard voided the packet count.
-        if case != "downstream_padding_repairs_exceed_span" {
-            assert_eq!(
-                count(b, "packets", &bat),
-                seen + count(b, "packets_lost", &bat),
-                "{where_}: base_delta.packets must be the sequence span minus the lifetime \
-                 padding, which is the recorded seen-minus-padding plus the lifetime loss \
-                 (rtpstats_base.go:489, 519-538 with 459-466)"
-            );
-        }
+        // The base path takes the same span but guards it: when the padding delta exceeds the
+        // window it records the error `padding packets more than expected` and zeroes only
+        // Packets, so the delta itself stays non-nil (rtpstats_base.go:489, 519-538).
+        assert_eq!(
+            count(b, "packets", &bat),
+            window_span.saturating_sub(count(b, "packets_padding", &bat)),
+            "{where_}: base_delta.packets must be the window sequence span minus the padding \
+             delta, clamped to zero by the padding guard (rtpstats_base.go:489, 519-538)"
+        );
     }
     match case {
         "downstream_exact_duplicate" => {
@@ -522,10 +565,10 @@ fn check_downstream_window(row: &Value, case: &str, window: u64, where_: &str) {
             // delta anyway after logging (rtpstats_receiver.go:896-900).
             assert!(
                 count(d, "packets", &at) > u64::from(u32::MAX / 2),
-                "{where_}: the sender view must show the unguarded underflow of {expected} - {padding}"
+                "{where_}: the sender view must show the unguarded underflow of {window_span} - {padding}"
             );
             assert!(
-                padding > expected,
+                padding > window_span,
                 "{where_}: padding must exceed the window span"
             );
             let b = base
@@ -607,13 +650,58 @@ fn check_upstream_window(row: &Value, case: &str, window: u64, where_: &str) {
         assert_eq!(count(d, "packets_out_of_order", &at), 0, "{where_}");
     }
     if case == "upstream_gap_late_and_pre_start" {
-        // A packet below the stream start is unhandled for the receiver, because its sequence
-        // number wrap-around is created with `IsRestartAllowed: false` (rtpstats_receiver.go:203
-        // with :490-523): it neither repairs the loss nor moves the start, which is why the window
-        // keeps the full span of the three in-range packets.
+        // The sequence number wrap-around reports a packet below the stream start as unhandled
+        // (`IsRestartAllowed: false`, rtpstats_receiver.go:203 with wraparound.go:216-218), but an
+        // unhandled result does not drop it by itself: because the time stamp moves ahead and the
+        // packet carries a payload, the rollover heuristic (:458-488) replaces the result with
+        // `Rollover(sn, 1)` and the packet is booked one whole cycle forward. The window therefore
+        // spans the whole cycle and charges every position it never saw as lost, which is the
+        // opposite of the sender's below-start branch (rtpstats_sender.go:523-557) that re-anchors
+        // the window start instead.
         assert_eq!(
-            highest, 122,
-            "{where_}: a pre-start packet must not move the highest"
+            highest, 65_655,
+            "{where_}: a pre-start sequence number with an advancing time stamp must jump a \
+             whole cycle (rtpstats_receiver.go:459-466)"
+        );
+        assert_eq!(
+            expected, NUM_SEQUENCE_NUMBERS,
+            "{where_}: the window must span the cycle jump"
+        );
+        assert_eq!(
+            count(d, "packets_lost", &at),
+            expected - 4,
+            "{where_}: only positions 119, 120, 121 and 122 are covered, everything between them \
+             and the jump is charged as lost (rtpstats_base.go:489, 519-538)"
+        );
+        assert_eq!(
+            count(d, "packets_out_of_order", &at),
+            1,
+            "{where_}: the in-range late packet 121 is the only out-of-order receipt"
+        );
+        assert_eq!(padding, 0, "{where_}");
+    }
+    if case == "upstream_pre_start_sequence_number_drop" {
+        // The other side of the same gate: with no advancing time stamp `gapTS > 0` fails at :459,
+        // the unhandled wrap-around result stands, and :490-523 drops the packet outright. The
+        // highest sequence number, the span and the loss total are as if it never arrived; only the
+        // in-range late packet 141 is recorded, as out-of-order.
+        assert_eq!(
+            highest, 142,
+            "{where_}: a dropped pre-start packet may not move the highest"
+        );
+        assert_eq!(
+            expected, 3,
+            "{where_}: the window must keep the span of the in-range packets"
+        );
+        assert_eq!(
+            count(d, "packets_lost", &at),
+            0,
+            "{where_}: the drop must leave neither a hole nor a repair"
+        );
+        assert_eq!(
+            count(d, "packets_out_of_order", &at),
+            1,
+            "{where_}: only the in-range late packet may be booked"
         );
         assert_eq!(padding, 0, "{where_}");
     }
@@ -688,22 +776,23 @@ fn original_media_counting_boundary_rows_match_locked_go_fold() {
         }
         match case {
             "downstream_padding_only_before_start" => {
-                // A padding-only packet before the stream is initialised returns before any state
-                // change (rtpstats_sender.go:476-480), so it cannot be seen by any view at all.
-                assert_eq!(
-                    count(object(row, "physical").unwrap(), "sent_primary", &where_),
-                    0,
-                    "{where_}: the stimulus is padding-only by construction"
-                );
-                assert!(
-                    delta(row, "sender_view", &where_).is_none(),
-                    "{where_}: the sender view must be nil"
-                );
-                assert!(
-                    object(row, "stream_down").is_none(),
-                    "{where_}: a nil delta may not project a stream"
-                );
                 if window == 1 {
+                    // A padding-only packet before the stream is initialised returns before any
+                    // state change (rtpstats_sender.go:476-480), so it cannot be seen by any view
+                    // at all.
+                    assert_eq!(
+                        count(object(row, "physical").unwrap(), "sent_primary", &where_),
+                        0,
+                        "{where_}: the stimulus is padding-only by construction"
+                    );
+                    assert!(
+                        delta(row, "sender_view", &where_).is_none(),
+                        "{where_}: the sender view must be nil"
+                    );
+                    assert!(
+                        object(row, "stream_down").is_none(),
+                        "{where_}: a nil delta may not project a stream"
+                    );
                     assert_eq!(
                         count(row, "ext_highest_sn", &where_),
                         0,
@@ -718,6 +807,20 @@ fn original_media_counting_boundary_rows_match_locked_go_fold() {
                         "{where_}: seen-minus-padding is a lifetime span, not a receipt count"
                     );
                 } else {
+                    // The padding packet never reached the sender, so the first real primary is
+                    // also the first packet the physical view counts (boundary_observer_test.go
+                    // hands over sn 101 with a payload).
+                    let physical = object(row, "physical").unwrap();
+                    assert_eq!(
+                        count(physical, "sent_primary", &where_),
+                        1,
+                        "{where_}: the pre-start padding must not survive into the next window"
+                    );
+                    assert_eq!(
+                        count(physical, "sent_padding", &where_),
+                        0,
+                        "{where_}: the second window has no padding stimulus"
+                    );
                     assert_eq!(
                         count(row, "ext_highest_sn", &where_),
                         101,
@@ -841,10 +944,10 @@ fn original_media_counting_boundary_rows_match_locked_go_fold() {
                 if window == 1 && first_window_span(anchor, highest) > NUM_SEQUENCE_NUMBERS {
                     voided_window += 1;
                 }
-                if let Some(d) = delta(row, "sender_view", &where_) {
-                    if count(d, "packets", "sender_view") > u64::from(u32::MAX / 2) {
-                        underflowed += 1;
-                    }
+                if let Some(d) = delta(row, "sender_view", &where_)
+                    && count(d, "packets", "sender_view") > u64::from(u32::MAX / 2)
+                {
+                    underflowed += 1;
                 }
                 if let (Some(s), Some(p)) =
                     (stream(row, "stream_down", &where_), object(row, "physical"))
@@ -910,11 +1013,7 @@ fn original_media_counting_boundary_rows_match_locked_go_fold() {
                 let lost = count(primary, "packets_lost", &at);
                 assert_eq!(
                     count(done, "packets_lost", &at),
-                    if adjustment >= lost {
-                        0
-                    } else {
-                        lost - adjustment
-                    },
+                    lost.saturating_sub(adjustment),
                     "{where_}: reconcile must discount RTX repairs from the loss (:989-998)"
                 );
                 // The base path reconciles the same way, and it is the `stream_up` series that the

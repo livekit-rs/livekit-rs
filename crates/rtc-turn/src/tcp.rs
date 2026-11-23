@@ -4,7 +4,7 @@
 
 use std::future::Future;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -71,13 +71,11 @@ pub(crate) async fn tcp_listener(
                         drop(stream);
                         continue;
                     }
-                    let server = stream.local_addr().unwrap_or(local);
                     conns.spawn(connection(
                         ctx.clone(),
                         stream,
                         peer,
-                        server,
-                        local.ip(),
+                        local,
                         tls.clone(),
                         proxy_trusted.clone(),
                         shutdown.clone(),
@@ -112,12 +110,15 @@ async fn connection(
     ctx: Arc<ServerCtx>,
     mut stream: TcpStream,
     peer: SocketAddr,
-    server: SocketAddr,
-    listener_ip: IpAddr,
+    local: SocketAddr,
     tls: Option<Arc<dyn StreamAcceptor>>,
     proxy_trusted: Option<Arc<Vec<(std::net::IpAddr, u8)>>>,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    // The accepted socket answers on the address the client reached, which on a multi-bind
+    // listener is not the listener's configured address; `local` is only the fallback.
+    let server = stream.local_addr().unwrap_or(local);
+    let listener_ip = local.ip();
     let _ = stream.set_nodelay(true);
     // PROXY protocol is read on the raw TCP stream before TLS, so the real
     // client address reaches both the TLS layer and TURN (turn.go:219-276).

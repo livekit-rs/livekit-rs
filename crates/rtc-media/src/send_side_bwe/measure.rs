@@ -193,14 +193,17 @@ impl QdMeasurement {
     }
 
     // Diagnostics accessors, mirroring upstream's MarshalLogObject fields.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn counts(&self) -> (i64, i64, i64) {
         (self.num_groups, self.num_jqr_groups, self.num_dqr_groups)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn send_span_us(&self) -> i64 {
         self.max_send_time - self.min_send_time
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn delays(&self) -> &[i64] {
         &self.propagated_queuing_delays
     }
@@ -287,7 +290,6 @@ impl LossMeasurement {
                 self.queuing_region = QueuingRegion::Dqr;
                 // seal JQR also as the queuing region has been determined
                 self.is_jqr_sealed = true;
-                return;
             }
         }
     }
@@ -306,10 +308,12 @@ impl LossMeasurement {
         (self.min_group_idx.max(0), self.max_group_idx.max(0))
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn num_groups(&self) -> i64 {
         self.num_groups
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn weighted_loss(&self) -> f64 {
         self.weighted_loss
     }
@@ -321,15 +325,10 @@ impl LossMeasurement {
         (self.is_jqr_sealed, self.is_dqr_sealed)
     }
 
-    /// `ts.AcknowledgedBitrate()` of the measurement's own accumulated stats.
-    #[cfg(test)]
-    pub(super) fn acknowledged_bitrate(&self) -> i64 {
-        self.stats.acknowledged_bitrate()
-    }
-
     /// The measurement's accumulated stats, as the campaign echo reads them. The
     /// echo has to reach the whole triple, not just the bitrate, because upstream
-    /// prints `weightedLoss` from the field and the rate pair from `ts`.
+    /// prints `weightedLoss` from the field and the rate pair from `ts` — which
+    /// is why the echo takes the stats object instead of a per-field accessor.
     #[cfg(test)]
     pub(super) fn traffic_stats(&self) -> TrafficStats {
         self.stats

@@ -16,7 +16,7 @@ fn context(receipt: Arc<()>, room_sid: &str) -> Launch {
             job_type: 0,
             deployment: String::new(),
         },
-        receipt,
+        _receipt: receipt,
     }
 }
 

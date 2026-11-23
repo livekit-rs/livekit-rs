@@ -1113,12 +1113,11 @@ fn apply_sdp_receiver_ssrc(
         .layers
         .iter_mut()
         .find(|layer| layer.spatial_layer == 0)
+        && layer.ssrc == 0
     {
-        if layer.ssrc == 0 {
-            layer.ssrc = ssrc;
-            if repair_ssrc != 0 {
-                layer.repair_ssrc = repair_ssrc;
-            }
+        layer.ssrc = ssrc;
+        if repair_ssrc != 0 {
+            layer.repair_ssrc = repair_ssrc;
         }
     }
     if codec_index == 0 {

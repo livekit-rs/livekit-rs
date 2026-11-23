@@ -15,7 +15,7 @@ const fn len64(value: u64) -> u32 {
 /// Number of 64-bit words backing a bitmap of `size` bits, verbatim from
 /// `NewBitmap`: `1 << bits.Len64(uint64((size+63)/64))`.
 const fn word_count(size: usize) -> usize {
-    let words = (size as u64 + 63) / 64;
+    let words = (size as u64).div_ceil(64);
     (1_u64 << len64(words)) as usize
 }
 
@@ -58,6 +58,7 @@ impl Bitmap {
 
     /// Sum of set bits over every allocated word, the extent a late arrival can
     /// clear upstream.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn count(&self) -> usize {
         self.words.iter().map(|w| w.count_ones() as usize).sum()
     }

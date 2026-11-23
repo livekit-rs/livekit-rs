@@ -107,10 +107,7 @@ fn actual_dual_codec_srtp_regression_uses_live_room_threshold_and_preserves_subs
             count,
             later_count,
             regresses,
-            false,
-            false,
-            false,
-            false,
+            Probes::default(),
         );
     }
 }
@@ -124,10 +121,10 @@ fn actual_simulcast_backup_only_subscriber_receives_its_negotiated_codec_without
         100,
         100,
         false,
-        true,
-        false,
-        false,
-        false,
+        Probes {
+            backup_only: true,
+            ..Probes::default()
+        },
     );
 }
 
@@ -137,7 +134,17 @@ fn actual_in_order_mid_session_payload_change_invalidates_primary_and_routes_rea
         BackupCodecPolicy::PreferRegression,
         BackupCodecPolicy::from_i32(99),
     ] {
-        actual_dual_codec(policy, 5, 100, 100, false, false, true, false, false);
+        actual_dual_codec(
+            policy,
+            5,
+            100,
+            100,
+            false,
+            Probes {
+                invalid_pt: true,
+                ..Probes::default()
+            },
+        );
     }
 }
 
@@ -149,11 +156,22 @@ fn actual_delayed_srtcp_rr_reaches_only_live_bound_subscriber_and_retires_with_t
         1,
         1,
         true,
-        false,
-        false,
-        true,
-        false,
+        Probes {
+            rtt_probe: true,
+            ..Probes::default()
+        },
     );
+}
+
+/// Which extra observations the dual-codec scenario drives: a backup-only
+/// subscriber, an invalid payload type mid-session, an RTT probe, or forward
+/// statistics sampling. All default to off.
+#[derive(Clone, Copy, Default)]
+struct Probes {
+    backup_only: bool,
+    invalid_pt: bool,
+    rtt_probe: bool,
+    timing_probe: bool,
 }
 
 fn actual_dual_codec(
@@ -162,11 +180,14 @@ fn actual_dual_codec(
     count: usize,
     later_count: usize,
     regresses: bool,
-    backup_only: bool,
-    invalid_pt: bool,
-    rtt_probe: bool,
-    timing_probe: bool,
+    probes: Probes,
 ) {
+    let Probes {
+        backup_only,
+        invalid_pt,
+        rtt_probe,
+        timing_probe,
+    } = probes;
     let start = Instant::now();
     let mut engine = engine(start);
     engine.cfg.rtc.congestion_control.enabled = false;
@@ -489,30 +510,28 @@ fn actual_dual_codec(
                 rtt_ms,
                 received_at,
             } = event
+                && rtt_probe
             {
-                if rtt_probe {
-                    assert_eq!(transport, sub_tid);
-                    assert_eq!(track, &sid);
-                    assert!(
-                        (50..=51).contains(&rtt_ms),
-                        "actual 50ms encrypted RR delay: {rtt_ms}"
-                    );
-                    assert_eq!(
-                        received_at, now,
-                        "immediate RR consumer retains receipt time"
-                    );
-                    observed_rr += 1;
-                }
+                assert_eq!(transport, sub_tid);
+                assert_eq!(track, &sid);
+                assert!(
+                    (50..=51).contains(&rtt_ms),
+                    "actual 50ms encrypted RR delay: {rtt_ms}"
+                );
+                assert_eq!(
+                    received_at, now,
+                    "immediate RR consumer retains receipt time"
+                );
+                observed_rr += 1;
             }
-            if let MediaEvent::SubscribedQuality { codecs, .. } = event {
-                if codecs.len() == 2
-                    && codecs[0].codec == "vp9"
-                    && codecs[0].qualities.iter().all(|q| !q.enabled)
-                    && codecs[1].codec == "vp8"
-                    && codecs[1].qualities.iter().any(|q| q.enabled)
-                {
-                    saw_regressed_quality = true;
-                }
+            if let MediaEvent::SubscribedQuality { codecs, .. } = event
+                && codecs.len() == 2
+                && codecs[0].codec == "vp9"
+                && codecs[0].qualities.iter().all(|q| !q.enabled)
+                && codecs[1].codec == "vp8"
+                && codecs[1].qualities.iter().any(|q| q.enabled)
+            {
+                saw_regressed_quality = true;
             }
         }
         for (destination, bytes) in packets.0.lock().unwrap().drain(..) {
@@ -647,9 +666,9 @@ fn actual_srtp_broadcast_admission_reports_original_packet_cohort_samples() {
         1,
         1,
         true,
-        false,
-        false,
-        false,
-        true,
+        Probes {
+            timing_probe: true,
+            ..Probes::default()
+        },
     );
 }

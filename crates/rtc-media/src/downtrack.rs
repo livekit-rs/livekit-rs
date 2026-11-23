@@ -557,14 +557,15 @@ impl DownTrack {
     pub(crate) fn vp9_forwarded_spatial_cap(&self, temporal: u8) -> i32 {
         self.current - i32::from(temporal > self.svc_temporal)
     }
+    /// Select a VP9 SVC picture with the pinned Go dependency rules: temporal
+    /// scale-up on `U && B` and scale-down on `E`, then the spatial pair.
     pub(crate) fn on_vp9_frame(
         &mut self,
         highest: i32,
         temporal: u8,
         keyframe: bool,
         max_temporal: u8,
-        switching_up: bool,
-        beginning: bool,
+        switch_point: bool,
         ending: bool,
     ) -> Forward {
         self.svc_temporal_target = max_temporal.min(3);
@@ -587,14 +588,14 @@ impl DownTrack {
             } else if self.svc_temporal < self.svc_temporal_target
                 && temporal > self.svc_temporal
                 && temporal <= self.svc_temporal_target
-                && switching_up
-                && beginning
+                && switch_point
             {
                 self.svc_temporal = temporal;
             }
-            if self.current > self.target && ending {
-                self.current = self.target.min(highest);
-            } else if keyframe && highest > self.current {
+            // Spatial scale-down (current > target, at E) and scale-up (keyframe
+            // with a higher layer) are exclusive in Go and both resolve to the
+            // clamped target.
+            if (self.current > self.target && ending) || (keyframe && highest > self.current) {
                 self.current = self.target.min(highest);
             }
         }
@@ -1376,7 +1377,7 @@ mod tests {
         d.refresh_target([true; 3], [true; 3]);
         assert!(d.wants_keyframe());
         assert_eq!(
-            d.on_vp9_frame(2, 0, true, 3, false, true, true),
+            d.on_vp9_frame(2, 0, true, 3, false, true),
             Forward::Send { resumed: true }
         );
         assert!(
@@ -1389,7 +1390,7 @@ mod tests {
             "no invented temporal upgrade"
         );
         assert_eq!(
-            d.on_vp9_frame(2, 3, false, 3, true, true, true),
+            d.on_vp9_frame(2, 3, false, 3, true, true),
             Forward::Send { resumed: false }
         );
         assert_eq!(
@@ -1618,18 +1619,18 @@ mod vp9_temporal_source_tests {
         );
         d.target = 2;
         assert!(matches!(
-            d.on_vp9_frame(2, 0, true, 2, false, true, true),
+            d.on_vp9_frame(2, 0, true, 2, false, true),
             Forward::Send { .. }
         ));
-        d.on_vp9_frame(2, 2, false, 2, true, true, true);
+        d.on_vp9_frame(2, 2, false, 2, true, true);
         assert_eq!(d.forwarded_temporal_cap(), 2);
-        d.on_vp9_frame(2, 0, false, 0, false, true, true);
+        d.on_vp9_frame(2, 0, false, 0, false, true);
         assert_eq!(
             d.forwarded_temporal_cap(),
             0,
             "fixed Go downshift uses E, not a future keyframe"
         );
-        d.on_vp9_frame(2, 2, false, 2, false, true, true);
+        d.on_vp9_frame(2, 2, false, 2, false, true);
         assert_eq!(
             d.forwarded_temporal_cap(),
             0,
@@ -1640,19 +1641,16 @@ mod vp9_temporal_source_tests {
             1,
             "lower spatial T2 components still forwarded under the original lexicographic rule"
         );
-        d.on_vp9_frame(2, 2, false, 2, true, true, true);
+        d.on_vp9_frame(2, 2, false, 2, true, true);
         assert_eq!(
             d.forwarded_temporal_cap(),
             2,
             "actual U+B packet resumes temporal layer"
         );
         d.target = 0;
-        d.on_vp9_frame(2, 0, false, 0, false, true, true);
+        d.on_vp9_frame(2, 0, false, 0, false, true);
         assert_eq!(d.current, 0);
-        assert_eq!(
-            d.on_vp9_frame(0, 2, false, 0, false, true, true),
-            Forward::Drop
-        );
+        assert_eq!(d.on_vp9_frame(0, 2, false, 0, false, true), Forward::Drop);
     }
 
     /// Fixed Go RTPMunger: upstream sequence numbers never received stay a gap

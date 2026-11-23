@@ -82,7 +82,7 @@ impl Vpx {
             }
         }
         let mut count = 0;
-        for layer in 0..4 {
+        for (layer, &minimum) in MINIMUM.iter().enumerate() {
             if self.rates[layer] > 0.0 {
                 count += 1;
                 continue;
@@ -108,7 +108,7 @@ impl Vpx {
                     last = fi.ts
                 }
             }
-            if frames >= MINIMUM[layer] {
+            if frames >= minimum {
                 self.rates[layer] =
                     clock as f32 / last.wrapping_sub(first.ts) as f32 * frames as f32;
                 count += 1;
@@ -249,7 +249,7 @@ impl Dd {
         let mut total = 0;
         for s in 0..=self.max_spatial {
             let mut spatial_count = 0;
-            for t in 0..=self.max_temporal {
+            for (t, &minimum) in MINIMUM[..=self.max_temporal].iter().enumerate() {
                 if self.rates[s][t] > 0.0 {
                     total += 1;
                     spatial_count += 1;
@@ -286,13 +286,14 @@ impl Dd {
                 for index in first.number.wrapping_sub(base.number) as usize
                     ..=last.number.wrapping_sub(base.number) as usize
                 {
-                    if let Some(f) = self.received[index] {
-                        if f.spatial == s && f.temporal <= t {
-                            frames += 1
-                        }
+                    if let Some(f) = self.received[index]
+                        && f.spatial == s
+                        && f.temporal <= t
+                    {
+                        frames += 1
                     }
                 }
-                if frames >= MINIMUM[t] && last.ts > first.ts {
+                if frames >= minimum && last.ts > first.ts {
                     self.rates[s][t] = clock as f32 / (last.ts - first.ts) as f32 * frames as f32;
                     total += 1;
                 }

@@ -93,7 +93,7 @@ fn raw_chain_descriptor(
         }
         write(0, 1); // no resolutions
     }
-    let mut bytes = vec![0; (bits.len() + 7) / 8];
+    let mut bytes = vec![0; bits.len().div_ceil(8)];
     for (i, bit) in bits.into_iter().enumerate() {
         bytes[i / 8] |= bit << (7 - i % 8);
     }

@@ -26,13 +26,17 @@ use std::{
 };
 use tokio::{sync::Mutex, task::JoinSet};
 
+/// WHIP owner group keyed by the participant it serves.
+/// (participant sid, live RPC servers registered for that session)
+type WhipOwnerGroup = (ParticipantSid, Vec<RpcServer>);
+
 pub struct WhipRpc {
     state: AppState,
     bus: RpcBus,
     client: RpcClient,
     policy: RpcPolicy,
     create_server: Mutex<Option<RpcServer>>,
-    groups: Mutex<HashMap<(RoomKey, Identity), (ParticipantSid, Vec<RpcServer>)>>,
+    groups: Mutex<HashMap<(RoomKey, Identity), WhipOwnerGroup>>,
     retiring: Mutex<JoinSet<()>>,
 }
 fn spec(service: &str, method: &str, topic: &str) -> MethodSpec {
@@ -518,11 +522,11 @@ impl ParticipantTopics for Topics {
             if let Some(this) = self.0.upgrade() {
                 let mut groups = this.groups.lock().await;
                 let key = (room.clone(), identity.clone());
-                if groups.get(&key).is_some_and(|(current, _)| current == sid) {
-                    if let Some((_, servers)) = groups.remove(&key) {
-                        drop(groups);
-                        this.retire(servers).await;
-                    }
+                if groups.get(&key).is_some_and(|(current, _)| current == sid)
+                    && let Some((_, servers)) = groups.remove(&key)
+                {
+                    drop(groups);
+                    this.retire(servers).await;
                 }
             }
         })

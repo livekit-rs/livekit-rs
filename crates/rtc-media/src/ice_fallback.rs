@@ -120,14 +120,13 @@ impl MediaEngine {
     }
     pub(crate) fn update_selected_ice_liveness(&mut self, now: std::time::Instant) {
         for t in self.transports.values_mut() {
-            if let Some(pending) = t.recovery_pending {
-                if pending.sdp_applied
-                    && t.rtc
-                        .ice_last_selected_receive()
-                        .is_some_and(|received| received >= pending.started)
-                {
-                    t.recovery_pending = None;
-                }
+            if let Some(pending) = t.recovery_pending
+                && pending.sdp_applied
+                && t.rtc
+                    .ice_last_selected_receive()
+                    .is_some_and(|received| received >= pending.started)
+            {
+                t.recovery_pending = None;
             }
             if Self::selected_ice_restart_pending(t) {
                 // A local offer changes credentials only on the real answer.

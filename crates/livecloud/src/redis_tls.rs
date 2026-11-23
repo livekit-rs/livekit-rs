@@ -486,14 +486,13 @@ fn pem_block_types(pem: &[u8]) -> Vec<String> {
             open = rest.strip_suffix("-----").map(str::to_owned);
             continue;
         }
-        if let (Some(kind), Some(rest)) = (open.as_ref(), line.strip_prefix("-----END ")) {
-            if rest
+        if let (Some(kind), Some(rest)) = (open.as_ref(), line.strip_prefix("-----END "))
+            && rest
                 .strip_suffix("-----")
                 .is_some_and(|end| end == kind.as_str())
-            {
-                types.push(kind.clone());
-                open = None;
-            }
+        {
+            types.push(kind.clone());
+            open = None;
         }
     }
     types
@@ -772,10 +771,10 @@ fn check_key_pair_der(cert: &[u8], key: &[u8]) -> Result<(), String> {
     if cert_family != key_family {
         return Err("tls: private key type does not match public key type".into());
     }
-    if let Some(key_public) = key_public {
-        if !cert_public.matches(&key_public) {
-            return Err("tls: private key does not match public key".into());
-        }
+    if let Some(key_public) = key_public
+        && !cert_public.matches(&key_public)
+    {
+        return Err("tls: private key does not match public key".into());
     }
     Ok(())
 }
@@ -1737,6 +1736,8 @@ mod tests {
             pair_load_error(&cert, &key),
             "could not load client key pair: tls: private key does not match public key"
         );
+        // An inconsistent pair must not yield a usable TLS config either, and
+        // `unwrap_err` reports the config that was unexpectedly built.
         let err = session_client_config(&SessionTls {
             insecure: false,
             server_name: String::new(),
@@ -1744,8 +1745,7 @@ mod tests {
             client_cert_pem: Some(std::fs::read(&cert).unwrap()),
             client_key_pem: Some(std::fs::read(&key).unwrap()),
         })
-        .err()
-        .expect("an inconsistent pair must not yield a usable TLS config either");
+        .unwrap_err();
         assert!(err.contains("KeyMismatch"), "rustls' own words: {err}");
     }
 

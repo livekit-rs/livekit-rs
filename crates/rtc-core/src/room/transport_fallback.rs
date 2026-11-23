@@ -1,7 +1,7 @@
 //! Production participant failure/loss -> shared ICE policy -> both native PCs.
 use super::*;
 use crate::media_api::{MediaCommand, PcRole};
-use crate::transport_fallback::{IceConnection, IcePreference};
+use crate::transport_fallback::IceConnection;
 impl Room {
     #[track_caller]
     pub(super) fn apply_ice_preference(

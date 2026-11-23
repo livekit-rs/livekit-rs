@@ -471,10 +471,11 @@ fn warp_sped_real_authenticated_flights_ack_loss_and_plain_peer_fallback() {
         for tick in 0..1500u64 {
             let now = start + Duration::from_millis(tick * 10);
             client.handle_input(Input::Timeout(now)).unwrap();
-            if !sent && client.is_connected() {
-                if let Some(mut channel) = client.channel(cid) {
-                    sent = channel.write(true, b"actual-sped-dtls-sctp").unwrap();
-                }
+            if !sent
+                && client.is_connected()
+                && let Some(mut channel) = client.channel(cid)
+            {
+                sent = channel.write(true, b"actual-sped-dtls-sctp").unwrap();
             }
             loop {
                 match client.poll_output().unwrap() {

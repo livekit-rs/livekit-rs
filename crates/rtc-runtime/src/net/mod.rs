@@ -89,6 +89,10 @@ pub(crate) struct SrflxGather {
     sockets: Vec<(SocketAddr, SocketAddr, UdpSocket)>,
 }
 
+/// An admitted server-reflexive candidate: the address the STUN server mapped
+/// and the local bound address that observed the mapping.
+type SrflxCandidate = (SocketAddr, SocketAddr);
+
 pub type PacketSink = mpsc::Sender<InboundPacket>;
 
 #[derive(Clone)]
@@ -581,10 +585,11 @@ impl NetRouter {
             }
         }
         let mut candidates = self.gather_shared_candidates();
-        if candidates.is_empty() && dedicated.is_empty() {
-            if let Some(error) = dedicated_error {
-                return Err(error);
-            }
+        if candidates.is_empty()
+            && dedicated.is_empty()
+            && let Some(error) = dedicated_error
+        {
+            return Err(error);
         }
         for (index, candidate, socket) in dedicated {
             if self.install_dedicated_udp(&mut entry, &route, index, candidate, socket) {
@@ -936,7 +941,7 @@ impl NetRouter {
     pub(crate) fn admit_srflx(
         &self,
         gather: SrflxGather,
-    ) -> Option<(TransportId, String, Vec<(SocketAddr, SocketAddr)>)> {
+    ) -> Option<(TransportId, String, Vec<SrflxCandidate>)> {
         let SrflxGather {
             id,
             ufrag,

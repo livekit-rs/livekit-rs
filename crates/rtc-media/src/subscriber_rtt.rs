@@ -26,12 +26,12 @@ impl MediaEngine {
         let Some(d) = self.downs.get_mut(di) else {
             return;
         };
-        if let (Some(tid), Some(mid)) = (d.transport, d.mid) {
-            if let Some(t) = self.transports.get_mut(&tid) {
-                let mut direct = t.rtc.direct_api();
-                if let Some(stream) = direct.stream_tx_by_mid(mid, None) {
-                    stream.reset_receiver_report_source();
-                }
+        if let (Some(tid), Some(mid)) = (d.transport, d.mid)
+            && let Some(t) = self.transports.get_mut(&tid)
+        {
+            let mut direct = t.rtc.direct_api();
+            if let Some(stream) = direct.stream_tx_by_mid(mid, None) {
+                stream.reset_receiver_report_source();
             }
         }
         d.rr_source_id = None;

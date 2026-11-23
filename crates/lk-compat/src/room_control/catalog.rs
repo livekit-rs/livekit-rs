@@ -8,6 +8,16 @@ use std::{sync::Arc, time::Duration};
 
 type CachedParticipantRows = std::collections::BTreeMap<Vec<u8>, Vec<u8>>;
 pub(super) type CachedParticipantIds = std::collections::BTreeSet<(String, String)>;
+/// One cached participant row. (identity, encoded ParticipantInfo bytes)
+type ParticipantRow = (String, Vec<u8>);
+/// The room-identity inputs of one projection commit: which room, its owning
+/// node, and the encoded room hash. Bundling them fixes clippy's
+/// `too_many_arguments` on `commit_projection`.
+struct ProjectionTarget<'a> {
+    name: &'a str,
+    owner: &'a str,
+    raw: &'a [u8],
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -367,7 +377,16 @@ impl RoomCatalog {
             .collect();
         let retired = prepare_cache(&observed_ids).ok_or(CatalogError::ReconcileConflict)?;
         Self::commit_projection(
-            &mut c, name, &raw, owner, &updated, &observed, &retired, &rows,
+            &mut c,
+            ProjectionTarget {
+                name,
+                owner,
+                raw: &raw,
+            },
+            &updated,
+            &observed,
+            &retired,
+            &rows,
         )
         .await
     }
@@ -375,14 +394,13 @@ impl RoomCatalog {
     /// insert/update/delete after local revision validation cannot be erased.
     async fn commit_projection(
         c: &mut ManagedLease<'_>,
-        name: &str,
-        raw: &[u8],
-        owner: &str,
+        target: ProjectionTarget<'_>,
         updated: &[u8],
         observed: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
         retired: &[String],
-        rows: &[(String, Vec<u8>)],
+        rows: &[ParticipantRow],
     ) -> Result<bool, CatalogError> {
+        let ProjectionTarget { name, owner, raw } = target;
         // Ownership is a router hash read, not a cross-slot transaction. The
         // upstream cache writes are ordinary per-key operations. Keep the CAS
         // only at each native key's boundary and let reconciliation retry after
@@ -531,7 +549,7 @@ impl RoomCatalog {
                 };
                 if version(room) >= version(&current.message) {
                     next.metadata = room.metadata.clone();
-                    next.version = room.version.clone();
+                    next.version = room.version;
                 }
                 next
             } else {

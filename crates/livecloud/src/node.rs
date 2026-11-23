@@ -236,12 +236,12 @@ impl NodeRouter {
         // signal would make a successful retry immediately lose all its workers.
         self.stop.send_replace(false);
         let attempt = self.attempt(gate);
-        if let Some(registry) = &self.registry {
-            if let Err(error) = registry.register_node(&self.node.wire_value()).await {
-                self.rollback_start().await;
-                attempt.complete();
-                return Err(NodeStartError::Register(error));
-            }
+        if let Some(registry) = &self.registry
+            && let Err(error) = registry.register_node(&self.node.wire_value()).await
+        {
+            self.rollback_start().await;
+            attempt.complete();
+            return Err(NodeStartError::Register(error));
         }
 
         // Do not spawn the publishing worker until the subscription has actually
@@ -301,15 +301,15 @@ impl NodeRouter {
 
     async fn rollback_start(&self) {
         self.join_tasks().await;
-        if let Some(registry) = &self.registry {
-            if let Err(error) = registry.unregister_node(&self.node.id()).await {
-                self.cleanup_failed.store(true, Ordering::SeqCst);
-                error_log(
-                    RUST_ONLY_WORKER_CALLER,
-                    "could not unregister failed node start",
-                    &error.to_string(),
-                );
-            }
+        if let Some(registry) = &self.registry
+            && let Err(error) = registry.unregister_node(&self.node.id()).await
+        {
+            self.cleanup_failed.store(true, Ordering::SeqCst);
+            error_log(
+                RUST_ONLY_WORKER_CALLER,
+                "could not unregister failed node start",
+                &error.to_string(),
+            );
         }
     }
 
@@ -369,15 +369,15 @@ impl NodeRouter {
         // A worker may be inside HSET when Stop is requested. Join every writer
         // before HDEL, so no in-flight refresh can resurrect the removed record.
         self.join_tasks().await;
-        if let Some(registry) = &self.registry {
-            if let Err(error) = registry.unregister_node(&self.node.id()).await {
-                self.cleanup_failed.store(true, Ordering::SeqCst);
-                error_log(
-                    RUST_ONLY_WORKER_CALLER,
-                    "could not unregister stopped node",
-                    &error.to_string(),
-                );
-            }
+        if let Some(registry) = &self.registry
+            && let Err(error) = registry.unregister_node(&self.node.id()).await
+        {
+            self.cleanup_failed.store(true, Ordering::SeqCst);
+            error_log(
+                RUST_ONLY_WORKER_CALLER,
+                "could not unregister stopped node",
+                &error.to_string(),
+            );
         }
         attempt.complete();
     }

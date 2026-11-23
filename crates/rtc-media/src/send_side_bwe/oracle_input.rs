@@ -346,11 +346,7 @@ fn golden_table(text: &str) -> (Vec<String>, Vec<BTreeMap<String, String>>) {
                 row.len(),
                 header.len()
             );
-            header
-                .iter()
-                .cloned()
-                .zip(row.into_iter())
-                .collect::<BTreeMap<_, _>>()
+            header.iter().cloned().zip(row).collect::<BTreeMap<_, _>>()
         })
         .collect::<Vec<_>>();
     (header, body)
@@ -701,9 +697,9 @@ impl Session {
     fn new(config: &CongestionDetectorConfig) -> Self {
         Self {
             gsel: -1,
-            lg: PacketGroup::new(config.packet_group.clone(), config.weighted_loss.clone(), 0),
+            lg: PacketGroup::new(config.packet_group.clone(), config.weighted_loss, 0),
             lg_has: false,
-            lr: TrendDetector::new(config.congested_ctr_trend.clone()),
+            lr: TrendDetector::new(config.congested_ctr_trend),
             lr_has: false,
             reports: 0,
             changes: 0,
@@ -872,18 +868,26 @@ fn traffic_echo(stats: &TrafficStats) -> (f64, i64, f64, i64) {
     (loss, bitrate, ratio, penalty)
 }
 
+/// The two constants one replay run fixes before its first row: the wall-clock
+/// origin every `at_us` is measured from and the wire sequence base.
+#[derive(Clone, Copy)]
+struct Run {
+    origin: Instant,
+    sn_start: i64,
+}
+
 /// One row of the stimulus applied to the Rust detector, in the oracle's order
 /// and with the oracle's validators.
 fn apply(
     row: &Stimulus,
     detector: &mut CongestionDetector,
     session: &mut Session,
-    origin: Instant,
-    sn_start: i64,
+    run: Run,
     sends: &mut u64,
     echo: &mut Echo,
     drift: Drift,
 ) {
+    let Run { origin, sn_start } = run;
     let now = at_instant(origin, row.at_us);
     let op = row.op.as_str();
     let extra = row.extra.as_str();
@@ -1082,7 +1086,7 @@ fn apply(
             let config: WeightedLossConfig = if leaf(extra, "zero_wl") == 1 {
                 zero_weighted_loss()
             } else {
-                detector.config().weighted_loss.clone()
+                detector.config().weighted_loss
             };
             let mut stats = TrafficStats::new(config);
             // The traffic arm's four time columns are positional integers, so no
@@ -1166,7 +1170,7 @@ fn apply(
             // which is how the detector seeds a group from its predecessor.
             session.lg = PacketGroup::new(
                 detector.config().packet_group.clone(),
-                detector.config().weighted_loss.clone(),
+                detector.config().weighted_loss,
                 row.a,
             );
             session.lg_has = true;
@@ -1196,11 +1200,11 @@ fn read_state(
     detector: &CongestionDetector,
     session: &Session,
     echo: &Echo,
-    origin: Instant,
-    sn_start: i64,
+    run: Run,
     sends: u64,
     got: &mut Observed,
 ) {
+    let Run { origin, sn_start } = run;
     let now = at_instant(origin, row.at_us);
     got.set("sn", echo.sn);
     got.set("state", state_code(detector.congestion_state()));
@@ -1739,6 +1743,7 @@ fn replay_campaign(operations: &str, golden: &str, drift: Drift) -> Replay {
         if replayable {
             replay.cases.push(rows[0].case.clone());
             let (sn_start, config) = campaign_config(&rows[0].config);
+            let run = Run { origin, sn_start };
             let mut detector = CongestionDetector::new(config.clone(), at_instant(origin, 0));
             let mut session = Session::new(&config);
             let mut sends = 0_u64;
@@ -1748,16 +1753,13 @@ fn replay_campaign(operations: &str, golden: &str, drift: Drift) -> Replay {
                     row,
                     &mut detector,
                     &mut session,
-                    origin,
-                    sn_start,
+                    run,
                     &mut sends,
                     &mut echo,
                     drift,
                 );
                 let mut got = Observed::default();
-                read_state(
-                    row, &detector, &session, &echo, origin, sn_start, sends, &mut got,
-                );
+                read_state(row, &detector, &session, &echo, run, sends, &mut got);
                 compare(row, &compared, output, &got, &mut replay.diffs);
                 replay.rows += 1;
                 replay.fields += compared.len();
@@ -1835,12 +1837,15 @@ mod tests {
 
         fn apply(&mut self, row: &Stimulus) -> Observed {
             let mut echo = Echo::fresh();
+            let run = Run {
+                origin: self.origin,
+                sn_start: self.sn_start,
+            };
             super::apply(
                 row,
                 &mut self.detector,
                 &mut self.session,
-                self.origin,
-                self.sn_start,
+                run,
                 &mut self.sends,
                 &mut echo,
                 Drift::None,
@@ -1851,8 +1856,7 @@ mod tests {
                 &self.detector,
                 &self.session,
                 &echo,
-                self.origin,
-                self.sn_start,
+                run,
                 self.sends,
                 &mut got,
             );
@@ -3011,7 +3015,7 @@ mod tests {
                 0,
                 "aby=8000;apk=4;lpk=1",
             ));
-            let mut stats = TrafficStats::new(harness.detector.config().weighted_loss.clone());
+            let mut stats = TrafficStats::new(harness.detector.config().weighted_loss);
             stats.merge(&TrafficData {
                 min_send_time: min_send,
                 max_send_time: max_send,

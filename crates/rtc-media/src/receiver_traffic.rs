@@ -102,12 +102,12 @@ impl MediaEngine {
                             d.restart_receiver();
                             d.av1 = Default::default();
                             d.av1_packet_selector.restart();
-                            if let (Some(target), Some(mid)) = (d.transport, d.mid) {
-                                if let Some(t) = self.transports.get_mut(&target) {
-                                    let mut direct = t.rtc.direct_api();
-                                    if let Some(stream) = direct.stream_tx_by_mid(mid, None) {
-                                        stream.flush_receiver_restart_history();
-                                    }
+                            if let (Some(target), Some(mid)) = (d.transport, d.mid)
+                                && let Some(t) = self.transports.get_mut(&target)
+                            {
+                                let mut direct = t.rtc.direct_api();
+                                if let Some(stream) = direct.stream_tx_by_mid(mid, None) {
+                                    stream.flush_receiver_restart_history();
                                 }
                             }
                         }

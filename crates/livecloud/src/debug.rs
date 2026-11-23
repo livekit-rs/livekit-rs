@@ -771,15 +771,6 @@ fn profile_stacks(profile: &rpprof::protos::Profile) -> Vec<Vec<String>> {
         })
         .collect()
 }
-#[cfg(test)]
-fn profile_stack(
-    profile: &rpprof::protos::Profile,
-    sample: &rpprof::protos::Sample,
-) -> Vec<String> {
-    let mut view = profile.clone();
-    view.sample = vec![sample.clone()];
-    profile_stacks(&view).pop().unwrap_or_default()
-}
 fn profile_delta(
     before: &rpprof::protos::Profile,
     mut after: rpprof::protos::Profile,
@@ -1156,9 +1147,7 @@ mod collector_tests {
     }
     #[tokio::test]
     async fn cpu_http_returns_real_sampled_gzip_pprof_and_native_symbol_lookup() {
-        let _serial = crate::profiling::TEST_SAMPLING
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _serial = crate::profiling::TEST_SAMPLING.lock().await;
         // Keep the workload alive throughout sampler initialization and capture,
         // including when other tests are running in the same process.
         let (stop, until_stopped) = std::sync::mpsc::channel();
@@ -1231,9 +1220,7 @@ mod collector_tests {
     }
     #[tokio::test]
     async fn aborting_http_capture_releases_sampler_for_next_request() {
-        let _serial = crate::profiling::TEST_SAMPLING
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _serial = crate::profiling::TEST_SAMPLING.lock().await;
         let task =
             tokio::spawn(async { sampled(rpprof::ClockType::Cpu, Duration::from_secs(30)).await });
         tokio::time::timeout(Duration::from_secs(1), async {
@@ -1252,9 +1239,7 @@ mod collector_tests {
     }
     #[tokio::test]
     async fn heap_endpoint_preserves_shared_live_sampling_and_exports_real_allocations() {
-        let _serial = crate::profiling::TEST_SAMPLING
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _serial = crate::profiling::TEST_SAMPLING.lock().await;
         let first = HeapSampling::start();
         let second = HeapSampling::start();
         let allocations = (0..128)
@@ -1283,9 +1268,7 @@ mod collector_tests {
     }
     #[tokio::test]
     async fn native_trace_is_explicit_json_with_actual_thread_sample_timestamps() {
-        let _serial = crate::profiling::TEST_SAMPLING
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _serial = crate::profiling::TEST_SAMPLING.lock().await;
         let response = trace(PprofForm(
             [("seconds".into(), "0.1".into())].into_iter().collect(),
         ))
@@ -1315,9 +1298,7 @@ mod collector_tests {
     }
     #[test]
     fn profile_delta_matches_actual_native_stack_not_unstable_profile_ids() {
-        let _serial = crate::profiling::TEST_SAMPLING
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let _serial = crate::profiling::TEST_SAMPLING.blocking_lock();
         let _sampling = HeapSampling::start();
         let before = HeapSampling::snapshot().unwrap();
         let allocations = (0..32)

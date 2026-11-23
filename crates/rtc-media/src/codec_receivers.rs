@@ -253,10 +253,10 @@ impl MediaEngine {
                 .receivers
                 .iter_mut()
                 .find(|receiver| receiver.up == ui)
+                && !receiver.started
+                && !observed_mime.is_empty()
             {
-                if !receiver.started && !observed_mime.is_empty() {
-                    receiver.mime = observed_mime.to_ascii_lowercase();
-                }
+                receiver.mime = observed_mime.to_ascii_lowercase();
             }
             group.started(
                 ui,
@@ -502,10 +502,10 @@ impl MediaEngine {
         if let Some(up) = self.ups.get_mut(previous) {
             up.subscribers.retain(|other| *other != di);
         }
-        if let Some(up) = self.ups.get_mut(target) {
-            if !up.subscribers.contains(&di) {
-                up.subscribers.push(di);
-            }
+        if let Some(up) = self.ups.get_mut(target)
+            && !up.subscribers.contains(&di)
+        {
+            up.subscribers.push(di);
         }
         self.configure_red(di, now);
     }

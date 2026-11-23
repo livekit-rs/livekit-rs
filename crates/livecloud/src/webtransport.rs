@@ -2034,10 +2034,11 @@ mod tests {
 
                 let head_end = stage("actual canonical request head", async {
                     loop {
-                        if received.len() >= 4 + declared {
-                            if let Some(end) = received[4+declared..].windows(4).position(|w| w == b"\r\n\r\n") {
-                                break 4 + declared + end + 4;
-                            }
+                        if received.len() >= 4 + declared
+                            && let Some(end) =
+                                received[4 + declared..].windows(4).position(|w| w == b"\r\n\r\n")
+                        {
+                            break 4 + declared + end + 4;
                         }
                         received.extend_from_slice(&stream.recv_data().await.unwrap().expect("worker request bytes"));
                     }
@@ -2254,9 +2255,13 @@ mod tests {
             Some(pb::server_message::Message::Register(response)) => response.worker_id,
             other => panic!("expected register, got {other:?}"),
         };
-        assert!(registry.registration(&id).is_some());
+        // The register reply is written before the worker is inserted into the
+        // ready registry (Go: `HandshakeAgentWorker` replies, then
+        // `handleConnection` calls `registerWorker`), so the `Registered` event
+        // is the happens-before marker for registry visibility.
         assert!(matches!(event_rx.recv().await,
             Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+        assert!(registry.registration(&id).is_some());
         let mut sibling = client
             .open_session("localhost", "/agent", &[("authorization", &token)])
             .await
@@ -2351,7 +2356,6 @@ mod tests {
         let ping = pb::WorkerMessage {
             message: Some(pb::worker_message::Message::Ping(pb::WorkerPing {
                 timestamp: 4201,
-                ..Default::default()
             })),
         }
         .encode_to_vec();
@@ -2504,9 +2508,11 @@ mod tests {
             Some(pb::server_message::Message::Register(response)) => response.worker_id,
             other => panic!("expected register, got {other:?}"),
         };
-        assert!(registry.registration(&id).is_some());
+        // `Registered` is published after the ready-registry insert, so awaiting
+        // it is the happens-before marker for registry visibility.
         assert!(matches!(event_rx.recv().await,
             Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+        assert!(registry.registration(&id).is_some());
         // WT_CLOSE_SESSION (0x2843) declaring a 2-byte payload: shorter than the
         // 4-byte application close code, so the capsule parser rejects it. Keep
         // the CONNECT and control send halves open (no FIN) so teardown is driven
@@ -2787,7 +2793,7 @@ mod tests {
         let addr = listener.bound_addrs()[0];
         let (stop, shutdown) = watch::channel(false);
         let handles = listener.spawn(worker, Duration::from_secs(30), shutdown);
-        let (mut client, ep) = dial_insecure(addr, "/agent", &[("authorization", &token)])
+        let (client, ep) = dial_insecure(addr, "/agent", &[("authorization", &token)])
             .await
             .unwrap();
         let mut control = client.session().open_bi().await.unwrap();
@@ -2803,9 +2809,11 @@ mod tests {
             Some(pb::server_message::Message::Register(response)) => response.worker_id,
             other => panic!("expected register, got {other:?}"),
         };
-        assert!(registry.registration(&id).is_some());
+        // `Registered` is published after the ready-registry insert, so awaiting
+        // it is the happens-before marker for registry visibility.
         assert!(matches!(event_rx.recv().await,
             Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+        assert!(registry.registration(&id).is_some());
 
         // A single 0xc0 byte advertises an 8-byte QUIC varint but carries only
         // one: the quarter-stream-ID prefix cannot be parsed. Send it as a raw
@@ -2890,9 +2898,11 @@ mod tests {
             Some(pb::server_message::Message::Register(response)) => response.worker_id,
             other => panic!("expected register, got {other:?}"),
         };
-        assert!(registry.registration(&id).is_some());
+        // `Registered` is published after the ready-registry insert, so awaiting
+        // it is the happens-before marker for registry visibility.
         assert!(matches!(event_rx.recv().await,
             Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+        assert!(registry.registration(&id).is_some());
 
         // A well-formed datagram (correct quarter-stream-ID prefix) must be
         // accepted at the QUIC layer and dropped by the application.
@@ -2977,9 +2987,11 @@ mod tests {
             Some(pb::server_message::Message::Register(response)) => response.worker_id,
             other => panic!("expected register, got {other:?}"),
         };
-        assert!(registry.registration(&id).is_some());
+        // `Registered` is published after the ready-registry insert, so awaiting
+        // it is the happens-before marker for registry visibility.
         assert!(matches!(event_rx.recv().await,
             Some(lk_compat::agent::websocket::WorkerEvent::Registered { worker_id }) if worker_id == id));
+        assert!(registry.registration(&id).is_some());
 
         // Open a uni stream and keep its send side OPEN (no FIN) so the server
         // owns it and a later STOP_SENDING is observable on the client writer.

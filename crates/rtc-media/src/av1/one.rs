@@ -122,10 +122,10 @@ impl OneSelector {
             if !packet.attached() {
                 return None;
             }
-            if let Some(last) = self.last_frame {
-                if packet.frame.wrapping_add(self.frame_offset) <= last {
-                    self.frame_offset = last.wrapping_add(1).wrapping_sub(packet.frame);
-                }
+            if let Some(last) = self.last_frame
+                && packet.frame.wrapping_add(self.frame_offset) <= last
+            {
+                self.frame_offset = last.wrapping_add(1).wrapping_sub(packet.frame);
             }
             self.descriptor_source = Some(epoch);
         }

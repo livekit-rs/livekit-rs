@@ -1016,10 +1016,9 @@ impl RoomManager {
                 .send(RoomInput::Api(ApiCall::GetDebugRoom(reply)))
                 .await
                 .is_ok()
+                && let Ok(detail) = receipt.await
             {
-                if let Ok(detail) = receipt.await {
-                    details.push(detail);
-                }
+                details.push(detail);
             }
         }
         details

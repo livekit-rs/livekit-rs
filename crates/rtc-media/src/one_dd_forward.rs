@@ -1,7 +1,7 @@
 //! Original packet forwarding for independent ONE/RID encodings.
 use crate::{
     av1::{OutPacketDescriptor, PacketParsed, PacketReceiver, PacketSlot},
-    dd_fallback::{Input, Source},
+    dd_fallback::{DdPipeline, Input, Source},
     engine::MediaEngine,
     forward_timing::ForwardingAdmissions,
 };
@@ -31,10 +31,10 @@ impl Sources {
     }
 
     pub fn report(&mut self, layer: usize, report: SenderInfo) {
-        if let Some(encoding) = self.0.get_mut(layer).and_then(Option::as_mut) {
-            if encoding.ssrc == *report.ssrc {
-                encoding.report = Some(report);
-            }
+        if let Some(encoding) = self.0.get_mut(layer).and_then(Option::as_mut)
+            && encoding.ssrc == *report.ssrc
+        {
+            encoding.report = Some(report);
         }
     }
 
@@ -46,11 +46,14 @@ impl Sources {
         &mut self,
         layer: usize,
         data: &MediaPacket,
-        codec: Codec,
-        configured: bool,
+        pipeline: DdPipeline,
         now: Instant,
         restart: bool,
     ) -> Option<(u64, Option<PacketParsed>)> {
+        let DdPipeline {
+            codec,
+            negotiated: configured,
+        } = pipeline;
         let slot = self.0.get_mut(layer)?;
         let ssrc = *data.packet.header.ssrc;
         if slot
@@ -122,10 +125,13 @@ impl MediaEngine {
         tid: TransportId,
         layer: usize,
         data: &MediaPacket,
-        codec: Codec,
-        configured: bool,
+        pipeline: DdPipeline,
         now: Instant,
     ) {
+        let DdPipeline {
+            codec,
+            negotiated: configured,
+        } = pipeline;
         let dequeued = Instant::now();
         let packet = &data.packet;
         let blank = packet.payload.is_empty();
@@ -156,8 +162,7 @@ impl MediaEngine {
         let Some((sequence, parsed)) = up.one_dd.observe(
             layer,
             data,
-            codec,
-            configured,
+            pipeline,
             now,
             self.cfg.rtc.enable_rtp_stream_restart_detection,
         ) else {
@@ -188,16 +193,15 @@ impl MediaEngine {
                     layers: up.layers.clone(),
                 });
             }
-            if one_shot {
-                if let Some(sizes) = parsed.as_ref().and_then(PacketParsed::resolutions) {
-                    if let Some(sizes) = up.media_sizes.observe(&up.mime, spatial, false, sizes) {
-                        self.events.push(MediaEvent::TrackVideoSizeChanged {
-                            track_sid: up.sid.clone(),
-                            mime_type: up.mime.clone(),
-                            sizes,
-                        });
-                    }
-                }
+            if one_shot
+                && let Some(sizes) = parsed.as_ref().and_then(PacketParsed::resolutions)
+                && let Some(sizes) = up.media_sizes.observe(&up.mime, spatial, false, sizes)
+            {
+                self.events.push(MediaEvent::TrackVideoSizeChanged {
+                    track_sid: up.sid.clone(),
+                    mime_type: up.mime.clone(),
+                    sizes,
+                });
             }
             // The independent Go tracker charges the complete logical RTP packet.
             up.on_frame(spatial, data.rid, data.logical_rtp_bytes, now);

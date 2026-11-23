@@ -50,6 +50,7 @@ use super::trend::{TrendDetector, TrendDirection};
 pub(crate) const DEFAULT_RTT: f64 = 0.070;
 
 /// `bwe.RTTSmoothingFactor`.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(crate) const RTT_SMOOTHING_FACTOR: f64 = 0.5;
 
 /// `c.estimatedAvailableChannelCapacity` at reset.
@@ -66,6 +67,7 @@ pub(crate) const SYMBOL_LARGE_DELTA: u8 = 2;
 
 /// `rtcp.TypeTCCPacketReceivedWithoutDelta`, and the value a status vector can
 /// hold for the two reserved symbols.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(crate) const SYMBOL_WITHOUT_DELTA: u8 = 3;
 
 /// `bwe.CongestionState`, in upstream `iota` order. The send-side detector has
@@ -311,7 +313,7 @@ impl CongestionDetector {
     fn new_packet_group(&self, inherited_queuing_delay: i64) -> PacketGroup {
         PacketGroup::new(
             self.config.packet_group.clone(),
-            self.config.weighted_loss.clone(),
+            self.config.weighted_loss,
             inherited_queuing_delay,
         )
     }
@@ -441,7 +443,7 @@ impl CongestionDetector {
         self.loss_measurement = Some(LossMeasurement::new(
             loss_jqr,
             loss_dqr,
-            self.config.weighted_loss.clone(),
+            self.config.weighted_loss,
             self.config.jqr_min_weighted_loss,
             self.config.dqr_max_weighted_loss,
         ));
@@ -522,7 +524,7 @@ impl CongestionDetector {
         if let Some(stats) = self.congested_traffic_stats.as_mut() {
             stats.merge(&data);
         }
-        let mut ts = TrafficStats::new(self.config.weighted_loss.clone());
+        let mut ts = TrafficStats::new(self.config.weighted_loss);
         ts.merge(&data);
         let ctr = ts.captured_traffic_ratio();
         // Quantise to filter out small changes.
@@ -540,7 +542,7 @@ impl CongestionDetector {
     fn new_congested_packet_group(&self, inherited_queuing_delay: i64) -> PacketGroup {
         PacketGroup::new(
             self.config.congested_packet_group.clone(),
-            self.config.weighted_loss.clone(),
+            self.config.weighted_loss,
             inherited_queuing_delay,
         )
     }
@@ -585,7 +587,7 @@ impl CongestionDetector {
             }
         }
 
-        let mut agg = TrafficStats::new(self.config.weighted_loss.clone());
+        let mut agg = TrafficStats::new(self.config.weighted_loss);
         let window_us = self.config.estimation_window_duration.as_micros_i64();
         let mut idx = max_group_idx.min(self.packet_groups.len() - 1);
         loop {
@@ -637,9 +639,8 @@ impl CongestionDetector {
 
     /// `resetCTRTrend`.
     fn reset_ctr_trend(&mut self) {
-        self.congested_ctr_trend =
-            Some(TrendDetector::new(self.config.congested_ctr_trend.clone()));
-        self.congested_traffic_stats = Some(TrafficStats::new(self.config.weighted_loss.clone()));
+        self.congested_ctr_trend = Some(TrendDetector::new(self.config.congested_ctr_trend));
+        self.congested_traffic_stats = Some(TrafficStats::new(self.config.weighted_loss));
     }
 
     /// `clearCTRTrend`, which is also the constructor state.
@@ -651,6 +652,7 @@ impl CongestionDetector {
 
     /// `UpdateRTT`. A zero argument is upstream's "no measurement yet" and
     /// restores the 70 ms default rather than smoothing towards zero.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn update_rtt(&mut self, rtt: f64) {
         if rtt == 0.0 {
             self.rtt = DEFAULT_RTT;
@@ -662,6 +664,7 @@ impl CongestionDetector {
     }
 
     /// `CanProbe`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn can_probe(&self, at: Instant) -> bool {
         self.congestion_state == CongestionState::None
             && self.probe_packet_group.is_none()
@@ -669,16 +672,18 @@ impl CongestionDetector {
     }
 
     /// `ProbeDuration`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_duration(&self) -> PolicyDuration {
         self.probe_regulator.duration()
     }
 
     /// `ProbeClusterStarting`: a new cluster replaces the running one, exactly as
     /// upstream's unconditional assignment does.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_cluster_starting(&mut self, pci: ProbeClusterInfo) {
         self.probe_packet_group = Some(ProbePacketGroup::new(
             self.config.probe_packet_group.clone(),
-            self.config.weighted_loss.clone(),
+            self.config.weighted_loss,
             pci,
         ));
         self.packet_tracker.probe_cluster_starting(pci.id);
@@ -687,6 +692,7 @@ impl CongestionDetector {
     /// `ProbeClusterDone`: the tracker stops attributing sends to the cluster and
     /// the probe group records the result and the completion clock, which starts
     /// the settle wait.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_cluster_done(&mut self, pci: &ProbeClusterInfo, at: Instant) {
         self.packet_tracker.probe_cluster_done(pci.id);
         if let Some(probe_group) = self.probe_packet_group.as_mut() {
@@ -695,6 +701,7 @@ impl CongestionDetector {
     }
 
     /// `ProbeClusterIsGoalReached`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_cluster_is_goal_reached(&self) -> bool {
         let Some(probe_group) = self.probe_packet_group.as_ref() else {
             return false;
@@ -715,12 +722,11 @@ impl CongestionDetector {
 
     /// `ProbeClusterFinalize`. `None` is upstream's `isFinalized == false`, for
     /// which the `(Inconclusive, 0)` pair is never read.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_cluster_finalize(&mut self, at: Instant) -> Option<(ProbeSignal, i64)> {
         let probe_group = self.probe_packet_group.as_ref()?;
         let max_sequence_number = self.packet_tracker.probe_max_sequence_number();
-        let Some(pci) = probe_group.maybe_finalize_probe(max_sequence_number, self.rtt, at) else {
-            return None;
-        };
+        let pci = probe_group.maybe_finalize_probe(max_sequence_number, self.rtt, at)?;
 
         // A congestion signal that moved while the probe ran outranks the probe.
         if self.congestion_state != CongestionState::None {
@@ -754,6 +760,7 @@ impl CongestionDetector {
         self.estimated_available_channel_capacity
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn rtt(&self) -> f64 {
         self.rtt
     }
@@ -773,23 +780,28 @@ impl CongestionDetector {
     }
 
     /// Diagnostics for the two upstream log-only drop paths.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn dropped(&self) -> (u64, u64) {
         (self.dropped_after_finalize, self.older_group_finalized)
     }
 
     /// Test and differential inspection surface.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn packet_group_count(&self) -> usize {
         self.packet_groups.len()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn packet_group(&self, idx: usize) -> &PacketGroup {
         &self.packet_groups[idx]
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn congestion_reason(&self) -> CongestionReason {
         self.congestion_reason
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_packet_group_id(&self) -> Option<ProbeClusterId> {
         self.probe_packet_group
             .as_ref()
@@ -817,18 +829,22 @@ impl CongestionDetector {
         self.rtt = rtt;
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_is_running(&self) -> bool {
         self.probe_packet_group.is_some()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn ctr_trend_is_active(&self) -> bool {
         self.congested_ctr_trend.is_some()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn estimate_is_aggregated(&self) -> bool {
         self.estimate_traffic_stats.is_some()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn congestion_state_switched_at(&self) -> Instant {
         self.congestion_state_switched_at
     }
@@ -1878,7 +1894,7 @@ mod tests {
         det.update_rtt(0.2);
         // oracle lrtt row: 0.14250000000000002 — `0.5 * 0.2 + 0.5 * 0.085` is one
         // ulp above the literal 0.1425, so the exact double has to be compared.
-        assert_eq!(det.rtt(), 0.142_500_000_000_000_002);
+        assert_eq!(det.rtt(), 0.142_500_000_000_000_02);
         det.update_rtt(0.0);
         assert_eq!(det.rtt(), DEFAULT_RTT, "no measurement is not a zero delay");
     }

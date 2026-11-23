@@ -132,10 +132,7 @@ fn discover_parallel(
         }
         drop(send);
         let mut first = false;
-        loop {
-            let Some(remaining) = context.remaining(context.deadline()) else {
-                break;
-            };
+        while let Some(remaining) = context.remaining(context.deadline()) {
             match recv.recv_timeout(remaining) {
                 Ok((local, external)) => {
                     if !first {

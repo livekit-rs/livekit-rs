@@ -191,10 +191,10 @@ impl AgentService {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .take();
-        if let Some(task) = drain {
-            if let Err(error) = task.await {
-                tracing::error!(%error, "agent endpoint drain task failed");
-            }
+        if let Some(task) = drain
+            && let Err(error) = task.await
+        {
+            tracing::error!(%error, "agent endpoint drain task failed");
         }
         let _ = self.shutdown.send(true);
         self.registry.close_all();

@@ -187,10 +187,10 @@ impl AgentDispatchTopics {
     pub async fn retire(self) -> Result<Vec<RpcRetirement>, RpcError> {
         let mut failure = None;
         for server in self.servers {
-            if let Err(error) = self.accepted.retire_server(&self.sid, server).await {
-                if failure.is_none() {
-                    failure = Some(error);
-                }
+            if let Err(error) = self.accepted.retire_server(&self.sid, server).await
+                && failure.is_none()
+            {
+                failure = Some(error);
             }
         }
         // Product owners share their externally joined generation tracker. The

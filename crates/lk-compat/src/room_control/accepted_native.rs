@@ -84,9 +84,6 @@ struct Client {
     received: Vec<Vec<u8>>,
 }
 impl Client {
-    async fn new(manager: &rtc_runtime::RoomManager, name: &str) -> Self {
-        Self::new_with_channels(manager, name, false).await
-    }
     async fn new_with_channels(manager: &rtc_runtime::RoomManager, name: &str, both: bool) -> Self {
         let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let mut rtc = Rtc::builder()
@@ -424,7 +421,6 @@ async fn campaign(bus: RpcBus, rpc: bool) {
                             method: "accepted.native".into(),
                             payload: "real-native".into(),
                             response_timeout_ms: 5000,
-                            ..Default::default()
                         },
                         request_options(),
                     )

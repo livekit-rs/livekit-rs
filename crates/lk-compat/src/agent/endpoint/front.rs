@@ -376,7 +376,7 @@ async fn serve(State(state): State<WorkerHttpState>, mut req: Request) -> Respon
         .headers()
         .get_all(header::EXPECT)
         .iter()
-        .last()
+        .next_back()
         .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"100-continue"));
     req.headers_mut().remove(header::EXPECT);
     if !client.is_empty() {
@@ -605,16 +605,16 @@ impl Exchange {
             let previous = counted.fetch_add(1, Ordering::AcqRel);
             // Go writes the ninth head, then rejects reading another worker
             // head. The existing count also fences retries once a head lands.
-            if previous <= 8 {
-                if let Some(downstream) = &downstream {
-                    let mut headers = head.headers().clone();
-                    if let Some(defaults) = &defaults {
-                        crate::http::merge_response_defaults(&mut headers, &defaults.0);
-                    }
-                    hop_headers(&mut headers);
-                    reserved(&mut headers);
-                    let _ = downstream.try_send(head.status(), headers);
+            if previous <= 8
+                && let Some(downstream) = &downstream
+            {
+                let mut headers = head.headers().clone();
+                if let Some(defaults) = &defaults {
+                    crate::http::merge_response_defaults(&mut headers, &defaults.0);
                 }
+                hop_headers(&mut headers);
+                reserved(&mut headers);
+                let _ = downstream.try_send(head.status(), headers);
             }
             if previous >= 8 {
                 too_many_info.send_replace(true);

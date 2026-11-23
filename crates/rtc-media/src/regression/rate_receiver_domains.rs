@@ -61,7 +61,7 @@ fn source_dd(frame: u16, attached: bool) -> ExtensionValues {
         write(0, 1);
         write(0, 1);
     }
-    let mut raw = vec![0; (bits.len() + 7) / 8];
+    let mut raw = vec![0; bits.len().div_ceil(8)];
     for (i, bit) in bits.into_iter().enumerate() {
         raw[i / 8] |= bit << (7 - i % 8)
     }

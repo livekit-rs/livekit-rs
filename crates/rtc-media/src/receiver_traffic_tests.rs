@@ -232,19 +232,20 @@ fn actual_three_codec_windows_discard_old_backup_delta_and_flush_current_window_
                         data: &packet.contents,
                         received_at: now,
                     });
-                    if let Some((0, bytes)) = measured {
-                        if tick > 3000 && !duplicate {
-                            duplicate = true;
-                            wire.push((0, now, bytes));
-                            s.engine.handle_datagram(crate::net::Datagram {
-                                transport: s.tid,
-                                proto: Proto::Udp,
-                                source: s.address,
-                                destination: s.server,
-                                data: &packet.contents,
-                                received_at: now,
-                            });
-                        }
+                    if let Some((0, bytes)) = measured
+                        && tick > 3000
+                        && !duplicate
+                    {
+                        duplicate = true;
+                        wire.push((0, now, bytes));
+                        s.engine.handle_datagram(crate::net::Datagram {
+                            transport: s.tid,
+                            proto: Proto::Udp,
+                            source: s.address,
+                            destination: s.server,
+                            data: &packet.contents,
+                            received_at: now,
+                        });
                     }
                 }
                 Output::Timeout(_) => break,

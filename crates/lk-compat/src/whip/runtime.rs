@@ -161,17 +161,17 @@ impl WhipSessions {
         };
         let lifecycle = self.lifecycle.read().expect("WHIP topics lock").clone();
         self.resources.lock().await.insert(sid.clone(), resource);
-        if let Some(topics) = &lifecycle {
-            if let Err(error) = topics.opened(&room, &identity, &sid).await {
-                self.resources.lock().await.remove(&sid);
-                // Registration failure must release the actual participant too.
-                session
-                    .apply(SessionRequest::Leave {
-                        reason: DisconnectReason::ServerShutdown,
-                    })
-                    .await;
-                return Err(error);
-            }
+        if let Some(topics) = &lifecycle
+            && let Err(error) = topics.opened(&room, &identity, &sid).await
+        {
+            self.resources.lock().await.remove(&sid);
+            // Registration failure must release the actual participant too.
+            session
+                .apply(SessionRequest::Leave {
+                    reason: DisconnectReason::ServerShutdown,
+                })
+                .await;
+            return Err(error);
         }
         self.topics_changed.notify_waiters();
         let weak = Arc::downgrade(&self.resources);

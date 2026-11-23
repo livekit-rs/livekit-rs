@@ -449,8 +449,8 @@ impl MediaEngine {
             let first_start = !up.started;
             if first_start {
                 up.started = true;
-                if data.params.spec().codec == str0m::format::Codec::Vp9 {
-                    if let Some(flags) = data
+                if data.params.spec().codec == str0m::format::Codec::Vp9
+                    && let Some(flags) = data
                         .ext_vals
                         .user_values
                         .get::<str0m::rtp::FrameUserExtensions>()
@@ -460,9 +460,8 @@ impl MediaEngine {
                                 .iter()
                                 .find_map(|packet| packet.get::<str0m::media::Vp9PacketInfo>())
                         })
-                    {
-                        tracing::debug!(track=%up.sid,source_flexible=flags.flexible,source_picture_bits=flags.picture_bits,source_picture_id=flags.picture_id,"VP9 original reference profile");
-                    }
+                {
+                    tracing::debug!(track=%up.sid,source_flexible=flags.flexible,source_picture_bits=flags.picture_bits,source_picture_id=flags.picture_id,"VP9 original reference profile");
                 }
                 let mime = if up.mime.eq_ignore_ascii_case("audio/red")
                     && data.params.spec().codec == str0m::format::Codec::Opus
@@ -591,7 +590,8 @@ impl MediaEngine {
             // loss is repaired by NACK and subscriber PLI/FIR forwarding, plus the
             // down track layer-lock requester (downtrack.go:978, :2079).
             let mut want_pli = [false; 3];
-            let mut vp9_flags = (false, false, false);
+            let mut vp9_switch_point = false;
+            let mut vp9_ending = false;
             let mut vp9_up_components = [false; 3];
             let mut vp9_picture = (0u16, 0u8);
             let mut vp9_flexible = [false; 3];
@@ -609,11 +609,10 @@ impl MediaEngine {
                         vp9_flexible[component] = flags.flexible;
                         vp9_predicted[component] = flags.predicted;
                         vp9_references[component] = flags.reference_diffs;
-                        vp9_flags.0 |= flags.switching_up && flags.beginning;
-                        vp9_up_components[usize::from(flags.spatial)] |=
-                            flags.switching_up && flags.beginning;
-                        vp9_flags.1 |= flags.beginning;
-                        vp9_flags.2 |= flags.ending;
+                        let is_switch_point = flags.switching_up && flags.beginning;
+                        vp9_switch_point |= is_switch_point;
+                        vp9_up_components[component] |= is_switch_point;
+                        vp9_ending |= flags.ending;
                     }
                 }
             }
@@ -645,9 +644,8 @@ impl MediaEngine {
                         svc.temporal,
                         keyframe,
                         temporal_limit,
-                        vp9_flags.0,
-                        vp9_flags.1,
-                        vp9_flags.2,
+                        vp9_switch_point,
+                        vp9_ending,
                     )
                 } else if !is_video || configured_layers[spatial.clamp(0, 2) as usize] {
                     d.on_frame(spatial, keyframe, now)

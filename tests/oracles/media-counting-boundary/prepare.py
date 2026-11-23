@@ -8,6 +8,6 @@ for name,digest in manifest['original_inputs'].items():assert sha(ref/name)==dig
 
 assert not out.exists(),'fresh isolated stage required';out.mkdir(parents=True)
 shutil.copytree(ref,out/'source',ignore=shutil.ignore_patterns('.git'))
-shutil.copyfile(here/'boundary_observer_test.go',out/'source/'+manifest['staged_as'])
+shutil.copyfile(here/'boundary_observer_test.go',out/'source'/manifest['staged_as'])
 mod=out/'source/go.mod';mod.write_text(mod.read_text()+'\nreplace github.com/livekit/protocol => '+json.dumps(str(root/'references/protocol-stable'))+'\nreplace github.com/livekit/mediatransportutil => '+json.dumps(str(root/'references/go-modules/mediatransportutil-f234b534b095'))+'\n')
 (out/'STAGED.json').write_text(json.dumps({'status':'STAGED_NOT_RUN','source':manifest,'observer_sha256':sha(here/'boundary_observer_test.go'),'algorithm_substitutions':[],'go_mod_staged_sha256':sha(mod)},indent=2)+'\n');print(out)

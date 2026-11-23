@@ -193,7 +193,15 @@ func boundarySendReceiver(r *rtpstats.RTPStatsReceiver, packets []boundaryPacket
 // snapshot id, which is exactly what production sees when a sampling interval makes no progress
 // (or when an interval was already consumed): the boundary pairs with the Rust
 // `delta.expected > 0` filter in crates/rtc-media/src/receiver_traffic.rs.
-func boundaryWindow(t *testing.T, name string, r *rtpstats.RTPStatsSender, stimulus []boundaryPacket) {
+func boundarySNs(packets []boundaryPacket) []uint64 {
+	sns := make([]uint64, 0, len(packets))
+	for _, p := range packets {
+		sns = append(sns, p.sn)
+	}
+	return sns
+}
+
+func boundaryWindow(t *testing.T, name string, r *rtpstats.RTPStatsSender, start, stimulus []boundaryPacket) {
 	baseID := r.NewSnapshotId()
 	senderID := r.NewSenderSnapshotId()
 	// A snapshot id created after a packet anchors packetsExpected on that packet's own
@@ -214,6 +222,8 @@ func boundaryWindow(t *testing.T, name string, r *rtpstats.RTPStatsSender, stimu
 			"is_rtx":                false,
 			"direction":             "downstream",
 			"physical":              boundaryPhysical(physical),
+			"window_sns":            boundarySNs(physical),
+			"start_sns":             boundarySNs(start),
 			"sender_view":           boundaryDelta(sv),
 			"receiver_view":         boundaryDelta(rv),
 			"base_delta":            boundaryDelta(r.DeltaInfo(baseID)),
@@ -242,6 +252,8 @@ func TestOriginalMediaCountingBoundaryDownstream(t *testing.T) {
 		"window":             1,
 		"direction":          "downstream",
 		"physical":           boundaryPhysical(prePadding),
+		"window_sns":         boundarySNs(prePadding),
+		"start_sns":          []uint64{},
 		"sender_view":        boundaryDelta(sv0),
 		"receiver_view":      boundaryDelta(rv0),
 		"stream_down":        boundaryStream(toAnalyticsStream(boundarySSRC, sv0, rv0, true)),
@@ -256,6 +268,8 @@ func TestOriginalMediaCountingBoundaryDownstream(t *testing.T) {
 		"window":             2,
 		"direction":          "downstream",
 		"physical":           boundaryPhysical(preFirst),
+		"window_sns":         boundarySNs(preFirst),
+		"start_sns":          []uint64{101},
 		"sender_view":        boundaryDelta(sv1),
 		"receiver_view":      boundaryDelta(rv1),
 		"stream_down":        boundaryStream(toAnalyticsStream(boundarySSRC, sv1, rv1, true)),
@@ -335,7 +349,7 @@ func TestOriginalMediaCountingBoundaryDownstream(t *testing.T) {
 	for _, c := range cases {
 		r := boundarySender(false, c.cache)
 		boundarySendSender(r, c.start)
-		boundaryWindow(t, c.name, r, c.stimulus)
+		boundaryWindow(t, c.name, r, c.start, c.stimulus)
 		r.Stop()
 	}
 
@@ -358,6 +372,8 @@ func TestOriginalMediaCountingBoundaryDownstream(t *testing.T) {
 		"window":                1,
 		"direction":             "downstream",
 		"physical":              boundaryPhysical([]boundaryPacket{{ms: 10, sn: 901, ts: 6000, marker: true, payload: 20}}),
+		"window_sns":            []uint64{901},
+		"start_sns":             []uint64{900},
 		"sender_view":           boundaryDelta(svN),
 		"base_delta":            boundaryDelta(nacked.DeltaInfo(nackBaseID)),
 		"stream_down":           boundaryStream(toAnalyticsStream(boundarySSRC, svN, rvN, true)),
@@ -389,6 +405,8 @@ func TestOriginalMediaCountingBoundaryDownstream(t *testing.T) {
 			"is_rtx":                isRTX,
 			"direction":             "downstream",
 			"physical":              boundaryPhysical(paddingWindow),
+			"window_sns":            boundarySNs(paddingWindow),
+			"start_sns":             boundarySNs(paddingStart),
 			"sender_view":           boundaryDelta(svP),
 			"receiver_view":         boundaryDelta(rvP),
 			"base_delta":            boundaryDelta(r.DeltaInfo(paddingBaseID)),
@@ -434,6 +452,8 @@ func TestOriginalMediaCountingBoundaryDownstream(t *testing.T) {
 		"window":                1,
 		"direction":             "downstream",
 		"physical":              boundaryPhysical(repairWindow),
+		"window_sns":            boundarySNs(repairWindow),
+		"start_sns":             []uint64{100, 105},
 		"sender_view":           boundaryDelta(svR),
 		"receiver_view":         boundaryDelta(rvR),
 		"base_delta":            boundaryDelta(repairs.DeltaInfo(repairBaseID)),
@@ -539,14 +559,28 @@ func TestOriginalMediaCountingBoundaryUpstream(t *testing.T) {
 			stimulus: []boundaryPacket{{ms: 0, sn: 110, ts: 3000, padding: boundarySlotPadding}, {ms: 10, sn: 111, ts: 3900, marker: true, payload: 20}},
 		},
 		{
-			// The receiver's sequence number WrapAround is created with IsRestartAllowed: false
-			// (rtpstats_receiver.go:203), so a packet below the stream start is IsUnhandled and
-			// is dropped outright (:490-523) instead of repairing packetsLost the way the
-			// sender's below-start branch does (rtpstats_sender.go:523-557). In-range late
-			// packets (121) still take the repair path at :534-541.
+			// The sequence number WrapAround is created with IsRestartAllowed: false
+			// (rtpstats_receiver.go:203 with wraparound.go:216-218), so Update reports a packet
+			// below the stream start as unhandled. That alone does not drop it: the rollover
+			// heuristic at :458-488 runs outside the `!resSN.IsUnhandled` block and, for a packet
+			// whose time stamp moves ahead and that carries a payload, replaces the result with
+			// `Rollover(sn, 1)` — one whole cycle forward. The packet is then booked as in-order at
+			// the next cycle, so `extHighestSN` jumps by 65536 and the window charges every position
+			// in between as lost. In-range late packets (121) are unaffected and still take the
+			// repair path at :534-541.
 			name:     "upstream_gap_late_and_pre_start",
 			start:    []boundaryPacket{{ms: 0, sn: 120, ts: 3000, marker: true, payload: 20}},
 			stimulus: []boundaryPacket{{ms: 10, sn: 122, ts: 3900, marker: true, payload: 20}, {ms: 20, sn: 121, ts: 3900, marker: true, payload: 20}, {ms: 30, sn: 119, ts: 5700, marker: true, payload: 20}},
+		},
+		{
+			// The other side of the same gate: a below-start packet whose time stamp does not move
+			// ahead (:459 requires gapTS > 0) keeps the unhandled WrapAround result, so :490-523
+			// drops it outright. Nothing is counted — no loss repair, no out-of-order, no advance of
+			// the highest sequence number — which is the asymmetry with the sender's below-start
+			// branch (rtpstats_sender.go:523-557) that repairs the loss and re-anchors the window.
+			name:     "upstream_pre_start_sequence_number_drop",
+			start:    []boundaryPacket{{ms: 0, sn: 140, ts: 3000, marker: true, payload: 20}},
+			stimulus: []boundaryPacket{{ms: 10, sn: 142, ts: 3900, marker: true, payload: 20}, {ms: 20, sn: 141, ts: 3900, marker: true, payload: 20}, {ms: 30, sn: 139, ts: 3000, marker: true, payload: 20}},
 		},
 		{
 			// gapSN == 0 is a duplicate, not out-of-order (:529-531), and the duplicate series is

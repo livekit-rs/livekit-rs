@@ -26,6 +26,7 @@ pub(crate) struct TrafficData {
 /// The zero-valued `WeightedLossConfig` that Go's parameterless
 /// `&trafficStats{…}` literal carries. It is deliberately *not*
 /// `WeightedLossConfig::default()`, which holds the frozen upstream defaults.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(crate) fn zero_weighted_loss() -> WeightedLossConfig {
     WeightedLossConfig {
         min_duration_for_loss_validity: PolicyDuration::ZERO,
@@ -262,6 +263,7 @@ impl TrafficStats {
     }
 
     /// `NumBytes`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn num_bytes(&self) -> i64 {
         self.data.acked_bytes + self.data.lost_bytes
     }
@@ -324,6 +326,7 @@ impl TrafficStats {
         )
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn data(&self) -> TrafficData {
         self.data
     }

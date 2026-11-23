@@ -58,9 +58,13 @@ impl RequestCache {
 pub enum Inbound {
     Forward(SessionRequest),
     /// Answer locally (ping / pong, trickle parse errors).
+    #[allow(dead_code)]
+    // handled by session.rs and cluster_signal; no producer since decode_request covers the oneof with Forward/ForwardAndReply — the C74-e signal-request differential decides whether empty `message` or `ping_req` with rtt 0 belongs here
     Reply(pb::SignalResponse),
     /// Forward and also answer locally (ping_req with rtt).
     ForwardAndReply(Box<SessionRequest>, pb::SignalResponse),
+    #[allow(dead_code)]
+    // handled by session.rs and cluster_signal; see the `Reply` note for the C74-e differential that can produce it
     Ignore,
 }
 

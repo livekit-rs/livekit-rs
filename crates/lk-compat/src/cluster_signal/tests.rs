@@ -284,7 +284,6 @@ async fn two_node_remote_join_case(
             .query_async(&mut commands)
             .await
             .unwrap();
-        drop(commands);
         Some(connection)
     } else {
         None
@@ -370,7 +369,6 @@ async fn two_node_remote_join_case(
             .query_async(&mut commands)
             .await
             .unwrap();
-        drop(commands);
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 if controls[0]

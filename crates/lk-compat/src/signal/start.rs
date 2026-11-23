@@ -8,7 +8,9 @@ use rtc_core::session::{JoinError, JoinParams, SessionOutput};
 use std::time::Duration;
 
 pub(super) enum Started {
-    Local(rtc_runtime::SessionHandle, SessionOutput),
+    // `SessionOutput` is 376 bytes against `Remote`'s 72, so the owner hand-off
+    // keeps the first response behind one indirection.
+    Local(rtc_runtime::SessionHandle, Box<SessionOutput>),
     Remote(RemoteSession, Vec<u8>),
     StateMismatch,
 }
@@ -77,7 +79,7 @@ pub(super) async fn attempt(
             if matches!(first, SessionOutput::Close) {
                 return Err(StartError::Closed);
             }
-            Ok(Started::Local(handle, first))
+            Ok(Started::Local(handle, Box::new(first)))
         }
         Ok(SignalConnection::Remote(mut remote)) => {
             match read_initial(&mut remote.incoming, budget).await {
@@ -266,10 +268,14 @@ mod tests {
         .await
         .unwrap();
         match started {
-            Some(Started::Local(
-                handle,
-                SessionOutput::Signal(rtc_core::session::SignalEvent::Join(_)),
-            )) => drop(handle),
+            Some(Started::Local(handle, first))
+                if matches!(
+                    *first,
+                    SessionOutput::Signal(rtc_core::session::SignalEvent::Join(_))
+                ) =>
+            {
+                drop(handle)
+            }
             _ => panic!("actual owner must supply its real join before upgrade"),
         }
         state.manager.close_all().await;

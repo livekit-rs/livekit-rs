@@ -146,6 +146,14 @@ impl Selector {
         }
     }
 }
+/// The dependency-descriptor pipeline a received packet entered: which codec's
+/// descriptors to parse and whether DD feedback is negotiated on its transport.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct DdPipeline {
+    pub(crate) codec: Codec,
+    pub(crate) negotiated: bool,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Payload {
     spatial: i32,
@@ -303,11 +311,14 @@ impl MediaEngine {
         tid: TransportId,
         data: &MediaPacket,
         now: Instant,
-        configured: bool,
+        pipeline: DdPipeline,
         missing: bool,
         dd_layer: Option<(i32, u8)>,
-        codec: Codec,
     ) {
+        let DdPipeline {
+            codec,
+            negotiated: configured,
+        } = pipeline;
         let dequeued = Instant::now();
         let Some(&ui) = self.up_by_mid.get(&(tid, data.mid)) else {
             return;
@@ -472,8 +483,7 @@ impl MediaEngine {
                                     info.temporal,
                                     info.key,
                                     max_temporal,
-                                    info.switching_up,
-                                    info.beginning,
+                                    info.switching_up && info.beginning,
                                     info.ending
                                 ),
                                 crate::downtrack::Forward::Send { .. }

@@ -26,6 +26,7 @@ pub(crate) fn elapsed_micros(now: Instant, then: Instant) -> i64 {
 
 /// Nanoseconds of a whole-microsecond offset, used to rebuild an `Instant` from
 /// a microsecond timestamp, e.g. a probe window start.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(crate) fn at_instant(base: Instant, micros: i64) -> Instant {
     offset(base, micros.wrapping_mul(1_000))
 }
@@ -55,6 +56,7 @@ pub(crate) fn float_i64(value: f64) -> i64 {
 
 /// `math.Round(x)` rounds half away from zero, which upstream uses to build
 /// probe bucket counts.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(crate) fn go_round(value: f64) -> f64 {
     if value == 0.5 {
         1.0
@@ -66,6 +68,7 @@ pub(crate) fn go_round(value: f64) -> f64 {
 }
 
 /// `int(math.Round(value))`.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(crate) fn go_round_i64(value: f64) -> i64 {
     float_i64(go_round(value))
 }

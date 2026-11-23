@@ -7,16 +7,18 @@ use super::{
 use std::time::{Duration, Instant};
 use str0m::rtp::ExtensionValues;
 pub(crate) struct Parsed {
-    pub descriptor: Descriptor,
-    pub structure: Structure,
-    pub raw_template: u8,
-    pub active: u32,
-    pub frame: u64,
-    pub keyframe: u64,
-    pub generation: u64,
-    pub structure_updated: bool,
-    pub active_targets_updated: bool,
-    pub integrity: bool,
+    // Read only inside `av1`: `descriptor::Descriptor`/`Structure` stay module-private there, so
+    // the fields must not be reachable at the struct's own `pub(crate)` visibility.
+    pub(super) descriptor: Descriptor,
+    pub(super) structure: Structure,
+    pub(crate) raw_template: u8,
+    pub(crate) active: u32,
+    pub(crate) frame: u64,
+    pub(crate) keyframe: u64,
+    pub(crate) generation: u64,
+    pub(crate) structure_updated: bool,
+    pub(crate) active_targets_updated: bool,
+    pub(crate) integrity: bool,
 }
 #[derive(Default)]
 pub(crate) struct Receiver {
@@ -106,12 +108,12 @@ impl Receiver {
         }
         let structure = self.structure.clone()?;
         let mut active_targets_updated = updated;
-        if let Some(active) = dd.active {
-            if self.active_sequence.is_none_or(|old| sequence > old) {
-                active_targets_updated |= self.active != active;
-                self.active = active;
-                self.active_sequence = Some(sequence);
-            }
+        if let Some(active) = dd.active
+            && self.active_sequence.is_none_or(|old| sequence > old)
+        {
+            active_targets_updated |= self.active != active;
+            self.active = active;
+            self.active_sequence = Some(sequence);
         }
         Some(Parsed {
             descriptor: dd,

@@ -67,11 +67,13 @@ impl Room {
             .participants
             .get_mut(sid)
             .and_then(|p| p.subscriptions.get_mut(track_sid))
+            && sub.desired
+            && !sub.closing
+            && !sub.requested
+            && !sub.attempt_reported
         {
-            if sub.desired && !sub.closing && !sub.requested && !sub.attempt_reported {
-                self.lifecycle.track_subscribe_attempts += 1;
-                sub.attempt_reported = true;
-            }
+            self.lifecycle.track_subscribe_attempts += 1;
+            sub.attempt_reported = true;
         }
         let (subscriber_identity, can_subscribe, already, desired_since) =
             match self.participants.get_mut(sid) {

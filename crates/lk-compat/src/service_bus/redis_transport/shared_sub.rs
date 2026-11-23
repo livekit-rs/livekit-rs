@@ -378,10 +378,13 @@ impl SharedSubscriptions {
             }
         };
         if let Some(conn) = conn {
-            tokio::time::timeout(self.io_timeout, conn.unsubscribe(&[handle.channel.clone()]))
-                .await
-                .map_err(|_| TransportError::Timeout)?
-                .map_err(|_| TransportError::Redis)?;
+            tokio::time::timeout(
+                self.io_timeout,
+                conn.unsubscribe(std::slice::from_ref(&handle.channel)),
+            )
+            .await
+            .map_err(|_| TransportError::Timeout)?
+            .map_err(|_| TransportError::Redis)?;
         }
         Ok(())
     }

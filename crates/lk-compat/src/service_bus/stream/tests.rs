@@ -558,9 +558,13 @@ async fn real_redis_shared_identity_cancel_closes_peer_and_releases_surface() {
     let mut opts = options();
     opts.client = Some(identity.clone());
     let cancel = opts.cancel.clone();
-    let mut client = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
+    let client = open_stream::<lk::Room, lk::Room>(bus.clone(), &method, config(), opts)
         .await
         .unwrap();
+    // Keep the stream owner alive across the cancel assertion: it holds the last
+    // strong reference to the shared identity, so releasing it here would make the
+    // final wait_surface(0) pass for the wrong reason.
+    assert!(client.error().is_none());
     let mut server = listener.accept().await.unwrap();
     cancel.cancel();
     assert!(
@@ -867,7 +871,7 @@ async fn listener_drop_interrupts_blocked_ack_even_with_long_peer_expiry() {
         register_stream::<lk::Room, lk::Room>(bus.clone(), method.clone(), config(), None)
             .await
             .unwrap();
-    let mut client = open_stream::<lk::Room, lk::Room>(bus, &method, config(), options())
+    let client = open_stream::<lk::Room, lk::Room>(bus, &method, config(), options())
         .await
         .unwrap();
     let mut server = listener.accept().await.unwrap();

@@ -225,7 +225,7 @@ fn source_descriptor(phase: Phase) -> Vec<u8> {
         w(0, 1);
         w(0, 1);
     }
-    let mut raw = vec![0; (bits.len() + 7) / 8];
+    let mut raw = vec![0; bits.len().div_ceil(8)];
     for (i, bit) in bits.into_iter().enumerate() {
         raw[i / 8] |= bit << (7 - i % 8);
     }
@@ -1009,7 +1009,7 @@ fn case(codec: Codec, mode: VideoLayerMode, scenario: Scenario<'_>) {
 pub(super) fn two_temporal_vp9_frame(frame: u16) -> (Vec<u8>, Vec<u8>) {
     let template = if frame == 1 {
         0
-    } else if frame % 2 == 0 {
+    } else if frame.is_multiple_of(2) {
         4
     } else {
         1

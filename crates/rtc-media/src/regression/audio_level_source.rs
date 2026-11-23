@@ -56,8 +56,11 @@ fn source_audio_rtp_first_sample_has_zero_age_and_short_windows_emit_unclipped_l
             .copied()
             .unwrap();
         let make_frame = |sequence: u64, rtp_time: u64, at: Instant| {
-            let mut extensions = str0m::rtp::ExtensionValues::default();
-            extensions.audio_level = Some(0); // RFC6464 zero dBov.
+            // RFC6464 zero dBov.
+            let extensions = str0m::rtp::ExtensionValues {
+                audio_level: Some(0),
+                ..Default::default()
+            };
             MediaData {
                 mid,
                 pt: params.pt(),

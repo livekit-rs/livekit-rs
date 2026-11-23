@@ -543,7 +543,7 @@ impl UpTrack {
         ) {
             return 0;
         }
-        rid.and_then(|rid| self.layers.iter().find(|layer| layer.rid == &*rid))
+        rid.and_then(|rid| self.layers.iter().find(|layer| layer.rid == *rid))
             .map_or(0, |layer| layer.spatial_layer)
     }
 
@@ -568,7 +568,7 @@ impl UpTrack {
             Some(rid) => self
                 .layers
                 .iter()
-                .find(|layer| layer.rid == &*rid)
+                .find(|layer| layer.rid == *rid)
                 .and_then(|layer| usize::try_from(layer.spatial_layer).ok())
                 .filter(|layer| *layer < 3),
         }
@@ -708,6 +708,9 @@ impl UpTrack {
             .position(|rate| request <= *rate)
             .map_or(3, |layer| layer as u8)
     }
+    /// Layer-0 temporal cap, the entry the temporal-rate tests and the SVC
+    /// forward-timing regression drive; forwarding names the spatial layer.
+    #[cfg(test)]
     pub(crate) fn svc_temporal_cap(&self, fps: u32) -> u8 {
         if fps == 0 {
             return 3;

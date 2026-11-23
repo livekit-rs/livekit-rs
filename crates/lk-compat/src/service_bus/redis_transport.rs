@@ -401,13 +401,17 @@ pub struct Subscription {
     _permit: Option<OwnedSemaphorePermit>,
 }
 
+/// The in-flight queue admission: the accepted item bytes and whether its SET NX
+/// was admitted. (raw item, admission result)
+type QueueAdmissionFuture =
+    futures_util::future::BoxFuture<'static, (Vec<u8>, Result<bool, TransportError>)>;
+
 /// A queue item and its single in-flight SET NX belong to the subscription,
 /// rather than to one cancellable recv invocation. Retrying SET NX after a
 /// successful-but-not-yet-observed reply would suppress our own accepted item.
 #[derive(Default)]
 struct QueueAdmission {
-    pending:
-        Option<futures_util::future::BoxFuture<'static, (Vec<u8>, Result<bool, TransportError>)>>,
+    pending: Option<QueueAdmissionFuture>,
 }
 impl QueueAdmission {
     async fn finish(&mut self) -> (Vec<u8>, Result<bool, TransportError>) {

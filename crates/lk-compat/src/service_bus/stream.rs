@@ -658,17 +658,20 @@ impl ClientStreamsInner {
 /// identity demux (already decoded and expiry-checked by its dispatcher);
 /// Dedicated owns a random per-call subscription and decodes here. Both preserve
 /// runClientStream's single-reader lifetime and terminal-cause semantics.
+/// One call's own STR subscription state: 304 bytes against `Shared`'s 40, so
+/// `ClientSource` keeps it behind one indirection.
+struct Dedicated {
+    subscription: RpcSubscription,
+    incoming: Channel,
+    bus: RpcBus,
+}
 enum ClientSource {
     Shared {
         rx: mpsc::Receiver<pb::Stream>,
         identity: Arc<ClientStreams>,
         stream_id: String,
     },
-    Dedicated {
-        subscription: RpcSubscription,
-        incoming: Channel,
-        bus: RpcBus,
-    },
+    Dedicated(Box<Dedicated>),
 }
 impl ClientSource {
     async fn next(&mut self) -> Result<Option<pb::Stream>, RpcError> {
@@ -677,16 +680,19 @@ impl ClientSource {
                 Some(frame) => Ok(Some(frame)),
                 None => Err(identity.terminal_error().unwrap_or_else(closed)),
             },
-            Self::Dedicated {
-                subscription, bus, ..
-            } => loop {
-                let bytes = subscription.recv().await.map_err(RpcError::from)?;
-                if let Ok(value) = bus.decode::<pb::Stream>(&bytes)
-                    && value.message.expiry > now()
-                {
-                    return Ok(Some(value.message));
+            Self::Dedicated(dedicated) => {
+                let Dedicated {
+                    subscription, bus, ..
+                } = dedicated.as_mut();
+                loop {
+                    let bytes = subscription.recv().await.map_err(RpcError::from)?;
+                    if let Ok(value) = bus.decode::<pb::Stream>(&bytes)
+                        && value.message.expiry > now()
+                    {
+                        return Ok(Some(value.message));
+                    }
                 }
-            },
+            }
         }
     }
     async fn cleanup(self) {
@@ -696,11 +702,12 @@ impl ClientSource {
                 stream_id,
                 ..
             } => identity.unregister(&stream_id),
-            Self::Dedicated {
-                subscription,
-                incoming,
-                ..
-            } => {
+            Self::Dedicated(dedicated) => {
+                let Dedicated {
+                    subscription,
+                    incoming,
+                    ..
+                } = *dedicated;
                 let _ = subscription.unsubscribe(&incoming).await;
             }
         }
@@ -800,11 +807,11 @@ pub async fn open_stream<
                 stream_id,
             }
         }
-        None => ClientSource::Dedicated {
+        None => ClientSource::Dedicated(Box::new(Dedicated {
             subscription: subscription.expect("dedicated client owns its STR subscription"),
             incoming,
             bus: bus.clone(),
-        },
+        })),
     };
     stream.reader = Some(tokio::spawn(async move {
         loop {
@@ -964,7 +971,7 @@ pub async fn register_stream<
                 _=opens.join_next(),if !opens.is_empty()=>{},
                 response=async{match claim_subscription.as_mut(){Some(sub)=>sub.recv().await,None=>std::future::pending().await}}=>{
                     match response {
-                        Ok(bytes)=>if let Ok(response)=bus.decode::<pb::ClaimResponse>(&bytes){if let Some(waiter)=lock(&claims).remove(&response.message.request_id){let _=waiter.send(response.message);}},
+                        Ok(bytes)=>if let Ok(response)=bus.decode::<pb::ClaimResponse>(&bytes)&& let Some(waiter)=lock(&claims).remove(&response.message.request_id){let _=waiter.send(response.message);},
                         Err(_)=>break,
                     }
                 }

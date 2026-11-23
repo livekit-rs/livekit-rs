@@ -52,11 +52,15 @@
 //!   `CanProbe`, `ProbeDuration`, `ProbeClusterStarting`/`ProbeClusterDone`,
 //!   `ProbeSignal`) has no caller in the shipped build yet, because upstream
 //!   reaches it only from `streamallocator.go:778` and `:1326` and this batch
-//!   leaves the allocator out of scope. The dead-code lints the release-shape
-//!   build reports for those items are that boundary stated in the toolchain's
-//!   own words: the parity harness (`oracle_input`, `#[cfg(test)]`) is the
-//!   consumer that executes every one of them, and nothing here is suppressed,
-//!   deleted or stubbed to make the release build quiet.
+//!   leaves the allocator out of scope. The strict CI gate
+//!   (`cargo clippy --workspace --all-targets -- -D warnings`) fails on exactly
+//!   that boundary, so each item the release-shape build reports carries its
+//!   own `#[cfg_attr(not(test), allow(dead_code))]` marker — including the
+//!   never-read state fields only those items read — naming the C74-e wiring
+//!   that removes it. Nothing is module-suppressed, stubbed or blanket-allowed:
+//!   the items stay compiled and lint-checked in both builds, and the parity
+//!   harness (`oracle_input`, `#[cfg(test)]`) remains the consumer that
+//!   executes every one of them.
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -136,6 +140,8 @@ pub(crate) struct Outcome {
     pub(crate) state_changes: Vec<StateChange>,
     /// The pacer probe observer completed this cluster itself, which upstream
     /// delivers as `OnPacerProbeObserverClusterComplete`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) completed: Option<ProbeClusterInfo>,
 }
 
@@ -249,6 +255,7 @@ struct ProbeObserver {
 
 impl ProbeObserver {
     /// `StartProbeCluster`: a second start while active is only logged.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     fn start(&mut self, pci: ProbeClusterInfo, at: Instant, origin: Instant) -> bool {
         if self.is_in_probe {
             self.ignored_starts += 1;
@@ -267,6 +274,7 @@ impl ProbeObserver {
 
     /// `EndProbeCluster`: inactive or non-active ids return
     /// `ProbeClusterInfoInvalid`, and the end stamp is taken exactly once.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     fn end(
         &mut self,
         id: ProbeClusterId,
@@ -379,6 +387,8 @@ pub(crate) struct SendSideBwe {
     active_cluster_id: ProbeClusterId,
     /// `Prober.clusterId` in `AddCluster`: `Inc()` before use, so the first
     /// cluster is 1 and the invalid sentinel is never handed out.
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     next_cluster_id: ProbeClusterId,
     /// The accepted `MediaSSRC` set. Upstream dispatches a report only to the
     /// downtrack whose `ssrc`/`ssrcRTx` it names, so a report for a stream this
@@ -391,6 +401,8 @@ pub(crate) struct SendSideBwe {
     last_sent_at: Option<Instant>,
     retired: bool,
     origin: Instant,
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pacer: PacerDecision,
     stats: Stats,
 }
@@ -423,10 +435,12 @@ impl SendSideBwe {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn pacer(&self) -> PacerDecision {
         self.pacer
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn is_retired(&self) -> bool {
         self.retired
     }
@@ -561,21 +575,25 @@ impl SendSideBwe {
         CongestionState::from_detector(self.detector.congestion_state())
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn rtt(&self) -> f64 {
         self.detector.rtt()
     }
 
     /// `UpdateRTT`, driven by the same 30-second poll the remote path uses.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn update_rtt(&mut self, rtt: f64) {
         self.detector.update_rtt(rtt);
     }
 
     /// `CongestionState() == None && !probe running && probeRegulator.CanProbe()`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn can_probe(&self, at: Instant) -> bool {
         self.detector.can_probe(at)
     }
 
     /// `ProbeDuration`, the goal duration of the next cluster.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_duration(&self) -> PolicyDuration {
         self.detector.probe_duration()
     }
@@ -583,19 +601,23 @@ impl SendSideBwe {
     /// `Pacer.TimeSinceLastSentPacket()`. `None` means nothing transport-wide
     /// stamped has ever left this transport, which upstream reports as a
     /// zero-valued `time.Duration` for its unset monotonic time.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn time_since_last_sent(&self, now: Instant) -> Option<Duration> {
         now.checked_duration_since(self.last_sent_at?)
     }
 
     /// `Reset`, which keeps the packet tracker and the TWCC report bookkeeping.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn reset(&mut self, at: Instant) {
         self.detector.reset(at);
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_cluster_id(&self) -> ProbeClusterId {
         self.active_cluster_id
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_is_running(&self) -> bool {
         self.detector.probe_is_running()
     }
@@ -604,6 +626,7 @@ impl SendSideBwe {
     /// `BWE.ProbeClusterStarting(pci)` then `Pacer.StartProbeCluster(pci)`.
     /// The cluster info handed to the detector still carries Go's zero result,
     /// because only the observer stamps `StartTime`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn start_probe_cluster(
         &mut self,
         goal: ProbeClusterGoal,
@@ -626,6 +649,7 @@ impl SendSideBwe {
     /// `handleSignalPacerProbeObserverClusterComplete`: end the observer with
     /// the id it reported, clear the stamped id, then hand the recorded result
     /// to the detector so the settle wait can start.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn end_probe_cluster(
         &mut self,
         id: ProbeClusterId,
@@ -643,6 +667,7 @@ impl SendSideBwe {
 
     /// `maybeStopProbe`, which is the same sequence but only when a cluster is
     /// actually active: an idle allocator stops before it touches the BWE.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn stop_probe_cluster(&mut self, at: Instant) -> Option<ProbeClusterInfo> {
         if self.active_cluster_id == PROBE_CLUSTER_ID_INVALID {
             return None;
@@ -651,11 +676,13 @@ impl SendSideBwe {
     }
 
     /// `ProbeClusterIsGoalReached`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_cluster_is_goal_reached(&self) -> bool {
         self.detector.probe_cluster_is_goal_reached()
     }
 
     /// `ProbeClusterFinalize`, which also clears the allocator's active id.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn probe_cluster_finalize(&mut self, at: Instant) -> Option<(ProbeSignal, i64)> {
         let finalized = self.detector.probe_cluster_finalize(at);
         if finalized.is_some() {
@@ -665,6 +692,7 @@ impl SendSideBwe {
     }
 
     /// Detector diagnostics for the owner's trace log.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn detector_stats(&self) -> (usize, u64, u64, Option<ProbeClusterId>) {
         (
             self.detector.packet_group_count(),
@@ -693,7 +721,7 @@ mod tests {
         ccutils::ProbeClusterGoal {
             available_bandwidth_bps: 100_000_000,
             expected_usage_bps: 1_000_000,
-            desired_bps: desired_bps,
+            desired_bps,
             duration,
             desired_bytes,
         }
@@ -727,7 +755,7 @@ mod tests {
         raw.extend_from_slice(&received.to_be_bytes()); // packet status count
         raw.extend_from_slice(&[0, 0, 1]); // reference time
         raw.push(1); // feedback packet count
-        raw.extend_from_slice(&(0x2000 | u16::from(received)).to_be_bytes());
+        raw.extend_from_slice(&(0x2000 | received).to_be_bytes());
         for index in 0..received {
             raw.push(index as u8 + 1); // one 250 microsecond unit each
         }
@@ -758,8 +786,10 @@ mod tests {
         assert!(fallback.is_fallback());
         assert!(!PacerDecision::NoQueue.is_fallback());
         let now = Instant::now();
-        let mut config = CongestionControl::default();
-        config.send_side_bwe_pacer = SendSidePacer::LeakyBucket;
+        let config = CongestionControl {
+            send_side_bwe_pacer: SendSidePacer::LeakyBucket,
+            ..Default::default()
+        };
         assert_eq!(SendSideBwe::new(&config, now).pacer(), fallback);
         assert_eq!(owner(now).pacer(), PacerDecision::NoQueue);
     }

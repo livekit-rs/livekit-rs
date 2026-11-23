@@ -13,7 +13,7 @@ import os
 import pathlib
 import subprocess
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[3]
 HERE = pathlib.Path(__file__).resolve().parent
 PREFIX = 'SOURCE_MEDIA_BOUNDARY '
 TEST = ('regression::media_counting_boundary::'
@@ -41,6 +41,7 @@ EXPECTED = (
         'upstream_primary_and_padding',
         'upstream_padding_only_first',
         'upstream_gap_late_and_pre_start',
+        'upstream_pre_start_sequence_number_drop',
         'upstream_duplicate') for window in (1, 2)]
 )
 
@@ -105,7 +106,8 @@ def validate(rows):
                 check_shape(row[field], STREAM)
         if 'layer_fold' in row and row['layer_fold'] is not None:
             check_shape(row['layer_fold'], LAYER)
-    return {'rows': len(rows), 'cases': len(EXPECTED)}
+    return {'rows': len(rows), 'windows': len(EXPECTED),
+            'cases': len({name for name, _ in EXPECTED})}
 
 
 def cargo(env, out, label, results, expect_success):
@@ -178,7 +180,7 @@ def main():
             raise RuntimeError('fixed-Go observer did not report a clean pass')
         rows = rows_of(observer_text)
         report.update(validate(rows))
-        with results.open('xb') as handle:
+        with results.open('x') as handle:
             for row in rows:
                 handle.write(PREFIX + json.dumps(row, sort_keys=True) + '\n')
         report['results_sha256'] = sha(results)
@@ -202,7 +204,7 @@ def main():
         if not changed:
             raise RuntimeError('no row available for the mutation control')
         mutant = out / 'boundary-rows.mutant.jsonl'
-        with mutant.open('xb') as handle:
+        with mutant.open('x') as handle:
             for row in mutated:
                 handle.write(PREFIX + json.dumps(row, sort_keys=True) + '\n')
         report['mutant'] = cargo(env, out, 'mutant', mutant, False)

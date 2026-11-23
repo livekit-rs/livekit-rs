@@ -151,15 +151,18 @@ impl TwccFeedback {
     }
 
     /// `estimatedFeedbackInterval`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn estimated_feedback_interval(&self) -> PolicyDuration {
         self.estimated_feedback_interval
     }
 
     /// `cycles/(1<<24)`, the era count upstream logs.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn era(&self) -> i64 {
         self.cycles / (1 << 24)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn report_counts(&self) -> (i64, i64) {
         (self.num_reports, self.num_reports_out_of_order)
     }

@@ -32,10 +32,12 @@ impl Stat {
         self.num_bytes -= size;
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn packets(&self) -> i64 {
         self.num_packets
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn bytes(&self) -> i64 {
         self.num_bytes
     }
@@ -77,14 +79,17 @@ impl ClassStat {
         self.primary.num_bytes + self.rtx.num_bytes + self.probe.num_bytes
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn primary(&self) -> &Stat {
         &self.primary
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn rtx(&self) -> &Stat {
         &self.rtx
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn probe(&self) -> &Stat {
         &self.probe
     }
@@ -93,6 +98,8 @@ impl ClassStat {
 pub(super) struct PacketGroup {
     min_packets: i64,
     max_window_duration_us: i64,
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     weighted_loss: WeightedLossConfig,
 
     min_sequence_number: u64,
@@ -219,14 +226,17 @@ impl PacketGroup {
         (self.min_send_time, self.max_send_time)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn recv_window(&self) -> (i64, i64) {
         (self.min_recv_time, self.max_recv_time)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn sequence_window(&self) -> (u64, u64) {
         (self.min_sequence_number, self.max_sequence_number)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn aggregate_deltas(&self) -> (i64, i64) {
         (self.aggregate_send_delta, self.aggregate_recv_delta)
     }
@@ -263,6 +273,7 @@ impl PacketGroup {
     /// Upstream `Traffic()` returns a `trafficStats` literal built with **no**
     /// params, so its weighted loss runs on the zero config: oracle `lg_wl_raw`
     /// is `NaN`/`+Inf` where the configured group stats answer `0`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn traffic(&self) -> TrafficStats {
         let mut stats = TrafficStats::new(zero_weighted_loss());
         stats.merge(&self.traffic_data());
@@ -270,8 +281,9 @@ impl PacketGroup {
     }
 
     /// Upstream logging path: stats built with the group's own weighted loss config.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn configured_traffic_stats(&self) -> TrafficStats {
-        let mut stats = TrafficStats::new(self.weighted_loss.clone());
+        let mut stats = TrafficStats::new(self.weighted_loss);
         stats.merge(&self.traffic_data());
         stats
     }
@@ -289,10 +301,12 @@ impl PacketGroup {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn acked(&self) -> &ClassStat {
         &self.acked
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub fn lost(&self) -> &ClassStat {
         &self.lost
     }

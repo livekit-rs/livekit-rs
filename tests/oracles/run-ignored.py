@@ -4,6 +4,12 @@
 Every entry produces a row with its original exit code. A test that is not run
 keeps an explicit reason; nothing is silently dropped and no failure is retried
 into a pass.
+
+A recipe may bind its measurement corpora with `env_values`, where `{out}` stands
+for that entry's own output directory, and may name the subset of those values
+that the consumer opens exclusively (`fresh_outputs`). An ignored reader that
+writes its own actual rows refuses an existing path, so the row is only real if
+the driver clears that path first and records that it did.
 """
 import argparse
 import hashlib
@@ -96,8 +102,37 @@ def main():
             rows.append(row)
             continue
         env = dict(os.environ)
-        env.update({k: str(v) for k, v in (e.get('env_values') or {}).items()})
+        values = {k: str(v) for k, v in (e.get('env_values') or {}).items()}
+        fresh = list(e.get('fresh_outputs') or [])
+        blocked = None
+        if '{out}' in ' '.join(values.values()) or fresh:
+            work = out / (label + '.d')
+            work.mkdir(parents=True, exist_ok=True)
+            values = {k: v.replace('{out}', str(work)) for k, v in values.items()}
+            missing = sorted(set(fresh) - set(values))
+            outside = [k for k in fresh
+                       if work not in pathlib.Path(values[k]).parents]
+            if missing:
+                blocked = 'fresh_outputs names no env_values entry: %s' % ', '.join(missing)
+            elif outside:
+                blocked = 'fresh output %s is outside %s' % (
+                    ', '.join(values[k] for k in outside), work)
+            else:
+                unlinked = []
+                for key in fresh:
+                    path = pathlib.Path(values[key])
+                    if path.exists():
+                        path.unlink()
+                        unlinked.append(str(path))
+                row['fresh_unlinked'] = unlinked
+        if blocked:
+            row.update(status='NOT_RUN', exit_code=None, reason=blocked)
+            rows.append(row)
+            print('NOT_RUN %s %s' % (name, blocked), flush=True)
+            continue
+        env.update(values)
         env.update({k: str(v) for k, v in extra.items()})
+        row['env_values'] = values
         log = out / (label + '.log')
         started = time.time()
         argv = cmd if isinstance(cmd, list) else cmd.split()

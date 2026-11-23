@@ -907,6 +907,16 @@ where
     Ok(response.raw)
 }
 
+/// The per-method handler plumbing one registered RPC serves with: the owned
+/// handler plus its affinity function and request/response wire codecs. Bundling
+/// them fixes clippy's `too_many_arguments` on `register_decoded`.
+struct DecodedMethodServer<Request, Response, F> {
+    handler: F,
+    affinity: Option<RequestAffinity<Request>>,
+    decode: RequestDecoder<Request>,
+    encode: ResponseEncoder<Response>,
+}
+
 type Handler = Arc<
     dyn Fn(RequestContext, Vec<u8>) -> BoxFuture<'static, Result<Vec<u8>, RpcError>> + Send + Sync,
 >;
@@ -979,10 +989,14 @@ impl RpcServer {
             spec,
             limits,
             false,
-            move |context, request: RawRequest<Request>| handler(context, request.message),
-            affinity,
-            decode,
-            Arc::new(|response: Response| Ok(response.encode_to_vec())),
+            DecodedMethodServer {
+                handler: move |context, request: RawRequest<Request>| {
+                    handler(context, request.message)
+                },
+                affinity,
+                decode,
+                encode: Arc::new(|response: Response| Ok(response.encode_to_vec())),
+            },
         )
         .await
     }
@@ -1012,12 +1026,17 @@ impl RpcServer {
             spec,
             limits,
             true,
-            move |context, request: RawRequest<Request>| handler(context, request.message),
-            None,
-            Arc::new(|raw| {
-                Request::decode(raw).map_err(|e| RpcError::new("malformed_request", e.to_string()))
-            }),
-            Arc::new(|response: Response| Ok(response.encode_to_vec())),
+            DecodedMethodServer {
+                handler: move |context, request: RawRequest<Request>| {
+                    handler(context, request.message)
+                },
+                affinity: None,
+                decode: Arc::new(|raw| {
+                    Request::decode(raw)
+                        .map_err(|e| RpcError::new("malformed_request", e.to_string()))
+                }),
+                encode: Arc::new(|response: Response| Ok(response.encode_to_vec())),
+            },
         )
         .await
     }
@@ -1048,10 +1067,12 @@ impl RpcServer {
             spec,
             limits,
             false,
-            handler,
-            affinity,
-            decode,
-            Arc::new(|response: Response| Ok(response.encode_to_vec())),
+            DecodedMethodServer {
+                handler,
+                affinity,
+                decode,
+                encode: Arc::new(|response: Response| Ok(response.encode_to_vec())),
+            },
         )
         .await
     }
@@ -1082,10 +1103,12 @@ impl RpcServer {
             spec,
             limits,
             false,
-            handler,
-            affinity,
-            decode,
-            Arc::new(encode_raw_response::<Response>),
+            DecodedMethodServer {
+                handler,
+                affinity,
+                decode,
+                encode: Arc::new(encode_raw_response::<Response>),
+            },
         )
         .await
     }
@@ -1095,10 +1118,7 @@ impl RpcServer {
         spec: MethodSpec,
         limits: ServerLimits,
         multi: bool,
-        handler: F,
-        affinity: Option<RequestAffinity<Request>>,
-        decode: RequestDecoder<Request>,
-        encode: ResponseEncoder<Response>,
+        server: DecodedMethodServer<Request, Response, F>,
     ) -> Result<Self, RpcError>
     where
         Request: Message + Default + Send + 'static,
@@ -1106,6 +1126,12 @@ impl RpcServer {
         F: Fn(RequestContext, RawRequest<Request>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Response, RpcError>> + Send + 'static,
     {
+        let DecodedMethodServer {
+            handler,
+            affinity,
+            decode,
+            encode,
+        } = server;
         if limits.concurrent == 0
             || limits.concurrent > Semaphore::MAX_PERMITS
             || limits.max_request_duration.is_zero()
@@ -1507,6 +1533,10 @@ fn received_response_for_bus(bus: &RpcBus, bytes: &[u8]) -> Result<ReceivedRespo
         .map_err(|_| RpcError::malformed_response("invalid response envelope"))?;
     response_provenance::decode_response_body(&root)
 }
+// The bus-free form of `received_response_for_bus`: the wire-shape oracle replay
+// (`local_phase_tests`, `rpc::provenance_tests`) decodes against explicit
+// `WireLimits` instead of a constructed bus, so it has no release-shape caller.
+#[cfg(test)]
 fn received_response(bytes: &[u8], limits: wire::WireLimits) -> Result<ReceivedResponse, RpcError> {
     let raw = wire::decode_raw::<pb::Response>(bytes, limits)
         .map_err(|_| RpcError::malformed_response("invalid response envelope"))?;

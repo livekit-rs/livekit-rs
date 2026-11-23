@@ -143,7 +143,9 @@ async fn prepare(
         strict,
     )
     .map_err(failure)?;
-    validate_admission(state, &parsed.params).await?;
+    validate_admission(state, &parsed.params)
+        .await
+        .map_err(failure)?;
     parsed.finish().map_err(failure)
 }
 
@@ -163,28 +165,33 @@ async fn validate(
 
 // Fixed ValidateConnectRequest checks the public catalog before owner capacity.
 // A rejection here precedes the connection retry loop on both RTC endpoints.
-async fn validate_admission(state: &AppState, params: &JoinParams) -> Result<(), Response> {
+// The rejection travels as the same small `HttpFailure` the parser uses, so the
+// `Result` stays cheap and `prepare` renders it once at the HTTP boundary.
+async fn validate_admission(state: &AppState, params: &JoinParams) -> Result<(), HttpFailure> {
     let may_create = state.config.room.auto_create || params.grants.video.room_create;
     if !may_create {
         let exists = match &state.room_control {
             Some(control) => control
                 .signal_room_exists(&params.room.name.0)
                 .await
-                .map_err(|error| plain(StatusCode::INTERNAL_SERVER_ERROR, error.message))?,
+                .map_err(|error| HttpFailure {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    body: error.message,
+                })?,
             None => state.manager.room_exists(&params.room),
         };
         if !exists {
-            return Err(plain(
-                StatusCode::NOT_FOUND,
-                "requested room does not exist",
-            ));
+            return Err(HttpFailure {
+                status: StatusCode::NOT_FOUND,
+                body: "requested room does not exist".into(),
+            });
         }
     }
     if state.rtc_node_at_capacity(&params.room.name.0).await {
-        return Err(plain(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "node has exceeded its configured limit",
-        ));
+        return Err(HttpFailure {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            body: "node has exceeded its configured limit".into(),
+        });
     }
     Ok(())
 }
@@ -281,7 +288,7 @@ async fn connect(
                 remote::run(socket, remote, first, state.manager.clone())
             });
         }
-        Ok(Some(start::Started::Local(handle, first))) => (handle, first),
+        Ok(Some(start::Started::Local(handle, first))) => (handle, *first),
         Ok(Some(start::Started::StateMismatch)) => {
             return ws
                 .on_upgrade(move |socket| send_only_leave(socket, client, state.manager.clone()));
@@ -405,17 +412,16 @@ async fn send_only_leave(
         reason: DisconnectReason::StateMismatch,
         action: LeaveAction::Reconnect,
     };
-    if let Some(resp) = encode_signal(ev, &EncodeCtx { client: &client }, &mut cache) {
-        if session::send(
+    if let Some(resp) = encode_signal(ev, &EncodeCtx { client: &client }, &mut cache)
+        && session::send(
             &manager,
             &mut socket,
             Message::Binary(resp.encode_to_vec().into()),
         )
         .await
         .is_ok()
-        {
-            manager.record_signal_connected();
-        }
+    {
+        manager.record_signal_connected();
     }
     let _ = socket
         .send(Message::Close(Some(CloseFrame {

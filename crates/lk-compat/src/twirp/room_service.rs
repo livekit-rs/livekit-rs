@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use axum::response::Response;
 use lk_protocol::livekit as pb;
 use lk_protocol::twirp_json::livekit as tj;
-use prost::Message;
 use rtc_core::ids::*;
 use rtc_core::permission::RoomConfig;
 use rtc_runtime::{ApiError, CreateRoomOptions};
@@ -716,7 +715,6 @@ async fn forward_or_move<R: Default>(
                     room,
                     identity,
                     destination_room,
-                    ..Default::default()
                 })
                 .await
                 .map(|_| ())
@@ -726,7 +724,6 @@ async fn forward_or_move<R: Default>(
                     room,
                     identity,
                     destination_room,
-                    ..Default::default()
                 })
                 .await
                 .map(|_| ())
@@ -1079,6 +1076,7 @@ mod room_tag_api_projection_tests {
 #[cfg(test)]
 mod open_data_kind_owner_tests {
     use super::*;
+    use prost::Message as _;
     use rtc_core::data::{DataHandler, DataSender, DataVerdict};
     use rtc_core::media_api::{DataKind, MediaCommand, MediaEvent, PcRole};
     use rtc_core::room::{Effect, Room};
@@ -1238,6 +1236,7 @@ mod open_data_kind_owner_tests {
 #[cfg(test)]
 mod open_data_kind_go_tests {
     use super::*;
+    use prost::Message as _;
     #[test]
     #[ignore = "requires actual fixed Go component observation OPEN_DATA_KIND_GO_RESULTS"]
     fn actual_go_open_data_kind_eleven_source_observations() {

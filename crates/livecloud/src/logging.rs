@@ -229,10 +229,10 @@ where
         id: &tracing::span::Id,
         ctx: Context<'_, S>,
     ) {
-        if attrs.metadata().name() == "livekit.room_logger" {
-            if let (Some(span), Some(sampler)) = (ctx.span(id), self.sampling.room_sampler()) {
-                span.extensions_mut().insert(RoomSampler(sampler));
-            }
+        if attrs.metadata().name() == "livekit.room_logger"
+            && let (Some(span), Some(sampler)) = (ctx.span(id), self.sampling.room_sampler())
+        {
+            span.extensions_mut().insert(RoomSampler(sampler));
         }
     }
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {

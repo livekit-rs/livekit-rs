@@ -106,10 +106,10 @@ impl LocalNode {
         lock(&self.stats_provider).is_some()
     }
     pub fn poll_system_stats(&self) {
-        if let Some(provider) = lock(&self.stats_provider).clone() {
-            if let Err(error) = provider.poll_system() {
-                tracing::error!(%error, "failed retrieving CPU idle");
-            }
+        if let Some(provider) = lock(&self.stats_provider).clone()
+            && let Err(error) = provider.poll_system()
+        {
+            tracing::error!(%error, "failed retrieving CPU idle");
         }
     }
 

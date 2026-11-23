@@ -305,7 +305,7 @@ pub async fn perform_rpc(
 ) -> Result<String, RpcFailure> {
     let info = state
         .manager
-        .list_rooms(&room.project, &[room.name.clone()])
+        .list_rooms(&room.project, std::slice::from_ref(&room.name))
         .into_iter()
         .next()
         .ok_or_else(|| RpcFailure::Api(ApiError::Unavailable("no response from servers".into())))?;
@@ -336,15 +336,17 @@ pub(crate) async fn perform_rpc_bound(
     owner: Option<&rtc_runtime::RoomOwnerHandle>,
 ) -> Result<String, RpcFailure> {
     perform_rpc_impl(
-        &state.rpc,
-        Some(state),
+        RpcCallContext {
+            registry: &state.rpc,
+            state: Some(state),
+            owner,
+            expected_sid: None,
+        },
         room,
         destination,
         method,
         payload,
         response_timeout_ms,
-        owner,
-        None,
     )
     .await
 }
@@ -358,29 +360,44 @@ pub(crate) async fn perform_rpc_owned(
     expected_sid: &ParticipantSid,
 ) -> Result<String, RpcFailure> {
     perform_rpc_impl(
-        registry,
-        None,
+        RpcCallContext {
+            registry,
+            state: None,
+            owner: Some(owner),
+            expected_sid: Some(expected_sid),
+        },
         owner.key(),
         destination,
         method,
         payload,
         response_timeout_ms,
-        Some(owner),
-        Some(expected_sid),
     )
     .await
 }
+/// The execution context `perform_rpc_impl` runs a data-channel RPC in: which
+/// registry answers it, whether standalone state or an accepted owner actor
+/// resolves the participant, and the SID a bound call must match. Bundling these
+/// fixes clippy's `too_many_arguments` on that function.
+struct RpcCallContext<'a> {
+    registry: &'a RpcRegistry,
+    state: Option<&'a AppState>,
+    owner: Option<&'a rtc_runtime::RoomOwnerHandle>,
+    expected_sid: Option<&'a ParticipantSid>,
+}
 async fn perform_rpc_impl(
-    registry: &RpcRegistry,
-    state: Option<&AppState>,
+    context: RpcCallContext<'_>,
     room: &RoomKey,
     destination: &Identity,
     method: &str,
     payload: &str,
     response_timeout_ms: u32,
-    owner: Option<&rtc_runtime::RoomOwnerHandle>,
-    expected_sid: Option<&ParticipantSid>,
 ) -> Result<String, RpcFailure> {
+    let RpcCallContext {
+        registry,
+        state,
+        owner,
+        expected_sid,
+    } = context;
     let timeout_ms = if response_timeout_ms == 0 {
         DEFAULT_RESPONSE_TIMEOUT_MS
     } else {

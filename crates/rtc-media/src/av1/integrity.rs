@@ -91,10 +91,10 @@ impl Integrity {
                 f.last = Some(sequence);
             }
             let span = f.first.zip(f.last);
-            if let Some((first, last)) = span {
-                if self.consecutive(first, last) {
-                    self.frames[index].intact = true;
-                }
+            if let Some((first, last)) = span
+                && self.consecutive(first, last)
+            {
+                self.frames[index].intact = true;
             }
         }
         self.frames[index].intact

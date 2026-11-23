@@ -1327,10 +1327,10 @@ impl RoomControl {
         {
             let mut node = self.node.lock().await;
             node.message.state = pb::NodeState::ShuttingDown as i32;
-            if self.managed_node.is_none() {
-                if let Err(error) = self.registry.register_node(&node).await {
-                    failure = Some(self::error(error));
-                }
+            if self.managed_node.is_none()
+                && let Err(error) = self.registry.register_node(&node).await
+            {
+                failure = Some(self::error(error));
             }
         }
         // Source RedisRouter.Stop proceeds with cancellation after registry

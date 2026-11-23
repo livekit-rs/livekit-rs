@@ -247,7 +247,10 @@ async fn verify_effect(state: &AppState, room: &str, method: &str) {
                 .is_err()
         ),
         "UpdateRoomMetadata" => assert_eq!(
-            state.manager.list_rooms(&key.project, &[key.name.clone()])[0].metadata,
+            state
+                .manager
+                .list_rooms(&key.project, std::slice::from_ref(&key.name))[0]
+                .metadata,
             "actual-typed-room"
         ),
         "UpdateParticipant" => {
@@ -307,7 +310,9 @@ async fn all_six_public_mutations_preserve_admitted_work_after_real_actor_inbox_
         let room = rtc_core::ids::new_sid("local_expiry_");
         let session = state.manager.join(params(&room, "alice")).await.unwrap();
         let key = state.room_key(&room);
-        let sid = state.manager.list_rooms(&key.project, &[key.name.clone()])[0]
+        let sid = state
+            .manager
+            .list_rooms(&key.project, std::slice::from_ref(&key.name))[0]
             .sid
             .clone();
         let owner = state.manager.capture_room_owner(&key, &sid).unwrap();
@@ -400,7 +405,9 @@ async fn actual_public_metadata_mutation_default_client_retries_three_then_five_
     let room = rtc_core::ids::new_sid("local_default_retry_");
     let session = state.manager.join(params(&room, "alice")).await.unwrap();
     let key = state.room_key(&room);
-    let sid = state.manager.list_rooms(&key.project, &[key.name.clone()])[0]
+    let sid = state
+        .manager
+        .list_rooms(&key.project, std::slice::from_ref(&key.name))[0]
         .sid
         .clone();
     let owner = state.manager.capture_room_owner(&key, &sid).unwrap();
@@ -501,7 +508,9 @@ async fn public_cached_reads_bypass_full_actor_but_opt_in_uses_original_typed_de
         let room = rtc_core::ids::new_sid("local_read_");
         let session = state.manager.join(params(&room, "alice")).await.unwrap();
         let key = state.room_key(&room);
-        let sid = state.manager.list_rooms(&key.project, &[key.name.clone()])[0]
+        let sid = state
+            .manager
+            .list_rooms(&key.project, std::slice::from_ref(&key.name))[0]
             .sid
             .clone();
         let owner = state.manager.capture_room_owner(&key, &sid).unwrap();
@@ -933,7 +942,7 @@ async fn dispatch_full_inbox_campaign(remote: bool, auto_create: bool) {
         let key = owner_state.room_key(&room);
         let sid = owner_state
             .manager
-            .list_rooms(&key.project, &[key.name.clone()])[0]
+            .list_rooms(&key.project, std::slice::from_ref(&key.name))[0]
             .sid
             .clone();
         let owner = owner_state.manager.capture_room_owner(&key, &sid).unwrap();
@@ -1096,7 +1105,10 @@ async fn actual_public_existing_create_room_reads_same_generation_info_without_a
         .manager
         .capture_room_owner(
             &key,
-            &state.manager.list_rooms(&key.project, &[key.name.clone()])[0].sid,
+            &state
+                .manager
+                .list_rooms(&key.project, std::slice::from_ref(&key.name))[0]
+                .sid,
         )
         .unwrap();
     let updated = owner
@@ -1106,7 +1118,10 @@ async fn actual_public_existing_create_room_reads_same_generation_info_without_a
     // Strict immediate cache visibility: no timer/poll lets a later owner turn
     // conceal reply-before-snapshot bugs observed in the real candidate29 run.
     assert_eq!(
-        state.manager.list_rooms(&key.project, &[key.name.clone()])[0].metadata,
+        state
+            .manager
+            .list_rooms(&key.project, std::slice::from_ref(&key.name))[0]
+            .metadata,
         updated.metadata
     );
     let held = crate::service_bus::channels::Channel {

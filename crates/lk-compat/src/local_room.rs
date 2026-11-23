@@ -44,7 +44,8 @@ impl Accepted {
     ) -> Result<pb::SendDataResponse, RpcError> {
         let response = self.start(async move {
             let packet = crate::twirp::room_service::send_data_packet(&request).encode_to_vec();
-            let result = owner
+
+            owner
                 .send_data_with_nonce(
                     crate::convert::data_kind_from_proto(request.kind),
                     packet,
@@ -62,8 +63,7 @@ impl Accepted {
                 )
                 .await
                 .map_err(api)
-                .map(|_| pb::SendDataResponse {});
-            result
+                .map(|_| pb::SendDataResponse {})
         });
         response
             .await

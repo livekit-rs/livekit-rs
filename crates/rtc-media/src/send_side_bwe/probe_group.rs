@@ -29,16 +29,21 @@ use super::traffic::TrafficStats;
 
 /// `probePacketGroup`.
 pub(super) struct ProbePacketGroup {
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     config: ProbePacketGroupConfig,
     group: PacketGroup,
     pci: ProbeClusterInfo,
     max_sequence_number: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
+    // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     done_at: Option<Instant>,
 }
 
 impl ProbePacketGroup {
     /// `newProbePacketGroup`: the group is built from the probe packet group
     /// config and the detector's weighted loss, with no inherited queuing delay.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn new(
         config: ProbePacketGroupConfig,
         weighted_loss: WeightedLossConfig,
@@ -55,15 +60,18 @@ impl ProbePacketGroup {
     }
 
     /// `ProbeClusterInfo()`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn pci(&self) -> ProbeClusterInfo {
         self.pci
     }
 
     /// The embedded `packetGroup`, which upstream reaches through promotion.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn group(&self) -> &PacketGroup {
         &self.group
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn max_sequence_number(&self) -> u64 {
         self.max_sequence_number
     }
@@ -93,6 +101,7 @@ impl ProbePacketGroup {
 
     /// `ProbeClusterDone`: only the matching cluster can close the probe, and
     /// it stamps the completion time with the caller's clock.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn probe_cluster_done(&mut self, pci: &ProbeClusterInfo, now: Instant) {
         if self.pci.id != pci.id {
             return;
@@ -102,6 +111,7 @@ impl ProbePacketGroup {
     }
 
     /// `MaybeFinalizeProbe(maxSequenceNumber, rtt)` at `now`.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(super) fn maybe_finalize_probe(
         &self,
         max_sequence_number: u64,
@@ -132,6 +142,7 @@ impl ProbePacketGroup {
 /// clamped from below first and then from above, exactly like the two
 /// consecutive Go comparisons. A non-positive RTT therefore clamps to the
 /// configured minimum instead of producing a negative wait.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 fn settle_wait(num_rtt: u32, rtt: f64, min: PolicyDuration, max: PolicyDuration) -> PolicyDuration {
     let scaled = PolicyDuration::from_nanos(float_i64(f64::from(num_rtt) * rtt * 1_000_000_000.0));
     let mut settle_wait = scaled;
@@ -147,6 +158,7 @@ fn settle_wait(num_rtt: u32, rtt: f64, min: PolicyDuration, max: PolicyDuration)
 /// `ProbeSignalConfig.IsValid(pci)`: both the byte and the duration floor are
 /// strict, and both thresholds truncate like Go's `int()`/`time.Duration()`
 /// conversions of the scaled goal.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(super) fn probe_cluster_is_valid(config: &ProbeSignalConfig, pci: &ProbeClusterInfo) -> bool {
     let min_bytes = float_i64(config.min_bytes_ratio * pci.goal.desired_bytes as f64);
     if pci.result.bytes() <= min_bytes {
@@ -160,6 +172,7 @@ pub(super) fn probe_cluster_is_valid(config: &ProbeSignalConfig, pci: &ProbeClus
 
 /// `ProbeSignalConfig.ProbeSignal(ppg)`: the delay/loss lattice is evaluated on
 /// a fresh stats object built from the probe group's own traffic.
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(super) fn probe_cluster_signal(
     config: &ProbeSignalConfig,
     group: &PacketGroup,

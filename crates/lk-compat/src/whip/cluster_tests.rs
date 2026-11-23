@@ -171,7 +171,7 @@ fn original_whip_start_session_does_not_export_internal_single_pc_or_sdk_expiry(
 
 #[tokio::test]
 async fn actual_whip_factory_clientparams_two_sent_and_default_server_one_recv() {
-    use opentelemetry::trace::{FutureExt as _, TraceContextExt as _};
+    use opentelemetry::trace::FutureExt as _;
     use opentelemetry_sdk::trace::{InMemorySpanExporter, SdkTracerProvider};
     let exporter = InMemorySpanExporter::default();
     let provider = SdkTracerProvider::builder()

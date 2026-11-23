@@ -75,6 +75,15 @@ pub(crate) struct Receivers {
     encodings: [Encoding; 3],
     per_encoding: bool,
 }
+/// One received RTP packet as the temporal-rate observers see it: the DD parser
+/// needs sequence plus header extensions, the VP9 calculator needs the picture
+/// identifier in the payload, and both need the RTP timestamp.
+pub(crate) struct PacketObs<'a> {
+    pub(crate) sequence: u64,
+    pub(crate) timestamp: u32,
+    pub(crate) payload: &'a [u8],
+    pub(crate) values: &'a str0m::rtp::ExtensionValues,
+}
 impl Receivers {
     pub(crate) fn per_encoding(&self) -> bool {
         self.per_encoding
@@ -100,11 +109,14 @@ impl Receivers {
         slot: usize,
         per_encoding: bool,
         codec: Codec,
-        sequence: u64,
-        timestamp: u32,
-        payload: &[u8],
-        values: &str0m::rtp::ExtensionValues,
+        packet: PacketObs<'_>,
     ) {
+        let PacketObs {
+            sequence,
+            timestamp,
+            payload,
+            values,
+        } = packet;
         if payload.is_empty() {
             return;
         } // RTP padding never disables an active DD parser.
@@ -154,13 +166,14 @@ impl Receivers {
                 return;
             }
         }
-        if codec == Codec::Vp9 && !encoding.calculated {
-            if let Some((picture, spatial, temporal)) = vp9_header(payload) {
-                if let Some(rate) = encoding.vp9.get_mut(spatial) {
-                    rate.observe(picture, temporal, timestamp, 90000)
-                }
-                encoding.calculated = encoding.vp9.iter().all(Vpx::completed);
+        if codec == Codec::Vp9
+            && !encoding.calculated
+            && let Some((picture, spatial, temporal)) = vp9_header(payload)
+        {
+            if let Some(rate) = encoding.vp9.get_mut(spatial) {
+                rate.observe(picture, temporal, timestamp, 90000)
             }
+            encoding.calculated = encoding.vp9.iter().all(Vpx::completed);
         }
     }
     #[cfg(test)]
@@ -214,10 +227,12 @@ impl MediaEngine {
             slot,
             per_encoding,
             data.params.spec().codec,
-            *data.packet.seq_no,
-            data.packet.time.numer() as u32,
-            &data.packet.payload,
-            &data.packet.header.ext_vals,
+            PacketObs {
+                sequence: *data.packet.seq_no,
+                timestamp: data.packet.time.numer() as u32,
+                payload: &data.packet.payload,
+                values: &data.packet.header.ext_vals,
+            },
         );
     }
 }
@@ -262,7 +277,7 @@ mod receiver_domain_tests {
             write(0, 1);
             write(0, 1);
         }
-        let mut raw = vec![0; (bits.len() + 7) / 8];
+        let mut raw = vec![0; bits.len().div_ceil(8)];
         for (i, bit) in bits.into_iter().enumerate() {
             raw[i / 8] |= bit << (7 - i % 8)
         }
@@ -273,6 +288,19 @@ mod receiver_domain_tests {
     fn payload(frame: u8) -> [u8; 5] {
         [0xac, frame, 0, frame, 0x80]
     }
+    fn obs<'a>(
+        sequence: u64,
+        timestamp: u32,
+        payload: &'a [u8],
+        values: &'a str0m::rtp::ExtensionValues,
+    ) -> PacketObs<'a> {
+        PacketObs {
+            sequence,
+            timestamp,
+            payload,
+            values,
+        }
+    }
     #[test]
     fn valid_vp9_dd_precedes_missing_picture_id_and_malformed_present_does_not_disable_it() {
         let mut receivers = Receivers::default();
@@ -282,7 +310,13 @@ mod receiver_domain_tests {
             &[0x80, 0],
             &mut malformed
         ));
-        receivers.observe(10, 0, false, Codec::Vp9, 999, 3000, &payload(0), &malformed);
+        receivers.observe(
+            10,
+            0,
+            false,
+            Codec::Vp9,
+            obs(999, 3000, &payload(0), &malformed),
+        );
         assert!(receivers.encodings[0].dd_allowed);
         for frame in 0..12u16 {
             receivers.observe(
@@ -290,10 +324,12 @@ mod receiver_domain_tests {
                 0,
                 false,
                 Codec::Vp9,
-                1000 + u64::from(frame),
-                3000 + u32::from(frame) * 6000,
-                &[0x40],
-                &dd(100 + frame, frame == 0),
+                obs(
+                    1000 + u64::from(frame),
+                    3000 + u32::from(frame) * 6000,
+                    &[0x40],
+                    &dd(100 + frame, frame == 0),
+                ),
             )
         }
         assert!(receivers.encodings[0].using_dd);
@@ -312,10 +348,7 @@ mod receiver_domain_tests {
             0,
             false,
             Codec::Vp9,
-            2000,
-            100000,
-            &[],
-            &Default::default(),
+            obs(2000, 100000, &[], &Default::default()),
         );
         assert_eq!(receivers.rates(0), measured, "padding cannot turn DD off");
     }
@@ -329,10 +362,12 @@ mod receiver_domain_tests {
                     slot,
                     true,
                     Codec::Vp9,
-                    1000 + u64::from(frame),
-                    3000 + u32::from(frame) * step,
-                    &payload(frame as u8),
-                    &Default::default(),
+                    obs(
+                        1000 + u64::from(frame),
+                        3000 + u32::from(frame) * step,
+                        &payload(frame as u8),
+                        &Default::default(),
+                    ),
                 )
             }
         }
@@ -345,10 +380,12 @@ mod receiver_domain_tests {
                 0,
                 true,
                 Codec::Vp9,
-                2000 + u64::from(frame),
-                3000 + u32::from(frame) * 1500,
-                &payload(frame as u8),
-                &Default::default(),
+                obs(
+                    2000 + u64::from(frame),
+                    3000 + u32::from(frame) * 1500,
+                    &payload(frame as u8),
+                    &Default::default(),
+                ),
             )
         }
         assert_eq!(
@@ -368,10 +405,12 @@ mod receiver_domain_tests {
                 0,
                 false,
                 Codec::Vp9,
-                1000 + u64::from(frame),
-                3000 + u32::from(frame) * 6000,
-                &[0x40],
-                &dd(100 + frame, frame == 0),
+                obs(
+                    1000 + u64::from(frame),
+                    3000 + u32::from(frame) * 6000,
+                    &[0x40],
+                    &dd(100 + frame, frame == 0),
+                ),
             )
         }
         assert!(receivers.encodings[0].calculated);
@@ -381,10 +420,12 @@ mod receiver_domain_tests {
                 0,
                 false,
                 Codec::Vp9,
-                1000 + u64::from(frame),
-                3000 + u32::from(frame) * 6000,
-                &payload(frame as u8),
-                &Default::default(),
+                obs(
+                    1000 + u64::from(frame),
+                    3000 + u32::from(frame) * 6000,
+                    &payload(frame as u8),
+                    &Default::default(),
+                ),
             )
         }
         assert!(!receivers.encodings[0].using_dd);
@@ -398,10 +439,7 @@ mod receiver_domain_tests {
             0,
             false,
             Codec::Vp9,
-            3000,
-            500000,
-            &[0x40],
-            &dd(200, true),
+            obs(3000, 500000, &[0x40], &dd(200, true)),
         );
         assert!(
             !receivers.encodings[0].dd_allowed,

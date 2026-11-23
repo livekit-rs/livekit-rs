@@ -52,6 +52,7 @@ impl ProbeClusterResult {
 
     /// `Duration()`: `time.Duration(EndTime - StartTime)`, which wraps like
     /// Go's int64 subtraction instead of trapping.
+    #[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
     pub(crate) fn duration(&self) -> PolicyDuration {
         PolicyDuration::from_nanos(self.end_time_ns.wrapping_sub(self.start_time_ns))
     }
@@ -69,6 +70,7 @@ pub(crate) struct ProbeClusterInfo {
 
 /// `ccutils.ProbeSignal`. The zero value is `ProbeSignalInconclusive`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))] // no shipped caller yet: the `#[cfg(test)]` oracle replay executes it; C74-e wires the pacer/prober/allocator consumer
 pub(crate) enum ProbeSignal {
     #[default]
     Inconclusive,

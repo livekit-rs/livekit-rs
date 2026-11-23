@@ -42,6 +42,18 @@ pub struct AppState {
     pub(crate) local_allocation: Option<crate::local_allocation::LocalAllocation>,
 }
 
+/// Replaces the adapter-owned room lifecycle with a test double. Only the
+/// `#[cfg(test)]` harnesses install it, so it is compiled in that shape alone.
+#[cfg(test)]
+type LifecycleDecorator = Box<
+    dyn FnOnce(
+            Arc<crate::local_dispatch::LocalDispatch>,
+        ) -> Arc<dyn rtc_runtime::RoomOwnerLifecycle>
+        + Send
+        + Sync
+        + 'static,
+>;
+
 /// Constructs adapter and runtime collaborators as one consistent service graph.
 ///
 /// Pending RPCs and inbound data share a registry by construction. Accepting an
@@ -49,15 +61,7 @@ pub struct AppState {
 /// different registry, leaving HTTP `PerformRpc` callers waiting forever.
 pub struct CompatServices {
     #[cfg(test)]
-    test_lifecycle_decorator: Option<
-        Box<
-            dyn FnOnce(
-                    Arc<crate::local_dispatch::LocalDispatch>,
-                ) -> Arc<dyn rtc_runtime::RoomOwnerLifecycle>
-                + Send
-                + Sync,
-        >,
-    >,
+    test_lifecycle_decorator: Option<LifecycleDecorator>,
 
     whip_policy: crate::workers::retry::RpcPolicy,
     signal_connect_attempts: usize,

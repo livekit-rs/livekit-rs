@@ -51,6 +51,10 @@ impl MediaEngine {
             return;
         }
         let configured = self.dependency_descriptor_negotiated(tid, data.mid);
+        let pipeline = crate::dd_fallback::DdPipeline {
+            codec,
+            negotiated: configured,
+        };
         let mime = codecs::mime_of(codec);
         // Non-DD-negotiated VP9 retains its established frame consumer. A
         // matching source which already entered DD processing owns its fallback.
@@ -91,12 +95,13 @@ impl MediaEngine {
                 configured || (up.mime.eq_ignore_ascii_case(mime) && up.one_dd.engaged(layer))
             })
         }) {
-            if let Some(up) = self.ups.get_mut(ui) {
-                if !blank && !up.mime.eq_ignore_ascii_case(mime) {
-                    up.set_mime(mime, now);
-                }
+            if let Some(up) = self.ups.get_mut(ui)
+                && !blank
+                && !up.mime.eq_ignore_ascii_case(mime)
+            {
+                up.set_mime(mime, now);
             }
-            self.on_one_dd_packet(ui, tid, layer, &data, codec, configured, now);
+            self.on_one_dd_packet(ui, tid, layer, &data, pipeline, now);
             return;
         }
         // Buffer source-SN normalization occurs before DD parsing, independently
@@ -166,12 +171,12 @@ impl MediaEngine {
             // packet survives Buffer's queue boundary. It has no DD but must
             // not disable the VP9 Buffer parser itself.
             if data.received_out_of_order {
-                self.on_dd_payload_packet(tid, &data, now, configured, true, None, codec);
+                self.on_dd_payload_packet(tid, &data, now, pipeline, true, None);
             }
             return;
         }
         let Some(parsed) = parsed else {
-            self.on_dd_payload_packet(tid, &data, now, configured, true, None, codec);
+            self.on_dd_payload_packet(tid, &data, now, pipeline, true, None);
             return;
         };
         let observation = packet.forwarding_observation().map(|mut p| {
@@ -209,22 +214,20 @@ impl MediaEngine {
                     layers: up.layers.clone(),
                 });
             }
-            if transports.get(&tid).is_some_and(|t| t.spec.one_shot) {
-                if let Some(sizes) = parsed.resolutions() {
-                    let multiple =
-                        crate::video_dimensions::multiple_spatial_layers(&up.spec.codecs, &up.mime);
-                    if let Some(sizes) = up.media_sizes.observe(
-                        &up.mime,
-                        i32::from(parsed.spatial()),
-                        multiple,
+            if transports.get(&tid).is_some_and(|t| t.spec.one_shot)
+                && let Some(sizes) = parsed.resolutions()
+            {
+                let multiple =
+                    crate::video_dimensions::multiple_spatial_layers(&up.spec.codecs, &up.mime);
+                if let Some(sizes) =
+                    up.media_sizes
+                        .observe(&up.mime, i32::from(parsed.spatial()), multiple, sizes)
+                {
+                    events.push(MediaEvent::TrackVideoSizeChanged {
+                        track_sid: up.sid.clone(),
+                        mime_type: up.mime.clone(),
                         sizes,
-                    ) {
-                        events.push(MediaEvent::TrackVideoSizeChanged {
-                            track_sid: up.sid.clone(),
-                            mime_type: up.mime.clone(),
-                            sizes,
-                        });
-                    }
+                    });
                 }
             }
             let before_active_dd = up.active_vp9_dd_layers();
@@ -444,10 +447,9 @@ impl MediaEngine {
             tid,
             &data,
             now,
-            configured,
+            pipeline,
             false,
             Some((i32::from(parsed.spatial()), parsed.temporal())),
-            codec,
         );
         if vp9_dd_layers_changed {
             // The Go receiver broadcasts the boundary packet before observing
