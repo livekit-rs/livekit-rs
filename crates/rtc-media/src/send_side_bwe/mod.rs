@@ -201,6 +201,19 @@ pub(crate) struct Stats {
     pub(crate) ignored_cluster_ends: u64,
     pub(crate) mismatched_cluster_ends: u64,
     pub(crate) auto_completed_clusters: u64,
+    /// Padding datagrams the vendor actually handed to the protection path, and
+    /// their octets. `handleSignalSendProbe` is only a demand: this is the
+    /// traffic that demand produced, counted where the datagram is observable.
+    pub(crate) padding_packets: u64,
+    pub(crate) padding_bytes: u64,
+    /// Octets of that padding charged into the prober bucket because they
+    /// carried a valid cluster stamp. This is upstream's `bytesSent` running
+    /// total, i.e. the quantity `prober.ProbesSent(bytesSent)` sees.
+    pub(crate) probe_bucket_bytes: u64,
+    /// Padding the bucket meter refused to charge: a datagram stamped `Invalid`
+    /// is traffic, but not evidence for any cluster.
+    pub(crate) uncharged_padding_packets: u64,
+    pub(crate) uncharged_padding_bytes: u64,
 }
 
 /// `pacer.go`'s constructor choice for the sending direction. Both available
@@ -438,6 +451,12 @@ pub(crate) struct ProbePing {
     /// `maybeStopProbe` ran, so the pacer must close the probe window it opened
     /// for the cluster the allocator just stopped.
     pub cancel_probe: bool,
+    /// The cluster this ping finalized, with the signal its result produced.
+    /// Upstream logs the same pair as `stream allocator: probe result`; the
+    /// caller books the outcome from it, because a cluster that never
+    /// finalized — a refused or self-cancelled window, a reset — is not a
+    /// probe outcome at all.
+    pub probe_finalized: Option<(ProbeSignal, i64)>,
     /// What the prober's own clock asked the pacer to do.
     pub actions: Vec<ProbeAction>,
 }
@@ -606,9 +625,32 @@ impl SendSideBwe {
             self.origin,
         );
         let completed = completed.then_some(self.observer.pci);
-        if packet.is_padding && stamp != PROBE_CLUSTER_ID_INVALID {
-            self.prober
-                .probes_sent(i64::try_from(packet.packet_bytes).unwrap_or(i64::MAX));
+        if packet.is_padding {
+            // Upstream meters probe traffic inside `handleSignalSendProbe`, from
+            // the return value of `WriteProbePackets` — bytes the track really
+            // wrote. This boundary is the equivalent place: the vendor has
+            // already protected and queued the datagram, so the count is of
+            // traffic that left, not of traffic that was asked for.
+            self.stats.padding_packets = self.stats.padding_packets.wrapping_add(1);
+            self.stats.padding_bytes = self
+                .stats
+                .padding_bytes
+                .wrapping_add(u64::try_from(packet.packet_bytes).unwrap_or(u64::MAX));
+            if stamp == PROBE_CLUSTER_ID_INVALID {
+                self.stats.uncharged_padding_packets =
+                    self.stats.uncharged_padding_packets.wrapping_add(1);
+                self.stats.uncharged_padding_bytes = self
+                    .stats
+                    .uncharged_padding_bytes
+                    .wrapping_add(u64::try_from(packet.packet_bytes).unwrap_or(u64::MAX));
+            } else {
+                let bytes = i64::try_from(packet.packet_bytes).unwrap_or(i64::MAX);
+                self.prober.probes_sent(bytes);
+                self.stats.probe_bucket_bytes = self
+                    .stats
+                    .probe_bucket_bytes
+                    .wrapping_add(u64::try_from(bytes).unwrap_or(u64::MAX));
+            }
         }
 
         // Upstream's estimator gate: only a media that negotiated the
@@ -874,7 +916,9 @@ impl SendSideBwe {
                     ping.cancel_probe = true;
                 }
             }
-            if let Some((signal, channel_capacity)) = self.probe_cluster_finalize(at)
+            let finalized = self.probe_cluster_finalize(at);
+            ping.probe_finalized = finalized;
+            if let Some((signal, channel_capacity)) = finalized
                 && signal != ProbeSignal::Congesting
             {
                 if channel_capacity > inputs.committed_bps {
@@ -1242,6 +1286,98 @@ mod tests {
         assert_eq!(ended.result.bytes(), 0, "nothing was sent for this cluster");
     }
 
+    /// The charge has to change what the production clock asks for, because a
+    /// count that nothing reads back would not distinguish padding that left
+    /// the pacer from padding that was only demanded.
+    #[test]
+    fn a_stamped_padding_charge_lowers_the_next_probe_demand() {
+        let now = Instant::now();
+        let cluster_goal = goal(2_000_000, 0, PolicyDuration::from_millis(100));
+        let emitted_padding = |at: Instant, sequence: u16| {
+            SendSideFeedback::Sent(SendSidePacket {
+                at,
+                sequence,
+                ssrc: 7,
+                header_bytes: 20,
+                payload_bytes: 1_480,
+                packet_bytes: 1_500,
+                is_padding: true,
+                is_rtx: false,
+                twcc_negotiated: true,
+                transport_sequence: Some(sequence),
+            })
+        };
+        let demand = |actions: &[ProbeAction]| -> i64 {
+            actions
+                .iter()
+                .map(|action| match action {
+                    ProbeAction::SendProbe(bytes) => *bytes,
+                    ProbeAction::StartCluster { .. } => 0,
+                })
+                .sum()
+        };
+
+        // The negative side of the gate first: with no cluster ever switched to
+        // there is nothing to bill, so the padding is counted as traffic and not
+        // as evidence.
+        let mut idle = owner(now);
+        for i in 0..10u64 {
+            idle.handle(emitted_padding(
+                now + Duration::from_millis(5 * i),
+                (10 + i) as u16,
+            ))
+            .unwrap();
+        }
+        assert_eq!(idle.stats().padding_bytes, 15_000);
+        assert_eq!(idle.stats().uncharged_padding_bytes, 15_000);
+        assert_eq!(
+            idle.stats().probe_bucket_bytes,
+            0,
+            "unsaved padding cannot advance a cluster that was never started"
+        );
+
+        // Two owners that differ only in whether the padding that left the
+        // window was billed. Both cross the same bucket boundary, so the demand
+        // is `expected - probe_bytes_sent` and the only variable is the charge.
+        let mut baseline = owner(now);
+        baseline
+            .prober
+            .add_cluster(ProbeClusterMode::Uniform, cluster_goal);
+        let started = baseline.process_prober(now);
+        assert!(
+            matches!(started.first(), Some(ProbeAction::StartCluster { .. })),
+            "the cluster has to be promoted by the prober clock, not by the test"
+        );
+        let asked = demand(&baseline.process_prober(now + Duration::from_millis(60)));
+
+        let mut charged = owner(now);
+        charged
+            .prober
+            .add_cluster(ProbeClusterMode::Uniform, cluster_goal);
+        charged.process_prober(now);
+        assert_ne!(
+            charged.stamped_cluster_id, PROBE_CLUSTER_ID_INVALID,
+            "the switch installs the stamp that makes padding billable"
+        );
+        for i in 0..100u64 {
+            charged
+                .handle(emitted_padding(
+                    now + Duration::from_millis(5) * (i as u32 + 1),
+                    (10 + i) as u16,
+                ))
+                .unwrap();
+        }
+        let charged_asked = demand(&charged.process_prober(now + Duration::from_millis(60)));
+
+        assert_eq!(baseline.stats().probe_bucket_bytes, 0);
+        assert_eq!(charged.stats().probe_bucket_bytes, 100 * 1_500);
+        assert!(
+            charged_asked < asked,
+            "the same volume of padding that reached the bucket did not reduce the demand: \
+             uncharged asked for {asked}, charged asked for {charged_asked}"
+        );
+    }
+
     #[test]
     fn finalize_settles_the_cluster_and_returns_the_detector_estimate_once() {
         let now = Instant::now();
@@ -1455,5 +1591,138 @@ mod tests {
         assert_eq!(bwe.rtt(), detector::DEFAULT_RTT);
         bwe.update_rtt(detector::DEFAULT_RTT);
         assert_eq!(bwe.rtt(), detector::DEFAULT_RTT);
+    }
+
+    /// The vendor probe window can refuse a request (no keys, no sending media,
+    /// or a validation already open). The refusal consumer retires the cluster
+    /// the way `maybeStopProbe` does; this is the allocator-side half of that
+    /// contract: a retired cluster has to reach a finalization exactly once, and
+    /// must not leave the allocator holding an active cluster forever or get
+    /// booked as somebody else's outcome.
+    #[test]
+    fn a_retired_cluster_finalizes_exactly_once_and_asks_for_nothing_more() {
+        let now = Instant::now();
+        let mut bwe = owner(now);
+        bwe.note_allocation(1_000_000, Some(500_000));
+        let inputs = ProbeInputs {
+            allow_pause: false,
+            deficient: true,
+            override_active: false,
+            committed_bps: 0,
+        };
+        // The first poll cannot probe, so the cluster is scheduled one later.
+        let started_at = now + Duration::from_millis(1);
+        let ping = bwe.periodic_ping(&inputs, started_at);
+        assert!(
+            ping.actions
+                .iter()
+                .any(|action| matches!(action, ProbeAction::StartCluster { .. })),
+            "a deficient allocator schedules a cluster, got {:?}",
+            ping.actions
+        );
+        assert_eq!(
+            ping.probe_finalized, None,
+            "a cluster that has not settled is not an outcome"
+        );
+        let active = bwe.active_cluster_id;
+        assert_ne!(active, PROBE_CLUSTER_ID_INVALID);
+
+        bwe.stop_probe_cluster(started_at)
+            .expect("the retired cluster was active");
+        assert_eq!(
+            bwe.stamped_cluster_id, PROBE_CLUSTER_ID_INVALID,
+            "no further datagram may be stamped into a retired cluster"
+        );
+
+        // The settle wait has to pass first: 10 ms after a 70 ms default RTT is
+        // still inside it, so nothing is bookable yet.
+        let early = bwe.periodic_ping(&inputs, started_at + Duration::from_millis(10));
+        assert_eq!(early.probe_finalized, None, "still settling");
+
+        let settled = bwe.periodic_ping(&inputs, started_at + Duration::from_secs(1));
+        let (signal, capacity) = settled
+            .probe_finalized
+            .expect("a retired cluster reaches a finalization instead of staying active");
+        // Upstream computes `isSignalValid` in `ProbeClusterFinalize` only to put
+        // it in the log; the booked signal always comes from
+        // `ProbeSignalConfig.ProbeSignal(group)`. A group that carried nothing has
+        // zero queuing delay and zero weighted loss, so it is NotCongesting, which
+        // is also why the goal-reached check is the only place `IsValid` gates the
+        // decision.
+        assert_eq!(
+            signal,
+            ProbeSignal::NotCongesting,
+            "a cluster that measured nothing is not a congestion failure"
+        );
+        assert_eq!(capacity, bwe.capacity());
+        assert_eq!(
+            bwe.active_cluster_id, PROBE_CLUSTER_ID_INVALID,
+            "finalization is what clears the allocator id"
+        );
+        let after = bwe.periodic_ping(&inputs, started_at + Duration::from_secs(2));
+        assert_eq!(
+            after.probe_finalized, None,
+            "the same cluster is never booked twice"
+        );
+    }
+
+    /// `probe_cluster_finalize`'s capacity is what Go compares against
+    /// `committedChannelCapacity` before the allocator adopts it, so the same
+    /// finalization has to commit on an empty channel and refuse to lower a
+    /// committed one. This is the negative control for the commit-if-higher gate
+    /// the allocation pass reads.
+    #[test]
+    fn a_finalization_commits_only_when_it_raises_the_committed_capacity() {
+        let now = Instant::now();
+        let goal_duration = PolicyDuration::from_millis(100);
+        let mut lower = owner(now);
+        let lower_cluster = lower.start_probe_cluster(goal(2_000_000, 1_000, goal_duration), now);
+        lower.handle(sent(now, 7, 20, 1_500)).unwrap();
+        lower
+            .handle(sent(now + Duration::from_millis(150), 7, 21, 10))
+            .unwrap();
+        // The two packets are judged on their own traffic, not on `IsValid`: the
+        // group carries no queuing delay and no loss, so this is the NotCongesting
+        // branch, the one that compares the returned estimate against what the
+        // caller already committed.
+        lower.end_probe_cluster(lower_cluster.id, now + Duration::from_millis(150));
+        let inputs = ProbeInputs {
+            allow_pause: false,
+            deficient: false,
+            override_active: false,
+            committed_bps: 0,
+        };
+        let ping = lower.periodic_ping(&inputs, now + Duration::from_secs(1));
+        let (signal, capacity) = ping
+            .probe_finalized
+            .expect("the settle wait elapsed with a recorded result");
+        assert_eq!(signal, ProbeSignal::NotCongesting);
+        assert_eq!(ping.commit_bps, Some(capacity));
+        assert!(ping.reallocate);
+
+        // The same finalization against a channel already committed above the
+        // estimate must not lower it.
+        let mut higher = owner(now);
+        let higher_cluster = higher.start_probe_cluster(goal(2_000_000, 1_000, goal_duration), now);
+        higher.handle(sent(now, 7, 20, 1_500)).unwrap();
+        higher
+            .handle(sent(now + Duration::from_millis(150), 7, 21, 10))
+            .unwrap();
+        higher.end_probe_cluster(higher_cluster.id, now + Duration::from_millis(150));
+        let committed = ProbeInputs {
+            committed_bps: capacity + 1,
+            ..inputs
+        };
+        let held = higher.periodic_ping(&committed, now + Duration::from_secs(1));
+        assert_eq!(
+            held.probe_finalized.map(|(signal, _)| signal),
+            Some(ProbeSignal::NotCongesting),
+            "the cluster still finalizes"
+        );
+        assert_eq!(
+            held.commit_bps, None,
+            "a lower estimate never lowers a committed capacity"
+        );
+        assert!(held.reallocate);
     }
 }

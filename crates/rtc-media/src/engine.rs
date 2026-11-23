@@ -895,21 +895,9 @@ impl MediaEngine {
                 .values()
                 .map(|t| t.paused_video_tracks)
                 .sum(),
-            probe_attempts: self
-                .transports
-                .values()
-                .map(|t| t.probes.counters.attempts)
-                .sum(),
-            probe_successes: self
-                .transports
-                .values()
-                .map(|t| t.probes.counters.successes)
-                .sum(),
-            probe_failures: self
-                .transports
-                .values()
-                .map(|t| t.probes.counters.failures)
-                .sum(),
+            probe_attempts: self.transports.values().map(|t| t.probe_counters().0).sum(),
+            probe_successes: self.transports.values().map(|t| t.probe_counters().1).sum(),
+            probe_failures: self.transports.values().map(|t| t.probe_counters().2).sum(),
             congestion_events: self
                 .transports
                 .values()

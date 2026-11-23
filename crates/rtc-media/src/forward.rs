@@ -1375,7 +1375,7 @@ impl MediaEngine {
                 override_active: t.bw_override_bps > 0,
                 committed_bps: t.committed_channel_capacity_bps,
             };
-            let (actions, commit, cancel, repost) = {
+            let (actions, commit, cancel, repost, finalized) = {
                 let Some(send_side) = &mut t.send_side else {
                     continue;
                 };
@@ -1385,9 +1385,32 @@ impl MediaEngine {
                     ping.commit_bps,
                     ping.cancel_probe,
                     ping.reallocate || ping.media_boost,
+                    ping.probe_finalized,
                 )
             };
             Self::apply_probe_actions(t, &actions, now);
+            if let Some((signal, channel_capacity)) = finalized {
+                // Go logs this pair as `stream allocator: probe result`; the
+                // tally is this port's telemetry of the same decision, so the
+                // reported outcome of a probe is the one its own finalization
+                // produced rather than a vendor validation verdict that may
+                // never have been able to measure the cluster.
+                let counters = &mut t.native_probes;
+                match signal {
+                    crate::send_side_bwe::ProbeSignal::NotCongesting => {
+                        counters.confirmed += 1;
+                    }
+                    crate::send_side_bwe::ProbeSignal::Congesting => {
+                        counters.congested += 1;
+                    }
+                    crate::send_side_bwe::ProbeSignal::Inconclusive => {
+                        counters.inconclusive += 1;
+                    }
+                }
+                tracing::debug!(transport = %tid, probe_signal = ?signal,
+                    channel_capacity_bps = channel_capacity,
+                    "probe cluster finalized");
+            }
             if cancel {
                 t.rtc.bwe().cancel_validation(now);
             }
@@ -1466,17 +1489,45 @@ impl MediaEngine {
                     desired_bps,
                     duration,
                 } => window = Some((*desired_bps, *duration)),
+                // Upstream's `handleSignalSendProbe` asks the pacer for bytes;
+                // the pacer here is the vendor's, and the padding it emits
+                // during the open window comes back through the send-side
+                // boundary, where the prober meters it into the very bucket that
+                // produced this demand. The ask is therefore not a quantity this
+                // port has to carry: it is settled by the metering path, and only
+                // the demand itself is traced so a shortfall stays visible.
                 ProbeAction::SendProbe(bytes) => {
-                    t.probe_bucket_asks = t.probe_bucket_asks.saturating_add(1);
                     tracing::trace!(transport = %t.id(), probe_bytes_to_send = bytes,
                         "prober bucket demand is serviced by the open probe window");
                 }
             }
         }
         if let Some((desired_bps, duration)) = window.filter(|(bps, _)| *bps > 0) {
+            t.native_probes.started += 1;
             let rate = Bitrate::bps(desired_bps as u64);
             let id = t.rtc.bwe().start_validation_with_pacing(rate, rate, now);
-            t.probes.validation_started(id, now);
+            if id.is_none() {
+                // Upstream cannot reach this state: its pacer owns the probe
+                // traffic, so a cluster always has a producer. Here the padding
+                // source is a vendor window that can refuse, and a cluster whose
+                // window never opened would sit active with no traffic and no
+                // way to reach its goal. Retire it like any other stopped probe,
+                // which lets the next ping finalize it; the regulator's own
+                // earliest-next-probe instant still gates the retry, so a
+                // persistent refusal cannot turn into a per-tick probe loop.
+                t.native_probes.refused_start += 1;
+                if let Some(send_side) = &mut t.send_side {
+                    send_side.stop_probe_cluster(now);
+                }
+                tracing::debug!(transport = %t.id(), goal_bps = desired_bps,
+                    "probe window refused: cluster retired instead of left active");
+            }
+            // The legacy controller is not registered here. Its validation slot
+            // is created only by its own `tick`, which does not run in native
+            // mode, so a binding would either be dropped as a no-op or leave a
+            // request that its ledger can never admit or fail. The native
+            // accounting above and the outcome booked from the next ping's
+            // finalization are the whole record of this cluster.
             tracing::debug!(transport = %t.id(), probe_cluster = ?id, goal_bps = desired_bps,
                 goal_duration = ?duration, "allocator prober opened the probe window");
         }

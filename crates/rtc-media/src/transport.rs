@@ -252,19 +252,16 @@ pub(crate) struct Transport {
     /// Go `StreamAllocator.state`, written only by `adjustState`: `true` is
     /// Deficient (some managed track is below its desired layer), `false` Stable.
     pub allocator_deficient: bool,
-    /// Go `activeProbeCongesting`: a congested transition observed while a probe
-    /// cluster is active is logged and dropped, never committed; the cluster's
-    /// finalization decides. The flag itself lives with the cluster id in
-    /// `SendSideBwe`, because a cluster switch is what clears it there.
     /// `stream_allocator.min_channel_capacity`, Go's `Config.MinChannelCapacity`:
     /// floors `getAvailableChannelCapacity` and nothing else (never the probe
     /// goal, which uses the raw committed capacity).
     pub min_channel_capacity_bps: i64,
     /// `Prober.run`'s ticker re-arm: when the bucket clock next wants to run.
     pub prober_deadline: Option<Instant>,
-    /// `OnSendProbe` demand the prober's buckets have asked for, counted so the
-    /// schedule is observable rather than silently dropped.
-    pub probe_bucket_asks: u64,
+    /// Native-mode probe outcome telemetry: what this transport's own probe
+    /// lifecycle started and how each cluster ended. In native mode this, not
+    /// [`Self::probes`], is the source of the engine's probe counters.
+    pub native_probes: NativeProbeCounters,
     /// Go `StreamAllocator.lastRTTTime`: the periodic pass pulls the ICE RTT at
     /// most every `cRTTPullInterval` (30 s) and hands it to the estimator.
     pub last_rtt_pull: Instant,
@@ -290,6 +287,31 @@ pub(crate) struct SendSideObservation {
     pub congestion: crate::send_side_bwe::CongestionState,
     /// Wall clock of the observation that produced this view.
     pub at: Instant,
+}
+
+/// Native-mode probe outcome accounting, tallied by the forwarding pass from the
+/// allocator ping and the prober's own actions.
+///
+/// Upstream keeps no counters: `handleSignalPeriodicPing` logs
+/// `stream allocator: probe result` with the signal, and the regulator reschedules
+/// from it. The tally is this port's telemetry, but it is derived from the same
+/// Go-parity facts — a cluster the prober started, and the signal its
+/// finalization produced — so a probe that never started, or one retired before
+/// it could be finalized, is booked as neither a confirmation nor a failure
+/// instead of borrowing the vendor validation slot's verdict.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct NativeProbeCounters {
+    /// `ProbeClusterStarting`: clusters the prober actually opened.
+    pub started: u64,
+    /// Finalized `ProbeSignal::NotCongesting`: capacity confirmed.
+    pub confirmed: u64,
+    /// Finalized `ProbeSignal::Congesting`: the probe made the channel worse.
+    pub congested: u64,
+    /// Finalized `ProbeSignal::Inconclusive`: too little was measured to decide.
+    pub inconclusive: u64,
+    /// Cluster starts whose probe window the transport could not open, so the
+    /// cluster was retired immediately instead of staying active without traffic.
+    pub refused_start: u64,
 }
 
 impl Transport {
@@ -389,7 +411,7 @@ impl Transport {
             allocator_deficient: false,
             min_channel_capacity_bps,
             prober_deadline: None,
-            probe_bucket_asks: 0,
+            native_probes: NativeProbeCounters::default(),
             last_rtt_pull: now,
             layer_bitrates: Default::default(),
             allocated_bps: 0,
@@ -469,6 +491,25 @@ impl Transport {
             (Some(e), o) => Some(e.min(o)),
             (None, 0) => None,
             (None, o) => Some(o),
+        }
+    }
+
+    /// Which probe outcome counters this transport reports, by feedback mode.
+    ///
+    /// Native send-side mode reports the clusters the prober started and how the
+    /// padding window that was opened for them resolved. Receiver-estimate mode
+    /// reports the probe controller's ledger, which is the authority there
+    /// because that controller is the component that requests the validation.
+    pub(crate) fn probe_counters(&self) -> (u64, u64, u64) {
+        if self.send_side.is_some() {
+            let n = self.native_probes;
+            (n.started, n.confirmed, n.congested + n.inconclusive)
+        } else {
+            (
+                self.probes.counters.attempts,
+                self.probes.counters.successes,
+                self.probes.counters.failures,
+            )
         }
     }
 

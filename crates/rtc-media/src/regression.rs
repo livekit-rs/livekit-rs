@@ -1515,6 +1515,12 @@ fn bandwidth_limited_webrtc_link_pauses_and_recovers_video() {
         stats.probe_successes,
         stats.probe_failures
     );
+    let send_side = engine.transports[&sub_tid]
+        .send_side
+        .as_ref()
+        .expect("native mode owns the send-side estimator")
+        .stats();
+    eprintln!("probe padding stats: {send_side:?}");
     assert!(
         frames_before > 30,
         "initial media did not flow: {frames_before}"
@@ -1543,6 +1549,36 @@ fn bandwidth_limited_webrtc_link_pauses_and_recovers_video() {
         stats.probe_attempts,
         stats.probe_successes,
         stats.probe_failures
+    );
+    // Upstream `handleSignalSendProbe` charges the prober with what
+    // `WriteProbePackets` actually returned, so a bucket that advances is
+    // evidence of bytes on the wire, not of a request. Here the producer of
+    // those bytes is the vendor probe window opened by the cluster switch, and
+    // the meter is the authenticated send-side boundary, so the same claim is
+    // checkable only against emitted padding datagrams.
+    assert!(
+        send_side.padding_packets > 0 && send_side.padding_bytes > 0,
+        "the probe window opened but never emitted a padding datagram: {send_side:?}"
+    );
+    assert!(
+        send_side.probe_bucket_bytes > 0,
+        "padding was emitted but nothing reached the prober bucket, so the cluster \
+         goal was never charged and cannot have been met by traffic: {send_side:?}"
+    );
+    assert_eq!(
+        send_side.probe_bucket_bytes + send_side.uncharged_padding_bytes,
+        send_side.padding_bytes,
+        "every emitted padding octet must be accounted exactly once, either charged \
+         to the open cluster or recorded as uncharged: {send_side:?}"
+    );
+    // The charge is gated on the cluster stamp that the switch installs, which
+    // is Go's per-track `SetProbeClusterId` in `handleSignalProbeClusterSwitch`.
+    // Without an accepted cluster there is nothing to charge, so a bucket that
+    // advanced while no cluster started would mean padding was billed to a
+    // cluster that never existed.
+    assert!(
+        send_side.cluster_starts > 0,
+        "a charged bucket requires an accepted cluster start: {send_side:?}"
     );
 }
 
