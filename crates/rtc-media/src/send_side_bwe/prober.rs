@@ -27,10 +27,10 @@ use std::time::Instant;
 
 use rtc_core::config::PolicyDuration;
 
-use super::ccutils::{
-    PROBE_CLUSTER_ID_INVALID, ProbeClusterGoal, ProbeClusterId, ProbeClusterInfo,
-    ProbeClusterResult,
-};
+use super::ccutils::{ProbeClusterGoal, ProbeClusterId, ProbeClusterInfo, ProbeClusterResult};
+
+#[cfg(test)]
+use super::ccutils::PROBE_CLUSTER_ID_INVALID;
 use super::time::go_round_i64;
 
 /// `cBytesPerProbe`: padding-only packets are 255 bytes payload plus a 20-byte
@@ -332,10 +332,11 @@ impl Prober {
     /// `Prober.Reset`: the active cluster, if it is the named one, keeps the
     /// result the caller already recorded, and the whole queue is dropped.
     pub(crate) fn reset(&mut self, info: &ProbeClusterInfo) {
-        if self.is_active && self.clusters.front().is_some_and(|c| c.info.id == info.id) {
-            if let Some(cluster) = self.clusters.front_mut() {
-                cluster.mark_completed(info.result);
-            }
+        if self.is_active
+            && let Some(cluster) = self.clusters.front_mut()
+            && cluster.info.id == info.id
+        {
+            cluster.mark_completed(info.result);
         }
         self.clusters.clear();
         self.is_active = false;
@@ -932,10 +933,7 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(prober.active_cluster_id(), second.id);
         assert!(
-            prober
-                .clusters
-                .front()
-                .is_some_and(|c| c.is_complete == false),
+            prober.clusters.front().is_some_and(|c| !c.is_complete),
             "the second cluster starts fresh"
         );
     }

@@ -874,13 +874,13 @@ impl SendSideBwe {
                     ping.cancel_probe = true;
                 }
             }
-            if let Some((signal, channel_capacity)) = self.probe_cluster_finalize(at) {
-                if signal != ProbeSignal::Congesting {
-                    if channel_capacity > inputs.committed_bps {
-                        ping.commit_bps = Some(channel_capacity);
-                    }
-                    ping.reallocate = true;
+            if let Some((signal, channel_capacity)) = self.probe_cluster_finalize(at)
+                && signal != ProbeSignal::Congesting
+            {
+                if channel_capacity > inputs.committed_bps {
+                    ping.commit_bps = Some(channel_capacity);
                 }
+                ping.reallocate = true;
             }
         }
         if inputs.deficient {
@@ -936,19 +936,19 @@ impl SendSideBwe {
         self.prober_sleep = sleep;
         events
             .into_iter()
-            .filter_map(|event| match event {
+            .map(|event| match event {
                 ProberEvent::ClusterSwitch(pci) => {
                     self.handle_cluster_switch(pci, at);
-                    Some(ProbeAction::StartCluster {
+                    ProbeAction::StartCluster {
                         desired_bps: pci.goal.desired_bps,
                         duration: pci
                             .goal
                             .duration
                             .nonnegative_to_std()
                             .unwrap_or(Duration::ZERO),
-                    })
+                    }
                 }
-                ProberEvent::SendProbe(bytes) => Some(ProbeAction::SendProbe(bytes)),
+                ProberEvent::SendProbe(bytes) => ProbeAction::SendProbe(bytes),
             })
             .collect()
     }
@@ -957,22 +957,6 @@ impl SendSideBwe {
     /// re-arm. `None` means the queue is empty.
     pub(crate) fn prober_deadline(&self, now: Instant) -> Option<Instant> {
         self.prober.next_deadline(now, self.prober_sleep)
-    }
-
-    /// `Prober.IsRunning`. Upstream only calls it from its own tests and logs,
-    /// so this is a test-only observation point, not a shipped consumer.
-    #[cfg(test)]
-    pub(crate) fn prober_is_running(&self) -> bool {
-        self.prober.is_running()
-    }
-
-    /// The probe cluster id the prober has queued or is running, which is
-    /// upstream's `Prober.GetActiveClusterId()` and distinct from the
-    /// allocator-side id `probe_cluster_id` reports. Test-only for the same
-    /// reason as `prober_is_running`.
-    #[cfg(test)]
-    pub(crate) fn prober_active_cluster_id(&self) -> ProbeClusterId {
-        self.prober.active_cluster_id()
     }
 
     /// Detector diagnostics for the owner's trace log.

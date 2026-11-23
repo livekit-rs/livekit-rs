@@ -503,11 +503,20 @@ impl ProbeController {
     }
 
     /// Bind the native request identity returned by the real padding scheduler.
+    ///
+    /// A missing identity means native refused the request: no cluster opened, so
+    /// no proof and no congestion receipt can ever arrive for it. The request is
+    /// then dropped without consuming the failure accounting that belongs to a
+    /// started probe, while the demand itself stays pending and is re-issued on
+    /// the existing backoff rather than on every tick.
     pub fn validation_started(&mut self, id: Option<u64>, now: Instant) {
-        if let (Some(active), Some(id)) = (self.validation.as_mut(), id) {
-            active.id = Some(id);
-        } else if self.validation.is_some() {
-            self.fail_validation(now);
+        match (self.validation.as_mut(), id) {
+            (Some(active), Some(id)) => active.id = Some(id),
+            (Some(_), None) => {
+                self.validation = None;
+                self.next_probe_at = now + self.interval;
+            }
+            (None, _) => {}
         }
     }
 
@@ -2866,5 +2875,51 @@ mod tests {
         assert_eq!(c.capacity(Some(300_000)), Some(300_000));
         c.on_remb(500_000, now + Duration::from_secs(1));
         assert_eq!(c.capacity(Some(500_000)), Some(500_000));
+    }
+
+    #[test]
+    fn refused_native_start_drops_the_request_without_consuming_the_probe_ledger() {
+        let now = Instant::now();
+        let mut c = controller(now, 200_000);
+        let at = now + Duration::from_secs(4);
+        assert!(
+            action(&mut c, at)
+                .start_validation_bps
+                .expect("deficient demand requests a validation")
+                > 0
+        );
+        assert!(c.validation.is_some(), "the request is pending");
+
+        // The native layer refused the request, so no cluster exists that could
+        // ever report a proof or a congestion receipt for it.
+        c.validation_started(None, at);
+        assert!(
+            c.validation.is_none(),
+            "a refused start must not stay active as a phantom request"
+        );
+        assert_eq!(c.counters.failures, 0, "a refusal is not a probe outcome");
+        assert_eq!(
+            action(&mut c, at + Duration::from_millis(100)).start_validation_bps,
+            None,
+            "a refusal must not re-issue the same request on the next tick"
+        );
+        assert!(
+            action(&mut c, at + BASE_INTERVAL)
+                .start_validation_bps
+                .is_some(),
+            "the unmet demand is still pending after the backoff"
+        );
+
+        // An accepted request keeps its window open and binds the cluster id.
+        let mut accepted = controller(now, 200_000);
+        assert!(
+            accepted
+                .tick(at, 1_000_000, 150_000, None, true, false)
+                .start_validation_bps
+                .is_some()
+        );
+        accepted.validation_started(Some(7), at);
+        assert_eq!(accepted.validation.as_ref().map(|v| v.id), Some(Some(7)));
+        assert_eq!(accepted.counters.failures, 0);
     }
 }
