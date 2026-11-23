@@ -71,7 +71,11 @@ fn engine_with_audio_interval(now: Instant, interval: Duration) -> MediaEngine {
                 },
                 congestion_control: CongestionControl {
                     enabled: true,
-                    allow_pause: true,
+                    // Upstream production default (`pkg/config/config.go:584 AllowPause: false`).
+                    // With the Go allocation authority a cold transport has committed nothing,
+                    // so `allow_pause: true` would pause every managed track until a probe
+                    // cluster commits capacity; the pause branch has its own vector.
+                    allow_pause: false,
                     use_send_side_bwe: true,
                     ..CongestionControl::default()
                 },
@@ -122,7 +126,10 @@ fn transport_spec(tid: TransportId, role: PcRole) -> TransportSpec {
         client_supports_red: false,
         codec_switch_requires_renegotiation: false,
         disable_playout_delay: false,
-        allow_pause: true,
+        // `pkg/config/config.go: AllowPause` defaults to false, and the
+        // production path builds this spec from that config
+        // (`rtc_core::config::RoomPolicy::from`); pause has its own vectors.
+        allow_pause: false,
     }
 }
 

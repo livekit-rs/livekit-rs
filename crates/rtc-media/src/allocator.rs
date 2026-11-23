@@ -211,10 +211,10 @@ pub(crate) fn plan_with_unmanaged_policy(
     }
 }
 
-/// Wire budget needed for the next useful layer transition. Probe toward a
-/// reachable allocation, rather than adding fixed increments below an expensive
-/// next layer forever. Paused tracks acquire a base layer before upgrades.
-pub(crate) fn next_probe_budget(tracks: &[AllocTrack], plan: &AllocationPlan) -> Option<u64> {
+/// One reachable upgrade, in upstream's max-distance-first order: the wire
+/// budget the whole allocation needs to hold it and the per-track bandwidth
+/// delta of that same transition.
+fn probe_candidates(tracks: &[AllocTrack], plan: &AllocationPlan) -> Vec<(bool, u8, u64, i64)> {
     let mut candidates = Vec::new();
     for (track, &cap) in tracks.iter().zip(&plan.caps) {
         if track.exempt || track.max_spatial < 0 {
@@ -235,10 +235,31 @@ pub(crate) fn next_probe_budget(tracks: &[AllocTrack], plan: &AllocationPlan) ->
             .saturating_sub(current)
             .saturating_add(track.bitrates[next as usize]);
         let wire = payload.saturating_add(payload.div_ceil(9));
-        candidates.push((cap < 0, track.priority, wire));
+        // `Forwarder.GetNextHigherTransition`: the delta is the two layer
+        // bitrates of this track, not the total budget it implies.
+        let delta = track.bitrates[next as usize].saturating_sub(current) as i64;
+        candidates.push((cap < 0, track.priority, wire, delta));
     }
     candidates.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
-    candidates.first().map(|candidate| candidate.2)
+    candidates
+}
+
+/// Wire budget needed for the next useful layer transition. Probe toward a
+/// reachable allocation, rather than adding fixed increments below an expensive
+/// next layer forever. Paused tracks acquire a base layer before upgrades.
+pub(crate) fn next_probe_budget(tracks: &[AllocTrack], plan: &AllocationPlan) -> Option<u64> {
+    probe_candidates(tracks, plan)
+        .first()
+        .map(|candidate| candidate.2)
+}
+
+/// `Track.GetNextHigherTransition` for the track `maybeProbeWithPadding` would
+/// pick: `Some(delta)` is upstream's `available == true` (a zero delta still
+/// probes), `None` means no higher layer is reachable and nothing is scheduled.
+pub(crate) fn next_probe_transition(tracks: &[AllocTrack], plan: &AllocationPlan) -> Option<i64> {
+    probe_candidates(tracks, plan)
+        .first()
+        .map(|candidate| candidate.3)
 }
 
 /// Total bitrate wanted if every track got its desired layer (BWE probing target).

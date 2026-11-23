@@ -229,7 +229,18 @@ impl MediaEngine {
         let rtc = self.build_rtc(&spec, &creds, now);
         let tid = spec.id;
         let participant = spec.participant.clone();
-        let mut t = Transport::new(spec, rtc, creds.ufrag.clone(), has_bwe, now);
+        let mut t = Transport::new(
+            spec,
+            rtc,
+            creds.ufrag.clone(),
+            has_bwe,
+            self.cfg
+                .rtc
+                .congestion_control
+                .stream_allocator
+                .min_channel_capacity,
+            now,
+        );
         t.gather_srflx = gather_srflx && !t.spec.ice_lite;
         t.srflx_pending = t.gather_srflx;
         t.owned_out = self.out.for_transport(tid);
@@ -243,11 +254,11 @@ impl MediaEngine {
             ));
         }
         // Native mode additionally gets the application-owned Go-parity
-        // send-side estimator as an *observer*: it ingests the real vendor
-        // TWCC/sending observations for its own estimate, state machine and
-        // probe clusters, but it does not own the allocation. The vendor str0m
-        // BWE plus `Transport::probes` remain the allocation authority, exactly
-        // as before this detector existed. See `MediaEngine::on_send_side_input`.
+        // send-side estimator, which owns the allocation: its congestion
+        // transitions commit `Transport::committed_channel_capacity_bps` and
+        // `Transport::capacity()` returns it (Go StreamAllocator). The vendor
+        // str0m BWE keeps only the pacing/validation policy role that
+        // `Transport::probes` drives. See `MediaEngine::on_native_input`.
         if has_bwe
             && self.cfg.rtc.congestion_control.effective_feedback_mode()
                 == rtc_core::config::FeedbackMode::NativeSendSide
@@ -741,6 +752,7 @@ impl MediaEngine {
         self.transport_timers(now);
         self.down_timers(now);
         self.dynacast_timers(now);
+        self.prober_clock(now);
         if self.next_tick_at <= now {
             self.next_tick_at = now + TICK_INTERVAL;
             self.periodic_tick(now);
@@ -770,6 +782,7 @@ impl MediaEngine {
                 take(Some(t.next_timeout));
             }
             take(t.debounce_at);
+            take(t.prober_deadline);
             take(t.recovery_pending.map(|pending| pending.deadline));
             if !t.negotiation_failed {
                 take(t.answer_deadline);

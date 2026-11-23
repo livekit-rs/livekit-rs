@@ -1347,6 +1347,139 @@ impl MediaEngine {
         for tid in tids {
             self.allocate_transport(tid, now);
         }
+        self.probe_ping(now);
+    }
+
+    /// Go `StreamAllocator.handleSignalPeriodicPing` for the native transports,
+    /// on its own pass rather than inside the allocation pass, because upstream
+    /// runs it from its own ping timer. The allocation pass has already
+    /// published the deficient state, the expected usage and the next-higher
+    /// transition, so this is the estimator's lifecycle: the paused reset, the
+    /// active cluster's goal check, finalization and capacity commit, the
+    /// decision to probe, the prober's bucket clock and the RTT pull.
+    pub(crate) fn probe_ping(&mut self, now: Instant) {
+        let tids: Vec<TransportId> = self
+            .transports
+            .values()
+            .filter(|t| t.has_bwe && t.send_side.is_some() && t.sends_media() && t.usable())
+            .map(|t| t.id())
+            .collect();
+        let mut reallocate = Vec::new();
+        for tid in tids {
+            let Some(t) = self.transports.get_mut(&tid) else {
+                continue;
+            };
+            let inputs = crate::send_side_bwe::ProbeInputs {
+                allow_pause: t.spec.allow_pause,
+                deficient: t.allocator_deficient,
+                override_active: t.bw_override_bps > 0,
+                committed_bps: t.committed_channel_capacity_bps,
+            };
+            let (actions, commit, cancel, repost) = {
+                let Some(send_side) = &mut t.send_side else {
+                    continue;
+                };
+                let ping = send_side.periodic_ping(&inputs, now);
+                (
+                    ping.actions,
+                    ping.commit_bps,
+                    ping.cancel_probe,
+                    ping.reallocate || ping.media_boost,
+                )
+            };
+            Self::apply_probe_actions(t, &actions, now);
+            if cancel {
+                t.rtc.bwe().cancel_validation(now);
+            }
+            t.prober_deadline = t
+                .send_side
+                .as_ref()
+                .and_then(|send_side| send_side.prober_deadline(now));
+            if let Some(commit) = commit {
+                t.committed_channel_capacity_bps = commit;
+            }
+            // Step D: the estimator's RTT is pulled from the ICE getter at most
+            // every `cRTTPullInterval` (30 s). A TWCC report age is never a
+            // substitute, and the pull is due even when no RTT is available yet.
+            if now.saturating_duration_since(t.last_rtt_pull) >= std::time::Duration::from_secs(30)
+            {
+                t.last_rtt_pull = now;
+                if let (Some(send_side), Some(rtt)) = (&mut t.send_side, t.rtt) {
+                    send_side.update_rtt(rtt.as_secs_f64());
+                }
+            }
+            if repost {
+                reallocate.push(tid);
+            }
+        }
+        // Go commits the probed capacity and immediately runs
+        // `maybeBoostDeficientTracks`/`adjustState`, which is this port's
+        // allocation pass over the tracks.
+        for tid in reallocate {
+            self.allocate_transport(tid, now);
+        }
+    }
+
+    /// `Prober.run`'s ticker: the bucket clock advances between allocator pings,
+    /// so a 20 ms schedule does not wait for the next engine tick.
+    pub(crate) fn prober_clock(&mut self, now: Instant) {
+        let due: Vec<TransportId> = self
+            .transports
+            .values()
+            .filter(|t| t.send_side.is_some() && t.prober_deadline.is_some_and(|at| at <= now))
+            .map(|t| t.id())
+            .collect();
+        for tid in due {
+            let Some(t) = self.transports.get_mut(&tid) else {
+                continue;
+            };
+            let actions = {
+                let Some(send_side) = &mut t.send_side else {
+                    continue;
+                };
+                send_side.process_prober(now)
+            };
+            Self::apply_probe_actions(t, &actions, now);
+            t.prober_deadline = t
+                .send_side
+                .as_ref()
+                .and_then(|send_side| send_side.prober_deadline(now));
+        }
+    }
+
+    /// Resolve what the prober's clock asked the pacer to do. A cluster switch
+    /// opens the vendor pacer's probe window at the cluster's goal rate: that
+    /// window is this port's producer of the padding traffic Go asks for in
+    /// `handleSignalSendProbe`, and the bytes it emits come back through the
+    /// send-side boundary, where they are metered into the same bucket clock and
+    /// counted by the probe observer.
+    fn apply_probe_actions(
+        t: &mut crate::transport::Transport,
+        actions: &[crate::send_side_bwe::ProbeAction],
+        now: Instant,
+    ) {
+        use crate::send_side_bwe::ProbeAction;
+        let mut window = None;
+        for action in actions {
+            match action {
+                ProbeAction::StartCluster {
+                    desired_bps,
+                    duration,
+                } => window = Some((*desired_bps, *duration)),
+                ProbeAction::SendProbe(bytes) => {
+                    t.probe_bucket_asks = t.probe_bucket_asks.saturating_add(1);
+                    tracing::trace!(transport = %t.id(), probe_bytes_to_send = bytes,
+                        "prober bucket demand is serviced by the open probe window");
+                }
+            }
+        }
+        if let Some((desired_bps, duration)) = window.filter(|(bps, _)| *bps > 0) {
+            let rate = Bitrate::bps(desired_bps as u64);
+            let id = t.rtc.bwe().start_validation_with_pacing(rate, rate, now);
+            t.probes.validation_started(id, now);
+            tracing::debug!(transport = %t.id(), probe_cluster = ?id, goal_bps = desired_bps,
+                goal_duration = ?duration, "allocator prober opened the probe window");
+        }
     }
 
     /// Production router for the vendor's send-side observation stream. The
@@ -1362,44 +1495,94 @@ impl MediaEngine {
     }
 
     /// Feed one real vendor observation to the application-owned Go-parity
-    /// send-side estimator in native mode.
+    /// send-side estimator and act on what it decided, in native mode.
     ///
-    /// This is an **observer-only** path: the detector ingests the authenticated
-    /// TWCC report / sending record and derives its own capacity ceiling,
-    /// congestion state and probe-cluster state, and those values are recorded
-    /// for diagnostics (`Transport::send_side_observed`). It deliberately does
-    /// **not** touch `Transport::capacity()`, the allocator, the vendor BWE
-    /// snapshot or the pacer: in native mode the allocation authority remains
-    /// str0m's vendor estimator plus `Transport::probes`, exactly as before this
-    /// detector existed. Making the detector the authority is later work.
+    /// This is the transport's allocation authority: each detector congestion
+    /// transition is handled exactly like Go
+    /// `StreamAllocator.handleSignalCongestionStateChange`
+    /// (streamallocator.go:856-897) — stop any probe cluster when the channel is
+    /// not clear, then commit the estimated channel capacity and reallocate on a
+    /// congested transition, unless a probe cluster is active, whose own
+    /// finalization decides. `Transport::capacity()` reads that commit.
     pub(crate) fn on_native_input(&mut self, tid: TransportId, event: str0m::SendSideFeedback) {
+        use crate::send_side_bwe::CongestionState;
         let Some(t) = self.transports.get_mut(&tid).filter(|t| !t.failed) else {
             return;
         };
         let Some(send_side) = &mut t.send_side else {
             return;
         };
-        match send_side.handle(event) {
-            Ok(outcome) => {
-                t.send_side_observed = Some(crate::transport::SendSideObservation {
-                    estimate_bps: send_side.capacity(),
-                    congestion: send_side.congestion_state(),
-                    at: outcome.at,
-                });
-                // Observer-only: no allocation, no pacer control, no vendor
-                // estimate rewrite happens from here.
-                tracing::debug!(transport = %tid,
-                    go_parities_estimate_bps = send_side.capacity(),
-                    go_parities_congestion = ?send_side.congestion_state(),
-                    state_changes = outcome.state_changes.len(),
-                    inputs = ?send_side.stats(),
-                    "application-owned Go-parity send-side estimator observed the real TWCC feed (not yet the allocation authority)");
-            }
+        let outcome = match send_side.handle(event) {
+            Ok(outcome) => outcome,
             Err(error) => {
                 // Upstream drops a rejected report at the RTCP reader, before
                 // any BWE signal reaches an estimator, so nothing is due.
                 tracing::debug!(%error, "send side BWE input rejected");
+                return;
             }
+        };
+        let at = outcome.at;
+        t.send_side_observed = Some(crate::transport::SendSideObservation {
+            estimate_bps: send_side.capacity(),
+            congestion: send_side.congestion_state(),
+            at,
+        });
+        let mut reallocate = false;
+        for change in &outcome.state_changes {
+            if change.to != CongestionState::None {
+                // `maybeStopProbe`: an unclear channel must not keep a probe
+                // running; the cluster stays active until it finalizes.
+                send_side.stop_probe_cluster(at);
+            }
+            if change.from == CongestionState::EarlyWarning
+                && change.to == CongestionState::None
+                && !t.allocator_deficient
+            {
+                // Go releases an early-warning hold here with an *unconstrained*
+                // `AllocateOptimal` pass per track. This allocator has no
+                // early-warning hold to release (no sub-optimal hold state is
+                // ever recorded), so the branch is deliberately inert: routing it
+                // through the capacity-bounded pass would pause tracks Go leaves
+                // at their optimal layer. Tracked as remaining in SPEC-0077.
+                tracing::debug!(transport = %tid, "early warning cleared: no hold to release");
+            }
+            if change.to == CongestionState::Congested {
+                if send_side.probe_cluster_id() != crate::send_side_bwe::PROBE_CLUSTER_ID_INVALID {
+                    if !send_side.probe_congesting() {
+                        send_side.note_probe_congesting();
+                        tracing::debug!(transport = %tid,
+                            committed_bps = t.committed_channel_capacity_bps,
+                            estimated_bps = change.capacity_bps,
+                            "congestion during an active probe cluster: capacity commit deferred");
+                    }
+                } else {
+                    t.committed_channel_capacity_bps = change.capacity_bps;
+                    reallocate = true;
+                }
+            }
+        }
+        if let Some(completed) = outcome.completed {
+            // `handleSignalPacerProbeObserverClusterComplete`: the observer
+            // reached the goal, so the pacer closes the window and the prober
+            // drops the cluster, while the allocator keeps the id until the
+            // estimator finalizes it on the next ping.
+            let pci = send_side.end_probe_cluster(completed.id, at);
+            if pci.id != crate::send_side_bwe::PROBE_CLUSTER_ID_INVALID {
+                t.rtc.bwe().cancel_validation(at);
+                tracing::debug!(transport = %tid, cluster = pci.id,
+                    probe_bytes = completed.result.bytes(),
+                    "probe cluster reached its goal: window closed");
+            }
+        }
+        tracing::debug!(transport = %tid,
+            go_parities_estimate_bps = send_side.capacity(),
+            go_parities_congestion = ?send_side.congestion_state(),
+            state_changes = outcome.state_changes.len(),
+            committed_bps = t.committed_channel_capacity_bps,
+            inputs = ?send_side.stats(),
+            "application-owned Go-parity send-side estimator drove the allocation authority");
+        if reallocate {
+            self.allocate_transport(tid, at);
         }
     }
 
@@ -1663,6 +1846,13 @@ impl MediaEngine {
             .zip(&tracks)
             .filter(|(cap, track)| **cap < 0 && track.max_spatial >= 0)
             .count();
+        // Go `adjustState` at the end of `allocateAllTracks`: any managed track
+        // still below its desired layer leaves the channel Deficient, and only a
+        // fully served set is Stable. An exempt (unmanaged) track always has its
+        // optimal layer, so it can never make the channel deficient.
+        t.allocator_deficient = tracks.iter().zip(&plan.caps).any(|(track, cap)| {
+            !track.exempt && track.max_spatial >= 0 && *cap < track.max_spatial
+        });
         if tracks.len() == video.len() && !tracks.is_empty() {
             let caps = &plan.caps;
             for (k, &di) in video.iter().enumerate() {
@@ -1744,13 +1934,15 @@ impl MediaEngine {
                 connected,
                 !video.is_empty() && t.paused_video_tracks == video.len(),
             );
-            if action.cancel_validation {
+            if action.cancel_validation && t.send_side.is_none() {
                 t.rtc.bwe().cancel_validation(now);
             }
             if let Some(initial) = action.reset_bwe_to {
                 t.rtc.bwe().reset(Bitrate::bps(initial));
             }
-            if let Some(target) = action.start_validation_bps {
+            if let Some(target) = action.start_validation_bps
+                && t.send_side.is_none()
+            {
                 // P is the proof/admission floor; Q is bounded transport service only.
                 let floor = Bitrate::bps(target);
                 let id = t
@@ -1762,6 +1954,16 @@ impl MediaEngine {
             t.rtc
                 .bwe()
                 .set_desired_bitrate(Bitrate::bps(action.desired_bps));
+            // The probe lifecycle reads its two track-derived values from the
+            // pass that owns the layer costs: the expected usage and the
+            // next-higher transition of the farthest deficient track. Go reads
+            // both straight out of its track registry on every ping.
+            if let Some(send_side) = &mut t.send_side {
+                send_side.note_allocation(
+                    i64::try_from(plan.allocated_bps).unwrap_or(i64::MAX),
+                    allocator::next_probe_transition(&tracks, &plan),
+                );
+            }
             tracing::debug!(transport = %tid, native_estimate_bps = ?t.estimate_bps, capacity_bps = ?capacity, video_budget_bps = ?plan.video_budget_bps,
                 next_layer_wire_bps = ?next_layer_wire_bps, desired_wire_bps = desired, caps = ?plan.caps, layer_costs = ?tracks,
                 allocated_bps = plan.allocated_bps, overshoot_bps = plan.overshoot_bps,
