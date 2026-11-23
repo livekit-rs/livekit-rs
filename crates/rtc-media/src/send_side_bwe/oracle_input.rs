@@ -21,7 +21,8 @@
 //!   and whose upstream `TrendDetector.Seed` this port deliberately does not
 //!   carry (only the remote path uses it, see `trend.rs`). The op vocabulary is a
 //!   hard error outside that set, so a campaign edit cannot silently shrink
-//!   coverage, and [`PROBE_FAMILY_CASES`]/[`LEAF_BASELINE_CASES`] pin named cases.
+//!   coverage, and [`PROBE_FAMILY_CASES`]/[`LEAF_BASELINE_CASES`]/
+//!   [`LEAF_FAMILY_PARENTS`] pin named cases.
 //! * Every golden column is compared except the three that identify the row
 //!   (`case`, `at_us`, `op`), and the compared set is taken from the oracle's own
 //!   header, so a new oracle column becomes a required Rust value instead of an
@@ -132,6 +133,34 @@ const LEAF_BASELINE_CASES: [&str; 14] = [
     "tr_cap__dflt_wl_mindur",
     "tr_cap__dflt_wl_pen",
     "tr_cap__dflt_wl_pps",
+];
+
+/// The C74-e leaf-family parents: one per family of detector leaves whose value
+/// the pre-C74-e campaign never moved, each replaying its base case's ops with
+/// every key of the family spelled out at the pinned Go default. A leg is named
+/// `<parent>__v_<key>_<value>`, so requiring the parents by name is what keeps
+/// `work/check-leaf-discrimination.py`'s parent/leg pairs from evaporating out of
+/// the Rust side of the comparison. The campaign must carry 92 such legs, one or
+/// two per key: a leg is the only stimulus that can show the Rust port reads a
+/// leaf the way Go does, so its count is a coverage claim, not a detail.
+const LEAF_FAMILY_PARENTS: [&str; 17] = [
+    "probe_nc__p_reg",
+    "probe_inc__p_sigvalid",
+    "probe_nc__p_signc",
+    "pgsettle__p_pgrp",
+    "probe_nc__p_pgrpnc",
+    "esmj15__p_qdew",
+    "ooo__p_qdewd",
+    "esmj30__p_qdewj",
+    "ctrfeed2__p_qdc",
+    "drc__p_dqrc",
+    "jrl__p_lossjqr",
+    "esmj30__p_delay",
+    "loss_region__p_wl",
+    "ctrfeed2__p_wl2",
+    "ctrfeed2__p_cgrp",
+    "pgsd__p_regpg",
+    "pgsb__p_sigpgb",
 ];
 
 /// The golden columns that name the row instead of describing it. Every other
@@ -492,12 +521,23 @@ fn campaign_config(spec: &str) -> (i64, CongestionDetectorConfig) {
             "jqr_delay" => config.jqr_min_delay = us(),
             "dqr_delay" => config.dqr_max_delay = us(),
             "jqr_coef" => config.jqr_min_trend_coefficient = flt(),
+            "jqr_wl" => config.jqr_min_weighted_loss = flt(),
+            "dqr_wl" => config.dqr_max_weighted_loss = flt(),
             "sig_min_bytes" => config.probe_signal.min_bytes_ratio = flt(),
             "sig_min_dur" => config.probe_signal.min_duration_ratio = flt(),
             "sig_jqr_delay" => config.probe_signal.jqr_min_delay = us(),
             "sig_dqr_delay" => config.probe_signal.dqr_max_delay = us(),
             "sig_jqr_wl" => config.probe_signal.jqr_min_weighted_loss = flt(),
             "sig_dqr_wl" => config.probe_signal.dqr_max_weighted_loss = flt(),
+            "sig_wl_mindur" => {
+                config
+                    .probe_signal
+                    .weighted_loss
+                    .min_duration_for_loss_validity = us()
+            }
+            "sig_wl_base" => config.probe_signal.weighted_loss.base_duration = us(),
+            "sig_wl_pps" => config.probe_signal.weighted_loss.base_pps = num(),
+            "sig_wl_pen" => config.probe_signal.weighted_loss.loss_penalty_factor = flt(),
             "qdew_jqr_groups" => {
                 config.queuing_delay_early_warning_jqr.min_number_of_groups = num()
             }
@@ -1742,27 +1782,56 @@ fn replay_campaign(operations: &str, golden: &str, drift: Drift) -> Replay {
             .all(|row| REPLAYABLE_OPS.contains(&row.op.as_str()));
         if replayable {
             replay.cases.push(rows[0].case.clone());
-            let (sn_start, config) = campaign_config(&rows[0].config);
-            let run = Run { origin, sn_start };
-            let mut detector = CongestionDetector::new(config.clone(), at_instant(origin, 0));
-            let mut session = Session::new(&config);
-            let mut sends = 0_u64;
-            for (row, output) in rows.iter().zip(&gold[start..end]) {
-                let mut echo = Echo::fresh();
-                apply(
-                    row,
-                    &mut detector,
-                    &mut session,
-                    run,
-                    &mut sends,
-                    &mut echo,
-                    drift,
-                );
-                let mut got = Observed::default();
-                read_state(row, &detector, &session, &echo, run, sends, &mut got);
-                compare(row, &compared, output, &got, &mut replay.diffs);
-                replay.rows += 1;
-                replay.fields += compared.len();
+            // A case that panics inside the policy arithmetic is a finding about
+            // that case, not about the campaign: name it and keep replaying, so one
+            // bad leg cannot hide the other ninety-one.
+            let gold_range = &gold[start..end];
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let (sn_start, config) = campaign_config(&rows[0].config);
+                let run = Run { origin, sn_start };
+                let mut detector = CongestionDetector::new(config.clone(), at_instant(origin, 0));
+                let mut session = Session::new(&config);
+                let mut sends = 0_u64;
+                let mut diffs = Vec::new();
+                let mut done = 0_usize;
+                for (row, output) in rows.iter().zip(gold_range) {
+                    let mut echo = Echo::fresh();
+                    apply(
+                        row,
+                        &mut detector,
+                        &mut session,
+                        run,
+                        &mut sends,
+                        &mut echo,
+                        drift,
+                    );
+                    let mut got = Observed::default();
+                    read_state(row, &detector, &session, &echo, run, sends, &mut got);
+                    compare(row, &compared, output, &got, &mut diffs);
+                    done += 1;
+                }
+                (diffs, done)
+            }));
+            match outcome {
+                Ok((diffs, done)) => {
+                    replay.diffs.extend(diffs);
+                    replay.rows += done;
+                    replay.fields += done * compared.len();
+                }
+                Err(payload) => {
+                    let message = payload
+                        .downcast_ref::<String>()
+                        .map(String::as_str)
+                        .or_else(|| payload.downcast_ref::<&str>().copied())
+                        .unwrap_or("<non-string panic>");
+                    replay.diffs.push(format!(
+                        "{}: replay panicked within its {} rows: {message}",
+                        rows[0].case,
+                        rows.len()
+                    ));
+                    replay.rows += rows.len();
+                    replay.fields += rows.len() * compared.len();
+                }
             }
         } else {
             replay.skipped.push(rows[0].case.clone());
@@ -1906,6 +1975,45 @@ mod tests {
                 "leaf-baseline case {twin} is not replayed against the Go output"
             );
         }
+        for parent in LEAF_FAMILY_PARENTS {
+            assert!(
+                replay.cases.iter().any(|case| case == parent),
+                "leaf-family parent {parent} is not replayed against the Go output"
+            );
+        }
+        // The legs are what carries the component_behavior claim for the C74-e
+        // leaves, so require their count against the parents' own naming rather
+        // than trusting the block that generated them.
+        let leg_prefixes: Vec<String> = LEAF_FAMILY_PARENTS
+            .iter()
+            .map(|parent| format!("{parent}__v_"))
+            .collect();
+        let mut legs: Vec<String> = Vec::new();
+        let campaign_rows = stimulus_rows(include_str!("operations.tsv"));
+        for row in &campaign_rows {
+            if leg_prefixes
+                .iter()
+                .any(|prefix| row.case.starts_with(prefix.as_str()))
+                && !legs.contains(&row.case)
+            {
+                legs.push(row.case.clone());
+            }
+        }
+        assert_eq!(
+            legs.len(),
+            92,
+            "the leaf-family block carries {} value legs over its 17 parents: {}",
+            legs.len(),
+            legs.join(", ")
+        );
+        let missing: Vec<&String> = legs
+            .iter()
+            .filter(|leg| !replay.cases.iter().any(|case| case == *leg))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "leaf-family legs left the differential: {missing:?}"
+        );
         // No campaign row may fall out of the comparison: a case is skipped only
         // when one of its ops is outside the replay vocabulary, and only `tseed`
         // is, and the campaign does not use it.
@@ -1914,7 +2022,7 @@ mod tests {
             "cases left the differential: {:?}",
             replay.skipped
         );
-        let campaign = stimulus_rows(include_str!("operations.tsv")).len();
+        let campaign = campaign_rows.len();
         assert_eq!(
             replay.rows, campaign,
             "the differential replayed {} of the campaign's {} rows",
@@ -1941,6 +2049,118 @@ mod tests {
             replay.cases.len(),
             replay.diffs.join("\n")
         );
+    }
+
+    /// Split a table into the lines that head it and the case blocks that follow.
+    fn case_blocks(text: &str) -> (Vec<String>, Vec<Vec<String>>) {
+        let mut head: Vec<String> = Vec::new();
+        let mut blocks: Vec<Vec<String>> = Vec::new();
+        let mut current: Option<String> = None;
+        for line in text.trim_end().lines() {
+            let leading = line.trim().is_empty()
+                || line.starts_with('#')
+                || (blocks.is_empty() && line.starts_with("case\t"));
+            if leading {
+                head.push(line.to_string());
+                continue;
+            }
+            let case = line.split('\t').next().unwrap_or_default().to_string();
+            if current.as_deref() != Some(case.as_str()) {
+                blocks.push(Vec::new());
+                current = Some(case.clone());
+            }
+            blocks
+                .last_mut()
+                .expect("a block was pushed for this row")
+                .push(line.to_string());
+        }
+        (head, blocks)
+    }
+
+    /// Re-emit a table with its case blocks in `order`, rows within a block and
+    /// the header lines untouched.
+    fn reorder_campaign(text: &str, order: &[usize]) -> String {
+        let (head, blocks) = case_blocks(text);
+        let mut lines = head;
+        for index in order {
+            lines.extend(blocks[*index].iter().cloned());
+        }
+        lines.join("\n") + "\n"
+    }
+
+    #[test]
+    fn the_campaign_replay_does_not_depend_on_which_case_ran_before_it() {
+        // The oracle answers each case from a detector it constructed at that
+        // case's zero time, so the Go table has no case order in it. If the Rust
+        // replay carried anything between cases, the same campaign would answer
+        // differently depending on the order of the blocks in the file, and the
+        // parent/leg pairs the leaf audit relies on would be measuring the file
+        // layout instead of the leaf.
+        let operations = include_str!("operations.tsv");
+        let golden = include_str!("golden.tsv");
+        let forward = replay_campaign(operations, golden, Drift::None);
+        let (ops_head, ops_blocks) = case_blocks(operations);
+        let (gold_head, gold_blocks) = case_blocks(golden);
+        assert!(!ops_head.is_empty() && !gold_head.is_empty());
+        assert_eq!(
+            ops_blocks.len(),
+            gold_blocks.len(),
+            "the campaign and the golden table split into {} and {} case blocks",
+            ops_blocks.len(),
+            gold_blocks.len()
+        );
+        // Each case must be one contiguous block, otherwise reordering would be
+        // re-interleaving rows rather than moving a case.
+        let rows = stimulus_rows(operations);
+        let names: std::collections::BTreeSet<&str> =
+            rows.iter().map(|row| row.case.as_str()).collect();
+        assert_eq!(
+            names.len(),
+            ops_blocks.len(),
+            "a case is split across blocks in operations.tsv"
+        );
+
+        let count = ops_blocks.len();
+        let reversed: Vec<usize> = (0..count).rev().collect();
+        let rotated: Vec<usize> = (count / 2..count).chain(0..count / 2).collect();
+        for (name, order) in [("reversed", &reversed), ("rotated", &rotated)] {
+            let replay = replay_campaign(
+                &reorder_campaign(operations, order),
+                &reorder_campaign(golden, order),
+                Drift::None,
+            );
+            assert_eq!(
+                replay.cases.len(),
+                forward.cases.len(),
+                "{name} case order replayed a different number of cases"
+            );
+            assert_eq!(replay.rows, forward.rows, "{name} case order lost rows");
+            assert_eq!(
+                replay.fields, forward.fields,
+                "{name} case order compared a different number of fields"
+            );
+            // The two orderings must also disagree with each other in exactly the
+            // same way. Comparing only against the golden table would let a replay
+            // that carried state between cases fail both orders identically and
+            // still look like a per-case parity problem; the fact that the same
+            // differences come out of the same rows in whichever order they ran is
+            // the property this test is actually about.
+            let mut want = forward.diffs.clone();
+            let mut got = replay.diffs.clone();
+            want.sort();
+            got.sort();
+            assert_eq!(
+                got, want,
+                "{name} case order found different field differences than campaign order"
+            );
+            assert!(
+                replay.diffs.is_empty(),
+                "{name} case order gave {} field differences over {} rows:\n{}",
+                replay.diffs.len(),
+                replay.rows,
+                replay.diffs.join("\n")
+            );
+        }
     }
 
     #[test]
