@@ -147,11 +147,23 @@ impl MediaEngine {
         let sid = up.sid.clone();
         let publisher = up.publisher.clone();
         let subscriber = down.spec.subscriber.clone();
+        // Upstream reports the mime the pion receiver negotiated for the
+        // publisher-side stream (subscribedtrack.go:456-482 resolves it through
+        // the MediaTrackReceiver). A subscription can be answered on a PC that
+        // never carried the publication's SDP, so no receiver row exists in the
+        // group yet; take the codec from the up track itself, which is what the
+        // receiver will be bound to when the publication arrives.
         let Some(mime) = self
             .codec_receivers
             .get(&sid)
             .and_then(|group| group.receivers.iter().find(|r| r.up == down.up))
             .map(|receiver| receiver.mime.clone())
+            .or_else(|| {
+                self.ups
+                    .get(down.up)
+                    .filter(|up| !up.mime.is_empty())
+                    .map(|up| up.mime.clone())
+            })
         else {
             return;
         };
