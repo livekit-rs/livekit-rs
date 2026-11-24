@@ -139,6 +139,18 @@ impl LocalNode {
         lock(&self.node).state = state;
     }
 
+    /// Rewind the record's liveness stamp so `selector.IsAvailable`
+    /// (protocol routing/selector/utils.go:30-41, via registry::node_available)
+    /// reports this node stale. Production keepalive only ever advances it; this
+    /// exists so the WHIP create-failure row can drive the real stale-node
+    /// selector fallback instead of a fake allocator error.
+    #[cfg(any(test, feature = "test-hooks"))]
+    pub fn set_stale_for_test(&self, updated_at_unix: i64) {
+        if let Some(stats) = &mut lock(&self.node).stats {
+            stats.updated_at = updated_at_unix;
+        }
+    }
+
     /// `UpdateNodeStats` (`node.go:142-153`). With a `NodeStatsProvider`
     /// installed (the livecloud `Sampler`), this replaces the whole `Stats` from
     /// `provider.sample`, matching upstream `prometheus.GetNodeStats` (real
