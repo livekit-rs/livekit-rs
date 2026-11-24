@@ -72,15 +72,13 @@ pub fn sync_user_attribution(packet: &[u8]) -> Option<Vec<u8>> {
 
     let mut user: Option<(usize, Range<usize>)> = None;
     scan_root(packet, 2, 2, &mut user)?;
-    let (_, user_range) = user.filter(|(_, r)| walkable(packet, r))?;
+    let (user_record, user_range) = user.filter(|(_, r)| walkable(packet, r))?;
 
     // Only the UserPacket oneof case (value#2) receives Go's attribution sync
     // (room.go:2129 `if u := dp.GetUser(); u != nil`); other kinds are returned
-    // untouched. prost writes the oneof case after the regular scalar fields,
-    // so for a real DataPacket the first root field-2 record is the case
-    // wrapper tag(2)+len and its payload IS the UserPacket body. A crafted
-    // packet with an earlier opaque field-2 record fails the inner walk or the
-    // case-tag check below and is forwarded unchanged.
+    // untouched. prost encodes a oneof case like any message field, so the first
+    // root field-2 record's payload IS the UserPacket body. A crafted packet
+    // whose field-2 framing cannot be walked is forwarded unchanged.
     let inner_range = user_range.clone();
 
     let mut inner: Option<(usize, Range<usize>)> = None;
@@ -95,16 +93,15 @@ pub fn sync_user_attribution(packet: &[u8]) -> Option<Vec<u8>> {
     }
 
     if let Some(env) = &env_range {
-        // Envelope wins: rewrite UserPacket#5 in place, dropping duplicates.
-        // The oneof case wrapper (tag 2 + child length) keeps its bytes; only
-        // the inner UserPacket range is replaced, so both lengths are re-framed.
+        // Envelope wins: UserPacket#5 becomes the envelope identity and later
+        // duplicates drop. The rewritten body has a different length, so the
+        // enclosing case record is re-framed rather than spliced in place.
         let replacement = &packet[env.clone()];
         let rewritten_child = rewrite_field(packet, inner_range.clone(), 5, replacement);
-        eprintln!("ASM inner={:?} prefix {:02x?} child {:02x?} suffix {:02x?}", inner_range.clone(), &packet[..inner_range.start], rewritten_child, &packet[inner_range.end..]);
         let mut out = Vec::with_capacity(packet.len() + replacement.len());
-        out.extend_from_slice(&packet[..inner_range.start]);
-        out.extend_from_slice(&rewritten_child);
-        out.extend_from_slice(&packet[inner_range.end..]);
+        out.extend_from_slice(&packet[..user_record]);
+        out.extend_from_slice(&ld_bytes(2, &rewritten_child));
+        out.extend_from_slice(&packet[user_range.end..]);
         return Some(out);
     }
     // room.go:2141 `dp.ParticipantIdentity = u.ParticipantIdentity`: append the
@@ -667,17 +664,22 @@ mod attribution_tests {
     #[test]
     fn wrong_wire_kind_on_identity_fields_stays_opaque() {
         // UserPacket.participant_identity#5 forced to varint is Go "unknown":
-        // the sync must overwrite nothing and keep the opaque bytes. prost's
-        // decoder rejects it, so verification is byte-level: the only change is
-        // the appended #5 record carrying the envelope identity.
+        // the typed sync still sets the identity, marshal emits the known field
+        // and the opaque record survives verbatim (Go's XXX_unrecognized rule).
+        // prost's decoder rejects the wrong kind, so the check is byte-level.
         let mut user = ld(2, b"data");
         user.push(0x28); // field 5, wire 0
         user.push(7);
         let mut body = ld(4, b"alice");
         body.extend_from_slice(&ld(2, &user));
         let out = sync_user_attribution(&body).unwrap();
-        assert!(out.starts_with(&body));
-        assert_eq!(&out[body.len()..], &ld(5, b"alice"));
+        let mut expected_user = ld(2, b"data");
+        expected_user.push(0x28);
+        expected_user.push(7);
+        expected_user.extend_from_slice(&ld(5, b"alice"));
+        let mut expected = ld(4, b"alice");
+        expected.extend_from_slice(&ld(2, &expected_user));
+        assert_eq!(out, expected);
     }
 
     #[test]
@@ -687,9 +689,9 @@ mod attribution_tests {
         let mut user_inner = ld(5, b"first");
         user_inner.extend_from_slice(&ld(5, b"last"));
         user_inner.extend_from_slice(&ld(2, b"keep"));
-        // prost's oneof case wrapper: tag(2), len, then the crafted child bytes.
+        // DataPacket oneof field 2: the record payload IS the UserPacket body.
         let mut body = ld(4, b"alice");
-        body.extend_from_slice(&ld(2, &ld(2, &user_inner)));
+        body.extend_from_slice(&ld(2, &user_inner));
         let out = sync_user_attribution(&body).unwrap();
         let dp = decoded(&out);
         assert_eq!(dp.participant_identity, "alice");

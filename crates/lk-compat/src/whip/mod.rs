@@ -3,6 +3,8 @@
 mod client_info;
 pub mod cluster;
 mod fragment;
+#[cfg(test)]
+mod http_envelope_oracle_tests;
 mod http_policy;
 mod notify;
 mod offer;
@@ -474,10 +476,18 @@ async fn patch(state: AppState, request: Request, sid: ParticipantSid) -> Respon
         Ok(v) => v,
         Err(e) => return policy_error(e, Some(CONTENT)),
     };
-    let grants = match principal(&state, &request, false) {
-        Ok(v) => v.clone(),
-        Err(r) => return policy_error(r, Some(CONTENT)),
-    };
+    // Go adds the sdpfrag Content-type (whipservice.go:434) before If-Match and
+    // auth, so every later error — including the 428 — carries it.
+    if let Err(r) = principal(&state, &request, false) {
+        return policy_error(r, Some(CONTENT));
+    }
+    let grants = request
+        .extensions()
+        .get::<RequestAuth>()
+        .and_then(|a| a.0.as_deref())
+        .expect("principal validated")
+        .grants
+        .clone();
     if sid.0.is_empty() {
         return error(
             StatusCode::BAD_REQUEST,

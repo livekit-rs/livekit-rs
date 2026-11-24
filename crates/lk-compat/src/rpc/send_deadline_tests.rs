@@ -75,7 +75,7 @@ async fn ack_does_not_stop_response_deadline_while_send_is_blocked() {
         .await
     });
     tokio::task::yield_now().await;
-    assert!(registry.handle_ack("blocked-response"));
+    assert!(registry.handle_ack(&ParticipantSid("recipient".into()), "blocked-response"));
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(5)).await;
     assert_eq!(

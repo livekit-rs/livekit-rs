@@ -319,6 +319,7 @@ impl Bridge {
     fn worker_event(&mut self, event: WorkerEvent) {
         match event {
             WorkerEvent::Registered { .. } => {} // future LaunchJob discovers current groups; no speculation retry
+            WorkerEvent::Ping { .. } => {} // keepalive observation only; Go worker.go:135 mutates no job/worker state
             WorkerEvent::JobState { job_id, state, .. } => {
                 if matches!(state.status, 2 | 3) {
                     self.owned.remove(&job_id);

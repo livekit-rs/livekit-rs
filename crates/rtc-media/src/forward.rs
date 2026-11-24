@@ -147,6 +147,11 @@ impl MediaEngine {
         let sid = up.sid.clone();
         let publisher = up.publisher.clone();
         let subscriber = down.spec.subscriber.clone();
+        // Upstream resolves the mime through the receiver that the negotiation
+        // arrived on: subscribedtrack.go:456-459 returns unless
+        // WrappedReceiver.DetermineReceiver(codec) reports the codec available in
+        // that receiver's group, so a down track with no bound receiver in the
+        // publisher's group announces nothing.
         let Some(mime) = self
             .codec_receivers
             .get(&sid)

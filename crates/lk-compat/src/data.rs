@@ -54,10 +54,6 @@ impl LiveKitDataHandler {
             && dp.participant_identity != sender.identity.0;
 
         match dp.value.as_mut() {
-            // Upstream drops every payload case whose message pointer is nil
-            // (participant.go:2572-2682). The deprecated speaker update has no
-            // server-side handling beyond that nil check; its case falls to the
-            // catch-all below and forwards as-is.
             Some(Value::User(u)) => {
                 if sender.hidden {
                     u.participant_sid.clear();
@@ -75,7 +71,6 @@ impl LiveKitDataHandler {
                     nonce = Some(u.nonce.clone());
                 }
             }
-            Some(Value::SipDtmf(_)) => {}
             Some(Value::Transcription(_)) => {
                 // Only agents may publish transcriptions.
                 forward = sender.is_agent;
@@ -90,7 +85,6 @@ impl LiveKitDataHandler {
                 // Metrics go through the metrics path, never forwarded as data.
                 forward = false;
             }
-            Some(Value::RpcRequest(_)) => {}
             Some(Value::RpcResponse(r)) => {
                 let outcome = match r.value.as_ref() {
                     Some(pb::rpc_response::Value::Payload(p)) => {
@@ -108,32 +102,26 @@ impl LiveKitDataHandler {
                     _ => None,
                 };
                 if let Some(outcome) = outcome
-                    && self.rpc.handle_response(&r.request_id, outcome)
+                    && self.rpc.handle_response(sender.sid, &r.request_id, outcome)
                 {
                     return DataVerdict::Consumed;
                 }
             }
             Some(Value::RpcAck(a)) => {
-                if self.rpc.handle_ack(&a.request_id) {
+                if self.rpc.handle_ack(sender.sid, &a.request_id) {
                     return DataVerdict::Consumed;
                 }
             }
-            Some(Value::StreamHeader(h)) => {
-                if on_behalf {
-                    match h.content_header.as_mut() {
-                        Some(pb::data_stream::header::ContentHeader::TextHeader(t)) => {
-                            t.generated = true;
-                            override_identity = false;
-                        }
-                        _ => override_identity = true,
-                    }
+            Some(Value::StreamHeader(h)) if on_behalf => match h.content_header.as_mut() {
+                Some(pb::data_stream::header::ContentHeader::TextHeader(t)) => {
+                    t.generated = true;
+                    override_identity = false;
                 }
-            }
-            Some(Value::StreamChunk(_)) | Some(Value::StreamTrailer(_)) => {}
-            Some(Value::EncryptedPacket(_)) => {}
-            // Empty oneof: upstream's `default:` branch logs and leaves the
-            // packet unforwarded (participant.go:2683-2685).
-            None => forward = false,
+                _ => override_identity = true,
+            },
+            // rpc_request, stream chunk/trailer, sip_dtmf, encrypted packets,
+            // deprecated speaker updates and unknown payloads: forwarded as-is.
+            _ => {}
         }
 
         if !forward {

@@ -36,6 +36,15 @@ pub enum WorkerEvent {
         job_id: String,
         state: pb::JobState,
     },
+    /// The worker's application-level `WorkerPing`, observed on the way to its
+    /// pong so a real consumer can measure the round trip. Go stamps the pong in
+    /// `WorkerPingHandler.HandlePing` (pkg/agent/worker.go:135) and keeps no such
+    /// event; this is the Rust-side observation seam, not a protocol change.
+    Ping {
+        worker_id: String,
+        last_timestamp: i64,
+        timestamp: i64,
+    },
     Disconnected {
         worker_id: String,
         jobs: Vec<String>,
@@ -64,6 +73,93 @@ pub fn routes(state: WorkerHttpState) -> Router {
         .route("/agent", any(upgrade))
         .with_state(state)
 }
+
+/// Go `websocket.IsWebSocketUpgrade` (gorilla/websocket v1.5.3 server.go:325-328), the
+/// gate `AgentSocketUpgrader.Upgrade` runs first (`pkg/service/agentws.go:49-52`). It is
+/// a `1#token` match on both headers, so it accepts a plain GET whose `Connection`
+/// already carries `upgrade` — unlike axum's extractor, which also requires
+/// `Sec-WebSocket-Key`/Version and would reject the request before the grant check
+/// upstream performs at `agentws.go:54-58`.
+fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
+    token_list_contains_value(headers, header::CONNECTION, "upgrade")
+        && token_list_contains_value(headers, header::UPGRADE, "websocket")
+}
+
+/// gorilla `tokenListContainsValue` (util.go:202-225): for every header value, skip
+/// optional whitespace, read one RFC 7230 token, require the next octet to be `,` or the
+/// end of the value, then compare ASCII-case-insensitively. A value that ends without a
+/// separator still yields its token (a lone `Connection: Upgrade` matches), and a quoted
+/// string produces an empty token, so `Connection: "upgrade"` does not match.
+fn token_list_contains_value(headers: &HeaderMap, name: header::HeaderName, token: &str) -> bool {
+    for value in headers.get_all(name) {
+        let Ok(mut remaining) = value.to_str() else {
+            continue;
+        };
+        loop {
+            remaining = skip_space(remaining);
+            let (candidate, rest) = next_token(remaining);
+            if candidate.is_empty() {
+                break;
+            }
+            remaining = skip_space(rest);
+            if !remaining.is_empty() && !remaining.starts_with(',') {
+                break;
+            }
+            if candidate.eq_ignore_ascii_case(token) {
+                return true;
+            }
+            if remaining.is_empty() {
+                break;
+            }
+            remaining = &remaining[1..];
+        }
+    }
+    false
+}
+
+/// gorilla `skipSpace` (util.go:120-127): leading spaces and horizontal tabs.
+fn skip_space(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && (bytes[index] == b' ' || bytes[index] == b'\t') {
+        index += 1;
+    }
+    &value[index..]
+}
+
+/// gorilla `nextToken` (util.go:130-135): the leading token octets and the remainder.
+fn next_token(value: &str) -> (&str, &str) {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && is_token_octet(bytes[index]) {
+        index += 1;
+    }
+    (&value[..index], &value[index..])
+}
+
+/// gorilla `isTokenOctet` (util.go:35-...): the RFC 7230 `tchar` set.
+fn is_token_octet(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'!' | b'#'
+            | b'$'
+            | b'%'
+            | b'&'
+            | b'\''
+            | b'*'
+            | b'+'
+            | b'-'
+            | b'.'
+            | b'0'..=b'9'
+            | b'A'..=b'Z'
+            | b'^'
+            | b'_'
+            | b'`'
+            | b'a'..=b'z'
+            | b'|'
+            | b'~'
+    )
+}
 fn plain(code: StatusCode, body: &str) -> Response {
     (
         code,
@@ -78,9 +174,14 @@ async fn upgrade(
     headers: HeaderMap,
     ws: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
 ) -> Response {
-    let Ok(mut ws) = ws else {
+    // Upstream order: the upgrade gate first (404 for a non-upgrade request), then the
+    // grant check (401 `no permissions to access the room`), and only then the actual
+    // upgrade (`pkg/service/agentws.go:49-67`). The extractor is therefore consulted
+    // after both, so a GET with an agent grant that cannot complete the handshake still
+    // answers 401 like Go, not 404.
+    if !is_websocket_upgrade(&headers) {
         return StatusCode::NOT_FOUND.into_response();
-    };
+    }
     let raw = query.as_deref().unwrap_or("");
     let token = match crate::auth::extract_token(&headers, raw) {
         Ok(token) => token,
@@ -95,6 +196,9 @@ async fn upgrade(
             );
         }
         Err(e) => return e.into_response(),
+    };
+    let Ok(mut ws) = ws else {
+        return StatusCode::NOT_FOUND.into_response();
     };
     let protocol = crate::auth::query_param(raw, "protocol")
         .and_then(|v| v.parse::<i64>().ok())
@@ -116,6 +220,37 @@ fn now_ns() -> i64 {
         .unwrap_or_default()
         .as_nanos()
         .min(i64::MAX as u128) as i64
+}
+// Go WorkerPingHandler.HandlePing (pkg/agent/worker.go:135): echo the request
+// timestamp, stamp the server clock. Shared with the WebTransport control plane.
+pub(super) fn pong_frame(last_timestamp: i64) -> pb::ServerMessage {
+    pb::ServerMessage {
+        message: Some(pb::server_message::Message::Pong(pb::WorkerPong {
+            last_timestamp,
+            timestamp: now_ms(),
+        })),
+    }
+}
+// The pong is only observable once its actual writer has acknowledged the frame,
+// matching Go's WriteServerMessage ordering; the event consumer never resurrects
+// a write failure into Ok (Go DispatchAgentWorkerSignal returns false on it).
+async fn send_pong(
+    outgoing: &mpsc::Sender<Outbound>,
+    events: &mpsc::Sender<WorkerEvent>,
+    worker_id: &str,
+    ping: &pb::WorkerPing,
+) -> Result<(), WorkerError> {
+    let timestamp = now_ms();
+    send_message(outgoing, pong_frame(ping.timestamp)).await?;
+    events
+        .send(WorkerEvent::Ping {
+            worker_id: worker_id.to_owned(),
+            last_timestamp: ping.timestamp,
+            timestamp,
+        })
+        .await
+        .map_err(|_| WorkerError::Closed)?;
+    Ok(())
 }
 // Fixed wsprotocol.go closeWriteTimeout. Never synthesize a Close on decode errors.
 const PEER_CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -195,16 +330,7 @@ async fn session(mut state: WorkerHttpState, socket: WebSocket, protocol: i64, a
             let Some(message) = message else { continue };
             match message.message {
                 Some(pb::worker_message::Message::Ping(p)) => {
-                    send_message(
-                        &outgoing,
-                        pb::ServerMessage {
-                            message: Some(pb::server_message::Message::Pong(pb::WorkerPong {
-                                last_timestamp: p.timestamp,
-                                timestamp: now_ms(),
-                            })),
-                        },
-                    )
-                    .await?
+                    send_pong(&outgoing, &state.events, &id, &p).await?
                 }
                 Some(pb::worker_message::Message::Register(request)) => {
                     let mut registration =
@@ -259,16 +385,7 @@ async fn session(mut state: WorkerHttpState, socket: WebSocket, protocol: i64, a
             let Some(message) = message else { continue };
             match message.message {
                 Some(pb::worker_message::Message::Ping(p)) => {
-                    send_message(
-                        &outgoing,
-                        pb::ServerMessage {
-                            message: Some(pb::server_message::Message::Pong(pb::WorkerPong {
-                                last_timestamp: p.timestamp,
-                                timestamp: now_ms(),
-                            })),
-                        },
-                    )
-                    .await?
+                    send_pong(&outgoing, &state.events, &id, &p).await?
                 }
                 Some(pb::worker_message::Message::UpdateWorker(update)) => {
                     state.registry.update_worker(&id, &update)?
@@ -551,28 +668,46 @@ mod agent_http_integration_tests {
         (status, String::from_utf8_lossy(&bytes).into_owned())
     }
 
+    // Go's chain for mux.Handle("/agent") is recovery, CORS, body limiter, then the API
+    // key middleware, which only records grants when a token is present and otherwise
+    // calls next (`pkg/service/auth.go:86-119`). agentWSService then answers 404 for
+    // every request that is not a WebSocket upgrade, before it looks at credentials
+    // (`pkg/service/agentws.go:49-52`). The API-chain CORS middleware keeps a bare
+    // OPTIONS as an actual request because rs/cors only treats it as preflight with an
+    // `Access-Control-Request-Method` header (`cors@v1.11.1/cors.go:309`).
     #[tokio::test]
-    async fn agent_get_without_websocket_upgrade_returns_404() {
+    async fn agent_non_upgrade_requests_return_404() {
         let (state, _net) = crate::test_support::state().await;
-        let (status, _body) = send_agent_request(&state, "GET", "/agent", vec![]).await;
-        // Without WebSocket upgrade headers, the extractor rejects and returns 404
-        assert_eq!(status, StatusCode::NOT_FOUND);
+        let cases: &[(&str, Vec<&str>)] = &[
+            ("GET", vec![]),
+            ("POST", vec![]),
+            ("DELETE", vec![]),
+            ("OPTIONS", vec![]),
+            // either half of the gorilla conjunction alone is still not an upgrade
+            ("GET", vec!["connection: Upgrade"]),
+            ("GET", vec!["upgrade: websocket"]),
+            ("GET", vec!["connection: keep-alive", "upgrade: websocket2"]),
+        ];
+        for (method, raw_headers) in cases {
+            let headers = raw_headers
+                .iter()
+                .map(|line| line.split_once(": ").expect("header fixture"))
+                .collect();
+            let (status, body) = send_agent_request(&state, method, "/agent", headers).await;
+            assert_eq!(
+                status,
+                StatusCode::NOT_FOUND,
+                "{method} {raw_headers:?} -> {body}"
+            );
+        }
     }
 
     #[tokio::test]
-    async fn agent_post_returns_404() {
+    async fn agent_upgrade_without_credentials_returns_401_permission_denied() {
         let (state, _net) = crate::test_support::state().await;
-        let (status, _body) = send_agent_request(&state, "POST", "/agent", vec![]).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-    }
-
-    #[tokio::test]
-    async fn agent_get_with_ws_upgrade_headers_still_returns_404_in_oneshot() {
-        let (state, _net) = crate::test_support::state().await;
-        // Even with valid WS upgrade headers, the oneshot pattern cannot complete
-        // the HTTP→WS upgrade (no real TCP connection), so the extractor rejects → 404.
-        // Auth only runs after a successful upgrade inside the spawned WS task.
-        let (status, _body) = send_agent_request(
+        // A real upgrade request but no token: auth.go leaves the context without grants,
+        // so agentws.go:56-60 reports ErrPermissionDenied as 401 before attempting Upgrade.
+        let (status, body) = send_agent_request(
             &state,
             "GET",
             "/agent",
@@ -584,24 +719,114 @@ mod agent_http_integration_tests {
             ],
         )
         .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body, "no permissions to access the room");
     }
 
     #[tokio::test]
-    async fn agent_delete_returns_404() {
+    async fn agent_options_preflight_is_answered_before_the_upgrade_gate() {
         let (state, _net) = crate::test_support::state().await;
-        let (status, _body) = send_agent_request(&state, "DELETE", "/agent", vec![]).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, body) = send_agent_request(
+            &state,
+            "OPTIONS",
+            "/agent",
+            vec![
+                ("origin", "https://neton.live"),
+                ("access-control-request-method", "GET"),
+            ],
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "preflight body {body}");
+        assert_eq!(body, "");
+    }
+}
+
+/// Direct coverage of the gorilla `IsWebSocketUpgrade` port, whose token rules decide
+/// whether `/agent` answers 404 or proceeds to the grant check.
+#[cfg(test)]
+mod upgrade_gate_tests {
+    use super::is_websocket_upgrade;
+    use axum::http::{HeaderMap, HeaderValue, header};
+
+    fn headers(pairs: &[(&'static str, &'static str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.append(
+                header::HeaderName::from_lowercase(name.as_bytes()).unwrap(),
+                HeaderValue::from_static(value),
+            );
+        }
+        map
     }
 
-    #[tokio::test]
-    async fn agent_options_returns_cors_or_404() {
-        let (state, _net) = crate::test_support::state().await;
-        let (status, body) = send_agent_request(&state, "OPTIONS", "/agent", vec![]).await;
-        // OPTIONS may hit the fallback 404 or a CORS preflight depending on middleware
-        assert!(
-            status == StatusCode::NOT_FOUND || status == StatusCode::OK,
-            "OPTIONS /agent returned unexpected status {status}: {body}"
-        );
+    #[test]
+    fn upgrade_gate_follows_gorilla_token_list_rules() {
+        let websocket = ("upgrade", "websocket");
+        for (desc, pairs, want) in [
+            (
+                "both tokens",
+                &[websocket, ("connection", "Upgrade")][..],
+                true,
+            ),
+            // tokenListContainsValue keeps scanning after a separator, so a lone token
+            // with no comma still yields its candidate.
+            (
+                "lone token, comma first",
+                &[websocket, ("connection", "keep-alive, Upgrade")][..],
+                true,
+            ),
+            (
+                "lone token trailing",
+                &[websocket, ("connection", "Upgrade, keep-alive")][..],
+                true,
+            ),
+            (
+                "ows around token",
+                &[websocket, ("connection", "  Upgrade  ")][..],
+                true,
+            ),
+            (
+                "ascii case folded",
+                &[("upgrade", "WebSocket"), ("connection", "upgrade")][..],
+                true,
+            ),
+            (
+                "repeated header values",
+                &[
+                    websocket,
+                    ("connection", "keep-alive"),
+                    ("connection", "Upgrade"),
+                ][..],
+                true,
+            ),
+            ("missing connection", &[websocket][..], false),
+            ("missing upgrade", &[("connection", "Upgrade")][..], false),
+            (
+                "wrong upgrade token",
+                &[("upgrade", "websocket2"), ("connection", "Upgrade")][..],
+                false,
+            ),
+            // nextToken stops at a non-tchar and the octet after it must be `,`, so a
+            // `;` terminator ends the scan without matching.
+            (
+                "semicolon terminator",
+                &[websocket, ("connection", "Upgrade; x")][..],
+                false,
+            ),
+            // a quoted-string value produces an empty token, which is never a match.
+            (
+                "quoted value",
+                &[websocket, ("connection", "\"Upgrade\"")][..],
+                false,
+            ),
+            ("empty value", &[websocket, ("connection", "")][..], false),
+            (
+                "token prefix only",
+                &[websocket, ("connection", "xUpgrade")][..],
+                false,
+            ),
+        ] {
+            assert_eq!(is_websocket_upgrade(&headers(pairs)), want, "{desc}");
+        }
     }
 }

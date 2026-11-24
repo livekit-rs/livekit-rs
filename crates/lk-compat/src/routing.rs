@@ -39,6 +39,17 @@ pub fn seconds_since(now: SystemTime, updated_at: i64) -> f64 {
     now_seconds - updated_at as f64
 }
 
+/// Go `time.Since(time.Unix(updated_at, 0))` as the exact int64-nanosecond
+/// difference it is. `time.Unix(i, 0)` always has a zero nanosecond field, so the
+/// whole sub-second part comes from `now`.
+pub fn nanos_since(now: SystemTime, updated_at: i64) -> i128 {
+    let now_nanos = now
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as i128)
+        .unwrap_or_default();
+    now_nanos - updated_at as i128 * 1_000_000_000
+}
+
 fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
     value
         .lock()
@@ -139,6 +150,18 @@ impl LocalNode {
         lock(&self.node).state = state;
     }
 
+    /// Rewind the record's liveness stamp so `selector.IsAvailable`
+    /// (protocol routing/selector/utils.go:30-41, via registry::node_available)
+    /// reports this node stale. Production keepalive only ever advances it; this
+    /// exists so the WHIP create-failure row can drive the real stale-node
+    /// selector fallback instead of a fake allocator error.
+    #[cfg(test)]
+    pub fn set_stale_for_test(&self, updated_at_unix: i64) {
+        if let Some(stats) = &mut lock(&self.node).stats {
+            stats.updated_at = updated_at_unix;
+        }
+    }
+
     /// `UpdateNodeStats` (`node.go:142-153`). With a `NodeStatsProvider`
     /// installed (the livecloud `Sampler`), this replaces the whole `Stats` from
     /// `provider.sample`, matching upstream `prometheus.GetNodeStats` (real
@@ -196,7 +219,10 @@ impl LocalNode {
 /// Upstream compares against the literal `4*time.Second` in `healthCheck`
 /// (`server.go:455`); it is *not* derived from `stats_update_interval`, so a
 /// deployment whose interval exceeds 4 s can report "Not Ready" while healthy.
-pub const HEALTH_MAX_STALE_SECONDS: f64 = 4.0;
+/// Kept in nanoseconds because Go's comparison is exact: `seconds_since` returns
+/// `f64`, whose resolution at a 2026 epoch second is ~244 ns, so a stamp 4 s +
+/// 1 ns old would read as exactly 4 s and answer ready where Go answers 406.
+pub const HEALTH_MAX_STALE_NANOS: i128 = 4 * 1_000_000_000;
 
 /// Go `time.Time{}` — the value `healthCheck` uses when `Stats` is nil, and what
 /// its `String()` renders.
@@ -315,9 +341,10 @@ pub fn go_time_string(unix: i64, zone: &GoZone) -> String {
 
 /// `LivekitServer.healthCheck` (`server.go:450-464`) for one observed record.
 /// `None` (no node record) and `stats == nil` are both Go's zero `time.Time`,
-/// which always fails the 4 s comparison. The `time.Since` check keeps Go's
-/// sub-second precision (`UpdatedAt` is whole seconds, so a record stamped in the
-/// current second is never stale), and the 406 body is
+/// which always fails the 4 s comparison. Go's `time.Since(time.Unix(i, 0))` is
+/// compared in exact nanoseconds — `UpdatedAt` is whole seconds, so the sub-second
+/// part comes from `now` — which is why the gate uses `nanos_since` rather than the
+/// `f64` `seconds_since`. The 406 body is
 /// `fmt.Fprintf(w, "Not Ready\nNode Updated At %s", updatedAt)`.
 pub fn health_body(node: Option<&pb::Node>, now: SystemTime, zone: &GoZone) -> Option<String> {
     let Some(updated_at) = node
@@ -326,7 +353,7 @@ pub fn health_body(node: Option<&pb::Node>, now: SystemTime, zone: &GoZone) -> O
     else {
         return Some(format!("Not Ready\nNode Updated At {GO_ZERO_TIME_TEXT}"));
     };
-    if seconds_since(now, updated_at) > HEALTH_MAX_STALE_SECONDS {
+    if nanos_since(now, updated_at) > HEALTH_MAX_STALE_NANOS {
         return Some(format!(
             "Not Ready\nNode Updated At {}",
             go_time_string(updated_at, zone)

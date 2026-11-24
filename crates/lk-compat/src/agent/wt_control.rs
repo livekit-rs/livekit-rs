@@ -213,7 +213,7 @@ pub async fn session_with_endpoints<R, W>(
             };
             match message.message {
                 Some(pb::worker_message::Message::Ping(p)) => {
-                    send_message(&outgoing, pong(p.timestamp)).await?
+                    send_message(&outgoing, super::websocket::pong_frame(p.timestamp)).await?
                 }
                 Some(pb::worker_message::Message::Register(request)) => {
                     let mut registration =
@@ -276,7 +276,7 @@ pub async fn session_with_endpoints<R, W>(
             };
             match message.message {
                 Some(pb::worker_message::Message::Ping(p)) => {
-                    send_message(&outgoing, pong(p.timestamp)).await?
+                    send_message(&outgoing, super::websocket::pong_frame(p.timestamp)).await?
                 }
                 Some(pb::worker_message::Message::UpdateWorker(update)) => {
                     state.registry.update_worker(&id, &update)?
@@ -359,17 +359,6 @@ pub async fn session_with_endpoints<R, W>(
                 jobs,
             })
             .await;
-    }
-}
-
-/// `WorkerPingHandler.HandlePing`: reply with a `WorkerPong` echoing the
-/// request timestamp and stamping the server's current time in milliseconds.
-fn pong(last_timestamp: i64) -> pb::ServerMessage {
-    pb::ServerMessage {
-        message: Some(pb::server_message::Message::Pong(pb::WorkerPong {
-            last_timestamp,
-            timestamp: now_ms(),
-        })),
     }
 }
 

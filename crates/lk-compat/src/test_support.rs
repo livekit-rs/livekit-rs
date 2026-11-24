@@ -33,6 +33,14 @@ pub(crate) fn config() -> rtc_core::config::ServerConfig {
 /// Actual no-broker application graph with an owned socket-free media router.
 /// The caller must shut down the returned router after its assertions.
 pub(crate) async fn state() -> (crate::state::AppState, rtc_runtime::net::NetRouter) {
+    state_with_keys(crate::test_support::config().keys.clone()).await
+}
+
+/// Same graph with an explicit key table, so oracle rows that carry their own
+/// `iss`/secret pair verify through the real auth middleware instead of `--dev`.
+pub(crate) async fn state_with_keys(
+    keys: Vec<(String, String)>,
+) -> (crate::state::AppState, rtc_runtime::net::NetRouter) {
     use rtc_core::events::NullSink;
     use rtc_runtime::net::{LocalInterface, NetConfig, NetRouter};
     use std::sync::Arc;
@@ -49,7 +57,9 @@ pub(crate) async fn state() -> (crate::state::AppState, rtc_runtime::net::NetRou
     })
     .await
     .unwrap();
-    let state = crate::state::CompatServices::new(Arc::new(crate::test_support::config()))
+    let mut config = crate::test_support::config();
+    config.keys = keys;
+    let state = crate::state::CompatServices::new(Arc::new(config))
         .assemble(net.clone(), Arc::new(NullSink));
     (state, net)
 }

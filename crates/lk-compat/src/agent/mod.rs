@@ -14,3 +14,5 @@ pub mod service;
 
 #[cfg(test)]
 mod oracle_tests;
+#[cfg(test)]
+mod wire_tests;

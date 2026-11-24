@@ -131,8 +131,16 @@ async fn prepare(
     strict: bool,
 ) -> Result<JoinParams, Response> {
     let token = crate::auth::extract_token(headers, query).map_err(IntoResponse::into_response)?;
-    let grants = crate::auth::authenticate(&state.keys, token.as_deref())
+    let verified = crate::auth::authenticate_token(&state.keys, token.as_deref())
         .map_err(IntoResponse::into_response)?;
+    // Go's join gate is `claims == nil || claims.Video == nil`
+    // (`rtcservice.go:147`), one branch with `rtc.ErrPermissionDenied`. A verified
+    // token whose JSON has no `video` object therefore has no usable grants at all,
+    // which is a different answer from a `video` grant that simply lacks
+    // `roomJoin` (that one is `service.ErrPermissionDenied`, `params.rs`).
+    let grants = verified
+        .filter(|token| token.extra.has_video)
+        .map(|token| token.grants);
     let parsed = parse_join(
         &state.config,
         grants,
