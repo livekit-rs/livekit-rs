@@ -1,8 +1,10 @@
 //! Per-codec demand and track-wide dynacast commit decisions.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
-use rtc_core::model::{SubscribedCodec, SubscribedQuality, VideoQuality};
+use rtc_core::ids::ParticipantSid;
+use rtc_core::model::{SubscribedAudioCodec, SubscribedCodec, SubscribedQuality, VideoQuality};
 
 pub(crate) const INITIAL_UPDATE_WAIT: Duration = Duration::from_secs(10);
 
@@ -191,6 +193,142 @@ pub(crate) fn message(codec: &str, max: VideoQuality) -> Vec<SubscribedCodec> {
         codec: codec.to_string(),
         qualities,
     }]
+}
+
+/// Canonical audio mime strings of `mime.NormalizeMimeType`
+/// (protocol@v1.52.2 codecs/mime/mimetype.go:282-317) for the mimes Go spells
+/// out of pion's constants. Any other spelling is `MimeTypeUnknown`, and
+/// `getOrCreateDynacastQuality` drops a notification for it
+/// (dynacastmanagerbase.go:144-150), so the lookup is the gate rather than a
+/// convenience.
+pub(crate) fn normalize_audio_mime(mime: &str) -> Option<&'static str> {
+    const KNOWN: [(&str, &str); 5] = [
+        ("audio/opus", "audio/opus"),
+        ("audio/red", "audio/red"),
+        ("audio/G722", "audio/G722"),
+        ("audio/PCMU", "audio/PCMU"),
+        ("audio/PCMA", "audio/PCMA"),
+    ];
+    KNOWN
+        .iter()
+        .find(|(needle, _)| needle.eq_ignore_ascii_case(mime))
+        .map(|(_, canonical)| *canonical)
+}
+
+/// One mime of Go's `dynacastQualityAudio` (dynacastqualityaudio.go:34-168).
+/// Go stores the subscribers that want the mime, not a flag: the reported
+/// enablement is derived from membership, so a second subscriber keeps the
+/// codec enabled after the first one leaves.
+#[derive(Default)]
+pub(crate) struct AudioQuality {
+    /// `subscriberEnables` (:40). An entry is deleted on disable (:81-85).
+    subscribers: BTreeSet<ParticipantSid>,
+    enabled: bool,
+    /// `initialized` (:39). `Start`/`Restart` reset it (:56-62, :141-145), so
+    /// the first evaluation reports even when the value did not change.
+    initialized: bool,
+}
+
+impl AudioQuality {
+    /// Go `NotifySubscription` (:67-89) then `updateQualityChange(false)`
+    /// (:147-168). `Some(enabled)` is the listener call Go makes at :167.
+    pub(crate) fn notify_subscription(
+        &mut self,
+        subscriber: ParticipantSid,
+        enabled: bool,
+    ) -> Option<bool> {
+        if enabled {
+            self.subscribers.insert(subscriber);
+        } else {
+            self.subscribers.remove(&subscriber);
+        }
+        self.update_quality_change(false)
+    }
+
+    fn update_quality_change(&mut self, force: bool) -> Option<bool> {
+        let enabled = !self.subscribers.is_empty();
+        if enabled == self.enabled && self.initialized && !force {
+            return None;
+        }
+        self.initialized = true;
+        self.enabled = enabled;
+        Some(enabled)
+    }
+}
+
+/// `dynacastManagerAudio` (dynacastmanageraudio.go:32-198) for one published
+/// audio track. Go builds it only when the track declares more than one codec
+/// (mediatrack.go:161-167), and the video demand of `Dynacast` above is a
+/// separate manager for a separate track kind.
+#[derive(Default)]
+pub(crate) struct DynacastAudio {
+    /// `dynacastQuality` of the shared base (dynacastmanagerbase.go:42).
+    qualities: BTreeMap<&'static str, AudioQuality>,
+    /// `subscribedCodecs` (dynacastmanageraudio.go:35).
+    demand: BTreeMap<&'static str, bool>,
+    /// `committedSubscribedCodecs` (:36).
+    committed: BTreeMap<&'static str, bool>,
+}
+
+impl DynacastAudio {
+    /// Go `NotifySubscription` (:94-103): the quality is created on demand for
+    /// an unseen mime, its refcount decides the enablement, and each enablement
+    /// the quality reports lands in `subscribedCodecs` before the manager
+    /// commits (:117-125).
+    pub(crate) fn notify_subscription(
+        &mut self,
+        subscriber: ParticipantSid,
+        mime: &str,
+        enabled: bool,
+    ) -> Vec<SubscribedAudioCodec> {
+        let Some(mime) = normalize_audio_mime(mime) else {
+            return Vec::new();
+        };
+        let Some(enabled) = self
+            .qualities
+            .entry(mime)
+            .or_default()
+            .notify_subscription(subscriber, enabled)
+        else {
+            return Vec::new();
+        };
+        self.demand.insert(mime, enabled);
+        self.update(false)
+    }
+
+    /// Go `update(force)` (:127-176). The change test at :144-154 compares
+    /// lengths first and then only flips keys the committed map already holds,
+    /// so swapping one committed mime for another of the same enablement is not
+    /// a change upstream can see. That is upstream's behaviour, reproduced here
+    /// rather than improved.
+    fn update(&mut self, force: bool) -> Vec<SubscribedAudioCodec> {
+        if self.demand.is_empty() {
+            return Vec::new();
+        }
+        let changed = self.demand.len() != self.committed.len()
+            || self
+                .demand
+                .iter()
+                .any(|(mime, enabled)| self.committed.get(mime).is_some_and(|c| c != enabled));
+        if !force && !changed {
+            return Vec::new();
+        }
+        self.committed = self.demand.clone();
+        self.payload()
+    }
+
+    /// Go `enqueueSubscribedChange` (:178-198): every committed mime with
+    /// `mime.String()`, i.e. the full mime. The publisher participant shortens
+    /// it later (participant.go:2967-2970), which is the session encoder's job.
+    fn payload(&self) -> Vec<SubscribedAudioCodec> {
+        self.committed
+            .iter()
+            .map(|(mime, enabled)| SubscribedAudioCodec {
+                codec: (*mime).to_string(),
+                enabled: *enabled,
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -405,5 +543,91 @@ mod tests {
         assert_eq!(d.codec.committed, Some(High));
         assert!(d.codec.set_muted(false));
         assert_eq!(enabled(&d.update(true, now).unwrap()), vec![true; 3]);
+    }
+
+    fn subscriber(n: u32) -> ParticipantSid {
+        ParticipantSid::from(format!("PA_audio_{n}"))
+    }
+
+    fn committed(codecs: Vec<SubscribedAudioCodec>) -> Vec<(String, bool)> {
+        codecs.into_iter().map(|c| (c.codec, c.enabled)).collect()
+    }
+
+    #[test]
+    fn audio_first_evaluation_reports_even_when_the_value_did_not_change() {
+        let mut m = DynacastAudio::default();
+        // Go's `initialized` flag (dynacastqualityaudio.go:39,150) is reset by
+        // Start/Restart, so the very first evaluation of a mime is reported even
+        // though `enabled` was already false.
+        assert_eq!(
+            committed(m.notify_subscription(subscriber(1), "audio/opus", false)),
+            vec![("audio/opus".to_string(), false)]
+        );
+        assert!(
+            m.notify_subscription(subscriber(2), "audio/opus", false)
+                .is_empty(),
+            "the second evaluation of the same value is not a change"
+        );
+    }
+
+    #[test]
+    fn audio_enablement_is_refcounted_per_subscriber() {
+        let mut m = DynacastAudio::default();
+        assert_eq!(
+            committed(m.notify_subscription(subscriber(1), "audio/opus", true)),
+            vec![("audio/opus".to_string(), true)]
+        );
+        assert!(
+            m.notify_subscription(subscriber(2), "audio/opus", true)
+                .is_empty(),
+            "a codec the manager already reports enabled does not re-report"
+        );
+        assert!(
+            m.notify_subscription(subscriber(1), "audio/opus", false)
+                .is_empty(),
+            "the leaving subscriber must not disable a codec another one keeps"
+        );
+        assert_eq!(
+            committed(m.notify_subscription(subscriber(2), "audio/opus", false)),
+            vec![("audio/opus".to_string(), false)]
+        );
+    }
+
+    #[test]
+    fn audio_unknown_mime_is_dropped_and_matching_ignores_case() {
+        let mut m = DynacastAudio::default();
+        assert!(
+            m.notify_subscription(subscriber(1), "audio/vorbis", true)
+                .is_empty(),
+            "MimeTypeUnknown never reaches the demand map"
+        );
+        assert_eq!(
+            committed(m.notify_subscription(subscriber(1), "Audio/OPUS", true)),
+            vec![("audio/opus".to_string(), true)],
+            "EqualFold matching, and the payload is `mime.String()`"
+        );
+    }
+
+    #[test]
+    fn audio_payload_carries_every_committed_mime() {
+        let mut m = DynacastAudio::default();
+        m.notify_subscription(subscriber(1), "audio/opus", true);
+        assert_eq!(
+            committed(m.notify_subscription(subscriber(1), "audio/red", true)),
+            vec![
+                ("audio/opus".to_string(), true),
+                ("audio/red".to_string(), true),
+            ],
+            "Go enqueues the whole committed map, not only the mime that changed"
+        );
+        assert_eq!(
+            committed(m.notify_subscription(subscriber(1), "audio/PCMU", true)),
+            vec![
+                ("audio/PCMU".to_string(), true),
+                ("audio/opus".to_string(), true),
+                ("audio/red".to_string(), true),
+            ],
+            "the canonical pion spelling is what goes on the wire"
+        );
     }
 }

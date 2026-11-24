@@ -422,6 +422,13 @@ pub enum SignalEvent {
         track_sid: TrackSid,
         codecs: Vec<SubscribedCodec>,
     },
+    /// Audio dynacast codec enablement update for a published audio track
+    /// (Go participant_signal.go:389-391). The session encoder normalizes each
+    /// codec name before encoding it (Go participant.go:2966-2969).
+    SubscribedAudioCodec {
+        track_sid: TrackSid,
+        codecs: Vec<SubscribedAudioCodec>,
+    },
     SubscriptionPermissionUpdate {
         participant_sid: ParticipantSid,
         track_sid: TrackSid,

@@ -114,6 +114,9 @@ pub struct MediaEngine {
     pub(crate) downs: Slab<DownTrack>,
     pub(crate) down_by_key: HashMap<(ParticipantSid, TrackSid), usize>,
     pub(crate) down_by_mid: HashMap<(TransportId, Mid), usize>,
+    /// Audio dynacast enablement per logical track (Go MediaTrack's
+    /// `dynacastManagerAudio`, one per published track, not per codec receiver).
+    pub(crate) audio_dynacast: HashMap<TrackSid, crate::dynacast::DynacastAudio>,
 
     pub(crate) events: Vec<MediaEvent>,
     pub(crate) ufrag_changes: Vec<(TransportId, String)>,
@@ -172,6 +175,7 @@ impl MediaEngine {
             downs: Slab::new(),
             down_by_key: HashMap::new(),
             down_by_mid: HashMap::new(),
+            audio_dynacast: HashMap::new(),
             events: Vec::new(),
             ufrag_changes: Vec::new(),
             queue: VecDeque::new(),

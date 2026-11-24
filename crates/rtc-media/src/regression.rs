@@ -7769,6 +7769,8 @@ fn node_subscribed_track_gauge_uses_actual_sdp_bound_lifecycle_not_pending_graph
     );
 }
 
+#[path = "regression/audio_dynacast_notify.rs"]
+mod audio_dynacast_notify;
 #[path = "codec_regression_tests.rs"]
 mod codec_regression_tests;
 #[path = "regression/dynacast_notify.rs"]

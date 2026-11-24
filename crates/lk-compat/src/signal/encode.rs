@@ -522,6 +522,29 @@ pub fn encode_signal(
                 subscribed_codecs,
             })
         }
+        SignalEvent::SubscribedAudioCodec { track_sid, codecs } => {
+            // Go ParticipantImpl.onSubscribedAudioCodecChange
+            // (participant.go:2955-2982): an empty list sends nothing, and each
+            // full mime from the dynacast manager is trimmed of `audio/` then
+            // lower-cased before it goes on the wire.
+            if codecs.is_empty() {
+                return None;
+            }
+            Resp::SubscribedAudioCodecUpdate(pb::SubscribedAudioCodecUpdate {
+                track_sid: track_sid.0,
+                subscribed_audio_codecs: codecs
+                    .iter()
+                    .map(|codec| pb::SubscribedAudioCodec {
+                        codec: codec
+                            .codec
+                            .strip_prefix("audio/")
+                            .unwrap_or(&codec.codec)
+                            .to_lowercase(),
+                        enabled: codec.enabled,
+                    })
+                    .collect(),
+            })
+        }
         SignalEvent::SubscriptionPermissionUpdate {
             participant_sid,
             track_sid,
@@ -1154,5 +1177,61 @@ mod rtt_original_conversion_observer {
                 }))
             ));
         }
+    }
+
+    #[test]
+    fn subscribed_audio_codec_update_sends_bare_lower_case_codec_names() {
+        let client = ClientMeta::default();
+        let mut cache = RequestCache::default();
+        let event = SignalEvent::SubscribedAudioCodec {
+            track_sid: TrackSid::from("TR_audio"),
+            codecs: vec![
+                SubscribedAudioCodec {
+                    codec: "audio/PCMU".into(),
+                    enabled: true,
+                },
+                SubscribedAudioCodec {
+                    codec: "audio/red".into(),
+                    enabled: false,
+                },
+            ],
+        };
+        let reply = encode_signal(event, &EncodeCtx { client: &client }, &mut cache).unwrap();
+        let Some(Resp::SubscribedAudioCodecUpdate(update)) = reply.message else {
+            panic!("audio codec update expected")
+        };
+        assert_eq!(update.track_sid, "TR_audio");
+        assert_eq!(
+            update.subscribed_audio_codecs,
+            vec![
+                pb::SubscribedAudioCodec {
+                    codec: "pcmu".into(),
+                    enabled: true,
+                },
+                pb::SubscribedAudioCodec {
+                    codec: "red".into(),
+                    enabled: false,
+                },
+            ],
+            "Go trims the exact `audio/` prefix then lower-cases (participant.go:2967-2970)"
+        );
+    }
+
+    #[test]
+    fn an_empty_subscribed_audio_codec_list_sends_nothing() {
+        let client = ClientMeta::default();
+        let mut cache = RequestCache::default();
+        assert!(
+            encode_signal(
+                SignalEvent::SubscribedAudioCodec {
+                    track_sid: TrackSid::from("TR_audio"),
+                    codecs: vec![],
+                },
+                &EncodeCtx { client: &client },
+                &mut cache,
+            )
+            .is_none(),
+            "Go returns before building the message on an empty list (participant.go:2963-2965)"
+        );
     }
 }

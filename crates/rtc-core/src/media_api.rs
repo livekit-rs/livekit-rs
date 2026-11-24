@@ -470,6 +470,16 @@ pub enum MediaEvent {
         track_sid: TrackSid,
         codecs: Vec<SubscribedCodec>,
     },
+    /// Audio dynacast: the committed codec demand of a publisher's audio track
+    /// (Go `MediaTrack.OnDynacastSubscribedAudioCodecChange`,
+    /// mediatrack.go:701-705). Each `codec` is the full mime that Go's
+    /// `mime.String()` puts on the wire; the session encoder trims `audio/` and
+    /// lower-cases it, and an empty list sends nothing (participant.go:2963-2969).
+    SubscribedAudioCodec {
+        publisher: ParticipantSid,
+        track_sid: TrackSid,
+        codecs: Vec<SubscribedAudioCodec>,
+    },
     /// Emitted every `audio.update_interval`, one entry per participant with a level.
     AudioLevels(Vec<AudioLevel>),
     /// Emitted every 5 s for participants with media.

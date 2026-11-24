@@ -514,6 +514,15 @@ pub struct SubscribedCodec {
     pub qualities: Vec<SubscribedQuality>,
 }
 
+/// Subscriber's codec enablement for one audio mime, sent to the publisher
+/// (Go `livekit.SubscribedAudioCodec`, built per committed mime in
+/// `enqueueSubscribedChange`, dynacastmanageraudio.go:183-189).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SubscribedAudioCodec {
+    pub codec: String,
+    pub enabled: bool,
+}
+
 /// Subscriber's requested settings for a subscribed track (adaptive stream / manual).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrackSettings {

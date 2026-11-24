@@ -835,6 +835,7 @@ impl MediaEngine {
         // ---- RED policy for new audio down tracks ----
         for &di in &bound_now {
             self.configure_red(di, now);
+            self.notify_audio_codec_negotiated(di);
         }
 
         // ---- events ----
@@ -1002,6 +1003,7 @@ impl MediaEngine {
         }
         for &di in &bound {
             self.configure_red(di, now);
+            self.notify_audio_codec_negotiated(di);
             self.emit_bound(di, now);
         }
         for di in failed {
@@ -1617,6 +1619,11 @@ impl MediaEngine {
         }
         self.poll_receiver_traffic(now);
         self.refresh_down_layers(ui, now);
+        // Go builds the audio dynacast manager in NewMediaTrack, before any
+        // receiver exists, and only for a track declaring more than one codec
+        // (mediatrack.go:161-167). A subscription negotiated first must still
+        // reach a manager, so the manager is created with the publication.
+        self.ensure_audio_dynacast(ui);
     }
 
     // ------------------------------------------------------------------

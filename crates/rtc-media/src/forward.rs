@@ -108,6 +108,66 @@ impl MediaEngine {
         self.update_dynacast(ui, now);
     }
 
+    /// Go builds `dynacastManagerAudio` once, in `NewMediaTrack`, and only for
+    /// an audio track whose `TrackInfo` declares more than one codec
+    /// (mediatrack.go:161-167). A single-codec audio track has no manager, so
+    /// nothing it notifies can reach the publisher; that is why the gate is
+    /// codec count and not track kind.
+    pub(crate) fn ensure_audio_dynacast(&mut self, ui: usize) {
+        let Some(up) = self.ups.get(ui) else { return };
+        if up.kind != TrackKind::Audio || up.spec.codecs.len() < 2 {
+            return;
+        }
+        let sid = up.sid.clone();
+        if self.audio_dynacast.contains_key(&sid) {
+            return;
+        }
+        self.audio_dynacast.insert(sid, Default::default());
+    }
+
+    /// Go `SubscribedTrack.OnCodecNegotiated` (subscribedtrack.go:456-482): the
+    /// negotiated mime of the down track is reported as enabled for that one
+    /// subscriber, through the publisher's manager
+    /// (mediatrack.go:189-195 → dynacastmanageraudio NotifySubscription). The
+    /// mime is the codec receiver the down track follows, which is what pion
+    /// negotiated for the publisher-side stream.
+    pub(crate) fn notify_audio_codec_negotiated(&mut self, di: usize) {
+        let Some(down) = self.downs.get(di) else {
+            return;
+        };
+        if down.kind != TrackKind::Audio {
+            return;
+        }
+        let Some(up) = self.ups.get(down.up) else {
+            return;
+        };
+        if up.kind != TrackKind::Audio {
+            return;
+        }
+        let sid = up.sid.clone();
+        let publisher = up.publisher.clone();
+        let subscriber = down.spec.subscriber.clone();
+        let Some(mime) = self
+            .codec_receivers
+            .get(&sid)
+            .and_then(|group| group.receivers.iter().find(|r| r.up == down.up))
+            .map(|receiver| receiver.mime.clone())
+        else {
+            return;
+        };
+        let Some(manager) = self.audio_dynacast.get_mut(&sid) else {
+            return;
+        };
+        let codecs = manager.notify_subscription(subscriber, &mime, true);
+        if !codecs.is_empty() {
+            self.events.push(MediaEvent::SubscribedAudioCodec {
+                publisher,
+                track_sid: sid,
+                codecs,
+            });
+        }
+    }
+
     pub(crate) fn remove_down(&mut self, di: usize, now: Instant) {
         self.retire_receiver_report_source(di);
         self.detach_down(di, now);

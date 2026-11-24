@@ -362,6 +362,16 @@ impl Room {
                     SignalEvent::SubscribedQuality { track_sid, codecs },
                 );
             }
+            MediaEvent::SubscribedAudioCodec {
+                publisher,
+                track_sid,
+                codecs,
+            } => {
+                self.signal(
+                    &publisher,
+                    SignalEvent::SubscribedAudioCodec { track_sid, codecs },
+                );
+            }
             MediaEvent::AudioLevels(levels) => self.handle_audio_levels(levels),
             MediaEvent::Quality(samples) => self.handle_quality(samples),
             MediaEvent::NegotiationFailed {

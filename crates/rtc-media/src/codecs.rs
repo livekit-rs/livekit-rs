@@ -221,10 +221,17 @@ pub(crate) fn mime_of(codec: Codec) -> &'static str {
     }
 }
 
-/// Dynacast codec name: lower-case mime without the `video/` prefix (§3.4).
+/// Dynacast codec name: lower-case mime without the `video/` or `audio/`
+/// prefix, matching Go `mime.NormalizeMimeType` (protocol@v1.52.2
+/// codecs/mime/mimeType.go), which both the video quality map
+/// (dynacastmanagervideo.go) and the audio codec map (dynacastmanageraudio.go)
+/// key on. A bare lower-case name passes through unchanged.
 pub(crate) fn dynacast_codec_name(mime: &str) -> String {
     let lc = mime.to_ascii_lowercase();
-    lc.strip_prefix("video/").map(str::to_string).unwrap_or(lc)
+    lc.strip_prefix("video/")
+        .or_else(|| lc.strip_prefix("audio/"))
+        .map(str::to_string)
+        .unwrap_or(lc)
 }
 
 pub(crate) fn track_kind(kind: str0m::media::MediaKind) -> TrackKind {
@@ -267,6 +274,11 @@ mod tests {
         assert_eq!(dynacast_codec_name("video/VP8"), "vp8");
         assert_eq!(dynacast_codec_name("video/H264"), "h264");
         assert_eq!(dynacast_codec_name("vp9"), "vp9");
+        // Go mime.NormalizeMimeType strips the audio/ prefix too
+        // (mimeType.go); the audio dynacast manager keys on the bare name.
+        assert_eq!(dynacast_codec_name("audio/opus"), "opus");
+        assert_eq!(dynacast_codec_name("Audio/RED"), "red");
+        assert_eq!(dynacast_codec_name("AUDIO/OPUS"), "opus");
     }
 
     #[test]
