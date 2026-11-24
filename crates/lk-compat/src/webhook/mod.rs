@@ -463,16 +463,18 @@ impl WebhookNotifier {
             } else {
                 &extra.signing_key
             };
+            // Upstream resolves an explicit signing key before delegation and
+            // never inspects the default key there (notifier.go:145-152); only
+            // the delegated notifier rejects a missing key or secret, after it
+            // has already checked closed (resource_url_notifier.go:193-234).
             if !extra.signing_key.is_empty() && inner.keys.secret(api_key).is_none() {
                 return Err(WebhookError::UnknownSigningKey);
             }
-            // DefaultNotifier resolves an explicit override before delegation;
-            // the ResourceURLNotifier then checks closed before default keys.
+            if inner.keys.secret(api_key).is_none() {
+                return Err(WebhookError::NoSigningKey);
+            }
             if inner.state.load(Ordering::SeqCst) != OPEN {
                 return Err(WebhookError::Closed);
-            }
-            if api_key.is_empty() || inner.keys.secret(api_key).is_none() {
-                return Err(WebhookError::NoSigningKey);
             }
             // Per-request filter_params is intentionally ignored by the fixed
             // source; global filters do not leak into this independent queue.
@@ -1035,5 +1037,215 @@ mod extra_tests {
         );
         assert!(n.inner.extra.queues.lock().unwrap().is_empty());
         n.stop(true).await;
+    }
+}
+
+#[cfg(test)]
+mod default_key_ordering_tests {
+    use super::*;
+    use axum::{
+        Router,
+        extract::State,
+        http::{HeaderMap, StatusCode, Uri},
+        routing::any,
+    };
+    use lk_protocol::livekit as pb;
+
+    struct Captured {
+        path: String,
+        authorization: String,
+    }
+    struct Server {
+        url: String,
+        rx: mpsc::UnboundedReceiver<Captured>,
+        task: JoinHandle<()>,
+    }
+    impl Drop for Server {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+    async fn capture(
+        State(tx): State<mpsc::UnboundedSender<Captured>>,
+        uri: Uri,
+        headers: HeaderMap,
+    ) -> StatusCode {
+        let _ = tx.send(Captured {
+            path: uri.path().into(),
+            authorization: headers
+                .get("authorization")
+                .map(|v| v.to_str().unwrap_or_default().to_string())
+                .unwrap_or_default(),
+        });
+        StatusCode::OK
+    }
+    async fn server() -> Server {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let app = Router::new().fallback(any(capture)).with_state(tx);
+        let task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        Server {
+            url: format!("http://{addr}"),
+            rx,
+            task,
+        }
+    }
+
+    /// Two keys with distinct secrets so the JWT issuer identifies which key
+    /// actually signed a delivered extra webhook.
+    fn keys() -> Arc<KeyStore> {
+        Arc::new(KeyStore::new(vec![
+            ("default-key".into(), "default-secret".into()),
+            ("extra-key".into(), "extra-secret".into()),
+        ]))
+    }
+
+    fn config(urls: Vec<String>, api_key: &str) -> WebhookConfig {
+        WebhookConfig {
+            urls,
+            api_key: api_key.into(),
+            ..Default::default()
+        }
+    }
+
+    fn egress_event(name: &str) -> pb::WebhookEvent {
+        pb::WebhookEvent {
+            event: name.into(),
+            egress_info: Some(pb::EgressInfo {
+                egress_id: "EG_order".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn extra(url: String, signing_key: &str) -> pb::WebhookConfig {
+        pb::WebhookConfig {
+            url,
+            signing_key: signing_key.into(),
+            ..Default::default()
+        }
+    }
+
+    fn claims(token: &str, secret: &str) -> serde_json::Value {
+        use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+        decode::<serde_json::Value>(
+            token,
+            &DecodingKey::from_secret(secret.as_bytes()),
+            &Validation::new(Algorithm::HS256),
+        )
+        .unwrap()
+        .claims
+    }
+
+    #[tokio::test]
+    async fn static_and_inherited_default_extra_items_reach_the_endpoint_signed_with_default_key() {
+        let mut server = server().await;
+        let static_url = format!("{}/static", server.url);
+        let extra_url = format!("{}/extra", server.url);
+        let n = WebhookNotifier::new(
+            &config(vec![static_url.clone()], "default-key"),
+            keys(),
+            false,
+        )
+        .unwrap();
+        n.notify_webhook_with_extras(
+            egress_event("egress_started"),
+            &[extra(extra_url.clone(), "")],
+        )
+        .unwrap();
+        n.stop(true).await;
+
+        let mut paths = Vec::new();
+        while let Ok(c) = server.rx.try_recv() {
+            paths.push(c);
+        }
+        assert_eq!(paths.len(), 2, "static and extra destinations both deliver");
+        assert_eq!(paths[0].path, "/static");
+        assert_eq!(paths[1].path, "/extra");
+        for c in &paths {
+            let jwt = c.authorization.as_str();
+            assert!(!jwt.starts_with("Bearer "));
+            // A default-key signature must verify against the default secret.
+            assert_eq!(claims(jwt, "default-secret")["iss"], "default-key");
+        }
+        assert_eq!(n.delivered_count(), 2);
+        assert_eq!(n.dropped_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn closed_notifier_still_reports_missing_default_key_first() {
+        let n = WebhookNotifier::new(&config(Vec::new(), ""), keys(), false).unwrap();
+        n.stop(true).await;
+        let error = n
+            .notify_webhook_with_extras(egress_event("egress_started"), &[extra(String::new(), "")])
+            .unwrap_err();
+        assert_eq!(error.to_string(), "no singing key or secret was provided");
+    }
+
+    #[tokio::test]
+    async fn explicit_unknown_signing_key_is_rejected_before_the_closed_check() {
+        let n = WebhookNotifier::new(&config(Vec::new(), "default-key"), keys(), false).unwrap();
+        n.stop(true).await;
+        let error = n
+            .notify_webhook_with_extras(
+                egress_event("egress_started"),
+                &[extra(String::new(), "unknown-key")],
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "no secret for provided signing key");
+    }
+
+    #[tokio::test]
+    async fn resolved_default_key_overrides_a_blank_configured_secret() {
+        let mut server = server().await;
+        let extra_url = format!("{}/extra", server.url);
+        let blank = Arc::new(KeyStore::new(vec![
+            ("default-key".into(), String::new()),
+            ("override-key".into(), "override-secret".into()),
+        ]));
+        let n = WebhookNotifier::new(&config(Vec::new(), "default-key"), blank, false).unwrap();
+        n.notify_webhook_with_extras(
+            egress_event("egress_started"),
+            &[extra(extra_url.clone(), "override-key")],
+        )
+        .unwrap();
+        n.stop(true).await;
+
+        let captured = server.rx.try_recv().expect("extra webhook POST");
+        assert_eq!(captured.path, "/extra");
+        assert_eq!(
+            claims(&captured.authorization, "override-secret")["iss"],
+            "override-key"
+        );
+        assert!(server.rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn empty_signing_key_never_rejects_an_unknown_explicit_key() {
+        let mut server = server().await;
+        let n = WebhookNotifier::new(&config(Vec::new(), "default-key"), keys(), false).unwrap();
+        // The first extra inherits the default key; a later unknown explicit
+        // key must still stop processing, and the inherited item stays enqueued.
+        let error = n
+            .notify_webhook_with_extras(
+                egress_event("egress_started"),
+                &[
+                    extra(format!("{}/extra", server.url), ""),
+                    extra(format!("{}/late", server.url), "unknown-key"),
+                ],
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "no secret for provided signing key");
+        n.stop(true).await;
+        assert_eq!(n.delivered_count(), 1);
+        assert_eq!(
+            server.rx.try_recv().expect("inherited item delivered").path,
+            "/extra"
+        );
+        assert!(server.rx.try_recv().is_err());
     }
 }
