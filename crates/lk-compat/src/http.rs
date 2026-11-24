@@ -337,13 +337,38 @@ fn html_escape(s: &str) -> String {
     out
 }
 
-/// negroni Recovery: a panic anywhere below becomes a bare 500.
+/// The API chain's recovery is `negroni.NewRecovery()` with default options
+/// (`references/go-modules/negroni-v3.1.1/recovery.go:152-161,164-189`): after
+/// `rw.WriteHeader(500)` it writes the `TextPanicFormatter` body — with
+/// `PrintStack` true that is `"PANIC: <value>\n<stack>"`, whose first 25 bytes are
+/// exactly `"500 Internal Server Error"` (= `NoPrintStackBodyString`, recovery.go:13),
+/// and which never sets a Content-Type header itself. Go then sniffs the written
+/// bytes (`net/http sniffHandlerContentType`) to `text/plain; charset=utf-8` plus
+/// `X-Content-Type-Options: nosniff`. It is NOT `http.Error`: that call only appears
+/// in livekit's own `AgentRecovery` (`pkg/service/agentendpointmiddleware.go:37-57`),
+/// on the agent chain, where the body is lowercase `"internal server error\n"`.
+/// The stack tail beyond the stable prefix is Rust-specific and left unrendered.
+fn recovered_panic_response() -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static(TEXT_PLAIN)),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
+        ],
+        "500 Internal Server Error",
+    )
+        .into_response()
+}
+
 async fn recover_layer(req: Request, next: Next) -> Response {
     match AssertUnwindSafe(next.run(req)).catch_unwind().await {
         Ok(resp) => resp,
         Err(_) => {
             tracing::error!("panic while serving HTTP request");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            recovered_panic_response()
         }
     }
 }
@@ -594,9 +619,58 @@ mod tests {
     }
 
     /// Middleware fixtures run over the real `/` handler, so the state must carry
-    /// a node record: a server with no stamp answers 406, not 200.
+    /// a node record: a server with no stamp answers 406, not 200. The state's own
+    /// key store is the `devkey`/`secret` pair the config fixture installs, which
+    /// the route-level auth tests (`/rtc/validate`) authenticate against; the
+    /// `/whoami` assertions use the fixture store (`key`/`secret`) passed to
+    /// [`with_middleware`].
     async fn app() -> Router {
         app_with_node(node_stamped_at(now_unix())).await
+    }
+
+    /// The same chain with `state.node == None`, i.e. the process before
+    /// `NewLocalNode` succeeded (`server.go:453` leaves `s.Node().Stats` nil).
+    async fn app_without_node() -> Router {
+        let (state, net) = crate::test_support::state().await;
+        net.shutdown();
+        let routes = Router::new().route("/", any(health)).with_state(state);
+        with_middleware(routes, Arc::new(KeyStore::default()), 16)
+    }
+
+    /// The production route table (`api_routes`) over a real assembled state, which
+    /// is what the launched binary serves; `/rtc/validate` needs the signaling routes
+    /// and the state's own key store, so the minimal `/whoami` fixture cannot exercise
+    /// those paths. Requests carry the `ConnectInfo` extension the listener installs
+    /// via `into_make_service_with_connect_info`.
+    async fn app_full() -> (Router, rtc_runtime::net::NetRouter) {
+        let (mut state, net) = crate::test_support::state().await;
+        state.enable_node(Arc::new(node_stamped_at(now_unix())));
+        (crate::http::router(state), net)
+    }
+
+    /// One request against the full router on its own runtime, with the media router
+    /// shut down afterwards — the teardown discipline every state-backed test here follows.
+    fn run_full(uri: String, authorization: Option<&str>) -> (StatusCode, axum::http::HeaderMap, String) {
+        use axum::extract::ConnectInfo;
+        use tower::ServiceExt;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let (app, net) = app_full().await;
+            let mut builder = axum::http::Request::get(uri.as_str())
+                .extension(ConnectInfo("127.0.0.1:50000".parse::<std::net::SocketAddr>().unwrap()));
+            if let Some(value) = authorization {
+                builder = builder.header("authorization", value);
+            }
+            let resp = app.oneshot(builder.body(Body::empty()).unwrap()).await.unwrap();
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            net.shutdown();
+            (status, headers, String::from_utf8_lossy(&body).into_owned())
+        })
     }
 
     async fn app_with_node(node: routing::LocalNode) -> Router {
@@ -664,16 +738,57 @@ mod tests {
             .unwrap();
         rt.block_on(async move {
             let mut app = app.await;
-            let resp = app.call(req).await.unwrap();
-            let status = resp.status();
-            let headers = resp.headers().clone();
-            let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-            (status, headers, String::from_utf8_lossy(&body).into_owned())
+            call(&mut app, req).await
         })
+    }
+
+    /// One request against a live app, so a test can reuse the same service across
+    /// requests — that reuse is what proves a recovered panic left it standing.
+    async fn call(
+        app: &mut Router,
+        req: axum::http::Request<Body>,
+    ) -> (StatusCode, axum::http::HeaderMap, String) {
+        let resp = app.call(req).await.unwrap();
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        (status, headers, String::from_utf8_lossy(&body).into_owned())
     }
 
     fn get(uri: &str) -> axum::http::request::Builder {
         axum::http::Request::builder().uri(uri)
+    }
+
+    /// A token the fixture's key store (`key`/`secret`) verifies, with identity
+    /// `alice`. Built here rather than through `crate::auth::jwt::tests::make_token`
+    /// so the header/query precedence test can also present a deliberately wrong
+    /// signature under a valid header.
+    /// The `/whoami` fixture authenticates against its own middleware key store
+    /// (`app_with_node` installs `key`/`secret`), not the state's config keys.
+    fn test_token() -> String {
+        signed_token(r#"{"iss":"key","sub":"alice","exp":99999999999}"#)
+    }
+
+    /// HS256 over an arbitrary claim JSON with the shared `secret`; the two stores in
+    /// play differ only by `iss` (`key` for the fixture router, `devkey` for the
+    /// state-backed one — `lk-config/load.rs:363-366`).
+    fn signed_token(claims_json: &str) -> String {
+        let header = base64url(r#"{"alg":"HS256","typ":"JWT"}"#);
+        let claims = base64url(claims_json);
+        let mut mac = <hmac::Hmac<sha2::Sha256> as hmac::Mac>::new_from_slice(b"secret").unwrap();
+        hmac::Mac::update(&mut mac, format!("{header}.{claims}").as_bytes());
+        let sig = hmac::Mac::finalize(mac).into_bytes();
+        format!("{header}.{claims}.{}", base64url_raw(&sig))
+    }
+
+    fn base64url(s: &str) -> String {
+        base64url_raw(s.as_bytes())
+    }
+
+    /// Go `base64.RawURLEncoding`: URL-safe alphabet, no padding.
+    fn base64url_raw(bytes: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
     }
 
     /// The 4 s rule is the handler's own, so a stale stamp has to reach the client
@@ -717,6 +832,49 @@ mod tests {
         assert_eq!((s, b.as_str()), (StatusCode::OK, "OK"));
     }
 
+    /// The 4 s window is Go's literal `time.Since(updatedAt) > 4*time.Second`
+    /// (`server.go:456`), so a stamp exactly 4 s old is still ready and one 4 s +
+    /// 1 ns old is not. The boundary needs sub-second control, which the live `/`
+    /// handler cannot give (it reads the wall clock at request time): the fake clock
+    /// here drives both directions of the comparison with zero wall-clock drift, and
+    /// the chain leg proves the handler wires the same rule end to end. A stamp from
+    /// the previous second must answer 200 "OK".
+    #[test]
+    fn health_is_ready_within_the_literal_four_second_window() {
+        let updated_at = now_unix() - 1;
+        let node = node_stamped_at(updated_at);
+        let snapshot = node.snapshot();
+        let zone = routing::local_zone_at(updated_at);
+        // Both directions of Go's `>` at the exact boundary.
+        let at = |secs: i64, nanos: u32| {
+            std::time::UNIX_EPOCH + std::time::Duration::new(secs.try_into().unwrap(), nanos)
+        };
+        assert_eq!(
+            routing::health_body(Some(&snapshot), at(updated_at + 4, 0), &zone),
+            None
+        );
+        assert!(routing::health_body(Some(&snapshot), at(updated_at + 4, 1), &zone).is_some());
+
+        let (s, h, b) = run_with(app_with_node(node), get("/").body(Body::empty()).unwrap());
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+        assert_eq!(b, "OK");
+    }
+
+    /// With no node record installed at all, Go reads `s.Node().Stats == nil`, so
+    /// `updatedAt` stays the zero `time.Time` and the answer is 406 with Go's zero-time
+    /// text — never a silent 200 for a runtime that has never published stats.
+    #[test]
+    fn health_without_a_node_record_is_406_zero_time() {
+        let (s, h, b) = run_with(app_without_node(), get("/").body(Body::empty()).unwrap());
+        assert_eq!(s, StatusCode::NOT_ACCEPTABLE);
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+        assert_eq!(
+            b,
+            format!("Not Ready\nNode Updated At {}", routing::GO_ZERO_TIME_TEXT)
+        );
+    }
+
     #[test]
     fn auth_failures_are_plain_401() {
         let (s, h, b) = run(get("/")
@@ -741,13 +899,203 @@ mod tests {
         assert_eq!(h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "*");
     }
 
+    /// `APIKeyAuthMiddleware` reads the `Authorization` header first and only falls back
+    /// to the `access_token` query when the header is absent (`auth.go:68-84`). A present
+    /// but malformed header therefore wins over a perfectly valid query token — Go never
+    /// reaches the query once the prefix check fails. The route-specific authorization
+    /// rides on the same verified grants: `/rtc/validate` authenticates in the middleware
+    /// and then the handler's join check (`pkg/service/auth.go:172-190`,
+    /// `rtcservice.go Validate`) answers 401 "permissions denied" for a token without
+    /// `video.roomJoin`; an admin token for another room fails the exact-room match the
+    /// same way, while the matching-room admin token passes to the validation answer.
+    #[test]
+    fn authorization_header_takes_precedence_over_the_query_token() {
+        let jwt = test_token();
+        // Header absent → the query token authenticates.
+        let (s, _, b) = run_with(app(), get(&format!("/whoami?access_token={jwt}")).body(Body::empty()).unwrap());
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "alice"));
+        // The same token in the header authenticates too, so the 401s below are the
+        // header's shape rejecting it, not an unknown key or a bad signature.
+        let (s, _, b) = run_with(
+            app(),
+            get("/whoami")
+                .header("authorization", format!("Bearer {jwt}"))
+                .body(Body::empty())
+                .unwrap(),
+        );
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "alice"));
+        for header in ["Token abc", "bearer abc"] {
+            let (s, _, b) = run_with(
+                app(),
+                get(&format!("/whoami?access_token={jwt}"))
+                    .header("authorization", header)
+                    .body(Body::empty())
+                    .unwrap(),
+            );
+            assert_eq!(s, StatusCode::UNAUTHORIZED, "authorization: {header:?}");
+            assert_eq!(b, "invalid authorization header. Must start with Bearer ");
+        }
+        // An empty header value counts as absent for Go's `Header.Get` (auth.go:69),
+        // so here the query token does authenticate.
+        let (s, _, b) = run_with(
+            app(),
+            get(&format!("/whoami?access_token={jwt}"))
+                .header("authorization", "")
+                .body(Body::empty())
+                .unwrap(),
+        );
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "alice"), "{b}");
+        // `Bearer ` with nothing after it selects the header path and yields the
+        // unauthenticated pass-through: Go only enters verification when
+        // `authToken != ""` (auth.go:85).
+        let (s, _, b) = run_with(
+            app(),
+            get(&format!("/whoami?access_token={jwt}"))
+                .header("authorization", "Bearer ")
+                .body(Body::empty())
+                .unwrap(),
+        );
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "anonymous"), "{b}");
+    }
+
+    /// Route-specific authorization on the production route table (`router(state)`):
+    /// Go's `validateInternal` (`pkg/service/rtcservice.go:143-152`) rejects a request
+    /// whose context carries no grants or no `Video` claim with 401
+    /// `rtc.ErrPermissionDenied` ("permissions denied") before any join parameter is
+    /// read; the room comes from the token grant, never from the query. The middleware
+    /// precedence still runs first, and Go sets `Access-Control-Allow-Origin: *` at the
+    /// very top of `APIKeyAuthMiddleware.ServeHTTP` (`auth.go:64-66`), so even the
+    /// header-shape rejection on this path carries it. Tokens here authenticate against
+    /// the config fixture's `devkey`/`secret` pair — the same store the launched binary
+    /// uses for its placeholder keys (`lk-config/load.rs:363-366`).
+    #[test]
+    fn validate_route_authorization_follows_the_verified_grants() {
+        let join = signed_token(r#"{"iss":"devkey","sub":"alice","exp":99999999999,"video":{"roomJoin":true,"room":"r"}}"#);
+        // No token at all -> validateInternal's permission check fires first.
+        let (s, _, b) = run_full("/rtc/validate".into(), None);
+        assert_eq!((s, b.as_str()), (StatusCode::UNAUTHORIZED, "permissions denied"));
+        // A syntactically valid JWT with no `video` claim is verified by the
+        // middleware and then rejected the same way (claims == nil || Video == nil).
+        let no_video = signed_token(r#"{"iss":"devkey","sub":"alice","exp":99999999999}"#);
+        let (s, _, b) = run_full(
+            format!("/rtc/validate?access_token={no_video}"),
+            None,
+        );
+        assert_eq!((s, b.as_str()), (StatusCode::UNAUTHORIZED, "permissions denied"));
+        // With `video`, the join checks take over: roomJoin passes to the validation
+        // answer, and the requested query room does not gate it — Go's validateInternal
+        // never reads a `room` form value; the room is the grant's.
+        let (s, _, b) = run_full(format!("/rtc/validate?room=r&access_token={join}"), None);
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "success"));
+        let (s, _, b) = run_full(format!("/rtc/validate?room=other&access_token={join}"), None);
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "success"));
+        // The same token without `roomJoin` fails the join check
+        // (`params.rs parse_join` mirrors rtcservice.go's res.roomName path).
+        let no_join = signed_token(r#"{"iss":"devkey","sub":"alice","exp":99999999999,"video":{"room":"r"}}"#);
+        let (s, _, b) = run_full(format!("/rtc/validate?access_token={no_join}"), None);
+        assert_eq!((s, b.as_str()), (StatusCode::UNAUTHORIZED, "permissions denied"));
+        // Precedence survives into the route: the bad header rejects before the
+        // valid query token is ever read, with the middleware's own body.
+        let (s, h, b) = run_full(
+            format!("/rtc/validate?access_token={join}"),
+            Some("Token abc"),
+        );
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(b, "invalid authorization header. Must start with Bearer ");
+        assert_eq!(h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "*");
+    }
+
+    /// The other two authorization families on the same production chain: a
+    /// signature-valid token whose `iss` has no configured secret is the middleware's
+    /// `invalid API key` (`auth.go:91-95`, GetSecret == ""), and an unknown RPC under a
+    /// registered service prefix still reaches its 404 `bad_route` — the twirp
+    /// dispatcher checks the method name before any handler code, so authorization
+    /// cannot preempt it (the generated `livekit_room.twirp.go` ordering this port
+    /// follows in `crate::twirp::serve`).
+    #[test]
+    fn api_key_and_twirp_route_authorization_boundaries() {
+        let foreign = signed_token(
+            r#"{"iss":"no-such-key","sub":"alice","exp":99999999999,"video":{"roomJoin":true,"room":"r"}}"#,
+        );
+        let (s, _, b) = run_full(format!("/rtc/validate?access_token={foreign}"), None);
+        assert_eq!((s, b.as_str()), (StatusCode::UNAUTHORIZED, "invalid API key"));
+
+        let admin = signed_token(r#"{"iss":"devkey","sub":"admin","exp":99999999999,"video":{"roomList":true}}"#);
+        let post = |uri: &str, token: &str| {
+            use axum::extract::ConnectInfo;
+            use tower::ServiceExt;
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let (app, net) = app_full().await;
+                let resp = app
+                    .oneshot(
+                        axum::http::Request::post(uri)
+                            .extension(ConnectInfo(
+                                "127.0.0.1:50000".parse::<std::net::SocketAddr>().unwrap(),
+                            ))
+                            .header("authorization", format!("Bearer {token}"))
+                            .header("content-type", "application/json")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = resp.status();
+                let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+                net.shutdown();
+                (status, String::from_utf8_lossy(&body).into_owned())
+            })
+        };
+        // Unknown method: bad_route precedes both the body read and authorization.
+        let (s, b) = post("/twirp/livekit.RoomService/Nope", &admin);
+        assert_eq!(s, StatusCode::NOT_FOUND);
+        assert_eq!(b, r#"{"code":"bad_route","msg":"no handler for path \"/twirp/livekit.RoomService/Nope\""}"#);
+        // Known method, no usable token: the middleware records the unauthenticated
+        // pass-through and the handler-level permission gate answers `unauthenticated`
+        // in the twirp envelope, not the middleware plain text.
+        let (s, b) = post("/twirp/livekit.RoomService/ListRooms", "");
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(b, r#"{"code":"unauthenticated","msg":"permissions denied"}"#);
+        // Same method with the roomList grant: authentication happened at the
+        // middleware and the handler proceeds to its business answer.
+        let (s, _) = post("/twirp/livekit.RoomService/ListRooms", &admin);
+        assert_eq!(s, StatusCode::OK);
+    }
+
+    /// Go builds the verify failure as `fmt.Errorf("%w: %s", ErrInvalidAuthorizationToken,
+    /// err)` (`auth.go:101`), so the golang-jwt detail is appended after the fixed
+    /// middleware text rather than replacing it. Both families must be visible: the
+    /// unverified-parse failure (`ParseAPIToken`, verifier.go:41) carries no detail at
+    /// all, while the `Verify` failure (`auth.go:97-101`) does.
+    #[test]
+    fn invalid_token_carries_the_protocol_parse_detail() {
+        // ParseAPIToken error -> bare sentinel (auth.go:86-89).
+        let (s, h, b) = run(get("/whoami?access_token=not-a-jwt")
+            .body(Body::empty())
+            .unwrap());
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+        assert_eq!(b, "invalid authorization token");
+        // Verify error -> sentinel + ": " + the golang-jwt message chain
+        // ("token is invalid" <- "signing method HS512 is invalid",
+        // golang-jwt v5.3.1 validation.go / errors.go).
+        let wrong_alg = base64url(r#"{"alg":"HS512","typ":"JWT"}"#);
+        let claims = base64url(r#"{"iss":"key","sub":"alice","exp":99999999999}"#);
+        let (s, _, b) = run(get(&format!(
+            "/whoami?access_token={wrong_alg}.{claims}.c2ln"
+        ))
+        .body(Body::empty())
+        .unwrap());
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(b, "invalid authorization token: token is invalid: signing method HS512 is invalid");
+    }
+
     #[test]
     fn verified_token_reaches_handler() {
-        let jwt = crate::auth::jwt::tests::make_token(
-            r#"{"alg":"HS256"}"#,
-            r#"{"iss":"key","sub":"alice","exp":99999999999}"#,
-            "secret",
-        );
+        let jwt = test_token();
         let (s, _, b) = run(get("/whoami")
             .header("authorization", format!("Bearer {jwt}"))
             .body(Body::empty())
@@ -852,10 +1200,32 @@ mod tests {
         });
     }
 
+    /// The API chain's recovery is `negroni.NewRecovery()` with its default options
+    /// (`recovery.go:152-161`): the panic response is status 500 plus the
+    /// `TextPanicFormatter` body `"500 Internal Server Error"` — the formatter runs
+    /// after `rw.WriteHeader`, so Go's Content-Type sniffing adds
+    /// `text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`
+    /// (`net/http/server.go` sniffResponseContentType). It is NOT `http.Error`: that
+    /// only appears in `AgentRecovery`, which livekit writes itself. The service keeps
+    /// serving after the panic: one app instance answers the panic and then the next
+    /// request.
     #[test]
     fn panic_becomes_500() {
-        let (s, _, _) = run(get("/boom").body(Body::empty()).unwrap());
-        assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let mut app = app().await;
+            let (s, h, b) = call(&mut app, get("/boom").body(Body::empty()).unwrap()).await;
+            assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+            assert_eq!(h.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+            assert_eq!(b, "500 Internal Server Error");
+            // Same chain, second request: the panic did not take the service down.
+            let (s, _, b) = call(&mut app, get("/whoami").body(Body::empty()).unwrap()).await;
+            assert_eq!((s, b.as_str()), (StatusCode::OK, "anonymous"));
+        });
     }
 
     #[test]
