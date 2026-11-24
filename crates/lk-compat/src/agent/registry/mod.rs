@@ -424,7 +424,7 @@ impl Registry {
         self.changed();
     }
     #[cfg(test)]
-    pub(super) fn oracle_snapshot(&self, id: &str) -> (i32, f32, bool, usize) {
+    pub fn oracle_snapshot(&self, id: &str) -> (i32, f32, bool, usize) {
         let state = self.inner.lock().unwrap();
         let worker = state
             .workers

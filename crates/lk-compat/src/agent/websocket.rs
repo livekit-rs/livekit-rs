@@ -36,6 +36,15 @@ pub enum WorkerEvent {
         job_id: String,
         state: pb::JobState,
     },
+    /// The worker's application-level `WorkerPing`, observed on the way to its
+    /// pong so a real consumer can measure the round trip. Go stamps the pong in
+    /// `WorkerPingHandler.HandlePing` (pkg/agent/worker.go:135) and keeps no such
+    /// event; this is the Rust-side observation seam, not a protocol change.
+    Ping {
+        worker_id: String,
+        last_timestamp: i64,
+        timestamp: i64,
+    },
     Disconnected {
         worker_id: String,
         jobs: Vec<String>,
@@ -117,6 +126,37 @@ fn now_ns() -> i64 {
         .as_nanos()
         .min(i64::MAX as u128) as i64
 }
+// Go WorkerPingHandler.HandlePing (pkg/agent/worker.go:135): echo the request
+// timestamp, stamp the server clock. Shared with the WebTransport control plane.
+pub(super) fn pong_frame(last_timestamp: i64) -> pb::ServerMessage {
+    pb::ServerMessage {
+        message: Some(pb::server_message::Message::Pong(pb::WorkerPong {
+            last_timestamp,
+            timestamp: now_ms(),
+        })),
+    }
+}
+// The pong is only observable once its actual writer has acknowledged the frame,
+// matching Go's WriteServerMessage ordering; the event consumer never resurrects
+// a write failure into Ok (Go DispatchAgentWorkerSignal returns false on it).
+async fn send_pong(
+    outgoing: &mpsc::Sender<Outbound>,
+    events: &mpsc::Sender<WorkerEvent>,
+    worker_id: &str,
+    ping: &pb::WorkerPing,
+) -> Result<(), WorkerError> {
+    let timestamp = now_ms();
+    send_message(outgoing, pong_frame(ping.timestamp)).await?;
+    events
+        .send(WorkerEvent::Ping {
+            worker_id: worker_id.to_owned(),
+            last_timestamp: ping.timestamp,
+            timestamp,
+        })
+        .await
+        .map_err(|_| WorkerError::Closed)?;
+    Ok(())
+}
 // Fixed wsprotocol.go closeWriteTimeout. Never synthesize a Close on decode errors.
 const PEER_CONTROL_TIMEOUT: Duration = Duration::from_secs(5);
 struct WriterTask(tokio::task::JoinHandle<()>);
@@ -195,16 +235,7 @@ async fn session(mut state: WorkerHttpState, socket: WebSocket, protocol: i64, a
             let Some(message) = message else { continue };
             match message.message {
                 Some(pb::worker_message::Message::Ping(p)) => {
-                    send_message(
-                        &outgoing,
-                        pb::ServerMessage {
-                            message: Some(pb::server_message::Message::Pong(pb::WorkerPong {
-                                last_timestamp: p.timestamp,
-                                timestamp: now_ms(),
-                            })),
-                        },
-                    )
-                    .await?
+                    send_pong(&outgoing, &state.events, &id, &p).await?
                 }
                 Some(pb::worker_message::Message::Register(request)) => {
                     let mut registration =
@@ -259,16 +290,7 @@ async fn session(mut state: WorkerHttpState, socket: WebSocket, protocol: i64, a
             let Some(message) = message else { continue };
             match message.message {
                 Some(pb::worker_message::Message::Ping(p)) => {
-                    send_message(
-                        &outgoing,
-                        pb::ServerMessage {
-                            message: Some(pb::server_message::Message::Pong(pb::WorkerPong {
-                                last_timestamp: p.timestamp,
-                                timestamp: now_ms(),
-                            })),
-                        },
-                    )
-                    .await?
+                    send_pong(&outgoing, &state.events, &id, &p).await?
                 }
                 Some(pb::worker_message::Message::UpdateWorker(update)) => {
                     state.registry.update_worker(&id, &update)?
