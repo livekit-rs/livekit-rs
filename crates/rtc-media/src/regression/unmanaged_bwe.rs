@@ -33,6 +33,14 @@ fn fixture(
         fmtp_line: String::new(),
     });
     let tid = transport(&mut engine, PcRole::Single, start);
+    // Whether an unmanaged track is charged against the channel decides which
+    // track is starved, and a starved track is only withheld when the allocator
+    // is allowed to pause (`streamallocator.go:1185-1202`, `Pause()` at
+    // `:1200`). Go's production default leaves `AllowPause` off
+    // (`pkg/config/config.go:584`), so the exemption has no allocation effect
+    // there at all; this fixture opts in to make the charged-versus-uncharged
+    // difference observable on the managed side.
+    engine.transports.get_mut(&tid).unwrap().spec.allow_pause = true;
     let packets = PacketQueue::default();
     engine.out = Box::new(packets.clone());
     let candidate = engine

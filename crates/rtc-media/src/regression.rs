@@ -2238,6 +2238,72 @@ fn esmj30x_deltas(first: i64, drift_us: i64, count: usize) -> Vec<i64> {
     deltas
 }
 
+/// Feed one group of the oracle's `esmj30x` stimulus through the real
+/// send-side TWCC inputs and return the instant of its report. Group 0
+/// escalates the detector to EarlyWarning, group 1 to Congested, and only the
+/// congested one commits capacity (`streamallocator.go:874-895`), which is what
+/// makes the pair a discriminator rather than one repeated event.
+///
+/// The oracle's clock origin is `time.Unix(1000, 0)` and this detector counts
+/// from `start`, so every event is offset by the same 1000 s. Without that
+/// offset the TWCC reference time would not sit at the same distance from the
+/// send clock as it does in the fixed Go run.
+fn drive_esmj30x_group(
+    engine: &mut MediaEngine,
+    tid: TransportId,
+    start: Instant,
+    group: u16,
+) -> Instant {
+    let at = |us: u64| start + Duration::from_micros(1_000_000_000 + us);
+    // (first send time, report time, TWCC start sequence, reference time, per-packet delta)
+    let (first_us, report_us, base, reference_time, drift_us) = if group == 0 {
+        (100_000u64, 3_100_000u64, 1u16, 1_000u32, 115_000i64)
+    } else {
+        (3_200_000, 6_300_000, 31, 1_048, 135_000)
+    };
+    for step in 0..30u16 {
+        engine.on_send_side_input(
+            tid,
+            send_side_sent(
+                at(first_us + u64::from(step) * 100_000),
+                group * 30 + step + 1,
+            ),
+        );
+    }
+    let report_at = at(report_us);
+    engine.on_send_side_input(
+        tid,
+        send_side_report(
+            report_at,
+            base,
+            reference_time,
+            &esmj30x_deltas(0, drift_us, 30),
+        ),
+    );
+    report_at
+}
+
+/// Run the whole oracle replay through the real send-side inputs and leave the
+/// transport on Go's congested commit (`streamallocator.go:892`). The two groups
+/// are one replay rather than two interchangeable stimuli: the second group's
+/// 71_111 bps capacity only exists once the first group's acknowledged-rate
+/// history is there, so anything that needs a committed channel has to drive
+/// both.
+fn commit_congested_capacity(
+    engine: &mut MediaEngine,
+    tid: TransportId,
+    start: Instant,
+) -> Instant {
+    drive_esmj30x_group(engine, tid, start, 0);
+    let at = drive_esmj30x_group(engine, tid, start, 1);
+    assert_eq!(
+        engine.transports[&tid].capacity(),
+        Some(71_111),
+        "the congested transition of the replayed stimulus is the commit"
+    );
+    at
+}
+
 /// The send-side estimator owner's own cluster accounting.
 fn estimator_stats(engine: &MediaEngine, tid: TransportId) -> crate::send_side_bwe::Stats {
     engine.transports[&tid]
@@ -2267,8 +2333,9 @@ fn probe_counters(
 }
 
 /// The application-owned Go-parity send-side estimator's last recorded
-/// diagnostic view. It is an observer in native mode, so this proves ingestion
-/// of real reports, not ownership of the allocation.
+/// diagnostic view. In native mode this component is the allocation authority:
+/// its congestion transition is what commits channel capacity, and its probe
+/// finalization is what raises it again.
 fn go_parities_estimate(engine: &MediaEngine, tid: rtc_core::ids::TransportId) -> Option<i64> {
     engine.transports[&tid]
         .send_side_observed
@@ -2282,7 +2349,14 @@ fn managed_discovery_uses_recoverable_ice_state_without_clearing_handshake_latch
     let tid = transport(&mut engine, PcRole::Subscriber, now);
     let t = engine.transports.get_mut(&tid).unwrap();
     t.connected = true;
-    let capacity = t.capacity().unwrap();
+    let transport_capacity = t.capacity();
+    // The gate this test is about is a comparison against the controller's own
+    // committed capacity, which is what `tick` reports as `discovery_needed`
+    // (`probe_controller.rs:761` reads `capacity()`, `probe_controller.rs:600`).
+    // Deriving the demand from `Transport::capacity()` instead measured a cold
+    // zero here, so the demand landed under the threshold and every leg of the
+    // gate could only ever be vacuously closed.
+    let capacity = t.probes.capacity(None).expect("committed capacity");
     let demand = capacity + 100_000;
     let connected = t.probe_path_connected();
     let action = t.probes.tick(now, demand, 150_000, None, connected, false);
@@ -2300,55 +2374,216 @@ fn managed_discovery_uses_recoverable_ice_state_without_clearing_handshake_latch
     let connected = t.probe_path_connected();
     let action = t.probes.tick(now, demand, 150_000, None, connected, false);
     assert!(action.discovery_needed);
-    assert_eq!(t.capacity(), Some(capacity));
+    assert_eq!(
+        t.capacity(),
+        transport_capacity,
+        "discovery is a schedule decision, not a capacity write"
+    );
     assert_eq!(t.probes.counters.successes, 0);
 }
-#[test]
-fn peer_stats_native_cut_applies_allocation_before_the_next_periodic_tick() {
+/// Publish, bind and subscribe one more managed camera track on an existing
+/// transport, and return its downtrack index.
+fn add_managed_track(
+    engine: &mut MediaEngine,
+    peer: &mut Rtc,
+    tid: TransportId,
+    now: Instant,
+    sid: TrackSid,
+    bitrate: u32,
+) -> usize {
+    let mid = published_mid(&offer(engine, peer, tid, now, |api| {
+        api.add_media(MediaKind::Video, Direction::SendOnly, None, None, None);
+    }));
+    engine.bind_track(tid, &mid.to_string(), sid.clone(), now);
+    let ui = engine.up_by_sid[&sid];
+    let up = engine.ups.get_mut(ui).unwrap();
+    up.spec.source = rtc_core::model::TrackSource::Camera;
+    up.layers = vec![rtc_core::model::VideoLayer {
+        quality: rtc_core::model::VideoQuality::High,
+        width: 960,
+        height: 540,
+        bitrate,
+        ssrc: 1,
+        spatial_layer: 0,
+        rid: String::new(),
+        repair_ssrc: 0,
+    }];
+    engine.subscribe(
+        rtc_core::media_api::DownTrackSpec {
+            subscriber: "PA_test".into(),
+            publisher: "PA_test".into(),
+            track_sid: sid.clone(),
+            stream_id: format!("PA_test|{sid}"),
+            settings: rtc_core::model::TrackSettings::default(),
+            adaptive_stream: false,
+        },
+        now,
+    );
+    offer(engine, peer, tid, now, |api| {
+        api.add_media(MediaKind::Video, Direction::RecvOnly, None, None, None);
+    });
+    let index = engine.down_by_key[&("PA_test".into(), sid)];
+    assert!(engine.downs.get(index).unwrap().negotiated);
+    index
+}
+
+/// Go's congestion-transition handler committed against this port's allocator.
+///
+/// `streamallocator.go:856-897` has exactly one writer of
+/// `committedChannelCapacity` in this path: the congested arm at `:892`, which
+/// takes the estimator's own `estimatedAvailableChannelCapacity` and then runs
+/// `allocateAllTracks()` at `:894`. The early-warning arm above it only stops a
+/// probe. Nothing in that handler reads a receiver estimate or a vendor BWE
+/// snapshot, so those are exercised here as the negative controls they are, and
+/// the allocation outcome is decided by the committed field alone: the fixture's
+/// 500 kbps track does not fit the 71_111 bps commit and the 50 kbps track does,
+/// which is a difference in `committedChannelCapacity` and nothing else.
+fn congested_commit_drives_the_paired_allocator_tracks(lossy_stats: bool) {
     use crate::downtrack::Forward;
     use str0m::bwe::BweEstimateCause;
     let start = Instant::now();
-    let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
-    let now = start + Duration::from_secs(2);
-    let mut snapshot = peer_stats_observation(now, 100_000);
-    snapshot.cause = BweEstimateCause::DelayOveruse;
-    snapshot.latest_feedback.as_mut().unwrap().lost_packets = 1;
-    engine.on_peer_stats(tid, peer_stats_event(now, 0.2), Some(snapshot), now);
+    let (mut engine, tid, starved, mut peer, _) = peer_stats_connected_fixture(start);
+    let served = add_managed_track(
+        &mut engine,
+        &mut peer,
+        tid,
+        start,
+        TrackSid::from("TR_congested_commit_small"),
+        50_000,
+    );
+    // A starved managed track is only withheld when the allocator may pause
+    // (`streamallocator.go:1193`, `Pause()` there, and the grant rule at `:1217`
+    // taking the first measured layer over budget when it may not). Go's
+    // production default is off (`pkg/config/config.go:584`), so this raises the
+    // toggle the same way `SetAllowPause` does (`:375`,
+    // `handleSignalSetAllowPause` at `:842`) to make the commit observable.
+    engine.transports.get_mut(&tid).unwrap().spec.allow_pause = true;
+    engine.allocate_transport(tid, start);
+    // Go's `committedChannelCapacity` has no initializer (`:234`) and
+    // `MinChannelCapacity` defaults to 0 (`:203`), so a transport that never
+    // committed is a zero-capacity transport.
+    let cold = engine.transports[&tid].capacity();
+    assert_eq!(cold, Some(0), "a transport that committed nothing");
+    assert_eq!(engine.transports[&tid].allocated_bps, 0);
+    assert!(engine.downs.get(starved).unwrap().bw_paused);
+    assert!(engine.downs.get(served).unwrap().bw_paused);
+
+    // The early-warning escalation of the oracle stimulus reports a capacity, but
+    // Go's handler for that state does not commit it (`:863-872` only releases an
+    // early-warning hold), so the authority must stay cold while the estimator is
+    // already observing 83_478 bps. Both legs together are what makes the next
+    // one a decision rather than an absence of data.
+    let warned_at = drive_esmj30x_group(&mut engine, tid, start, 0);
+    assert_eq!(
+        estimator_capacity(&engine, tid),
+        83_478,
+        "the fixed Go estimator observes this capacity on the early-warning report"
+    );
     assert_eq!(
         engine.transports[&tid].capacity(),
-        Some(100_000),
-        "native cut actually committed"
+        cold,
+        "an early-warning escalation must not commit channel capacity"
+    );
+    assert_eq!(engine.transports[&tid].allocated_bps, 0);
+
+    // A vendor estimate carrying a congestion cause is not this allocator's
+    // signal: in send-side mode Go's REMB path is a null controller, and nothing
+    // in the congestion-state handler reads a BWE snapshot.
+    let mut snapshot = peer_stats_observation(warned_at, 100_000);
+    snapshot.cause = BweEstimateCause::DelayOveruse;
+    snapshot.latest_feedback.as_mut().unwrap().lost_packets = lossy_stats as u64;
+    let loss = if lossy_stats { 0.2 } else { 0.0 };
+    engine.on_peer_stats(
+        tid,
+        peer_stats_event(warned_at, loss),
+        Some(snapshot),
+        warned_at,
+    );
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.capacity(),
+        cold,
+        "a vendor estimate is not a capacity commit, whether the receiver reported loss or not"
+    );
+    assert_eq!(t.allocated_bps, 0);
+
+    // The congested escalation is the commit, and Go reallocates inside the same
+    // handler (`:894`) rather than waiting for a periodic ping.
+    let congested_at = drive_esmj30x_group(&mut engine, tid, start, 1);
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.capacity(),
+        Some(71_111),
+        "the congested transition commits the estimator's own channel capacity"
     );
     assert_eq!(
-        engine.transports[&tid].probes.counters.congestion_events, 1,
-        "bad stats cannot multiply-cut immediately after native updated the adjustment gate"
+        estimator_stats(&engine, tid).state_changes,
+        2,
+        "Go records exactly the two escalations of this stimulus"
     );
     assert_eq!(
-        engine.transports[&tid].allocated_bps, 0,
-        "same callback must replace stale500k allocation"
+        t.bw_override_bps, 0,
+        "no other capacity input exists, so the allocation below is attributable to the commit"
     );
-    let down = engine.downs.get_mut(di).unwrap();
-    assert!(down.bw_paused);
     assert_eq!(
-        down.on_frame(0, true, now),
+        t.allocated_bps, 50_000,
+        "the committed capacity only fits the 50 kbps track"
+    );
+    let starved = engine.downs.get_mut(starved).unwrap();
+    assert!(
+        starved.bw_paused,
+        "a track that does not fit the commit stays withheld"
+    );
+    assert_eq!(
+        starved.on_frame(0, true, congested_at),
         Forward::Drop,
         "actual forwarding state must stop"
     );
+    let served = engine.downs.get(served).unwrap();
+    assert!(
+        !served.bw_paused,
+        "the same commit serves the track that does fit"
+    );
+}
+
+#[test]
+fn peer_stats_native_cut_applies_allocation_before_the_next_periodic_tick() {
+    congested_commit_drives_the_paired_allocator_tracks(true);
+}
+
+#[test]
+fn peer_stats_native_cut_with_clean_stats_still_applies_allocation_immediately() {
+    congested_commit_drives_the_paired_allocator_tracks(false);
 }
 
 #[test]
 fn simulated_bandwidth_replaces_native_allocation_without_rewriting_the_estimate() {
     let start = Instant::now();
-    let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
+    let (mut engine, tid, di, _, _) = peer_stats_connected_fixture(start);
     let participant = ParticipantSid::from("PA_test");
     let t = engine.transports.get_mut(&tid).unwrap();
     assert!(
         t.has_bwe && t.remote_feedback.is_none(),
         "native send-side BWE"
     );
+    t.spec.allow_pause = true;
+    // Go's receiver-estimate path is a null controller in send-side mode, so a
+    // REMB can become neither the authority nor a diagnostic estimate here. The
+    // only writer of the authority in this window is the congested transition at
+    // `streamallocator.go:892`, which is what the rest of this test overrides and
+    // then hands back.
     t.probes.on_remb(100_000, start);
     engine.allocate_transport(tid, start);
-    assert_eq!(engine.transports[&tid].capacity(), Some(100_000));
+    let cold = engine.transports[&tid].capacity();
+    assert_eq!(cold, Some(0), "a receiver estimate is not the authority");
+    commit_congested_capacity(&mut engine, tid, start);
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.capacity(),
+        Some(71_111),
+        "the congested transition is the authority"
+    );
+    assert_eq!(t.allocated_bps, 0);
     assert!(engine.downs.get(di).unwrap().bw_paused);
 
     let now = start + Duration::from_millis(100);
@@ -2364,9 +2599,12 @@ fn simulated_bandwidth_replaces_native_allocation_without_rewriting_the_estimate
     assert_eq!(
         t.capacity(),
         Some(5_000_000),
-        "explicit allocation capacity"
+        "explicit allocation capacity replaces the commit (`streamallocator.go:1267`)"
     );
-    assert_eq!(t.probes.capacity(t.estimate_bps), Some(100_000));
+    assert_eq!(
+        t.committed_channel_capacity_bps, 71_111,
+        "`handleSignalSetChannelCapacity` (`:846-854`) writes only the override"
+    );
     assert_eq!(t.allocated_bps, 500_000);
     assert!(!engine.downs.get(di).unwrap().bw_paused);
 
@@ -2374,7 +2612,16 @@ fn simulated_bandwidth_replaces_native_allocation_without_rewriting_the_estimate
     let t = engine.transports.get_mut(&tid).unwrap();
     t.probes.on_remb(125_000, now);
     engine.allocate_transport(tid, now);
-    assert_eq!(engine.transports[&tid].capacity(), Some(5_000_000));
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.capacity(),
+        Some(5_000_000),
+        "a receiver estimate cannot displace an active override"
+    );
+    assert_eq!(
+        t.committed_channel_capacity_bps, 71_111,
+        "nor rewrite the committed capacity underneath it"
+    );
 
     let now = now + Duration::from_millis(100);
     engine.handle_command(
@@ -2388,43 +2635,68 @@ fn simulated_bandwidth_replaces_native_allocation_without_rewriting_the_estimate
     let t = &engine.transports[&tid];
     assert_eq!(
         t.capacity(),
-        Some(125_000),
-        "latest native estimate after clear"
+        Some(71_111),
+        "clearing the override hands the estimator's commit back, which is only \
+         observable because the override never rewrote it"
     );
     assert_eq!(t.allocated_bps, 0);
     assert!(engine.downs.get(di).unwrap().bw_paused);
 }
 
 #[test]
-fn peer_stats_native_cut_with_clean_stats_still_applies_allocation_immediately() {
-    use crate::downtrack::Forward;
-    use str0m::bwe::BweEstimateCause;
+fn a_passed_status_without_a_native_proof_never_becomes_the_capacity_authority() {
+    use str0m::bwe::{Bitrate, BweValidationObservation, BweValidationStatus};
     let start = Instant::now();
-    let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
-    let now = start + Duration::from_secs(2);
-    let mut snapshot = peer_stats_observation(now, 100_000);
-    snapshot.cause = BweEstimateCause::DelayOveruse;
-    snapshot.latest_feedback.as_mut().unwrap().lost_packets = 0;
+    let (mut engine, tid, _) = peer_stats_allocation_fixture(start);
+    let requested = peer_stats_start_request(&mut engine, tid, start);
+    let before = engine.transports[&tid].probes.counters;
+
+    // A receiver-side description of the same train claims it held 2 Mbps. It
+    // carries no native proof, so it cannot be the throughput measurement the
+    // commit reads (`probe_controller.rs:393-450`).
+    let now = requested + Duration::from_millis(1_100);
+    let mut snapshot = peer_stats_observation(now, 2_000_000);
+    snapshot.last_validation = Some(BweValidationObservation {
+        id: 77,
+        at: now,
+        requested_at: requested,
+        started_at: Some(requested),
+        target_bitrate: Bitrate::bps(1_000_000),
+        pacing_bitrate: Bitrate::bps(1_100_000),
+        selected_proof: None,
+        status: BweValidationStatus::Passed,
+        send_span: Duration::from_millis(100),
+        recv_span: Duration::from_millis(100),
+        send_bytes: 25_000,
+        recv_bytes: 25_000,
+        received_packets: 2_000,
+        lost_packets: 0,
+        measured_bitrate: None,
+        request_totals: Default::default(),
+        measurement_started_at: Some(now - Duration::from_millis(100)),
+        measurement_segments: 3,
+        cancelled_local_credit: Duration::ZERO,
+        last_credit_discard_at: None,
+    });
     engine.on_peer_stats(tid, peer_stats_event(now, 0.0), Some(snapshot), now);
+    let t = &engine.transports[&tid];
     assert_eq!(
-        engine.transports[&tid].capacity(),
-        Some(100_000),
-        "native cut actually committed"
+        t.capacity(),
+        Some(0),
+        "a claim without an id-scoped native proof writes no channel capacity, so the \
+         transport stays at the cold commit (`transport.rs:475-484`)"
     );
     assert_eq!(
-        engine.transports[&tid].probes.counters.congestion_events, 1,
-        "bad stats cannot multiply-cut immediately after native updated the adjustment gate"
+        t.probes.counters.successes, before.successes,
+        "the pass status alone is not a completed attempt"
     );
+    assert_eq!(t.probes.counters.failures, before.failures + 1);
+
     assert_eq!(
-        engine.transports[&tid].allocated_bps, 0,
-        "same callback must replace stale500k allocation"
-    );
-    let down = engine.downs.get_mut(di).unwrap();
-    assert!(down.bw_paused);
-    assert_eq!(
-        down.on_frame(0, true, now),
-        Forward::Drop,
-        "actual forwarding state must stop"
+        t.probes.counters.failures,
+        before.failures + 1,
+        "the attempt is retired as a failure, which is what re-opens admission for the \
+         proof-gated request instead"
     );
 }
 
