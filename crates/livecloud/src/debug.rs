@@ -14,7 +14,7 @@ use axum::extract::{FromRequest, Path, RawQuery, Request, State};
 use axum::http::{Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::any;
+use axum::routing::{any, get};
 use rtc_runtime::RoomManager;
 use std::{
     collections::HashMap,
@@ -33,8 +33,77 @@ struct DebugState {
 
 /// Builds the debug mux mirroring upstream's route registrations.
 pub fn router(manager: RoomManager) -> Router {
-    let routes = Router::new()
-        // The dedicated Go debug mux registers handlers without method filters.
+    // Route rewriting must run before matching the diagnostic handlers.
+    Router::new()
+        .fallback_service(
+            // The dedicated Go debug mux has no root handler, so ServeMux itself
+            // answers every unmatched path.
+            debug_routes(manager).fallback(unknown_debug_path),
+        )
+        .layer(middleware::from_fn(canonical_debug_path))
+}
+
+/// The debug handlers as the API mux sees them in development mode: Go registers
+/// `/debug/goroutine` and `/debug/rooms` directly on that mux
+/// (`pkg/service/server.go:120-124`), and development mode serves
+/// `http.DefaultServeMux`, which already carries the `net/http/pprof` subtree
+/// (`server.go:121`). That subtree comes from `net/http/pprof`'s `init`, which
+/// prefixes every pattern with `GET ` unless `GODEBUG=httpmuxgo121=1` — a setting
+/// livekit never makes — so only GET and HEAD reach a pprof handler. Any other
+/// method matches no pattern, and because the API mux also registers the rooted `/`
+/// catch-all (`server.go:135`), ServeMux dispatches there instead of answering 405:
+/// measured on the locked oracle, `POST /debug/pprof/cmdline` is the plain 404 page.
+/// `/debug/pprof` stays the subtree's exact-path hole, and its trailing-slash 307 is
+/// offered only to the methods the subtree pattern accepts. Path cleaning is left to
+/// the API chain's own ServeMux layers, so unmatched paths keep Go's `defaultHandler`.
+pub fn api_routes(manager: RoomManager) -> Router {
+    let default_handler = lk_compat::http::not_found;
+    Router::new()
+        .route(
+            "/debug/pprof/",
+            get(index).head(index).fallback(default_handler),
+        )
+        .route(
+            "/debug/pprof/cmdline",
+            get(cmdline).head(cmdline).fallback(default_handler),
+        )
+        .route(
+            "/debug/pprof/profile",
+            get(profile).head(profile).fallback(default_handler),
+        )
+        .route(
+            "/debug/pprof/symbol",
+            get(symbol).head(symbol).fallback(default_handler),
+        )
+        .route(
+            "/debug/pprof/trace",
+            get(trace).head(trace).fallback(default_handler),
+        )
+        .route(
+            "/debug/pprof/{*name}",
+            get(named_profile)
+                .head(named_profile)
+                .fallback(default_handler),
+        )
+        .route(
+            "/debug/pprof",
+            get(pprof_slash_redirect)
+                .head(pprof_slash_redirect)
+                .fallback(default_handler),
+        )
+        // Livekit registers these two itself, with no method prefix.
+        .route("/debug/goroutine", any(goroutines))
+        .route("/debug/rooms", any(rooms))
+        .with_state(DebugState {
+            manager,
+            _heap: Arc::new(HeapSampling::start()),
+        })
+}
+
+/// The patterns of the dedicated debug mux, which upstream registers on a fresh mux
+/// with no method filters (`pkg/service/server.go:172-178`).
+fn debug_routes(manager: RoomManager) -> Router {
+    Router::new()
         .route("/debug/pprof/", any(index))
         .route("/debug/pprof/cmdline", any(cmdline))
         .route("/debug/pprof/profile", any(profile))
@@ -43,15 +112,30 @@ pub fn router(manager: RoomManager) -> Router {
         .route("/debug/pprof/{*name}", any(named_profile))
         .route("/debug/goroutine", any(goroutines))
         .route("/debug/rooms", any(rooms))
-        .fallback(unknown_debug_path)
         .with_state(DebugState {
             manager,
             _heap: Arc::new(HeapSampling::start()),
-        });
-    // Route rewriting must run before matching the diagnostic handlers.
-    Router::new()
-        .fallback_service(routes)
-        .layer(middleware::from_fn(canonical_debug_path))
+        })
+}
+
+async fn pprof_slash_redirect(request: Request) -> Response {
+    pprof_slash_redirect_to(&request)
+}
+
+fn pprof_slash_redirect_to(request: &Request) -> Response {
+    // ServeMux matches the cleaned escaped path, but builds the slash
+    // redirect from the decoded original URL.Path.
+    let path = request.uri().path();
+    let decoded = decode_path_bytes(path, |_| true);
+    let mut target = clean_debug_path(decoded.as_deref().unwrap_or(path.as_bytes()));
+    if !target.ends_with(b"/") {
+        target.push(b'/');
+    }
+    debug_redirect(
+        request.method(),
+        escape_debug_path(&target),
+        request.uri().query(),
+    )
 }
 
 async fn canonical_debug_path(mut request: Request, next: Next) -> Response {
@@ -87,18 +171,7 @@ async fn canonical_debug_path(mut request: Request, next: Next) -> Response {
     let decoded = decode_route_literals(route_path);
     let matched_path = decoded.as_deref().unwrap_or(route_path);
     if matched_path == "/debug/pprof" {
-        // ServeMux matches the cleaned escaped path, but builds the slash
-        // redirect from the decoded original URL.Path.
-        let decoded_path = decode_path_bytes(path, |_| true);
-        let mut target = clean_debug_path(decoded_path.as_deref().unwrap_or(path.as_bytes()));
-        if !target.ends_with(b"/") {
-            target.push(b'/');
-        }
-        return debug_redirect(
-            request.method(),
-            escape_debug_path(&target),
-            request.uri().query(),
-        );
+        return pprof_slash_redirect_to(&request);
     }
     if let Some(clean) = clean {
         return debug_redirect(
@@ -1118,6 +1191,176 @@ mod tests {
         assert_eq!(words.read_error, Some("bufio: buffer full"));
         words.finish_word();
         assert_eq!(words.addresses, [42, 42, 42, 42, 420, 42]);
+    }
+
+    /// The dedicated debug listener is a fresh mux: upstream registers its patterns with
+    /// no method filter, never adds a root handler and does not wrap it in the API key
+    /// middleware (`pkg/service/server.go:170-182`). Each expectation below is the value
+    /// the locked Go oracle answered on that port in the `debug-port-set` leg of
+    /// `tests/interop/dev-mode-surface/run-paired.py`.
+    #[tokio::test]
+    async fn dedicated_debug_mux_serves_every_method_without_auth_or_root() {
+        use tower::ServiceExt;
+
+        let _serial = crate::profiling::TEST_SAMPLING.lock().await;
+        let (manager, net) = manager().await;
+        let app = router(manager.clone());
+
+        async fn drive(
+            app: &Router,
+            method: &str,
+            path: &str,
+            headers: &[(&str, &str)],
+        ) -> (u16, Vec<(String, String)>, Vec<u8>) {
+            let mut builder = Request::builder().method(method).uri(path);
+            for (name, value) in headers {
+                builder = builder.header(*name, *value);
+            }
+            let response = app
+                .clone()
+                .oneshot(builder.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        name.as_str().to_owned(),
+                        value.to_str().unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect();
+            let body = to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap()
+                .to_vec();
+            (status, headers, body)
+        }
+
+        fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+            headers
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.as_str())
+        }
+
+        // No pattern carries a method filter, so every verb reaches every handler.
+        for method in ["GET", "POST", "PUT", "DELETE", "OPTIONS"] {
+            let (status, headers, body) = drive(&app, method, "/debug/rooms", &[]).await;
+            assert_eq!(status, 200, "{method} /debug/rooms");
+            assert_eq!(
+                header(&headers, "content-type"),
+                Some("text/plain; charset=utf-8"),
+                "{method} /debug/rooms"
+            );
+            assert_eq!(
+                header(&headers, "x-content-type-options"),
+                None,
+                "{method} /debug/rooms"
+            );
+            assert_eq!(body, b"[]", "{method} /debug/rooms");
+
+            let (status, headers, body) = drive(&app, method, "/debug/pprof/cmdline", &[]).await;
+            assert_eq!(status, 200, "{method} /debug/pprof/cmdline");
+            assert_eq!(
+                header(&headers, "content-type"),
+                Some("text/plain; charset=utf-8"),
+                "{method} /debug/pprof/cmdline"
+            );
+            assert_eq!(
+                header(&headers, "x-content-type-options"),
+                Some("nosniff"),
+                "{method} /debug/pprof/cmdline"
+            );
+            let args: Vec<String> = std::env::args().collect();
+            assert_eq!(body, args.join("\0").into_bytes(), "{method} cmdline");
+
+            let (status, headers, body) = drive(&app, method, "/debug/goroutine", &[]).await;
+            assert_eq!(status, 200, "{method} /debug/goroutine");
+            assert_eq!(
+                header(&headers, "content-type"),
+                Some("text/plain; charset=utf-8"),
+                "{method} /debug/goroutine"
+            );
+            assert!(
+                body.starts_with(b"Rust native thread stack samples"),
+                "{method} /debug/goroutine: {}",
+                String::from_utf8_lossy(&body[..body.len().min(80)])
+            );
+        }
+
+        for method in ["GET", "POST", "PUT"] {
+            let (status, headers, body) = drive(&app, method, "/debug/pprof/", &[]).await;
+            assert_eq!(status, 200, "{method} /debug/pprof/");
+            assert_eq!(
+                header(&headers, "content-type"),
+                Some("text/html; charset=utf-8"),
+                "{method} /debug/pprof/"
+            );
+            assert_eq!(
+                header(&headers, "x-content-type-options"),
+                Some("nosniff"),
+                "{method} /debug/pprof/"
+            );
+            assert!(
+                String::from_utf8_lossy(&body).contains("/debug/pprof/cmdline"),
+                "{method} /debug/pprof/ index listing"
+            );
+        }
+
+        // The exact `/debug/pprof` is the subtree hole: ServeMux redirects it, and only
+        // a GET gets the HTML body with a content type.
+        let (status, headers, body) = drive(&app, "GET", "/debug/pprof", &[]).await;
+        assert_eq!(status, 307);
+        assert_eq!(header(&headers, "location"), Some("/debug/pprof/"));
+        assert_eq!(
+            header(&headers, "content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(
+            body,
+            b"<a href=\"/debug/pprof/\">Temporary Redirect</a>.\n\n"
+        );
+        let (status, headers, body) = drive(&app, "POST", "/debug/pprof", &[]).await;
+        assert_eq!(status, 307);
+        assert_eq!(header(&headers, "location"), Some("/debug/pprof/"));
+        assert_eq!(header(&headers, "content-type"), None);
+        assert!(body.is_empty());
+
+        // ServeMux itself answers unmatched paths, and there is no root handler, so the
+        // API health page is absent from this listener.
+        for method in ["GET", "POST"] {
+            for path in ["/debug/nope", "/"] {
+                let (status, headers, body) = drive(&app, method, path, &[]).await;
+                assert_eq!(status, 404, "{method} {path}");
+                assert_eq!(
+                    header(&headers, "content-type"),
+                    Some("text/plain; charset=utf-8"),
+                    "{method} {path}"
+                );
+                assert_eq!(
+                    header(&headers, "x-content-type-options"),
+                    Some("nosniff"),
+                    "{method} {path}"
+                );
+                assert_eq!(body, b"404 page not found\n", "{method} {path}");
+            }
+        }
+
+        // The API key middleware wraps the API mux only: a bogus token is served here.
+        let (status, _, body) = drive(
+            &app,
+            "GET",
+            "/debug/rooms",
+            &[("authorization", "Bearer bogus-signature")],
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body, b"[]");
+
+        net.shutdown_and_wait().await;
     }
 }
 

@@ -1953,6 +1953,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
+ "tower",
  "tracing",
  "tracing-core",
  "tracing-log",

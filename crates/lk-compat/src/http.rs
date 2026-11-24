@@ -34,18 +34,27 @@ const PREFLIGHT_VARY: &str =
     "Origin, Access-Control-Request-Method, Access-Control-Request-Headers";
 const TEXT_PLAIN: &str = "text/plain; charset=utf-8";
 
-pub fn router(state: AppState) -> Router {
+/// The API mux's route table without the not-found fallback, so a product
+/// assembly can merge its own ServeMux routes into it and hand it back to
+/// [`api_router`]: development mode adds the debug handlers
+/// (`pkg/service/server.go:120-125`).
+pub fn api_routes(state: AppState) -> Router {
     let routes: Router = Router::new()
         .route("/", any(health))
         .route("/twirp/{*rest}", any(crate::twirp::handle))
         .with_state(state.clone());
-    let routes = routes
+    routes
         .merge(crate::signal::routes(state.clone()))
         .merge(crate::whip::routes(state.clone()))
         .merge(state.agents.routes())
-        .fallback(not_found);
+}
+
+/// Build the node's public HTTP handler around `mux`, exactly as `NewHTTPHandler`
+/// wraps the mux it was handed: the `defaultHandler` fallback, then the middleware
+/// chain and the agent-front dispatch (`pkg/service/server.go:135-145`).
+pub fn api_router(state: AppState, mux: Router) -> Router {
     let api = middleware_chain(
-        routes,
+        mux.fallback(not_found),
         state.keys.clone(),
         state.config.http.max_request_body,
     );
@@ -53,6 +62,11 @@ pub fn router(state: AppState) -> Router {
         return api.layer(middleware::from_fn(normalize_path_layer));
     }
     dispatch_agent_chain(api, agent_endpoint_router(state.agents.worker_state()))
+}
+
+pub fn router(state: AppState) -> Router {
+    let mux = api_routes(state.clone());
+    api_router(state, mux)
 }
 
 /// The agent endpoint router with its production CORS, auth and recovery layers.

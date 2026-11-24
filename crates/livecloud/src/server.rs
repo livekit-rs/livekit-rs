@@ -138,6 +138,23 @@ fn worker_compression_threshold(raw: i64) -> usize {
     }
 }
 
+/// The node's public HTTP handler. Development mode serves `http.DefaultServeMux`,
+/// which carries the debug handlers alongside the API routes
+/// (`pkg/service/server.go:120-125`); production builds a fresh mux without them.
+pub(crate) fn http_app(
+    state: &lk_compat::AppState,
+    manager: &RoomManager,
+    development: bool,
+) -> axum::Router {
+    let mux = lk_compat::http::api_routes(state.clone());
+    let mux = if development {
+        mux.merge(crate::debug::api_routes(manager.clone()))
+    } else {
+        mux
+    };
+    lk_compat::http::api_router(state.clone(), mux)
+}
+
 pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     // getConfig/ValidateKeys/LoadTURNSecrets already succeeded in lk-config.
     // Keep a real owner across every later service/startup error and shutdown.
@@ -838,7 +855,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         );
     }
     for listener in http_sockets {
-        let app = lk_compat::http::router(state.clone());
+        let app = http_app(&state, &manager, cfg.development);
         let shutdown = Shutdown(stop_rx.clone());
         listeners.push(tokio::spawn(async move {
             if let Err(error) = axum::serve(
@@ -872,7 +889,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
                 h.handshake_timeout,
                 force_rx.clone(),
             );
-            let app = lk_compat::http::router(state.clone())
+            let app = http_app(&state, &manager, cfg.development)
                 .layer(axum::Extension(lk_compat::agent::endpoint::TlsTransport));
             let shutdown = Shutdown(stop_rx.clone());
             listeners.push(tokio::spawn(async move {
@@ -1568,6 +1585,318 @@ mod bind_address_tests {
             matches!(&e3, ServerError::Listen(a, _) if a == &format!("[::]:{port}")),
             "{e3:?}"
         );
+    }
+}
+
+/// The observable consequence of `--dev` on the public HTTP handler: upstream's
+/// development branch registers the debug handlers on the mux the API middleware
+/// chain serves (`pkg/service/server.go:120-125`), and that mux is
+/// `http.DefaultServeMux`, which already carries the `net/http/pprof` subtree.
+/// Without the flag the mux is fresh and has neither.
+#[cfg(test)]
+mod dev_api_mux_tests {
+    use super::*;
+    use crate::COMPAT_VERSION;
+    use axum::body::{Body, to_bytes};
+    use axum::http::Request;
+    use lk_config::{EntryAction, Env, ProgramInfo, netdetect::NetProbe};
+    use rtc_core::ids::{ProjectId, RoomKey};
+    use rtc_runtime::CreateRoomOptions;
+    use rtc_runtime::net::{LocalInterface, NetConfig};
+    use std::ffi::OsString;
+    use std::net::IpAddr;
+    use tower::ServiceExt;
+
+    const BODY: &str = "port: 7880\nkeys:\n  devkey: secret\nrtc:\n  node_ip: 127.0.0.1\n  use_external_ip: false\n";
+
+    struct NoNetwork;
+    impl NetProbe for NoNetwork {
+        fn local_addresses(&self) -> Vec<IpAddr> {
+            vec![Ipv4Addr::LOCALHOST.into()]
+        }
+        fn external_ip(&self, _: &[String], _: bool) -> Result<IpAddr, String> {
+            panic!("router fixture must not discover external IP")
+        }
+        fn sleep(&self, _: Duration) {
+            panic!("router fixture must not retry networking")
+        }
+    }
+
+    fn config(flags: &[&str]) -> ServerConfig {
+        let info = ProgramInfo {
+            binary_name: "livecloud".into(),
+            product_version: "fixture".into(),
+            compat_version: COMPAT_VERSION,
+        };
+        let mut argv: Vec<OsString> = ["livecloud", "--config-body", BODY]
+            .into_iter()
+            .map(OsString::from)
+            .collect();
+        argv.extend(flags.iter().map(OsString::from));
+        match lk_config::parse_with_probe(argv, &Env::default(), &info, &NoNetwork).unwrap() {
+            EntryAction::RunServer(cfg) => cfg.server,
+            action => panic!("expected RunServer, got {action:?}"),
+        }
+    }
+
+    struct Graph {
+        app: axum::Router,
+        manager: RoomManager,
+        net: NetRouter,
+    }
+
+    impl Graph {
+        /// Assemble the public handler exactly as `run()` does, so the
+        /// `--dev`→`config.development`→route-table chain is the one under test.
+        async fn build(flags: &[&str]) -> Self {
+            let cfg = Arc::new(config(flags));
+            let local: IpAddr = Ipv4Addr::LOCALHOST.into();
+            let net = NetRouter::start(NetConfig {
+                udp_enabled: false,
+                udp_port: None,
+                port_range: (0, 0),
+                tcp_port: None,
+                interfaces: vec![LocalInterface {
+                    bind: local,
+                    advertise: local,
+                }],
+            })
+            .await
+            .unwrap();
+            let state = CompatServices::new(cfg.clone()).assemble(net.clone(), Arc::new(NullSink));
+            let manager = state.manager().clone();
+            assert_eq!(
+                cfg.development,
+                flags.contains(&"--dev"),
+                "--dev must normalize to the development flag the call site reads"
+            );
+            let app = http_app(&state, &manager, cfg.development);
+            Self { app, manager, net }
+        }
+
+        async fn send(
+            &self,
+            method: &str,
+            path: &str,
+            headers: &[(&str, &str)],
+        ) -> (u16, Vec<(String, String)>, Vec<u8>) {
+            let mut builder = Request::builder().method(method).uri(path);
+            for (name, value) in headers {
+                builder = builder.header(*name, *value);
+            }
+            let response = self
+                .app
+                .clone()
+                .oneshot(builder.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        name.as_str().to_owned(),
+                        value.to_str().unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect();
+            let body = to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap()
+                .to_vec();
+            (status, headers, body)
+        }
+
+        async fn get(&self, path: &str) -> (u16, Vec<(String, String)>, Vec<u8>) {
+            self.send("GET", path, &[]).await
+        }
+
+        async fn shutdown(self) {
+            self.manager.close_all().await;
+            self.net.shutdown_and_wait().await;
+        }
+    }
+
+    const DEBUG_PATHS: &[&str] = &[
+        "/debug/rooms",
+        "/debug/goroutine",
+        "/debug/pprof",
+        "/debug/pprof/",
+        "/debug/pprof/cmdline",
+        "/debug/pprof/heap",
+    ];
+
+    #[tokio::test]
+    async fn dev_flag_puts_debug_handlers_on_the_api_mux() {
+        // `/debug/goroutine` drives the process-wide native sampler, so it needs
+        // the same serialization the debug module's sampling tests use.
+        let _serial = crate::profiling::TEST_SAMPLING.lock().await;
+        let graph = Graph::build(&["--dev"]).await;
+        graph
+            .manager
+            .create_room(
+                RoomKey::new(ProjectId::local(), "dev-mux"),
+                CreateRoomOptions::default(),
+            )
+            .await
+            .unwrap();
+        // The handlers merged into the API mux read the live graph, not a stub.
+        let (status, _, body) = graph.get("/debug/rooms").await;
+        assert_eq!(status, 200);
+        let rooms: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(rooms[0]["Name"], "dev-mux", "actual manager behind the mux");
+        let (status, headers, body) = graph.get("/debug/pprof/").await;
+        assert_eq!(status, 200);
+        assert!(
+            headers.contains(&("content-type".into(), "text/html; charset=utf-8".into())),
+            "{headers:?}"
+        );
+        assert!(body.starts_with(b"<html><head><title>livekit debug</title>"));
+        let (status, headers, _) = graph.get("/debug/pprof/cmdline").await;
+        assert_eq!(status, 200);
+        assert!(
+            headers.contains(&("x-content-type-options".into(), "nosniff".into())),
+            "{headers:?}"
+        );
+        // `/debug/goroutine` is the handler Go registers on the same mux, and it
+        // reports native samples rather than goroutine state.
+        let (status, _, body) = graph.get("/debug/goroutine").await;
+        assert_eq!(status, 200);
+        assert!(
+            body.starts_with(b"Rust native thread stack samples (not Go goroutine state)\n"),
+            "{status}"
+        );
+        // `/debug/pprof` itself is not a pattern: it is the subtree's exact-path
+        // hole, so ServeMux answers it with its trailing-slash 307, not the handler.
+        let (status, headers, body) = graph.get("/debug/pprof").await;
+        assert_eq!(status, 307);
+        assert!(
+            headers.contains(&("location".into(), "/debug/pprof/".into())),
+            "{headers:?}"
+        );
+        assert_eq!(
+            body,
+            b"<a href=\"/debug/pprof/\">Temporary Redirect</a>.\n\n"
+        );
+        // An unmatched path under the debug prefix stays the API defaultHandler.
+        // Go's `http.NotFound` and the debug mux's own 404 render identically, so
+        // only the response is pinned, not which of the two produced it.
+        let (status, _, body) = graph.get("/debug/nope").await;
+        assert_eq!(status, 404);
+        assert_eq!(body, b"404 page not found\n");
+        // The debug routes sit inside the API middleware chain: Go's auth wrapper
+        // covers them, so an unparseable token is refused before dispatch.
+        let (status, _, _) = graph
+            .send(
+                "GET",
+                "/debug/rooms",
+                &[("authorization", "Bearer not-a-jwt")],
+            )
+            .await;
+        assert_eq!(status, 401);
+        graph.shutdown().await;
+    }
+
+    /// Measured on the locked oracle: net/http/pprof's init() registers its patterns on
+    /// the shared DefaultServeMux with a `GET ` method prefix (or `HEAD ` implied by
+    /// net/http's HEAD-shares-GET rule), while livekit registers its own two patterns
+    /// with no prefix. A method that matches no pattern would make ServeMux answer 405,
+    /// but the API mux also registers the rooted `/` catch-all (server.go:135), so the
+    /// lookup finds that instead: `POST /debug/pprof/cmdline` is the plain 404 page on
+    /// the dev-mode API port, while the same request on the dedicated debug mux is 200.
+    #[tokio::test]
+    async fn dev_api_pprof_patterns_reject_other_methods_than_the_livekit_ones_do_not() {
+        // `/debug/goroutine` drives the process-wide native sampler on every method.
+        let _serial = crate::profiling::TEST_SAMPLING.lock().await;
+        let graph = Graph::build(&["--dev"]).await;
+        for path in [
+            "/debug/pprof",
+            "/debug/pprof/",
+            "/debug/pprof/cmdline",
+            "/debug/pprof/heap",
+        ] {
+            for method in ["POST", "PUT", "OPTIONS"] {
+                let (status, headers, body) = graph.send(method, path, &[]).await;
+                assert_eq!(status, 404, "{method} {path} must reach the / catch-all");
+                assert_eq!(body, b"404 page not found\n", "{method} {path}");
+                assert!(
+                    headers.contains(&("x-content-type-options".into(), "nosniff".into())),
+                    "{method} {path}: {headers:?}"
+                );
+            }
+            // HEAD is not a separate pattern: it reuses the GET registration, and only
+            // the status and headers are pinned here because the wire body suppression
+            // is a codec property the oneshot service does not exercise.
+            let (status, headers, _) = graph.send("HEAD", path, &[]).await;
+            if path == "/debug/pprof" {
+                assert_eq!(status, 307, "HEAD {path}");
+                assert!(
+                    headers.contains(&("location".into(), "/debug/pprof/".into())),
+                    "HEAD {path}: {headers:?}"
+                );
+            } else {
+                assert_eq!(status, 200, "HEAD {path}");
+            }
+        }
+        for path in ["/debug/goroutine", "/debug/rooms"] {
+            for method in ["HEAD", "POST", "PUT", "OPTIONS"] {
+                let (status, _, _) = graph.send(method, path, &[]).await;
+                assert_eq!(
+                    status, 200,
+                    "{method} {path} is registered without a method filter"
+                );
+            }
+        }
+        // Outside the registered patterns the mode must be invisible.
+        let prod = Graph::build(&[]).await;
+        for path in ["/debug/nope", "/other", "/"] {
+            for method in ["GET", "POST", "OPTIONS"] {
+                let (a, _, _) = graph.send(method, path, &[]).await;
+                let (b, _, _) = prod.send(method, path, &[]).await;
+                assert_eq!(a, b, "{method} {path} must not depend on the mode");
+            }
+        }
+        prod.shutdown().await;
+        graph.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn without_the_dev_flag_the_mux_has_no_debug_handlers() {
+        let graph = Graph::build(&[]).await;
+        for path in DEBUG_PATHS {
+            let (status, headers, body) = graph.get(path).await;
+            assert_eq!(status, 404, "{path} must not be served in production mode");
+            assert_eq!(body, b"404 page not found\n", "{path}");
+            assert!(
+                headers.contains(&("x-content-type-options".into(), "nosniff".into())),
+                "{path}: {headers:?}"
+            );
+        }
+        graph.shutdown().await;
+    }
+
+    /// The flag only adds the debug patterns: every other dispatch, the middleware
+    /// headers and the fallback bodies have to stay byte-identical.
+    #[tokio::test]
+    async fn dev_flag_leaves_the_api_surface_untouched() {
+        let dev = Graph::build(&["--dev"]).await;
+        let prod = Graph::build(&[]).await;
+        for (path, headers) in [
+            ("/", Vec::<(&str, &str)>::new()),
+            ("/nope", Vec::new()),
+            (
+                "/twirp/livekit.RoomService/ListRooms",
+                vec![("content-type", "application/json")],
+            ),
+            ("/nope", vec![("origin", "https://dashboard.livekit.cloud")]),
+        ] {
+            let a = dev.send("GET", path, &headers).await;
+            let b = prod.send("GET", path, &headers).await;
+            assert_eq!((a.0, &a.1, &a.2), (b.0, &b.1, &b.2), "{path} {headers:?}");
+        }
+        dev.shutdown().await;
+        prod.shutdown().await;
     }
 }
 
