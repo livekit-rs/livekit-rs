@@ -176,12 +176,13 @@ impl RpcRegistry {
             .remove(id);
     }
 
-    /// `handleIncomingRpcAck`: `true` if `request_id` is a pending server RPC sent
-    /// to `sender` (the packet is then consumed).
-    pub fn handle_ack(&self, sender: &ParticipantSid, request_id: &str) -> bool {
+    /// `handleIncomingRpcAck` (participant.go:4631): the pending call is matched
+    /// by request id only; upstream never checks which participant sent the ack.
+    /// `true` if `request_id` is a pending server RPC (the packet is consumed).
+    pub fn handle_ack(&self, request_id: &str) -> bool {
         let mut map = self.pending.lock().unwrap_or_else(|e| e.into_inner());
         match map.get_mut(request_id) {
-            Some(p) if &p.participant == sender => {
+            Some(p) => {
                 if let Some(tx) = p.ack.take() {
                     let _ = tx.send(());
                 }
@@ -191,18 +192,11 @@ impl RpcRegistry {
         }
     }
 
-    /// `handleIncomingRpcResponse`: resolves (and removes) the pending RPC.
-    pub fn handle_response(
-        &self,
-        sender: &ParticipantSid,
-        request_id: &str,
-        outcome: RpcOutcome,
-    ) -> bool {
+    /// `handleIncomingRpcResponse` (participant.go:4645): matched by request id
+    /// only, like the ack path. Resolves and removes the pending RPC.
+    pub fn handle_response(&self, request_id: &str, outcome: RpcOutcome) -> bool {
         let mut map = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        let matches = map
-            .get(request_id)
-            .is_some_and(|p| &p.participant == sender);
-        if !matches {
+        if !map.contains_key(request_id) {
             return false;
         }
         if let Some(mut p) = map.remove(request_id) {
@@ -609,17 +603,23 @@ mod tests {
     }
 
     #[test]
-    fn registry_matches_sender() {
+    fn registry_matches_request_id_only() {
+        // Upstream keys rpcPendingAcks/rpcPendingResponses by request id and
+        // never checks the sending participant (participant.go:4631-4657).
         let r = RpcRegistry::new();
         let alice = ParticipantSid("alice".into());
         let bob = ParticipantSid("bob".into());
         let (_a, _b) = r.register("id1", alice.clone()).unwrap();
-        assert!(!r.handle_ack(&bob, "id1"));
-        assert!(r.handle_ack(&alice, "id1"));
-        assert!(!r.handle_response(&alice, "other", RpcOutcome::Payload(String::new())));
-        assert!(r.handle_response(&alice, "id1", RpcOutcome::Payload("x".into())));
+        assert!(!r.handle_ack("id2"));
+        assert!(r.handle_ack("id1"));
+        assert!(!r.handle_response("other", RpcOutcome::Payload(String::new())));
+        assert!(r.handle_response("id1", RpcOutcome::Payload("x".into())));
         assert_eq!(r.pending_count(), 0);
-        assert!(!r.handle_ack(&alice, "id1"));
+        assert!(!r.handle_ack("id1"));
+
+        let (_a, _b) = r.register("id2", bob).unwrap();
+        assert!(r.handle_ack("id2"));
+        assert_eq!(r.pending_count(), 1);
     }
 
     #[test]
@@ -654,7 +654,7 @@ mod tests {
             assert_eq!(e, Err(RpcFailure::Rpc(DataChannelRpcError::built_in(1501))));
 
             let (ack, resp) = r.register("b", ParticipantSid("x".into())).unwrap();
-            assert!(r.handle_ack(&ParticipantSid("x".into()), "b"));
+            assert!(r.handle_ack("b"));
             let e = wait_for_outcome(
                 ack,
                 resp,
@@ -665,11 +665,7 @@ mod tests {
             assert_eq!(e, Err(RpcFailure::Rpc(DataChannelRpcError::built_in(1502))));
 
             let (ack, resp) = r.register("c", ParticipantSid("x".into())).unwrap();
-            assert!(r.handle_response(
-                &ParticipantSid("x".into()),
-                "c",
-                RpcOutcome::Payload("ok".into())
-            ));
+            assert!(r.handle_response("c", RpcOutcome::Payload("ok".into())));
             let ok = wait_for_outcome(
                 ack,
                 resp,

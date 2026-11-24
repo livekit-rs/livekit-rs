@@ -133,6 +133,19 @@ impl Room {
             .map(|(s, _)| s.clone())
             .collect();
         let n = recipients.len();
+        // Upstream synchronises UserPacket.participant_identity with the packet
+        // envelope immediately before fanout (room.go:2138-2142). The envelope
+        // carries the sender attribution, except for a hidden sender, whose
+        // identity is withheld only from non-hidden recipients: hidden and
+        // recorder participants are exempt from permission restrictions
+        // (room.go:2207) and receive the real identity. Sequenced reliable
+        // messages skip this because they travel as cached bytes marshalled
+        // before the sync step (room.go:1293-1306).
+        let envelope_identity = match sender.and_then(|sid| self.participants.get(sid)) {
+            Some(p) if !p.is_hidden() => p.info.identity.0.clone(),
+            _ => String::new(),
+        };
+        let sync_user_attribution = kind != DataKind::Reliable || !sequenced;
         let mut payload = Some(payload);
         let mut forwarded = Vec::new();
         for (i, to) in recipients.into_iter().enumerate() {
@@ -153,11 +166,32 @@ impl Room {
                 }
             }
             // The last recipient takes the buffer instead of a copy.
-            let data = if i + 1 == n {
+            let mut data = if i + 1 == n {
                 payload.take().unwrap_or_default()
             } else {
                 payload.clone().unwrap_or_default()
             };
+            if sync_user_attribution {
+                // Upstream runs the identity sync for every forwarded message;
+                // sequenced reliable bytes are already marshalled into the
+                // room cache before it (room.go:1293-1306), so only the live
+                // fanout path performs the rewrite here.
+                // A hidden or recorder recipient receives the real identity
+                // injected into the envelope (room.go:2207 exemption); every
+                // other recipient gets UserPacket#5 copied from envelope #4.
+                let exempt = self
+                    .participants
+                    .get(&to)
+                    .is_some_and(|p| p.is_hidden() || p.info.permission.recorder);
+                let rewritten = if exempt {
+                    lk_protocol::wire::inject_packet_identity(&data)
+                } else {
+                    lk_protocol::wire::sync_user_packet_identity(&data)
+                };
+                if let Some(rewritten) = rewritten {
+                    data = rewritten;
+                }
+            }
             if sender.is_some() {
                 forwarded.push(crate::media_api::DataWrite {
                     to,
