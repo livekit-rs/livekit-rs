@@ -1401,6 +1401,10 @@ async fn retire(group: OwnerGeneration, accepted: &accepted::Accepted) -> Result
 mod tests;
 
 #[cfg(test)]
+#[path = "store_discovery_tests.rs"]
+mod store_discovery_tests;
+
+#[cfg(test)]
 mod accepted_native;
 
 #[cfg(test)]
