@@ -464,17 +464,17 @@ impl WebhookNotifier {
                 &extra.signing_key
             };
             // Upstream resolves an explicit signing key before delegation and
-            // never inspects the default key there (notifier.go:145-152); only
-            // the delegated notifier rejects a missing key or secret, after it
-            // has already checked closed (resource_url_notifier.go:193-234).
+            // never inspects the default key there (notifier.go:145-152). The
+            // delegated notifier then checks closed before it rejects a missing
+            // key or secret (resource_url_notifier.go:197 then :232).
             if !extra.signing_key.is_empty() && inner.keys.secret(api_key).is_none() {
                 return Err(WebhookError::UnknownSigningKey);
             }
-            if inner.keys.secret(api_key).is_none() {
-                return Err(WebhookError::NoSigningKey);
-            }
             if inner.state.load(Ordering::SeqCst) != OPEN {
                 return Err(WebhookError::Closed);
+            }
+            if api_key.is_empty() || inner.keys.secret(api_key).is_none() {
+                return Err(WebhookError::NoSigningKey);
             }
             // Per-request filter_params is intentionally ignored by the fixed
             // source; global filters do not leak into this independent queue.
@@ -1177,13 +1177,16 @@ mod default_key_ordering_tests {
     }
 
     #[tokio::test]
-    async fn closed_notifier_still_reports_missing_default_key_first() {
+    async fn closed_notifier_reports_closed_before_a_missing_default_key() {
+        // resource_url_notifier.go:197 returns errClosed; the key and secret
+        // emptiness test at :232 is never reached, so even a notifier with no
+        // usable default key says "notifier is closed" once stopped.
         let n = WebhookNotifier::new(&config(Vec::new(), ""), keys(), false).unwrap();
         n.stop(true).await;
         let error = n
             .notify_webhook_with_extras(egress_event("egress_started"), &[extra(String::new(), "")])
             .unwrap_err();
-        assert_eq!(error.to_string(), "no singing key or secret was provided");
+        assert_eq!(error.to_string(), "notifier is closed");
     }
 
     #[tokio::test]
