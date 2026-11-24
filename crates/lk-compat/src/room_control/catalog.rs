@@ -103,7 +103,7 @@ impl RoomCatalog {
     fn lease(&self) -> ManagedLease<'_> {
         match self.command_timeout {
             Some(timeout) => self.connection.begin_with_timeout(timeout),
-            None => self.lease(),
+            None => self.connection.begin(),
         }
     }
     fn decode<T: prost::Message + prost::Name + Default>(
