@@ -337,13 +337,33 @@ fn html_escape(s: &str) -> String {
     out
 }
 
-/// negroni Recovery: a panic anywhere below becomes a bare 500.
+/// negroni Recovery: a panic anywhere below becomes a 500. The API chain uses Go's
+/// `http.Error`, which is what negroni's default `OnPanic` calls when nothing has been
+/// written yet (`negroni@v1.0.0/recovery.go:63-83` → `net/http/server.go:2765-2774`):
+/// `Content-Type: text/plain; charset=utf-8` (set *before* WriteHeader, so no sniffing),
+/// `X-Content-Type-Options: nosniff` and the body `"Internal Server Error\n"`. The agent
+/// endpoint chain answers the same way (`pkg/service/agentendpointmiddleware.go:37-57`).
+fn recovered_panic_response() -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        [
+            (header::CONTENT_TYPE, HeaderValue::from_static(TEXT_PLAIN)),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
+        ],
+        "Internal Server Error\n",
+    )
+        .into_response()
+}
+
 async fn recover_layer(req: Request, next: Next) -> Response {
     match AssertUnwindSafe(next.run(req)).catch_unwind().await {
         Ok(resp) => resp,
         Err(_) => {
             tracing::error!("panic while serving HTTP request");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            recovered_panic_response()
         }
     }
 }
@@ -599,6 +619,15 @@ mod tests {
         app_with_node(node_stamped_at(now_unix())).await
     }
 
+    /// The same chain with `state.node == None`, i.e. the process before
+    /// `NewLocalNode` succeeded (`server.go:453` leaves `s.Node().Stats` nil).
+    async fn app_without_node() -> Router {
+        let (state, net) = crate::test_support::state().await;
+        net.shutdown();
+        let routes = Router::new().route("/", any(health)).with_state(state);
+        with_middleware(routes, Arc::new(KeyStore::default()), 16)
+    }
+
     async fn app_with_node(node: routing::LocalNode) -> Router {
         let (mut state, net) = crate::test_support::state().await;
         state.enable_node(Arc::new(node));
@@ -664,12 +693,21 @@ mod tests {
             .unwrap();
         rt.block_on(async move {
             let mut app = app.await;
-            let resp = app.call(req).await.unwrap();
-            let status = resp.status();
-            let headers = resp.headers().clone();
-            let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-            (status, headers, String::from_utf8_lossy(&body).into_owned())
+            call(&mut app, req).await
         })
+    }
+
+    /// One request against a live app, so a test can reuse the same service across
+    /// requests — that reuse is what proves a recovered panic left it standing.
+    async fn call(
+        app: &mut Router,
+        req: axum::http::Request<Body>,
+    ) -> (StatusCode, axum::http::HeaderMap, String) {
+        let resp = app.call(req).await.unwrap();
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        (status, headers, String::from_utf8_lossy(&body).into_owned())
     }
 
     fn get(uri: &str) -> axum::http::request::Builder {
@@ -717,6 +755,46 @@ mod tests {
         assert_eq!((s, b.as_str()), (StatusCode::OK, "OK"));
     }
 
+    /// The 4 s window is Go's literal comparison against `time.Since(updatedAt)`
+    /// (`server.go:456`), so a stamp four seconds old is still ready and one second
+    /// older is not. The boundary itself is proven sub-second by
+    /// [`routing::health_body`]; here the same rule is driven through the real chain at
+    /// whole-second resolution: a stamp from the previous second (>= 1 s, <= 2 s old)
+    /// must still be 200 "OK".
+    #[test]
+    fn health_is_ready_within_the_literal_four_second_window() {
+        let updated_at = now_unix() - 1;
+        let node = node_stamped_at(updated_at);
+        let snapshot = node.snapshot();
+        let zone = routing::local_zone_at(updated_at);
+        // Both directions of Go's `>` at the exact boundary.
+        let at = |secs| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+        assert_eq!(
+            routing::health_body(Some(&snapshot), at(updated_at + 4), &zone),
+            None
+        );
+        assert!(routing::health_body(Some(&snapshot), at(updated_at + 5), &zone).is_some());
+
+        let (s, h, b) = run_with(app_with_node(node), get("/").body(Body::empty()).unwrap());
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+        assert_eq!(b, "OK");
+    }
+
+    /// With no node record installed at all, Go reads `s.Node().Stats == nil`, so
+    /// `updatedAt` stays the zero `time.Time` and the answer is 406 with Go's zero-time
+    /// text — never a silent 200 for a runtime that has never published stats.
+    #[test]
+    fn health_without_a_node_record_is_406_zero_time() {
+        let (s, h, b) = run_with(app_without_node(), get("/").body(Body::empty()).unwrap());
+        assert_eq!(s, StatusCode::NOT_ACCEPTABLE);
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+        assert_eq!(
+            b,
+            format!("Not Ready\nNode Updated At {}", routing::GO_ZERO_TIME_TEXT)
+        );
+    }
+
     #[test]
     fn auth_failures_are_plain_401() {
         let (s, h, b) = run(get("/")
@@ -739,6 +817,59 @@ mod tests {
             .body(Body::empty())
             .unwrap());
         assert_eq!(h.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(), "*");
+    }
+
+    /// `APIKeyAuthMiddleware` reads the `Authorization` header first and only falls back
+    /// to the `access_token` query when the header is absent (`auth.go:68-84`). A present
+    /// but malformed header therefore wins over a perfectly valid query token — Go never
+    /// reaches the query once the prefix check fails.
+    #[test]
+    fn authorization_header_takes_precedence_over_the_query_token() {
+        let jwt = crate::auth::jwt::tests::make_token(
+            r#"{"alg":"HS256"}"#,
+            r#"{"iss":"key","sub":"alice","exp":99999999999}"#,
+            "secret",
+        );
+        // Header absent → the query token authenticates.
+        let (s, _, b) = run_with(app(), get(&format!("/whoami?access_token={jwt}")).body(Body::empty()).unwrap());
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "alice"));
+        for header in ["Token abc", "bearer abc", ""] {
+            let (s, _, b) = run_with(
+                app(),
+                get(&format!("/whoami?access_token={jwt}"))
+                    .header("authorization", header)
+                    .body(Body::empty())
+                    .unwrap(),
+            );
+            assert_eq!(s, StatusCode::UNAUTHORIZED, "authorization: {header:?}");
+            assert_eq!(b, "invalid authorization header. Must start with Bearer ");
+        }
+        // An empty header value counts as absent for Go's `Header.Get`, so here the
+        // query token does authenticate.
+        let (s, _, b) = run_with(
+            app(),
+            get(&format!("/whoami?access_token={jwt}"))
+                .header("authorization", "")
+                .body(Body::empty())
+                .unwrap(),
+        );
+        assert_eq!((s, b.as_str()), (StatusCode::OK, "alice"), "{b}");
+    }
+
+    /// Go builds the verify failure as `fmt.Errorf("%w: %s", ErrInvalidAuthorizationToken,
+    /// err)` (`auth.go:101`), so the protocol parse error is appended after the fixed
+    /// middleware text rather than replacing it.
+    #[test]
+    fn invalid_token_carries_the_protocol_parse_detail() {
+        let (s, h, b) = run(get("/whoami?access_token=not-a-jwt")
+            .body(Body::empty())
+            .unwrap());
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+        assert_eq!(
+            b,
+            "invalid authorization token: token is malformed: token contains an invalid number of segments"
+        );
     }
 
     #[test]
@@ -852,10 +983,27 @@ mod tests {
         });
     }
 
+    /// negroni's default `OnPanic` is `http.Error(rw, "Internal Server Error", 500)`
+    /// (`negroni@v1.0.0/recovery.go:63-83`), so the panic answer carries Go's
+    /// `http.Error` envelope, not a bare status line. The service keeps serving after
+    /// the panic: one app instance answers the panic and then the next request.
     #[test]
     fn panic_becomes_500() {
-        let (s, _, _) = run(get("/boom").body(Body::empty()).unwrap());
-        assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let mut app = app().await;
+            let (s, h, b) = call(&mut app, get("/boom").body(Body::empty()).unwrap()).await;
+            assert_eq!(s, StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), TEXT_PLAIN);
+            assert_eq!(h.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+            assert_eq!(b, "Internal Server Error\n");
+            // Same chain, second request: the panic did not take the service down.
+            let (s, _, b) = call(&mut app, get("/whoami").body(Body::empty()).unwrap()).await;
+            assert_eq!((s, b.as_str()), (StatusCode::OK, "anonymous"));
+        });
     }
 
     #[test]

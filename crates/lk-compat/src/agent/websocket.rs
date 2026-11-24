@@ -64,6 +64,55 @@ pub fn routes(state: WorkerHttpState) -> Router {
         .route("/agent", any(upgrade))
         .with_state(state)
 }
+
+/// Go `websocket.IsWebSocketUpgrade` (gorilla/websocket v1.5.3 server.go:325-328), the
+/// gate `AgentSocketUpgrader.Upgrade` runs first (`pkg/service/agentws.go:49-52`). It is
+/// a token-list match on both headers, case-insensitive and comma-split, so it accepts a
+/// plain GET whose `Connection` already carries `upgrade` — unlike axum's extractor,
+/// which also requires `Sec-WebSocket-Key`/Version and would reject the request before
+/// the grant check upstream performs at `agentws.go:54-58`.
+fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
+    token_list_contains_value(headers.get(header::CONNECTION), "upgrade")
+        && token_list_contains_value(headers.get(header::UPGRADE), "websocket")
+}
+
+/// gorilla `tokenListContainsValue` (server.go:406-447): ASCII case-insensitive tokens,
+/// skipping empty ones, and an RFC 7230 quoted token that must match whole tokens.
+fn token_list_contains_value(value: Option<&axum::http::HeaderValue>, token: &str) -> bool {
+    let Some(value) = value else { return false };
+    let Ok(value) = value.to_str() else { return false };
+    let mut remaining = value;
+    while let Some((head, tail)) = split_unquoted(remaining, ',') {
+        let candidate = head.trim();
+        if !candidate.is_empty() {
+            if let Some(quoted) = candidate.strip_prefix('"') {
+                return quoted
+                    .strip_suffix('"')
+                    .is_some_and(|v| v.eq_ignore_ascii_case(token));
+            }
+            if candidate.eq_ignore_ascii_case(token) {
+                return true;
+            }
+        }
+        remaining = tail;
+    }
+    false
+}
+
+/// Split at the first `,` outside a quoted string, as gorilla's scanner does.
+fn split_unquoted(haystack: &str, sep: char) -> Option<(&str, &str)> {
+    let mut quoted = false;
+    for (index, c) in haystack.char_indices() {
+        match c {
+            '"' => quoted = !quoted,
+            _ if c == sep && !quoted => {
+                return Some((&haystack[..index], &haystack[index + sep.len_utf8()..]))
+            }
+            _ => {}
+        }
+    }
+    None
+}
 fn plain(code: StatusCode, body: &str) -> Response {
     (
         code,
@@ -78,9 +127,14 @@ async fn upgrade(
     headers: HeaderMap,
     ws: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
 ) -> Response {
-    let Ok(mut ws) = ws else {
+    // Upstream order: the upgrade gate first (404 for a non-upgrade request), then the
+    // grant check (401 `no permissions to access the room`), and only then the actual
+    // upgrade (`pkg/service/agentws.go:49-67`). The extractor is therefore consulted
+    // after both, so a GET with an agent grant that cannot complete the handshake still
+    // answers 401 like Go, not 404.
+    if !is_websocket_upgrade(&headers) {
         return StatusCode::NOT_FOUND.into_response();
-    };
+    }
     let raw = query.as_deref().unwrap_or("");
     let token = match crate::auth::extract_token(&headers, raw) {
         Ok(token) => token,
@@ -95,6 +149,9 @@ async fn upgrade(
             );
         }
         Err(e) => return e.into_response(),
+    };
+    let Ok(mut ws) = ws else {
+        return StatusCode::NOT_FOUND.into_response();
     };
     let protocol = crate::auth::query_param(raw, "protocol")
         .and_then(|v| v.parse::<i64>().ok())
