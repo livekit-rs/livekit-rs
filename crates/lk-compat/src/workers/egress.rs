@@ -313,7 +313,7 @@ impl EgressGateway {
             Ok(info) => Ok(info),
             Err(error) => {
                 let current = self.io.get_egress(&request.message.egress_id).await?;
-                if matches!(current.status, 0 | 1) {
+                if is_in_flight(current.status) {
                     Err(error)
                 } else {
                     Err(RpcError::new(
@@ -374,7 +374,7 @@ impl EgressGateway {
             Ok(info) => Ok(info),
             Err(error) => {
                 let current = self.io.get_egress(&request.message.egress_id).await?;
-                if matches!(current.status, 0 | 1) {
+                if is_in_flight(current.status) {
                     Err(error)
                 } else {
                     Err(RpcError::new(
@@ -404,6 +404,15 @@ fn status_name(status: i32) -> String {
     pb::EgressStatus::try_from(status)
         .map(|value| value.as_str_name().to_owned())
         .unwrap_or_else(|_| status.to_string())
+}
+/// The pinned status switch re-reports the handler's own error only for a
+/// record the worker can still act on; every other status replaces it with the
+/// invalid-status verdict (egress.go:344-357,388-396). The pinned enum has no
+/// unspecified member, so EGRESS_STARTING is 0 and EGRESS_ACTIVE is 1
+/// (livekit_egress.pb.go:469-477).
+fn is_in_flight(status: i32) -> bool {
+    status == pb::EgressStatus::EgressStarting as i32
+        || status == pb::EgressStatus::EgressActive as i32
 }
 /// Each public Start method constructs its real internal oneof, preserving the
 /// caller-supplied middleware EgressID. No internal worker flags are invented.
@@ -522,6 +531,9 @@ fn layout_metadata(layout: &str) -> Result<String, RpcError> {
     Ok(escaped)
 }
 
+#[cfg(test)]
+#[path = "egress_worker_lifecycle_tests.rs"]
+mod lifecycle_tests;
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,12 @@
+# Loopback-only development fixture for the C86-A data-packet SDK legs probe.
+port: 8891
+bind_addresses:
+  - 127.0.0.1
+rtc:
+  tcp_port: 8893
+  udp_port: 8892
+  use_external_ip: false
+  node_ip: 127.0.0.1
+  enable_loopback_candidate: true
+logging:
+  level: info
