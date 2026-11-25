@@ -392,17 +392,6 @@ pub fn subscribed_quality_from_proto(q: &pb::SubscribedQuality) -> SubscribedQua
     }
 }
 
-pub fn subscribed_codec_to_proto(c: &SubscribedCodec) -> pb::SubscribedCodec {
-    pb::SubscribedCodec {
-        codec: c.codec.clone(),
-        qualities: c
-            .qualities
-            .iter()
-            .map(subscribed_quality_to_proto)
-            .collect(),
-    }
-}
-
 pub fn subscribed_codec_from_proto(c: &pb::SubscribedCodec) -> SubscribedCodec {
     SubscribedCodec {
         codec: c.codec.clone(),

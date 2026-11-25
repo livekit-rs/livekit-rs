@@ -8,15 +8,16 @@
 //!   `participant_signal.go:389`.
 //! - `participant.go:2904-2952`: the same shape for `SubscribedQualityUpdate`
 //!   with the `video/` prefix (`:2939-2941`).
-//! The values fed here are exactly what `DynacastAudio::payload()` commits
-//! (`crates/rtc-media/src/dynacast.rs`, Go `dynacastmanageraudio.go:178-198`):
-//! full canonical mimes with the `audio/` prefix, which only this encoder
-//! shortens.
+//! The values fed here are the two shapes the engines commit: the audio
+//! manager keeps full canonical mimes with the `audio/` prefix (Go
+//! `dynacastmanageraudio.go:178-198`, `DynacastAudio::payload()`), while the
+//! video demand already arrives trimmed by `codecs::dynacast_codec_name`.
+//! Go normalizes both at the emission site, so these legs pin the encoder to
+//! the wire shape rather than to whichever producer filled the event.
 
 use super::*;
 use crate::signal::encode::EncodeCtx;
 use lk_protocol::livekit::signal_response::Message as Resp;
-use prost::Message as _;
 use rtc_core::ids::TrackSid;
 use rtc_core::model::{SubscribedAudioCodec, SubscribedCodec, SubscribedQuality, VideoQuality};
 
@@ -134,10 +135,11 @@ fn an_empty_demand_from_negotiation_encodes_no_frame_at_all() {
 fn the_quality_encoder_normalizes_video_mimes_the_same_way() {
     // The sibling message the negotiation also produces
     // (SignalEvent::SubscribedQuality ← MediaEvent::SubscribedQuality ←
-    // forward.rs emit_dynacast_snapshot, whose codec names come from the
-    // receiver rows' full mimes). Go: participant.go:2939-2941 trims the
-    // exact "video/" prefix and lower-cases; subscribed_qualities (field 2,
-    // deprecated) mirrors the first codec's qualities (:2944-2948).
+    // forward.rs emit_dynacast_snapshot). Go trims the exact "video/" prefix
+    // and lower-cases at the emission site (participant.go:2936-2938) whatever
+    // the manager committed (dynacastmanagervideo.go:259/275 uses
+    // mime.String()); subscribed_qualities (field 2, deprecated) mirrors the
+    // first codec's qualities (:2942).
     let bytes = encode_bytes(SignalEvent::SubscribedQuality {
         track_sid: TrackSid::from("TR_v"),
         codecs: vec![SubscribedCodec {

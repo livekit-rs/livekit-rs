@@ -536,9 +536,25 @@ pub fn encode_signal(
             stream_states: s.iter().map(convert::stream_state_info_to_proto).collect(),
         }),
         SignalEvent::SubscribedQuality { track_sid, codecs } => {
+            // Go normalizes at the emission site: onSubscribedMaxQualityChange
+            // (participant.go:2936-2940) rewrites each codec with
+            // strings.ToLower(strings.TrimPrefix(codec, mime.MimeTypePrefixVideo))
+            // before building the message, whatever the dynacast manager
+            // committed (dynacastmanagervideo.go:259/275 uses mime.String()).
             let subscribed_codecs: Vec<pb::SubscribedCodec> = codecs
                 .iter()
-                .map(convert::subscribed_codec_to_proto)
+                .map(|codec| pb::SubscribedCodec {
+                    codec: codec
+                        .codec
+                        .strip_prefix("video/")
+                        .unwrap_or(&codec.codec)
+                        .to_lowercase(),
+                    qualities: codec
+                        .qualities
+                        .iter()
+                        .map(convert::subscribed_quality_to_proto)
+                        .collect(),
+                })
                 .collect();
             Resp::SubscribedQualityUpdate(pb::SubscribedQualityUpdate {
                 track_sid: track_sid.0,
