@@ -211,7 +211,65 @@ node --test bandwidth-accounting.test.mjs bandwidth-timeline-gate.test.mjs netwo
 
 `SERVER_LABEL` 区分 `output/` 下 JSON 报告，建议各场景使用不同标签避免覆盖。报告记录官方 SDK、浏览器版本、选中 ICE/DTLS 路径、实际媒体解码、信令和场景指标。普通测试还支持 `RUNS`（轮数）、`DURATION_MS`（基础观测时长）、`SINGLE_PC=false`（双 PC）和 `EXTENDED=true`（扩展房间操作）。
 
-CI 已配置独立 OpenSSL 扩展 TLS、EC/RSA PKCS#1 原生 HTTPS 信任探针、原版 SDK WSS/HTTPS API 与 TURN/TLS、VP9/AV1 空间/时间层及 TURN 拥塞恢复门禁。原生 EC 与旧 TURN/TLS 共用 `5349`，工作流在切换前仅停止自己记录 PID 的旧实例。退出时停止并等待所有本任务实例，必要时终止；上传证据时排除私钥，再删除生成证书及原始输出，最后执行 `cargo clean`。远程 GitHub Actions 尚未执行，本机通过不能表述为远程 CI 已通过。
+#### Remote CI leg status
+
+Every browser-interoperability leg is configured in `.github/workflows/server.yml`.
+Their actual execution state on the remote GitHub Actions runner differs per leg, and
+only the following statements are supported by recorded run evidence. Step numbers in
+this section are the pre-C88 workflow layout, which is what those run pages report.
+
+Legs that have been green on a remote runner (steps 1-17 of the job
+`browser-interoperability`, observed identically in runs `45257476589`,
+`45646502216`, `45660777186` and `45668976571`): dependency install, Playwright
+Chromium install, TLS certificate generation, Rust binary build, standalone server
+start, recorded fixture consistency and redaction, network impairment proxy
+regression tests, single-PC audio and reliable data (two runs), reconnect /
+republish / mute / metadata / RPC, VP8 video with extended operations, VP9 L3T3_KEY
+spatial and temporal subscription switching, dual-PC audio and reliable data, and the
+independent TURN TLS server start.
+
+Legs that have never executed on a remote runner: the HTTPS webhook signature and
+retry leg, the native HTTPS-only EC/RSA PKCS#1 server start, both native HTTPS trust
+probes, the EC WSS + AV1 leg, the RSA WSS leg, and the real TURN bottleneck / sustained
+media recovery leg. In those runs every one of them was reported as `skipped` because
+the job aborted at step 18; a local pass is not evidence of a remote pass. The
+authenticated TURN TLS media leg itself has run in all four runs and failed in all four.
+
+Step 18 failure signature (run `45660777186`, artifact `chromium-interoperability`):
+the TURN TLS server log ends with `peer connection failed ... "reason": "ice-timeout"`
+and `TURN server stopped {"allocations": 0}`; the browser report
+`rust-turn-tls-single-relay.json` shows successful join/offer/answer, empty trickle
+candidate arrays, a server answer containing only `typ host` candidates, and zero
+`local-candidate` getStats rows. Signaling therefore succeeds and the failure happens
+before ICE reachability, so no media assertion is ever reached. The available data
+cannot separate a Chromium rejection of the pinned TURN TLS certificate from Chromium
+never attempting `127.0.0.1:5349`; that separation requires a fresh remote run.
+
+To remove the masking, every media leg is now launched through `ci-leg.mjs`, which runs
+the leg's own command, appends its id, exit code, signal, duration and a redacted output
+tail to `$CI_STEP_RESULTS_FILE`, and re-raises that exit code so the step still shows
+red on the run page. Each leg step also carries `continue-on-error: true`, so a red leg
+no longer aborts the legs behind it. The last step, `Aggregate recorded interoperability
+leg results`, runs `ci-leg-summary.mjs` against that file: it prints the leg matrix and
+exits non-zero if any of the 14 legs is not recorded `success`, which includes a leg that
+is absent because the job died before it. The gate reads the recorder file rather than the
+workflow `steps` context on purpose: a step is only visible in that context when it has an
+explicit `id`, and a `continue-on-error` step's recorded conclusion is ambiguous. Lifecycle
+steps (server start/stop, evidence upload, TLS removal, `cargo clean`) stay ordinary steps
+with `if: always()` where teardown matters, so if one of them fails the job is already red
+without anything to re-assert. No leg was renamed or reordered, no environment value
+changed, and no assertion was weakened. When the TURN TLS leg is red,
+`Collect failed TURN TLS leg attribution evidence` runs `ci-leg-attribution.mjs`, which
+dumps harness-side evidence (TURN TLS TCP/TLS probe with the recomputed SPKI pin,
+WebSocket and HTTPS API probes, the recorded leg JSON diagnostics, network interfaces and
+the Chromium launch args) into `output/step18-turn-tls-attribution.json`; that step checks
+the recorded `turn-tls` conclusion through `ci-leg.mjs --failed turn-tls` instead of an
+`if: failure()` expression, so a leg that passed cannot trigger it and a leg that never ran
+cannot be mistaken for one that failed.
+
+The leg recorder and the attribution dump both map RFC 1918 addresses to the RFC 5737
+placeholder range `198.51.100.x` (last octet preserved); uploaded evidence excludes private
+key material.
 
 原始测试输出不纳入版本控制；精选、带来源哈希和范围说明的摘要位于 `livekit-rs-docs/evidence/2026-10-23/`。本机复现后同样应先保存必要的脱敏证据，再停止自己启动的实例、删除本目录 `output/`（含测试私钥），最后在服务端 workspace 执行 `cargo clean`；多智能体共享构建目录时由协调者统一清理。
 
