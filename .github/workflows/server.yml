@@ -31,7 +31,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Tests
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
       - name: WebSocket close policy feature-off and feature-on conformance
         run: |
           CARGO_TARGET_DIR=target/websocket-close-policy cargo test --locked --manifest-path tests/conformance/websocket-close-policy/Cargo.toml --no-default-features
