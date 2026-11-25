@@ -412,10 +412,11 @@ fn rpc_ack_for_a_pending_request_is_consumed_and_resolves_the_ack_waiter() {
     assert_eq!(h.rpc.pending_count(), 1);
 }
 
-/// Measured stricter-than-Go finding: upstream keys only on the request id, while
-/// `RpcRegistry::handle_ack` also requires the sender SID to be the participant the
-/// call was bound to. A cross-participant ack therefore forwards here but would be
-/// consumed by Go. Recorded, not silently copied.
+/// Go keeps `rpcPendingAcks` on the participant whose `handleReceivedDataMessage`
+/// received the frame, so a request id registered for bob is never matched when
+/// carol publishes the ack: the lookup misses and the packet is forwarded. The
+/// room-level Rust registry stores the bound SID and reaches the same verdict,
+/// so this leg pins parity rather than a divergence.
 #[test]
 fn rpc_ack_from_another_participant_is_not_consumed() {
     let mut h = Harness::new();
