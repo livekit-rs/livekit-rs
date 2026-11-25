@@ -55,6 +55,7 @@ impl RequestCache {
 }
 
 /// What the WebSocket layer must do with an inbound request.
+#[derive(Debug)]
 pub enum Inbound {
     Forward(SessionRequest),
     /// Answer locally (ping / pong, trickle parse errors).
@@ -66,6 +67,28 @@ pub enum Inbound {
     #[allow(dead_code)]
     // handled by session.rs and cluster_signal; see the `Reply` note for the C74-e differential that can produce it
     Ignore,
+}
+
+/// Refusal for a request whose engine handler this build does not have: forward
+/// [`SessionRequest::Unsupported`] so the room answers `NotAllowed`
+/// (`crates/rtc-core/src/room/requests.rs:192-206`) instead of leaving the client
+/// waiting, and cache the echo so the `RequestResponse` can carry the original
+/// request back. No production call site: the pinned Go signal switch
+/// (`pkg/rtc/signalling/signalhandler.go:57-161`) has no `default:` case, so an
+/// unlisted request only refreshes last-seen and is answered with nothing; the
+/// helper is kept for a request this adapter knows it cannot serve.
+#[allow(dead_code)]
+pub(super) fn unsupported_refusal(
+    what: &'static str,
+    echo: pb::request_response::Request,
+    cache: &mut RequestCache,
+) -> Inbound {
+    let token = cache.store(echo);
+    Inbound::Forward(SessionRequest::Unsupported {
+        token,
+        request_id: 0,
+        what,
+    })
 }
 
 fn response(m: Resp) -> pb::SignalResponse {
@@ -196,6 +219,10 @@ pub fn decode_request(req: pb::SignalRequest, cache: &mut RequestCache) -> Inbou
             reason: client_leave_reason(l.reason),
         }),
         Req::UpdateLayers(_) => Inbound::Forward(SessionRequest::SignalActivity), // deprecated payload; Go still updates last seen
+        // signalhandler.go:46-160 has no `default:` case, so a request the switch
+        // does not list only refreshes last-seen and is answered with nothing.
+        // The engine keeps an explicit refusal for requests this adapter knows it
+        // cannot serve; see the `Unsupported` construction sites below.
         Req::SubscriptionPermission(p) => Inbound::Forward(SessionRequest::SubscriptionPermission(
             convert::subscription_permission_from_proto(&p),
         )),
@@ -600,6 +627,35 @@ pub fn encode_signal(
                 num_videos: videos,
             })
         }
+        // participant.go:2961-2987 -> participant_signal.go:389 sends the audio codec
+        // list on its own signal; the video `SubscribedCodec` shape is not reused.
+        SignalEvent::SubscribedAudioCodecs {
+            track_sid,
+            codecs,
+        } => Resp::SubscribedAudioCodecUpdate(pb::SubscribedAudioCodecUpdate {
+            track_sid: track_sid.0,
+            subscribed_audio_codecs: codecs
+                .into_iter()
+                .map(|c| pb::SubscribedAudioCodec {
+                    codec: c.codec,
+                    enabled: c.enabled,
+                })
+                .collect(),
+        }),
+        // Declared by the proto and encodable, but no engine producer exists: the
+        // pinned Go server only reaches `SendRoomMovedResponse`
+        // (participant_signal.go:174) from generated fakes, never from MoveToRoom
+        // (participant.go:4520-4556), which moves the session silently.
+        SignalEvent::RoomMoved(info) => Resp::RoomMoved(pb::RoomMovedResponse {
+            room: Some(convert::room_info_to_proto(&info.room)),
+            token: info.token,
+            participant: Some(convert::participant_info_to_proto(&info.participant)),
+            other_participants: info
+                .other_participants
+                .iter()
+                .map(convert::participant_info_to_proto)
+                .collect(),
+        }),
     };
     Some(response(m))
 }
@@ -1233,5 +1289,191 @@ mod rtt_original_conversion_observer {
             .is_none(),
             "Go returns before building the message on an empty list (participant.go:2963-2965)"
         );
+    }
+}
+
+#[cfg(test)]
+mod subscribed_audio_codec_tests {
+    use super::*;
+
+    // Ground truth: pkg/rtc/participant.go:2955-2981 builds
+    // SubscribedAudioCodecUpdate{TrackSid, SubscribedAudioCodecs} and
+    // participant_signal.go:389 writes it as SignalResponse_SubscribedAudioCodecUpdate.
+    #[test]
+    fn subscribed_audio_codecs_encode_on_their_own_signal() {
+        let client = ClientMeta::default();
+        let mut cache = RequestCache::default();
+        let ev = SignalEvent::SubscribedAudioCodecs {
+            track_sid: TrackSid("TR_a".into()),
+            codecs: vec![
+                SubscribedAudioCodec {
+                    codec: "opus".into(),
+                    enabled: true,
+                },
+                SubscribedAudioCodec {
+                    codec: "pcmu".into(),
+                    enabled: false,
+                },
+            ],
+        };
+        match encode_signal(ev, &EncodeCtx { client: &client }, &mut cache).and_then(|r| r.message) {
+            Some(Resp::SubscribedAudioCodecUpdate(u)) => {
+                assert_eq!(u.track_sid, "TR_a");
+                assert_eq!(
+                    u.subscribed_audio_codecs,
+                    vec![
+                        pb::SubscribedAudioCodec {
+                            codec: "opus".into(),
+                            enabled: true,
+                        },
+                        pb::SubscribedAudioCodec {
+                            codec: "pcmu".into(),
+                            enabled: false,
+                        },
+                    ]
+                );
+            }
+            other => panic!("expected subscribed audio codec update, got {other:?}"),
+        }
+    }
+
+    // The video path (SubscribedQualityUpdate) must keep its own shape: the audio
+    // list is not merged into `SubscribedCodec` (livekit_models.proto: SubscribedAudioCodec
+    // is a distinct message with codec+enabled only).
+    #[test]
+    fn video_quality_update_stays_separate_from_audio_codecs() {
+        let client = ClientMeta::default();
+        let mut cache = RequestCache::default();
+        let ev = SignalEvent::SubscribedQuality {
+            track_sid: TrackSid("TR_v".into()),
+            codecs: vec![SubscribedCodec {
+                codec: "vp8".into(),
+                qualities: vec![(VideoQuality::High, true)],
+            }],
+        };
+        match encode_signal(ev, &EncodeCtx { client: &client }, &mut cache).and_then(|r| r.message)
+        {
+            Some(Resp::SubscribedQualityUpdate(u)) => {
+                assert_eq!(u.track_sid, "TR_v");
+                assert_eq!(u.subscribed_codecs.len(), 1);
+                assert!(u.subscribed_codecs[0].qualities.len() == 1);
+            }
+            other => panic!("expected subscribed quality update, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod room_moved_tests {
+    use super::*;
+    use rtc_core::permission::ParticipantPermission;
+
+    fn room(name: &str, sid: &str) -> RoomInfo {
+        RoomInfo {
+            turn_password: String::new(),
+            sid: RoomSid(sid.into()),
+            name: RoomName(name.into()),
+            empty_timeout_s: 300,
+            departure_timeout_s: 20,
+            max_participants: 0,
+            creation_time_ms: 1_700_000_000_000,
+            metadata: String::new(),
+            num_participants: 0,
+            num_publishers: 0,
+            active_recording: false,
+            enabled_codecs: vec![],
+            version: TimedVersion::default(),
+        }
+    }
+
+    fn participant(sid: &str, identity: &str) -> ParticipantInfo {
+        ParticipantInfo {
+            sid: ParticipantSid(sid.into()),
+            identity: Identity(identity.into()),
+            name: identity.into(),
+            state: ParticipantState::Active,
+            tracks: vec![],
+            data_tracks: vec![],
+            metadata: String::new(),
+            attributes: Default::default(),
+            joined_at_ms: 0,
+            version: 1,
+            permission: ParticipantPermission::default(),
+            region: String::new(),
+            is_publisher: false,
+            kind: ParticipantKind::Standard,
+            disconnect_reason: DisconnectReason::Unknown,
+            client_protocol: 0,
+            capabilities: vec![],
+        }
+    }
+
+    // Wire shape of livekit.RoomMovedResponse (livekit_rtc.proto:496-503). No
+    // production engine producer exists: the pinned Go server never constructs
+    // the message (participant.go:4514-4550 moves silently), so this arm keeps
+    // the declared response encodable.
+    #[test]
+    fn room_moved_encodes_full_response_shape() {
+        let client = ClientMeta::default();
+        let mut cache = RequestCache::default();
+        let info = RoomMovedInfo {
+            room: room("next", "RM_next"),
+            token: "tok-2".into(),
+            participant: participant("PA_a", "alice"),
+            other_participants: vec![participant("PA_b", "bob")],
+        };
+        match encode_signal(
+            SignalEvent::RoomMoved(Box::new(info)),
+            &EncodeCtx { client: &client },
+            &mut cache,
+        )
+        .and_then(|r| r.message)
+        {
+            Some(Resp::RoomMoved(m)) => {
+                assert_eq!(m.room.as_ref().unwrap().sid, "RM_next");
+                assert_eq!(m.room.as_ref().unwrap().name, "next");
+                assert_eq!(m.token, "tok-2");
+                assert_eq!(m.participant.as_ref().unwrap().identity, "alice");
+                assert_eq!(m.other_participants.len(), 1);
+                assert_eq!(m.other_participants[0].identity, "bob");
+            }
+            other => panic!("expected room moved response, got {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod unsupported_refusal_tests {
+    use super::*;
+    use pb::request_response::Request as Echo;
+
+    // Helper contract: cache the echo so the later RequestResponse can carry the
+    // original request back, and forward Unsupported with no request id.
+    #[test]
+    fn refusal_caches_echo_and_forwards_unsupported() {
+        let mut cache = RequestCache::default();
+        let echo = Echo::Trickle(pb::TrickleRequest {
+            candidate_init: "{}".into(),
+            target: 0,
+            r#final: false,
+        });
+        let inbound = unsupported_refusal("trickle relay", echo, &mut cache);
+        let Inbound::Forward(SessionRequest::Unsupported {
+            token,
+            request_id,
+            what,
+        }) = inbound
+        else {
+            panic!("refusal must forward Unsupported")
+        };
+        assert_eq!(request_id, 0);
+        assert_eq!(what, "trickle relay");
+        assert_ne!(token, 0);
+        // The cached echo is exactly what the RequestResponse encoder will take.
+        let taken = cache.take(token);
+        assert!(matches!(taken, Some(Echo::Trickle(_))));
+        // Second take proves the cache entry is consumed once, like every other
+        // token-bearing request.
+        assert!(cache.take(token).is_none());
     }
 }

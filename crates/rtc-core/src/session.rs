@@ -459,6 +459,39 @@ pub enum SignalEvent {
         audios: u32,
         videos: u32,
     },
+    /// Audio-codec demand committed for a published audio track (dynacast).
+    /// Wire counterpart: `SignalResponse_SubscribedAudioCodecUpdate`, sent by
+    /// `ParticipantImpl.onSubscribedAudioCodecChange`
+    /// (`pkg/rtc/participant.go:2955-2981`) through
+    /// `sendSubscribedAudioCodecUpdate` (`pkg/rtc/participant_signal.go:389`).
+    SubscribedAudioCodecs {
+        track_sid: TrackSid,
+        codecs: Vec<SubscribedAudioCodec>,
+    },
+    /// Wire shape of `livekit.RoomMovedResponse`. The pinned Go server declares
+    /// the send path (`pkg/rtc/participant_signal.go:174-176`) but never
+    /// constructs the message: `MoveToRoom` (`pkg/rtc/participant.go:4514-4550`)
+    /// moves the session without sending it, so no engine code produces this
+    /// signal. Kept so the response stays encodable if room migration is ever
+    /// wired here.
+    RoomMoved(Box<RoomMovedInfo>),
+}
+
+/// Demand for one subscribed audio codec; mirrors `livekit.SubscribedAudioCodec`
+/// (models.proto:1004), which is distinct from the video `SubscribedCodec`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubscribedAudioCodec {
+    pub codec: String,
+    pub enabled: bool,
+}
+
+/// Payload of [`SignalEvent::RoomMoved`]; mirrors `livekit.RoomMovedResponse`.
+#[derive(Clone, Debug)]
+pub struct RoomMovedInfo {
+    pub room: RoomInfo,
+    pub token: String,
+    pub participant: ParticipantInfo,
+    pub other_participants: Vec<ParticipantInfo>,
 }
 
 /// Owner-origin metadata update echoed on rejection. No adapter cache token
