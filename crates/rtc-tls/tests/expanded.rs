@@ -394,6 +394,39 @@ async fn root_intermediate_leaf_fullchain_verifies_and_missing_or_wrong_order_fa
     assert!(rtc_tls::server_config_from_pem(&wrong, key).is_err());
 }
 
+/// Wall-clock ceiling for one OpenSSL client/server cell, covering the accept leg.
+const CELL_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Await both legs of one cell under a single deadline, and name the cell if either
+/// leg cannot produce an outcome.
+///
+/// Bounding only the client leg is not enough. When the client process exits before
+/// the accept leg can complete - a build that rejects the cipher or group string does
+/// exactly that - the server task stays pending forever, and an unbounded
+/// `server.await` stalls the whole matrix in silence. Run 45691070092 spent 44 of the
+/// job's 45 minutes on this step, printing only "has been running for over 60
+/// seconds", and the teardown listed no OpenSSL process among the orphans it killed,
+/// so the client had already been gone for the entire stall.
+async fn await_cell(
+    label: &str,
+    client: tokio::task::JoinHandle<std::process::Output>,
+    server: tokio::task::JoinHandle<()>,
+) -> Result<std::process::Output, String> {
+    let stalled = format!("{label}: no outcome within {}s", CELL_TIMEOUT.as_secs());
+    let legs = async move {
+        let out = client
+            .await
+            .map_err(|e| format!("{label}: client task failed: {e}"))?;
+        server
+            .await
+            .map_err(|e| format!("{label}: server task failed: {e}"))?;
+        Ok(out)
+    };
+    tokio::time::timeout(CELL_TIMEOUT, legs)
+        .await
+        .map_err(|_| stalled)?
+}
+
 #[tokio::test]
 #[ignore = "requires independent OpenSSL 3 via RTC_TLS_OPENSSL"]
 async fn openssl_client_verifies_rsa_ecdsa_ed25519_all_ciphers_and_key_exchanges() {
@@ -506,11 +539,9 @@ async fn openssl_client_verifies_rsa_ecdsa_ed25519_all_ciphers_and_key_exchanges
                 child.stdin.take().unwrap().write_all(b"ping").unwrap();
                 child.wait_with_output().unwrap()
             });
-            let out = tokio::time::timeout(Duration::from_secs(15), client)
+            let out = await_cell(&format!("{name}/{alg}/{group_name}"), client, server)
                 .await
-                .unwrap()
-                .unwrap();
-            server.await.unwrap();
+                .unwrap_or_else(|e| panic!("{e}"));
             assert!(
                 out.status.success(),
                 "{name}/{alg}/{group_name}: {}",
@@ -519,6 +550,40 @@ async fn openssl_client_verifies_rsa_ecdsa_ed25519_all_ciphers_and_key_exchanges
             assert_eq!(out.stdout, b"pong");
         }
     }
+}
+
+/// The stall shape the CI hit: the client process is gone while the accept leg is still
+/// being awaited, and only the client leg carries a deadline. An option every OpenSSL
+/// build rejects reproduces it without depending on any particular cipher support.
+///
+/// The outer deadline here is longer than the per-cell one, so an `await_cell` that
+/// leaves the accept leg unbounded fails this test rather than hanging it.
+#[tokio::test]
+#[ignore = "requires independent OpenSSL 3 via RTC_TLS_OPENSSL"]
+async fn openssl_cell_without_a_connection_reports_a_named_stall() {
+    use std::process::{Command, Stdio};
+    let openssl = std::env::var_os("RTC_TLS_OPENSSL").expect("RTC_TLS_OPENSSL");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (_tcp, _) = listener.accept().await.unwrap();
+    });
+    let connect = addr.to_string();
+    let client = tokio::task::spawn_blocking(move || {
+        Command::new(openssl)
+            .args(["s_client", "-rtc-tls-no-such-option", "-connect", &connect])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    });
+    let label = "RSA/AES128-GCM-SHA256/X25519";
+    let outer = CELL_TIMEOUT + Duration::from_secs(10);
+    let outcome = tokio::time::timeout(outer, await_cell(label, client, server))
+        .await
+        .expect("the accept leg must be bounded by the cell deadline");
+    let err = outcome.expect_err("a client that never connects must fail its cell, not hang it");
+    assert!(err.contains(label), "the failure must name the cell: {err}");
+    assert!(err.contains("no outcome"), "{err}");
 }
 
 #[tokio::test]
