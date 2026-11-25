@@ -170,6 +170,21 @@ pub(super) async fn allocator(
     sort_by: &str,
     algorithm: &str,
 ) -> RoomAllocator {
+    allocator_kind(url, "any", cpu_limit, sysload_limit, sort_by, algorithm).await
+}
+
+/// The same builder with the selector kind exposed. `kind` is what makes a limit
+/// live at all: `any` consults neither (`selector.rs:98`, mirroring
+/// `pkg/routing/selector/any.go:26-35`), so a leg that wants to discriminate
+/// `cpu_load_limit`/`sysload_limit` has to select a kind that filters.
+pub(super) async fn allocator_kind(
+    url: &str,
+    kind: &str,
+    cpu_limit: f32,
+    sysload_limit: f32,
+    sort_by: &str,
+    algorithm: &str,
+) -> RoomAllocator {
     let info = redis::IntoConnectionInfo::into_connection_info(url).unwrap();
     let registry = Arc::new(
         RedisRegistry::connect(info.clone(), Duration::from_secs(2), 1 << 20)
@@ -182,7 +197,7 @@ pub(super) async fn allocator(
             .unwrap(),
     );
     let selector = selector::ConfiguredSelector::new(selector::Config {
-        kind: "any".into(),
+        kind: kind.into(),
         sort_by: sort_by.into(),
         algorithm: algorithm.into(),
         cpu_limit,
@@ -583,8 +598,13 @@ async fn select_room_node_reuses_assignments_until_the_availability_window_close
     assert_eq!(failure.to_string(), "could not find any available nodes");
 }
 
-/// `pkg/routing/selector/interfaces.go:35-66` CreateNodeSelector kinds and
-/// limits, exercised through the allocator's real selection call.
+/// `pkg/routing/selector/interfaces.go:35-66` builds a different selector per
+/// kind, and only `cpuload`/`sysload` consult a limit: `FilterNodesByCriteria`
+/// (nodesfilter.go:5-20) drops rows whose criterion is not `< limit` and keeps the
+/// filtered set only when it is non-empty, before `SelectSortedNode` ranks what is
+/// left (cpuload.go:29-46, sysload.go:27-40). The rows below are built so a limit
+/// and the `sortBy=clients` ranking disagree, which is the only stimulus that tells
+/// the two mechanisms apart; `kind=any` cases are kept as the control.
 #[tokio::test]
 #[ignore = "requires owned loopback STORE_DISCOVERY_REDIS_URL with a dedicated db index"]
 async fn configured_selector_kinds_drive_the_persisted_owner_choice() {
@@ -607,6 +627,8 @@ async fn configured_selector_kinds_drive_the_persisted_owner_choice() {
             ..Default::default()
         })
     };
+    // ND_heavy is the one the ranking wants (1 client vs 500) and the one every
+    // limit rejects: cpu_load 0.95 and per-cpu sysload 1.9/2 = 0.95 against 0.10.
     let heavy = mk("ND_heavy", 0.95, 1.9, 1);
     let light = mk("ND_light", 0.10, 0.2, 500);
     async fn reset(url: &str, allocator: &RoomAllocator) {
@@ -620,33 +642,55 @@ async fn configured_selector_kinds_drive_the_persisted_owner_choice() {
                 .unwrap();
         }
     }
-    // cpuload kind with limit between the two loads: the filtered set keeps
-    // only the light node (nodesfilter.go:5-20 keeps non-empty filters).
-    let cpu_allocator = allocator(&url, 0.5, 0.5, "cpuload", "lowest").await;
-    cpu_allocator.registry.register_node(&heavy).await.unwrap();
-    cpu_allocator.registry.register_node(&light).await.unwrap();
-    assert_eq!(
-        cpu_allocator.select_owner("kind-room", "").await.unwrap(),
-        "ND_light",
-        "cpuload kind must exclude the over-limit node"
-    );
-    reset(&url, &cpu_allocator).await;
+    async fn select(
+        url: &str,
+        allocator: &RoomAllocator,
+        heavy: &crate::workers::preserved::WireValue<pb::Node>,
+        light: &crate::workers::preserved::WireValue<pb::Node>,
+    ) -> String {
+        allocator.registry.register_node(heavy).await.unwrap();
+        allocator.registry.register_node(light).await.unwrap();
+        let owner = allocator.select_owner("kind-room", "").await.unwrap();
+        reset(url, allocator).await;
+        owner
+    }
 
-    // sysload kind with both nodes under every threshold falls back to the
-    // sortBy=clients ranking over the whole available set.
-    let sys_allocator = allocator(&url, 0.5, 0.5, "clients", "lowest").await;
-    sys_allocator
-        .registry
-        .register_node(&mk("ND_heavy", 0.1, 0.1, 1))
-        .await
-        .unwrap();
-    sys_allocator.registry.register_node(&light).await.unwrap();
+    // Control: kind=any consults neither limit (selector.rs:98, any.go:26-35), so
+    // the ranking alone decides and the near-idle but loaded ND_heavy wins.
+    let any_allocator = allocator(&url, 0.5, 0.5, "clients", "lowest").await;
     assert_eq!(
-        sys_allocator.select_owner("kind-room", "").await.unwrap(),
+        select(&url, &any_allocator, &heavy, &light).await,
         "ND_heavy",
-        "with limits inactive the sortBy criterion alone decides"
+        "kind=any must ignore both limits"
     );
-    reset(&url, &sys_allocator).await;
+
+    // kind=cpuload with the limit between 0.95 and 0.10 excludes ND_heavy even
+    // though the ranking prefers it, so the persisted owner flips.
+    let cpu_allocator = allocator_kind(&url, "cpuload", 0.5, 0.5, "clients", "lowest").await;
+    assert_eq!(
+        select(&url, &cpu_allocator, &heavy, &light).await,
+        "ND_light",
+        "cpuload must exclude the over-limit node"
+    );
+
+    // kind=sysload does the same through GetNodeSysload = load_avg_last1min /
+    // num_cpus, so a row whose raw load is above the limit but whose per-cpu load
+    // is not must still survive.
+    let sys_allocator = allocator_kind(&url, "sysload", 0.5, 0.5, "clients", "lowest").await;
+    assert_eq!(
+        select(&url, &sys_allocator, &heavy, &light).await,
+        "ND_light",
+        "sysload must exclude the over-limit node per cpu"
+    );
+
+    // A limit that rejects every row is not an error: nodesfilter.go:16-18 keeps
+    // the unfiltered set when the filtered set is empty, so the ranking decides.
+    let strict_allocator = allocator_kind(&url, "cpuload", 0.05, 0.05, "clients", "lowest").await;
+    assert_eq!(
+        select(&url, &strict_allocator, &heavy, &light).await,
+        "ND_heavy",
+        "an all-rejecting limit must fall back to the unfiltered set, not fail"
+    );
 
     // An unsupported kind fails construction with upstream's text
     // (interfaces.go:65 ErrUnsupportedSelector).
