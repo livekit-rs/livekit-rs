@@ -407,19 +407,64 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
     const temporalResults = [];
     if (svcTemporal) {
       assert.ok(svcSwitch, 'temporal layer test requires manual SVC controls');
-      for (const fps of [5, 15]) {
+      // The desired FPS only selects a temporal layer inside the spatial layer the
+      // subscriber asked for: the server reads the frame-rate table of that spatial
+      // layer, and an unpublished or never-measured one leaves the request without a
+      // ceiling. Quality 1 is the layer both publishers reliably report.
+      await Promise.all(pages.map(page => page.evaluate(() => interop.videoQuality(1))));
+      await sleep(1500);
+      evidence.temporalQuality = 1;
+      // The measurement is the subscriber's inbound video frame counter over equal
+      // windows, with an unrestricted window first as the budget. Neither the publisher's
+      // framesEncoded (one frame per spatial layer of a picture) nor rendered-frame
+      // callbacks (display cadence) measure what the server forwarded.
+      const counters = () => Promise.all(pages.map(page => page.evaluate(async () => {
+        const outbound = [], inbound = [];
+        for (const pc of new Set(window.interopPeerConnections || [])) {
+          if (pc.connectionState === 'closed') continue;
+          const stats = await pc.getStats();
+          for (const stat of stats.values()) {
+            if (stat.kind !== 'video') continue;
+            if (stat.type === 'outbound-rtp' && stat.frameWidth) {
+              outbound.push([stats.get(stat.codecId)?.mimeType, stat.frameWidth, stat.framesEncoded]);
+            } else if (stat.type === 'inbound-rtp') {
+              inbound.push([stat.frameWidth, stat.framesDecoded ?? stat.framesReceived ?? 0, stat.rid ?? null]);
+            }
+          }
+        }
+        return { rendered: interop.report().videoFrames, outbound, inbound };
+      })));
+      const grown = (field, index, before, after) => {
+        assert.equal(after[field].length, before[field].length, `${field} row set changed between samples`);
+        return after[field].reduce((total, row, slot) => total + row[index] - before[field][slot][index], 0);
+      };
+      for (const fps of [0, 2, 15]) {
         await Promise.all(pages.map(page => page.evaluate(fps => interop.videoFPS(fps), fps)));
         await sleep(2500);
-        const before = await Promise.all(pages.map(page => page.evaluate(() => interop.report().videoFrames)));
+        const before = await counters();
         await sleep(6000);
-        const after = await Promise.all(pages.map(page => page.evaluate(() => interop.report().videoFrames)));
-        const decoded = after.map((value, i) => value - before[i]);
-        assert.ok(decoded.every(value => value > 0), 'temporal layer switch stalled decoding');
-        temporalResults.push({ fps, intervalMs: 6000, decodedFrames: decoded });
+        const after = await counters();
+        const rendered = after.map((value, i) => value.rendered - before[i].rendered);
+        const forwarded = after.map((value, i) => grown('inbound', 1, before[i], value));
+        const encoded = after.map((value, i) => grown('outbound', 2, before[i], value));
+        assert.ok(forwarded.every(value => value > 0), `forwarding stalled at ${fps} FPS request: ${forwarded}`);
+        assert.ok(encoded.every(value => value > 0), `publisher stalled during the ${fps} FPS window: ${encoded}`);
+        temporalResults.push({
+          fps, intervalMs: 6000, rendered, forwarded, encoded,
+          inbound: after.map(value => value.inbound),
+          encodedEntries: after.map((value, i) => value.outbound.map((entry, slot) =>
+            [...entry, entry[2] - before[i].outbound[slot][2]])),
+        });
       }
-      for (let i = 0; i < 2; i++) {
-        assert.ok(temporalResults[1].decodedFrames[i] > temporalResults[0].decodedFrames[i] * 1.5, 'temporal request did not change actual decoded FPS');
-        assert.ok(temporalResults[1].decodedFrames[i] >= 66, '15 FPS request did not recover at least 11 decoded FPS');
+      evidence.temporalResults = temporalResults;
+      const [unrestricted, low, high] = temporalResults;
+      for (let i = 0; i < pages.length; i++) {
+        assert.ok(low.forwarded[i] < unrestricted.forwarded[i] * 0.6,
+          `${low.fps} FPS request forwarded ${low.forwarded[i]} frames, not below 60% of the ${unrestricted.forwarded[i]} forwarded with no request, so no temporal layer was dropped`);
+        assert.ok(high.forwarded[i] > low.forwarded[i] * 1.5,
+          `raising the request from ${low.fps} to ${high.fps} FPS forwarded ${high.forwarded[i]} frames against ${low.forwarded[i]}, so the request did not select a higher temporal layer`);
+        assert.ok(high.forwarded[i] >= unrestricted.forwarded[i] * 0.7,
+          `${high.fps} FPS request forwarded ${high.forwarded[i]} frames, below 70% of the ${unrestricted.forwarded[i]} forwarded with no request`);
       }
     }
     const extendedResults = {};

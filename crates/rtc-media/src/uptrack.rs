@@ -697,6 +697,9 @@ impl UpTrack {
     pub(crate) fn temporal_rates(&self, spatial: usize) -> [f32; 4] {
         self.source_rates.rates(spatial)
     }
+    pub(crate) fn temporal_per_encoding(&self) -> bool {
+        self.source_rates.per_encoding()
+    }
     pub(crate) fn svc_temporal_cap_for_spatial(&self, spatial: i32, fps: u32) -> u8 {
         if fps == 0 {
             return 3;

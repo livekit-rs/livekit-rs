@@ -381,6 +381,19 @@ impl MediaEngine {
             let was_stopped = d.current < 0;
             d.apply_settings_layers(&up.layers);
             d.subscriber_temporal_limit(up, d.max_spatial);
+            tracing::debug!(
+                track = %up.sid,
+                mid = ?d.mid,
+                spatial = d.max_spatial,
+                fps = d.settings.fps,
+                sub_muted = d.sub_muted,
+                per_encoding = up.temporal_per_encoding(),
+                rates0 = ?up.temporal_rates(0),
+                rates1 = ?up.temporal_rates(1),
+                rates2 = ?up.temporal_rates(2),
+                cap = d.subscriber_temporal_limit,
+                "subscriber temporal cap applied"
+            );
             d.scorer.set_muted(d.sub_muted || d.pub_muted);
             let changed = d.refresh_target(up.available(now), up.configured_layers());
             if changed && was_stopped {
