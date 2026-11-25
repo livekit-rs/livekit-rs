@@ -23,7 +23,8 @@ livecloud:
 turn:
   enabled: true
   domain: turn.localhost
-  tls_port: 5349
+  # A set tls_port makes Join advertise turns:DOMAIN:443, not this port.
+  tls_port: 443
   udp_port: 0
   external_tls: false
   cert_file: tests/interop/output/tls/server.pem

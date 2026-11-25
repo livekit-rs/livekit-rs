@@ -23,7 +23,8 @@ livecloud:
 turn:
   enabled: true
   domain: turn.localhost
-  tls_port: 5350
+  # Advertised as turns:DOMAIN:443, which the EC instance also needs, so they run one at a time.
+  tls_port: 443
   udp_port: 0
   external_tls: false
   cert_file: tests/interop/output/tls-rsa/server.pem

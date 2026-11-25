@@ -235,6 +235,15 @@ jobs:
           SINGLE_PC: "false"
           RUNS: "1"
         run: node ci-leg.mjs dual-pc -- npm test
+      # Join advertises the embedded TURN/TLS listener on 443 whatever the config
+      # sets, so the fixtures listen on 443 too. Runners keep
+      # net.ipv4.ip_unprivileged_port_start at 1024, and without this the bind
+      # fails with EACCES and no browser ever reaches a TLS relay (run 466 recorded
+      # TURN server stopped {"allocations": 0} for exactly that reason).
+      - name: Allow job servers to bind port 443
+        run: |
+          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+          sysctl -n net.ipv4.ip_unprivileged_port_start
       - name: Start independent TURN TLS Rust server
         id: turn-server
         if: steps.server.outcome == 'success' && steps.build.outcome == 'success'
@@ -245,14 +254,18 @@ jobs:
           python3 - <<'PY'
           import socket
           import time
-          for attempt in range(60):
-              try:
-                  with socket.create_connection(("127.0.0.1", 8080), timeout=1):
-                      break
-              except OSError:
-                  time.sleep(0.5)
-          else:
-              raise SystemExit("TURN TLS server did not become ready on 127.0.0.1:8080")
+          # TCP reachability only proves the sockets exist; the media leg still has
+          # to assert the relay. Checking 443 here turns a refused privileged bind
+          # into this step failing, instead of an unexplained ICE timeout later.
+          for port in (8080, 443):
+              for attempt in range(60):
+                  try:
+                      with socket.create_connection(("127.0.0.1", port), timeout=1):
+                          break
+                  except OSError:
+                      time.sleep(0.5)
+              else:
+                  raise SystemExit(f"TURN TLS server did not become ready on 127.0.0.1:{port}")
           PY
       - name: Original SDK audio and reliable data through authenticated TURN TLS
         continue-on-error: true
@@ -294,7 +307,7 @@ jobs:
         continue-on-error: true
         working-directory: tests/interop
         run: node ci-leg.mjs webhook -- node webhook-tls.mjs
-      - name: Stop legacy TURN TLS instance before reusing port 5349
+      - name: Stop the TURN TLS instance before handing port 443 to the EC server
         id: stop-turn-tls
         if: always()
         run: |
@@ -307,18 +320,19 @@ jobs:
             kill -KILL "$TURN_TLS_SERVER_PID" 2>/dev/null || true
           fi
           echo "TURN_TLS_SERVER_PID=" >> "$GITHUB_ENV"
-      - name: Start native HTTPS-only EC and RSA PKCS1 servers
-        id: https-servers
+      # Both native HTTPS fixtures serve embedded TURN/TLS on the advertised 443, so
+      # they cannot coexist; the earlier run started them together and only one of
+      # them could ever own the port.
+      - name: Start native HTTPS-only EC server
+        id: https-ec-server
         if: steps.server.outcome == 'success' && steps.build.outcome == 'success'
         run: |
           ./target/debug/livecloud --dev --config tests/interop/native-https-config.yaml >tests/interop/output/native-https-ec-server.log 2>&1 &
           echo "NATIVE_HTTPS_EC_PID=$!" >> "$GITHUB_ENV"
-          ./target/debug/livecloud --dev --config tests/interop/native-https-rsa-config.yaml >tests/interop/output/native-https-rsa-server.log 2>&1 &
-          echo "NATIVE_HTTPS_RSA_PID=$!" >> "$GITHUB_ENV"
           python3 - <<'PYWAIT'
           import socket
           import time
-          for port in (8443, 9443):
+          for port in (8443, 443):
               for attempt in range(60):
                   try:
                       with socket.create_connection(("127.0.0.1", port), timeout=1):
@@ -326,7 +340,7 @@ jobs:
                   except OSError:
                       time.sleep(0.5)
               else:
-                  raise SystemExit(f"Native HTTPS server did not become ready on {port}")
+                  raise SystemExit(f"Native HTTPS EC server did not become ready on {port}")
           PYWAIT
       - name: EC native HTTPS CA trust, wrong hostname, untrusted CA and disabled plaintext
         continue-on-error: true
@@ -336,15 +350,6 @@ jobs:
           PLAIN_HTTP_PORT: "8480"
           PROBE_LABEL: ec
         run: node ci-leg.mjs https-ec-probe -- node probe-native-https.mjs
-      - name: RSA PKCS1 native HTTPS trust and disabled plaintext
-        continue-on-error: true
-        working-directory: tests/interop
-        env:
-          LIVEKIT_URL: wss://127.0.0.1:9443
-          TLS_CA_FILE: output/tls-rsa/root.pem
-          PLAIN_HTTP_PORT: "9480"
-          PROBE_LABEL: rsa
-        run: node ci-leg.mjs https-rsa-probe -- node probe-native-https.mjs
       - name: Original SDK native EC WSS, HTTPS API, TURN TLS and AV1 L3T3_KEY switching
         continue-on-error: true
         working-directory: tests/interop
@@ -361,6 +366,47 @@ jobs:
           RUNS: "1"
         # Node validates the HTTPS API with the test CA; Chromium gets only this leaf SPKI exception.
         run: node ci-leg.mjs native-ec-av1 -- 'NODE_EXTRA_CA_CERTS="$PWD/output/tls/root.pem" TLS_SPKI="$(cat output/tls/spki-sha256.txt)" npm test'
+      - name: Stop the EC instance before handing port 443 to the RSA server
+        id: stop-https-ec
+        if: always()
+        run: |
+          if [ -n "${NATIVE_HTTPS_EC_PID:-}" ]; then
+            kill -TERM "$NATIVE_HTTPS_EC_PID" 2>/dev/null || true
+            for attempt in {1..20}; do
+              if ! kill -0 "$NATIVE_HTTPS_EC_PID" 2>/dev/null; then break; fi
+              sleep 0.25
+            done
+            kill -KILL "$NATIVE_HTTPS_EC_PID" 2>/dev/null || true
+          fi
+          echo "NATIVE_HTTPS_EC_PID=" >> "$GITHUB_ENV"
+      - name: Start native HTTPS-only RSA PKCS1 server
+        id: https-rsa-server
+        if: steps.server.outcome == 'success' && steps.build.outcome == 'success'
+        run: |
+          ./target/debug/livecloud --dev --config tests/interop/native-https-rsa-config.yaml >tests/interop/output/native-https-rsa-server.log 2>&1 &
+          echo "NATIVE_HTTPS_RSA_PID=$!" >> "$GITHUB_ENV"
+          python3 - <<'PYWAIT'
+          import socket
+          import time
+          for port in (9443, 443):
+              for attempt in range(60):
+                  try:
+                      with socket.create_connection(("127.0.0.1", port), timeout=1):
+                          break
+                  except OSError:
+                      time.sleep(0.5)
+              else:
+                  raise SystemExit(f"Native HTTPS RSA server did not become ready on {port}")
+          PYWAIT
+      - name: RSA PKCS1 native HTTPS trust and disabled plaintext
+        continue-on-error: true
+        working-directory: tests/interop
+        env:
+          LIVEKIT_URL: wss://127.0.0.1:9443
+          TLS_CA_FILE: output/tls-rsa/root.pem
+          PLAIN_HTTP_PORT: "9480"
+          PROBE_LABEL: rsa
+        run: node ci-leg.mjs https-rsa-probe -- node probe-native-https.mjs
       - name: Original SDK native RSA PKCS1 WSS, HTTPS API and TURN TLS
         continue-on-error: true
         working-directory: tests/interop

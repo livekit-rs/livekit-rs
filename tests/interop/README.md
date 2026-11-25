@@ -72,7 +72,7 @@ LIVEKIT_URL=ws://127.0.0.1:8080 SERVER_LABEL=rust-turn-tls \
 FORCE_RELAY=true TURN_TLS=true DURATION_MS=10000 npm test
 ```
 
-此配置由 Rust 服务器直接终结 `5349` 的 TURN/TLS；浏览器必须实际选择 `relayProtocol=tls` 并收到音频和可靠数据。`TLS_SPKI` 仅向测试浏览器指定该本地证书的 SPKI 例外，不能据此宣称完成公网 CA、域名或系统信任库验收。信令入口仍为本机 HTTP/WebSocket；这里没有验证入站 HTTPS/WSS。
+此配置由 Rust 服务器直接终结 `443` 的 TURN/TLS：只要设置了 `turn.tls_port`，Join 就固定下发 `turns:<domain>:443?transport=tcp`（与上游一致，见 `crates/lk-compat/src/signal/ice.rs`），监听其它端口等于浏览器联系不到中继。绑定 `443` 需要权限，Linux 用 `sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0`，macOS 需以 root 启动该测试实例。浏览器必须实际选择 `relayProtocol=tls` 并收到音频和可靠数据。`TLS_SPKI` 仅向测试浏览器指定该本地证书的 SPKI 例外，不能据此宣称完成公网 CA、域名或系统信任库验收。信令入口仍为本机 HTTP/WebSocket；这里没有验证入站 HTTPS/WSS。
 
 HTTPS Webhook 使用独立服务实例和官方 `WebhookReceiver`，不需要手动启动服务器：
 
@@ -91,43 +91,45 @@ node webhook-tls.mjs
 # tests/interop/
 npm run tls:fixture
 TLS_KEY_TYPE=rsa TLS_FIXTURE_NAME=tls-rsa npm run tls:fixture
-
-# livekit-rs-server/，各自保持运行；先停止上面的 TURN/TLS 实例，避免 5349 冲突
-./target/debug/livecloud --dev --config tests/interop/native-https-config.yaml
-# 另一终端，可与 EC 实例并行监听
-./target/debug/livecloud --dev --config tests/interop/native-https-rsa-config.yaml
 ```
 
-EC 实例使用 HTTPS/WSS `8443`、RTC `8441/8442`、TURN/TLS `5349`；RSA 实例对应 `9443`、`9441/9442`、`5350`。两套配置均设置 `livecloud.https.http_enabled: false`，分别保证明文 `8480`、`9480` 未监听。原生 HTTPS 是 `livecloud.https` 扩展，未给官方 LiveKit YAML 增加同名官方字段。默认为保留原 HTTP；这两份配置显式关闭它，不做隐式重定向。
+两套 fixture 的内置 TURN/TLS 都监听 `443`，所以只能依次运行；下面的 RSA 段之前先停掉 EC 实例。EC 实例使用 HTTPS/WSS `8443`、RTC `8441/8442`，RSA 实例对应 `9443`、`9441/9442`。两套配置均设置 `livecloud.https.http_enabled: false`，分别保证明文 `8480`、`9480` 未监听。原生 HTTPS 是 `livecloud.https` 扩展，未给官方 LiveKit YAML 增加同名官方字段。默认为保留原 HTTP；这两份配置显式关闭它，不做隐式重定向。
 
-先用 Node 的常规证书验证检查 HTTPS；探针不使用 SPKI 例外：
+先跑 EC：用 Node 的常规证书验证检查 HTTPS，探针不使用 SPKI 例外，然后跑未改动的官方 SDK。EC 场景同时验证 AV1 空间/时间层。
 
 ```sh
+# livekit-rs-server/，保持运行
+sudo ./target/debug/livecloud --dev --config tests/interop/native-https-config.yaml
+
 # tests/interop/
 LIVEKIT_URL=wss://127.0.0.1:8443 PLAIN_HTTP_PORT=8480 PROBE_LABEL=ec \
 node probe-native-https.mjs
-LIVEKIT_URL=wss://127.0.0.1:9443 TLS_CA_FILE=output/tls-rsa/root.pem \
-PLAIN_HTTP_PORT=9480 PROBE_LABEL=rsa node probe-native-https.mjs
-```
 
-每套都要求有效 CA 成功且证书获信任、错误主机名拒绝、不受信任 CA 拒绝、关闭的明文端口连接被拒绝。报告写入 `output/ec-native-https-probe.json` 和 `output/rsa-native-https-probe.json`。TCP readiness 仅用于等待监听，不能替代这些实际 TLS 断言。
-
-然后使用未改动的官方 SDK 运行 HTTPS RoomService API、WSS 信令和 TURN/TLS 音视频。EC 场景同时验证 AV1 空间/时间层：
-
-```sh
-# tests/interop/
 NODE_EXTRA_CA_CERTS="$PWD/output/tls/root.pem" \
 TLS_SPKI="$(cat output/tls/spki-sha256.txt)" \
 LIVEKIT_URL=wss://127.0.0.1:8443 SERVER_LABEL=rust-native-https-av1 \
 FORCE_RELAY=true TURN_TLS=true VIDEO=true VIDEO_CODEC=av1 \
 SCALABILITY_MODE=L3T3_KEY SVC_SWITCH=true SVC_TEMPORAL=true \
 RUNS=1 DURATION_MS=10000 npm test
+```
+
+停止 EC 实例后按同样顺序跑 RSA：
+
+```sh
+# livekit-rs-server/，保持运行
+sudo ./target/debug/livecloud --dev --config tests/interop/native-https-rsa-config.yaml
+
+# tests/interop/
+LIVEKIT_URL=wss://127.0.0.1:9443 TLS_CA_FILE=output/tls-rsa/root.pem \
+PLAIN_HTTP_PORT=9480 PROBE_LABEL=rsa node probe-native-https.mjs
 
 NODE_EXTRA_CA_CERTS="$PWD/output/tls-rsa/root.pem" \
 TLS_SPKI="$(cat output/tls-rsa/spki-sha256.txt)" \
 LIVEKIT_URL=wss://127.0.0.1:9443 SERVER_LABEL=rust-native-https-rsa \
 FORCE_RELAY=true TURN_TLS=true RUNS=1 DURATION_MS=10000 npm test
 ```
+
+每套都要求有效 CA 成功且证书获信任、错误主机名拒绝、不受信任 CA 拒绝、关闭的明文端口连接被拒绝。报告写入 `output/ec-native-https-probe.json` 和 `output/rsa-native-https-probe.json`。TCP readiness 仅用于等待监听，不能替代这些实际 TLS 断言。
 
 `NODE_EXTRA_CA_CERTS` 为独立 Node HTTPS API 客户端追加测试根；`TLS_SPKI` 只向测试浏览器放行该生成叶证书，用于 WSS 和 TURN/TLS。没有关闭全局证书检查，也没有修改 LiveKit SDK。正常生产证书使用自己的完整 PEM 证书链与匹配私钥，不需要测试 SPKI 例外；当前证书续期后需要重启加载。此场景证明本机指定证书材料与端点组合，不据此声称已覆盖所有公网 CA、所有浏览器或所有操作系统信任策略。
 
@@ -218,32 +220,47 @@ Their actual execution state on the remote GitHub Actions runner differs per leg
 only the following statements are supported by recorded run evidence. Step numbers in
 this section are the pre-C88 workflow layout, which is what those run pages report.
 
-Legs that have been green on a remote runner (steps 1-17 of the job
-`browser-interoperability`, observed identically in runs `45257476589`,
-`45646502216`, `45660777186` and `45668976571`): dependency install, Playwright
-Chromium install, TLS certificate generation, Rust binary build, standalone server
-start, recorded fixture consistency and redaction, network impairment proxy
+Legs that have been green on a remote runner (observed identically in runs
+`45257476589`, `45646502216`, `45660777186` and `45668976571` for the pre-C88 steps
+1-17, and as recorded legs in `45689637824` and `45691070092`): dependency install,
+Playwright Chromium install, TLS certificate generation, Rust binary build, standalone
+server start, recorded fixture consistency and redaction, network impairment proxy
 regression tests, single-PC audio and reliable data (two runs), reconnect /
 republish / mute / metadata / RPC, VP8 video with extended operations, VP9 L3T3_KEY
-spatial and temporal subscription switching, dual-PC audio and reliable data, and the
-independent TURN TLS server start.
+spatial and temporal subscription switching, dual-PC audio and reliable data, the
+HTTPS webhook signature and retry leg, and both native HTTPS trust probes.
 
-Legs that have never executed on a remote runner: the HTTPS webhook signature and
-retry leg, the native HTTPS-only EC/RSA PKCS#1 server start, both native HTTPS trust
-probes, the EC WSS + AV1 leg, the RSA WSS leg, and the real TURN bottleneck / sustained
-media recovery leg. In those runs every one of them was reported as `skipped` because
-the job aborted at step 18; a local pass is not evidence of a remote pass. The
-authenticated TURN TLS media leg itself has run in all four runs and failed in all four.
+Since run `45689637824` every leg executes and is recorded, so the matrix is complete
+instead of truncated at step 18. Both `45689637824` (head `10b94c5`) and
+`45691070092` (head `7494051`) recorded the same verdicts: 10 legs `success`, 4 legs
+`failure` (`turn-tls`, `native-ec-av1`, `native-rsa`, `congestion`), 0 legs without a
+recorded verdict. A local pass is still not evidence of a remote pass.
 
-Step 18 failure signature (run `45660777186`, artifact `chromium-interoperability`):
-the TURN TLS server log ends with `peer connection failed ... "reason": "ice-timeout"`
-and `TURN server stopped {"allocations": 0}`; the browser report
-`rust-turn-tls-single-relay.json` shows successful join/offer/answer, empty trickle
-candidate arrays, a server answer containing only `typ host` candidates, and zero
-`local-candidate` getStats rows. Signaling therefore succeeds and the failure happens
-before ICE reachability, so no media assertion is ever reached. The available data
-cannot separate a Chromium rejection of the pinned TURN TLS certificate from Chromium
-never attempting `127.0.0.1:5349`; that separation requires a fresh remote run.
+The three TURN TLS relay legs had one cause, now separated by recorded evidence rather
+than inferred. In `45689637824` the served `iceServers` entry is
+`turns:turn.localhost:443?transport=tcp`, the fixture listened on `5349`, and the server
+log ends with `TURN server stopped {"allocations": 0}`: no Allocate ever reached the
+server, which matches the browser report having zero `local-candidate`, `remote-candidate`
+and `candidate-pair` rows. The same attribution dump shows a harness TLS handshake to
+`127.0.0.1:5349` completing with TLS 1.3, the pinned SPKI and an authorized certificate
+chain, so the certificate material was never the problem. Advertising `443` regardless of
+the configured port is exact upstream behavior (`pkg/service/roommanager.go` in the frozen
+oracle, reproduced at `crates/lk-compat/src/signal/ice.rs` and asserted in that module's
+tests), so the fix belongs to the fixtures and the runner, not the server: the TURN TLS and
+native HTTPS fixtures now set `turn.tls_port: 443`, and the job lowers
+`net.ipv4.ip_unprivileged_port_start` first. Because two fixtures now claim the same port,
+the EC and RSA servers run one at a time, and each server-start step waits for its HTTPS
+port and for `443`, so a refused privileged bind reddens that lifecycle step instead of
+showing up as an ICE timeout.
+
+The `congestion` leg is a different failure with no certificate or port involved. Its
+recorded assertion is `client 0 had no SFU pause/layer reduction under congestion`, and its
+timeline holds `livekit_estimated_capacity_bps` at `200000000` for the whole campaign with
+`livekit_probe_attempts` and `livekit_congestion_events` at `0` and
+`livekit_paused_video_tracks` at `0`, while `livekit_allocated_bps` grows from
+`2.7` to `4.3` Mbps against a 120 kbps path and both subscribers' `videoFrames` freeze for
+17 s with `audibleSamples` still rising. The leg is left strict: an SFU that reacted to the
+impairment would produce the pause or the layer change the assertion asks for.
 
 To remove the masking, every media leg is now launched through `ci-leg.mjs`, which runs
 the leg's own command, appends its id, exit code, signal, duration and a redacted output
@@ -257,8 +274,10 @@ workflow `steps` context on purpose: a step is only visible in that context when
 explicit `id`, and a `continue-on-error` step's recorded conclusion is ambiguous. Lifecycle
 steps (server start/stop, evidence upload, TLS removal, `cargo clean`) stay ordinary steps
 with `if: always()` where teardown matters, so if one of them fails the job is already red
-without anything to re-assert. No leg was renamed or reordered, no environment value
-changed, and no assertion was weakened. When the TURN TLS leg is red,
+without anything to re-assert. The leg ids, commands, environment values and assertions are
+unchanged; what changed is which ports the fixtures listen on, one added sysctl step, and
+`https-rsa-probe` moving after the EC leg because the RSA server can only start once the EC
+server releases `443`. When the TURN TLS leg is red,
 `Collect failed TURN TLS leg attribution evidence` runs `ci-leg-attribution.mjs`, which
 dumps harness-side evidence (TURN TLS TCP/TLS probe with the recomputed SPKI pin,
 WebSocket and HTTPS API probes, the recorded leg JSON diagnostics, network interfaces and
