@@ -1,8 +1,8 @@
 //! Twirp request/response encoding (impl-notes §2.2).
 //!
 //! Requests: JSON is read as the first JSON value of the body (trailing bytes are
-//! ignored like `json.Decoder`), then decoded with the pbjson deserializer of the
-//! primary type set, which accepts both camelCase and snake_case and ignores
+//! ignored like `json.Decoder`), then decoded by the descriptor-aware protojson reader
+//! in `lk_protocol::json`, which accepts both camelCase and snake_case and ignores
 //! unknown fields. Protobuf bodies use `prost::Message::decode`.
 //!
 //! Responses: JSON via the `twirp_json` twin (snake_case, every field emitted);
@@ -217,5 +217,78 @@ mod tests {
         assert_eq!(v["creation_time"], "1700000000");
         assert_eq!(v["empty_timeout"], 0);
         assert_eq!(v["turn_password"], "");
+    }
+
+    /// `deny.toml` ignores RUSTSEC-2026-0543 (unmaintained chrono) on the grounds that
+    /// livekit-rs never executes chrono code, and chrono's only live use inside the
+    /// dependency graph is `pbjson_types::Timestamp`'s `Serialize`/`Deserialize` impls.
+    /// `to_twirp_json` renders responses with the generated `twirp_json` serde impls, and
+    /// those call the `Timestamp` impls for every `Timestamp` field, so the claim depends
+    /// on which twins reach `encode`. Each name below is an `encode::<_, B>` instantiation
+    /// in `room_service.rs`, `other_services/agent_dispatch.rs` or `sip/api.rs`; the
+    /// `Timestamp`-bearing responses (SIP trunk CRUD, phone numbers, metrics) are rendered
+    /// by `encode_preserved`, which goes through prost-reflect and no calendar library.
+    /// Wiring a `Timestamp`-carrying twin into `encode` fails here and reopens that
+    /// reasoning rather than silently invalidating the ignore.
+    #[test]
+    fn twirp_json_encode_twins_carry_no_proto_timestamp() {
+        fn carries_timestamp(name: &str, seen: &mut Vec<String>) -> bool {
+            let pool = lk_protocol::json::descriptor_pool();
+            let message = pool
+                .get_message_by_name(name)
+                .unwrap_or_else(|| panic!("{name} must exist in the pinned descriptor pool"));
+            // Structural sharing makes message graphs cyclic; revisiting a name on the
+            // current path contributes no new field type.
+            if seen.iter().any(|visited| visited == name) {
+                return false;
+            }
+            seen.push(name.to_owned());
+            let hit = message.fields().any(|field| match field.kind() {
+                // A map field's kind is its synthetic entry message, whose value field is
+                // reached by the same walk, so map<string, Timestamp> counts.
+                prost_reflect::Kind::Message(inner) => {
+                    inner.full_name() == "google.protobuf.Timestamp"
+                        || carries_timestamp(inner.full_name(), seen)
+                }
+                _ => false,
+            });
+            seen.pop();
+            hit
+        }
+        for name in [
+            "livekit.Room",
+            "livekit.ListRoomsResponse",
+            "livekit.DeleteRoomResponse",
+            "livekit.ListParticipantsResponse",
+            "livekit.ParticipantInfo",
+            "livekit.RemoveParticipantResponse",
+            "livekit.MuteRoomTrackResponse",
+            "livekit.UpdateSubscriptionsResponse",
+            "livekit.SendDataResponse",
+            "livekit.ForwardParticipantResponse",
+            "livekit.MoveParticipantResponse",
+            "livekit.PerformRpcResponse",
+            "livekit.AgentDispatch",
+            "livekit.ListAgentDispatchResponse",
+            "livekit.SIPTrunkInfo",
+        ] {
+            assert!(
+                !carries_timestamp(name, &mut Vec::new()),
+                "{name} would put chrono's Timestamp serde on a twirp JSON response path"
+            );
+        }
+        // The walk must be able to find a Timestamp, otherwise the assertions above prove
+        // nothing. These are real twins of the same service families, reached only through
+        // `encode_preserved`.
+        for name in [
+            "livekit.SIPInboundTrunkInfo",
+            "livekit.ListSIPInboundTrunkResponse",
+            "livekit.MetricSample",
+        ] {
+            assert!(
+                carries_timestamp(name, &mut Vec::new()),
+                "{name} must still carry google.protobuf.Timestamp for this control"
+            );
+        }
     }
 }

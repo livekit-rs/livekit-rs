@@ -45,7 +45,15 @@ x509-cert.workspace = true
 prost.workspace = true
 redis.workspace = true
 rand.workspace = true
-chrono = { version = "=0.4.45", default-features = false, features = ["std", "clock"] }
+# RUSTSEC-2026-0543 (chrono unmaintained, no patched version): our own time
+# formatting moved to std::time + a local civil-date routine. The remaining
+# chrono edge is transitive-only: pbjson-types pulls it for the inherent
+# `Timestamp` Serialize/Deserialize impls. Nothing runs them: protojson requests
+# are parsed by the hand-rolled reader (`crates/lk-protocol/src/json/builder.rs`)
+# and responses are prost-reflect rendered; the generated twirp_json twins that do
+# use serde (`lk_protocol::to_twirp_json`) carry no `Timestamp` field, which
+# `crates/lk-compat/src/twirp/codec.rs` asserts. Ignored in deny.toml; do not add
+# chrono API use here.
 lk-compat.workspace = true
 rtc-core.workspace = true
 rtc-tls.workspace = true

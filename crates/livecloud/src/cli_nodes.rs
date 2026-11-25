@@ -296,10 +296,28 @@ fn fields(node: &Node) -> Result<[String; 14], NodeListError> {
     ])
 }
 
+/// Go `time.Unix(seconds, 0).UTC().Format("2006-01-02 15:04:05")`, computed with the
+/// crate's table-free civil-date routine (`zap_now::civil_from_days`) instead of a
+/// calendar library (`chrono` was dropped for RUSTSEC-2026-0543).
+///
+/// The supported range is the one the Go layout can print: years 0 through 9999. Go
+/// itself has no such cut-off - it renders `10000-01-01 00:00:00` for 253,402,300,800
+/// and `-0185-03-02 23:06:40` for -68,000,000,000 - so a value outside it is refused
+/// rather than rendered differently from upstream. Node timestamps come from a wall
+/// clock at registration, so no `NodeInfo` can carry one.
 fn utc(seconds: i64) -> Result<String, String> {
-    chrono::DateTime::from_timestamp(seconds, 0)
-        .map(|v| v.format("%Y-%m-%d %H:%M:%S").to_string())
-        .ok_or_else(|| "node timestamp is outside the supported formatting range".into())
+    let days = seconds.div_euclid(86_400);
+    let (year, month, day) = crate::zap_now::civil_from_days(days);
+    if !(0..=9999).contains(&year) {
+        return Err("node timestamp is outside the supported formatting range".into());
+    }
+    let secs_of_day = seconds.rem_euclid(86_400);
+    Ok(format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}",
+        secs_of_day / 3600,
+        (secs_of_day % 3600) / 60,
+        secs_of_day % 60,
+    ))
 }
 
 // go-humanize v1.0.1 Bytes: decimal SI, one decimal only below ten.
@@ -478,6 +496,32 @@ fn cells(out: &mut String, widths: &[usize; 14], row: &[String; 14], header: boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Every expected string below was printed by the pinned Go standard library
+    /// (`time.Unix(sec, 0).UTC().Format("2006-01-02 15:04:05")`), including the two
+    /// values just outside the accepted range, so the cut-off is a measured
+    /// difference rather than an untested claim.
+    #[test]
+    fn utc_matches_go_formatting_at_its_boundaries() {
+        for (seconds, expected) in [
+            (0, "1970-01-01 00:00:00"),
+            (-1, "1969-12-31 23:59:59"),
+            (-946_684_800, "1940-01-02 00:00:00"),
+            (1_793_742_365, "2026-11-03 21:46:05"),
+            (253_402_300_799, "9999-12-31 23:59:59"),
+            (-62_167_219_200, "0000-01-01 00:00:00"),
+        ] {
+            assert_eq!(utc(seconds).as_deref(), Ok(expected), "for {seconds}");
+        }
+        // Go renders 10000-01-01 00:00:00 and -0001-12-31 23:59:59 for these.
+        for seconds in [253_402_300_800_i64, -62_167_219_201] {
+            assert_eq!(
+                utc(seconds),
+                Err("node timestamp is outside the supported formatting range".into()),
+                "for {seconds}"
+            );
+        }
+    }
+
     #[test]
     fn real_wire_values_preserve_order_and_do_not_inject_local() {
         let one = Node {

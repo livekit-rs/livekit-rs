@@ -1,5 +1,7 @@
 //! Same production loader and logger, deterministic producer markers. This is a
 //! process-level filtering check, not evidence of an actual ICE negotiation.
+// `src/zap.rs` resolves its clock helpers through `crate::zap_now`, so the
+// example crate root must declare it too.
 #[path = "../src/log_sampling.rs"]
 #[allow(dead_code)]
 mod log_sampling;
@@ -9,6 +11,9 @@ mod logging;
 #[path = "../src/zap.rs"]
 #[allow(dead_code)]
 mod zap;
+#[path = "../src/zap_now.rs"]
+#[allow(dead_code)]
+mod zap_now;
 fn main() {
     let info = lk_config::ProgramInfo {
         binary_name: "livecloud".into(),

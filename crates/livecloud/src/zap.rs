@@ -111,31 +111,44 @@ fn escape_zap(s: &str, out: &mut String) {
 }
 
 /// zap `ISO8601TimeEncoder`: Go layout `2006-01-02T15:04:05.000-0700` —
-/// local time, milliseconds, offset without a colon (chrono emits `+08:00`).
+/// local wall time, milliseconds, offset without a colon (Go/zap drop the colon,
+/// so `+08:00` is printed as `+0800`; UTC prints `Z`).
+///
+/// Local wall time comes from `libc::localtime_r`, which reads the process TZ
+/// environment exactly like Go's `time.Local`, and returns the offset for that
+/// instant, so DST is handled by the platform. The earlier implementation used
+/// `chrono::Local`, dropped for RUSTSEC-2026-0543 (chrono unmaintained).
 fn iso8601_now() -> String {
-    use chrono::{Local, SecondsFormat};
-    go_offset(Local::now().to_rfc3339_opts(SecondsFormat::Millis, false))
+    let (unix, millis) = crate::zap_now::unix_now_millis();
+    iso8601_of(unix, millis)
 }
 
-/// Strip the colon of the trailing UTC offset (`+08:00` → `+0800`); a `Z`
-/// suffix (UTC) is untouched. The offset sign is the first `+`/`-` after `T`.
-fn go_offset(stamped: String) -> String {
-    let bytes: Vec<char> = stamped.chars().collect();
-    let t = bytes.iter().position(|c| *c == 'T').unwrap_or(0);
-    let Some(sign) = bytes[t..].iter().position(|c| *c == '+' || *c == '-') else {
-        return stamped;
-    };
-    let sign = t + sign;
-    if bytes.get(sign + 3) == Some(&':') {
-        stamped
-            .chars()
-            .enumerate()
-            .filter(|(i, _)| *i != sign + 3)
-            .map(|(_, c)| c)
-            .collect()
-    } else {
-        stamped
+/// The layout of Go's reference layout `2006-01-02T15:04:05.000-0700` for one
+/// instant. Split from the clock read so the shape is testable against pinned
+/// values: comparing a live `iso8601_now()` suffix with a second `localtime_r`
+/// reading would assume the offset cannot change between the two.
+fn iso8601_of(unix: i64, millis: u32) -> String {
+    let (year, month, day, hour, min, sec, offset_secs) = crate::zap_now::local_parts(unix);
+    // `localtime_r` reports a leap second as `tm_sec == 60`, which is not a valid
+    // clock value; zap/Go's RFC 3339 encoder never emits it, so clamp like Go does.
+    let sec = sec.min(59);
+    let zone = go_zone(offset_secs);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}.{millis:03}{zone}")
+}
+
+/// zap/Go trailing zone for the layout `-0700`: colon-free `±HHMM`, or `Z` at a
+/// zero offset. Kept separate from `iso8601_now` so the shape is testable without
+/// depending on the host clock or TZ.
+fn go_zone(offset_secs: i64) -> String {
+    if offset_secs == 0 {
+        return "Z".to_string();
     }
+    let (sign, abs) = if offset_secs < 0 {
+        ('-', -offset_secs)
+    } else {
+        ('+', offset_secs)
+    };
+    format!("{sign}{:02}{:02}", abs / 3600, (abs % 3600) / 60)
 }
 
 /// zap's production encoder (`zap.NewProductionEncoderConfig`) time: float
@@ -143,13 +156,14 @@ fn go_offset(stamped: String) -> String {
 /// and writes it with the shortest round-trip decimal, unquoted, under the `ts`
 /// key — so `2026-11-03T22:25:29.998Z` is `1793744729.998`, not a string.
 fn epoch_seconds_now() -> String {
-    use chrono::Utc;
-    epoch_seconds(&Utc::now())
+    let (unix, nsec) = crate::zap_now::unix_now_nanos();
+    epoch_seconds(unix, nsec)
 }
 
-fn epoch_seconds<T: chrono::TimeZone>(t: &chrono::DateTime<T>) -> String {
-    let unix = t.timestamp();
-    let nsec = t.timestamp_subsec_nanos() as u64;
+/// zap `EpochSecondsTimeEncoder`: `(unix as f64 + nsec/1e9)` rendered with Rust's
+/// shortest round-trip `Display`, which matches Go's `strconv.FormatFloat(f,'f',-1)`
+/// for these magnitudes (pinned by `json_time_matches_zap_epoch_seconds_encoder`).
+fn epoch_seconds(unix: i64, nsec: u32) -> String {
     (unix as f64 + (nsec as f64) / 1e9).to_string()
 }
 
@@ -454,7 +468,6 @@ mod tests {
     /// so the encoder is pinned to zap's own rendering, not to a guess.
     #[test]
     fn json_time_matches_zap_epoch_seconds_encoder() {
-        use chrono::{TimeZone, Utc};
         let cases = [
             (1793744699_u64, 470_478_000_u32, "1793744699.470478"),
             (1793744730, 544_369_000, "1793744730.544369"),
@@ -466,13 +479,41 @@ mod tests {
             (1793744971, 767_081_000, "1793744971.767081"),
         ];
         for (unix, nsec, expected) in cases {
-            let at = Utc.timestamp_opt(unix as i64, nsec).unwrap();
-            assert_eq!(epoch_seconds(&at), expected, "ts for {unix}.{nsec}");
+            assert_eq!(
+                epoch_seconds(unix as i64, nsec),
+                expected,
+                "ts for {unix}.{nsec}"
+            );
         }
         // A whole second has no fractional part, exactly like Go's shortest 'f'
         // rendering of the float.
-        let whole = chrono::DateTime::from_timestamp(1793744699, 0).unwrap();
-        assert_eq!(epoch_seconds(&whole), "1793744699");
+        assert_eq!(epoch_seconds(1793744699, 0), "1793744699");
+    }
+
+    /// The live JSON time source must render exactly what the pure helper produces
+    /// for the same clock reading, and stay inside zap's float shape. Two reads can
+    /// straddle a nanosecond boundary, so assert the ordering instead of equality.
+    #[test]
+    fn epoch_seconds_now_renders_pure_helper_shape() {
+        let before = crate::zap_now::unix_now_nanos();
+        let stamp = epoch_seconds_now();
+        let after = crate::zap_now::unix_now_nanos();
+        let parsed: f64 = stamp.parse().expect("`ts` must be a bare float");
+        assert!(
+            parsed.is_finite() && parsed > 1_700_000_000.0,
+            "bad ts {stamp}"
+        );
+        // No exponent/scientific notation, matching Go 'f' formatting.
+        assert!(
+            !stamp.contains('e') && !stamp.contains('E'),
+            "bad ts {stamp}"
+        );
+        let lo = epoch_seconds(before.0, before.1);
+        let hi = epoch_seconds(after.0, after.1);
+        assert!(
+            stamp >= lo && stamp <= hi,
+            "ts {stamp} outside [{lo}, {hi}] from the same clock"
+        );
     }
 
     #[test]
@@ -489,20 +530,73 @@ mod tests {
         assert_eq!(short_caller("config.go:1"), "config.go:1");
     }
 
+    /// The live (non-injected) console time source must produce zap's Go layout
+    /// shape `YYYY-MM-DDTHH:MM:SS.mmm` + zone, with no colon in a numeric offset.
+    /// Length is 24 only for a `Z` zone and 28 for `±HHMM`, so the suffix is parsed
+    /// rather than assuming the host timezone.
     #[test]
-    fn offset_drops_colon_like_go_layout() {
-        assert_eq!(
-            go_offset("2026-10-28T23:46:05.200+08:00".into()),
-            "2026-10-28T23:46:05.200+0800"
+    fn iso8601_now_uses_go_layout_shape() {
+        let stamp = iso8601_now();
+        let bytes = stamp.as_bytes();
+        assert!(
+            matches!(bytes.len(), 24 | 28),
+            "unexpected length for `{stamp}`"
         );
-        assert_eq!(
-            go_offset("2026-10-28T04:46:05.200-07:00".into()),
-            "2026-10-28T04:46:05.200-0700"
-        );
-        assert_eq!(
-            go_offset("2026-10-28T15:46:05.200Z".into()),
-            "2026-10-28T15:46:05.200Z"
-        );
+        assert_eq!(bytes[4], b'-');
+        assert_eq!(bytes[7], b'-');
+        assert_eq!(bytes[10], b'T');
+        assert_eq!(bytes[13], b':');
+        assert_eq!(bytes[16], b':');
+        assert_eq!(bytes[19], b'.');
+        assert!(bytes[..4].iter().all(u8::is_ascii_digit));
+        assert!(bytes[5..7].iter().all(u8::is_ascii_digit));
+        assert!(bytes[8..10].iter().all(u8::is_ascii_digit));
+        assert!(bytes[11..13].iter().all(u8::is_ascii_digit));
+        assert!(bytes[14..16].iter().all(u8::is_ascii_digit));
+        assert!(bytes[17..19].iter().all(u8::is_ascii_digit));
+        assert!(bytes[20..23].iter().all(u8::is_ascii_digit));
+        // Zone: either `Z` or a colon-free four-digit ±HHMM suffix.
+        let zone = &stamp[23..];
+        let zone_ok = zone == "Z"
+            || ((zone.starts_with('+') || zone.starts_with('-'))
+                && zone.len() == 5
+                && zone[1..].bytes().all(|b| b.is_ascii_digit()));
+        assert!(zone_ok, "bad zone `{zone}` in `{stamp}`");
+    }
+
+    /// The rendered instant must be exactly the platform's own local breakdown with
+    /// the Go zone suffix. Pinned to one `localtime_r` reading per case so the
+    /// expectation and the output cannot straddle a DST transition, and independent of
+    /// the host TZ because the offset comes from the platform in both halves.
+    #[test]
+    fn iso8601_of_renders_the_platform_local_parts_exactly() {
+        // A 2026 instant, the epoch second, and a pre-epoch second (the day before),
+        // so the negative floor is exercised on the same path the encoder uses.
+        for unix in [1_793_742_365_i64, 0, -1] {
+            for millis in [0_u32, 7, 470, 999] {
+                let (y, mo, d, h, mi, s, offset) = crate::zap_now::local_parts(unix);
+                let expected = format!(
+                    "{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{millis:03}{}",
+                    go_zone(offset)
+                );
+                assert_eq!(
+                    iso8601_of(unix, millis),
+                    expected,
+                    "unix {unix} +{millis}ms"
+                );
+            }
+        }
+    }
+
+    /// Deterministic zone rendering: zap/Go drops the colon and prints `Z` at zero.
+    #[test]
+    fn go_zone_matches_zap_colonless_layout() {
+        assert_eq!(go_zone(0), "Z");
+        assert_eq!(go_zone(8 * 3600), "+0800");
+        assert_eq!(go_zone(-(7 * 3600)), "-0700");
+        // Half-hour zones (India) keep the minute field.
+        assert_eq!(go_zone(5 * 3600 + 1800), "+0530");
+        assert_eq!(go_zone(-((3 * 3600) + 1800)), "-0330");
     }
 
     #[test]

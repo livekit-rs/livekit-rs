@@ -11,7 +11,34 @@ no-default-features = false
 # RSA private-key TLS signing uses independent stable crypto-bigint constant-time
 # full-modulus/blinded/verify-after-sign adapter, not the affected rsa private API.
 # Owner/review/exit conditions and source gate: crates/rtc-tls/RSA-PUBLIC-ONLY.md.
-ignore = [{ id = "RUSTSEC-2023-0071", reason = "rsa=0.9.10 private arithmetic/signing/decryption API is unreachable; only public verification and DER/prefix types are used. Endpoint signing is independent stable crypto-bigint adapter. Source gate and review/exit conditions: crates/rtc-tls/RSA-PUBLIC-ONLY.md." }]
+# RUSTSEC-2026-0543: chrono is an INFO "unmaintained" notice with no patched version
+# (all 0.4.x affected), so no upgrade can clear it. livekit-rs owns no chrono edge any
+# more: the direct dependency was removed from crates/livecloud and its call sites were
+# migrated to std::time + libc::localtime_r plus a table-free civil-date routine
+# (crates/livecloud/src/zap_now.rs, zap.rs, cli_nodes.rs). The only remaining requester is
+# pbjson-types v0.9.0 (`chrono = { version = "0.4", default-features = false,
+# features = ["alloc"] }`), reached transitively through lk-protocol/lk-compat, and it uses
+# chrono only inside the inherent TryFrom/From and Serialize/Deserialize impls of
+# google.protobuf.Timestamp (registry src timestamp.rs).
+# Those impls do not run. Request JSON is parsed by the hand-rolled protojson reader
+# (crates/lk-protocol/src/json/builder.rs::timestamp() checks the RFC 3339 grammar by byte
+# index and builds a prost-reflect DynamicMessage); response JSON is rendered either by
+# prost-reflect (lk_protocol::json::encode_default, twirp::codec::encode_preserved) or by
+# the generated twirp_json serde impls through lk_protocol::to_twirp_json. Only the latter
+# would reach chrono, and only for a twin that has a Timestamp field; every twin currently
+# passed to twirp::codec::encode (room, participant, agent-dispatch, SIP-trunk) is free of
+# google.protobuf.Timestamp, and the Timestamp-bearing messages (SIP trunk CRUD, phone
+# numbers, metrics) are served by encode_preserved. The guard test
+# crates/lk-compat/src/twirp/codec.rs::twirp_json_encode_twins_carry_no_proto_timestamp
+# enforces that scoping, so adding a Timestamp-carrying twin to `encode` fails a test
+# instead of quietly invalidating this entry.
+# Exit: drop this ignore when pbjson-types removes chrono (or the workspace migrates off
+# pbjson-types); re-run `cargo tree -i chrono` to confirm no normal edge other than
+# pbjson-types remains before removing the entry. Do not add new chrono API use.
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "rsa=0.9.10 private arithmetic/signing/decryption API is unreachable; only public verification and DER/prefix types are used. Endpoint signing is independent stable crypto-bigint adapter. Source gate and review/exit conditions: crates/rtc-tls/RSA-PUBLIC-ONLY.md." },
+    { id = "RUSTSEC-2026-0543", reason = "Unmaintained notice, no patched release exists, so no upgrade clears it. Direct chrono use was removed from crates/livecloud (std::time/libc + the zap_now civil-date routine); the only normal edge left is transitive pbjson-types v0.9.0, whose chrono use lives entirely in google.protobuf.Timestamp serde/TryFrom impls. Those never execute: request JSON is hand-rolled protojson (lk-protocol/src/json/builder.rs::timestamp()) and response JSON is prost-reflect rendered, except the generated twirp_json twins reached by lk_protocol::to_twirp_json, none of which carries a Timestamp field - enforced by lk-compat/src/twirp/codec.rs::twirp_json_encode_twins_carry_no_proto_timestamp. Exit: remove once pbjson-types drops chrono; verify with `cargo tree -i chrono`." },
+]
 
 [licenses]
 allow = [

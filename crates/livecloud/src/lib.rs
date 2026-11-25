@@ -22,6 +22,7 @@ mod server;
 mod turn;
 mod webtransport;
 mod zap;
+mod zap_now;
 
 use std::ffi::OsString;
 use std::process::ExitCode;

@@ -34,7 +34,7 @@ hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { version = "=0.1.21", features = ["client", "client-legacy", "http1", "tokio"] }
 http-body-util = "=0.1.5"
 bytes.workspace = true
-url = "=2.5.8"
+url = "=2.5.9"
 
 # Expanded adapters use stable AEAD 0.6 traits. Existing media/SRTP retains its
 # compatible workspace AEAD 0.5 dependency until that interface is migrated.
