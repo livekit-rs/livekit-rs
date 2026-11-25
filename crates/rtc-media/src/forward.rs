@@ -1897,6 +1897,12 @@ impl MediaEngine {
             .saturating_add(audio_count.saturating_mul(allocator::AUDIO_ALLOWANCE_BPS));
         let desired_wire = payload_demand.saturating_add(payload_demand.div_ceil(9));
         if t.remote_feedback.is_none() {
+            // The Go-parity estimator owns the channel capacity in native mode;
+            // the vendor-facing controller mirrors that commit so its probe
+            // gates read the same authority `Transport::capacity()` returns
+            // (`streamallocator.go:1257-1277`).
+            t.probes
+                .sync_committed_capacity(t.capacity().unwrap_or_default());
             t.probes.prepare_admission(
                 desired_wire,
                 allocator::next_probe_budget(&tracks, &initial_plan),
