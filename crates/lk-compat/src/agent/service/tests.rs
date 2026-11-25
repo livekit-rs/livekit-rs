@@ -432,6 +432,83 @@ async fn deletion_waits_for_cold_agent_to_enter_before_terminating_its_job() {
     net.shutdown();
 }
 
+#[tokio::test(start_paused = true)]
+async fn unreachable_worker_termination_error_still_retires_the_agent_participant() {
+    use crate::agent::registry::WorkerError;
+    use rtc_core::ids::Identity;
+    let (manager, net, service, mut outgoing) = fixture().await;
+    let key = RoomKey::new(ProjectId::local(), "unreachable-worker");
+    manager
+        .create_room(key.clone(), Default::default())
+        .await
+        .unwrap();
+    let dispatch = manager
+        .create_agent_dispatch(
+            &key,
+            AgentDispatchOptions {
+                id: "AD_unreachable".into(),
+                agent_name: "fixture-agent".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let offer = receive(&mut outgoing).await;
+    let Some(pb::server_message::Message::Availability(value)) = offer.message.message else {
+        panic!("worker availability request")
+    };
+    let job_id = value.job.unwrap().id;
+    offer.written.send(Ok(())).unwrap();
+    service
+        .registry
+        .availability(
+            "AW_fixture",
+            pb::AvailabilityResponse {
+                job_id: job_id.clone(),
+                available: true,
+                participant_identity: "gone-agent".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let assignment = receive(&mut outgoing).await;
+    assignment.written.send(Ok(())).unwrap();
+    let _session = join_agent(&manager, &key, "gone-agent").await;
+    // Closing the only reader makes the termination write fail, which is the
+    // state a worker whose process died between assignment and teardown leaves.
+    drop(outgoing);
+    manager
+        .delete_agent_dispatch(&key, &dispatch.id)
+        .await
+        .unwrap();
+    let mut retired = None;
+    for _ in 0..40 {
+        retired = manager
+            .get_participant(&key, &Identity("gone-agent".into()))
+            .await
+            .err();
+        if retired.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        retired.is_some(),
+        "a termination the worker never received still has to retire its agent participant"
+    );
+    let state = service
+        .registry
+        .job_state("AW_fixture", &job_id)
+        .expect_err("an ended job leaves the worker registry, as in fixed Go");
+    assert!(
+        matches!(state, WorkerError::JobNotFound),
+        "the terminal status was applied before the write failed"
+    );
+    service.shutdown().await;
+    manager.close_all().await;
+    net.shutdown();
+}
+
 #[tokio::test]
 async fn dispatch_deleted_while_assignment_write_is_pending_removes_actual_agent_after_grace() {
     use rtc_core::ids::Identity;

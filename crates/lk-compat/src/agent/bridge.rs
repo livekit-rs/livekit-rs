@@ -461,8 +461,14 @@ async fn cleanup_job(
             .await
     };
     if let Err(error) = terminated {
+        // Go never lets the termination RPC decide whether the agent participant
+        // leaves: `RemoveParticipant` runs TerminateJob in a goroutine and only
+        // logs the error (pkg/rtc/room.go:1481-1487), and `Worker.TerminateJob`
+        // applies the job status before combining the write failure
+        // (pkg/agent/worker.go:495-520). `Registry::terminate` already mirrors
+        // that ordering, so an unreachable worker is recorded and the retirement
+        // below still runs.
         tracing::warn!(job_id=%id,%error,"agent job termination failed");
-        return;
     }
     if let Some(mut participant) = participant {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
