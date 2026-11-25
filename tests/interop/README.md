@@ -241,9 +241,13 @@ than inferred. In `45689637824` the served `iceServers` entry is
 `turns:turn.localhost:443?transport=tcp`, the fixture listened on `5349`, and the server
 log ends with `TURN server stopped {"allocations": 0}`: no Allocate ever reached the
 server, which matches the browser report having zero `local-candidate`, `remote-candidate`
-and `candidate-pair` rows. The same attribution dump shows a harness TLS handshake to
-`127.0.0.1:5349` completing with TLS 1.3, the pinned SPKI and an authorized certificate
-chain, so the certificate material was never the problem. Advertising `443` regardless of
+and `candidate-pair` rows. The deciding evidence is that the same log holds no
+`TURN allocation created` row at all: `allocations` is a live gauge, so a clean stop also
+prints `{"allocations": 0}` on a leg that did relay, as the `congestion` log shows after
+two allocations were created and deleted by their clients. The same attribution dump shows
+a harness TLS handshake to `127.0.0.1:5349` completing with TLS 1.3, the pinned SPKI and an
+authorized certificate chain, so the certificate material was never the problem. Advertising
+`443` regardless of
 the configured port is exact upstream behavior (`pkg/service/roommanager.go` in the frozen
 oracle, reproduced at `crates/lk-compat/src/signal/ice.rs` and asserted in that module's
 tests), so the fix belongs to the fixtures and the runner, not the server: the TURN TLS and
@@ -254,12 +258,22 @@ port and for `443`, so a refused privileged bind reddens that lifecycle step ins
 showing up as an ICE timeout.
 
 The `congestion` leg is a different failure with no certificate or port involved. Its
-recorded assertion is `client 0 had no SFU pause/layer reduction under congestion`, and its
-timeline holds `livekit_estimated_capacity_bps` at `200000000` for the whole campaign with
-`livekit_probe_attempts` and `livekit_congestion_events` at `0` and
-`livekit_paused_video_tracks` at `0`, while `livekit_allocated_bps` grows from
-`2.7` to `4.3` Mbps against a 120 kbps path and both subscribers' `videoFrames` freeze for
-17 s with `audibleSamples` still rising. The leg is left strict: an SFU that reacted to the
+recorded assertion is `client 0 had no SFU pause/layer reduction under congestion`, and the
+`45691070092` timeline says why: across its 51 once-per-second samples
+`livekit_estimated_capacity_bps` only ever holds its two initialization values (`100000000`
+at the first sample, `200000000` at all 50 later ones) while
+`livekit_probe_attempts`, `livekit_probe_successes`, `livekit_probe_failures`,
+`livekit_congestion_events`, `livekit_paused_video_tracks` and
+`livekit_allocation_overshoot_bps` stay at `0`. The impairment itself is real and measured in
+the same file: the proxy forwarded `7,355,896` IPv4 bytes in `10,104` packets and dropped
+`7,231`, and `livekit_allocated_bps` climbs from `2,735,272` at the moment the rate is cut to
+`4,273,321` at its peak on a path the profile holds at 120 kbps. Both subscribers then freeze
+for the remaining 17 s - `videoFrames` pinned at `145` and `147` from t=34.4 s to t=51.4 s
+with `lastDimensions` still `960x544`, while `audibleSamples` keep rising `324→494` and
+`326→496` - so audio continues and video stops, and the zero-valued `paused_video_tracks` means
+the SFU never recorded a pause either. A zero `allocation_overshoot_bps` is not evidence of
+accuracy: that gauge is computed against the server's own estimate, so it cannot see a path
+the estimate ignores. The leg is left strict: an SFU that reacted to the
 impairment would produce the pause or the layer change the assertion asks for.
 
 To remove the masking, every media leg is now launched through `ci-leg.mjs`, which runs

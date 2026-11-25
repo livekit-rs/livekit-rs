@@ -320,9 +320,9 @@ jobs:
             kill -KILL "$TURN_TLS_SERVER_PID" 2>/dev/null || true
           fi
           echo "TURN_TLS_SERVER_PID=" >> "$GITHUB_ENV"
-      # Both native HTTPS fixtures serve embedded TURN/TLS on the advertised 443, so
-      # they cannot coexist; the earlier run started them together and only one of
-      # them could ever own the port.
+      # Both native HTTPS fixtures now serve embedded TURN/TLS on the advertised 443,
+      # so they cannot coexist. They used to listen on 5349 and 5350 and did run at
+      # the same time; what they never had was a relay on the port Join named.
       - name: Start native HTTPS-only EC server
         id: https-ec-server
         if: steps.server.outcome == 'success' && steps.build.outcome == 'success'
