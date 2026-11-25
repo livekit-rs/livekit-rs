@@ -265,9 +265,9 @@ pub(crate) struct DynacastAudio {
     /// `dynacastQuality` of the shared base (dynacastmanagerbase.go:42).
     qualities: BTreeMap<&'static str, AudioQuality>,
     /// `subscribedCodecs` (dynacastmanageraudio.go:35).
-    demand: BTreeMap<&'static str, bool>,
+    pub(crate) demand: BTreeMap<&'static str, bool>,
     /// `committedSubscribedCodecs` (:36).
-    committed: BTreeMap<&'static str, bool>,
+    pub(crate) committed: BTreeMap<&'static str, bool>,
 }
 
 impl DynacastAudio {
