@@ -621,7 +621,6 @@ async fn egress_connect_auth_register_without_backend_connection_is_typed_intern
             Some(&record_token()),
             pb::StopEgressRequest {
                 egress_id: "EG_any".into(),
-                ..Default::default()
             },
             options(Duration::from_millis(400)),
         )
@@ -1135,7 +1134,6 @@ async fn egress_cancel_terminate_disconnect_forwards_worker_and_store_verdicts()
             Some(&record_token()),
             pb::StopEgressRequest {
                 egress_id: "EG_stop_live".into(),
-                ..Default::default()
             },
             options(Duration::from_secs(3)),
         )
@@ -1163,7 +1161,6 @@ async fn egress_cancel_terminate_disconnect_forwards_worker_and_store_verdicts()
             Some(&record_token()),
             pb::StopEgressRequest {
                 egress_id: "EG_stop_live".into(),
-                ..Default::default()
             },
             options(Duration::from_secs(3)),
         )
@@ -1192,7 +1189,6 @@ async fn egress_cancel_terminate_disconnect_forwards_worker_and_store_verdicts()
             Some(&record_token()),
             pb::StopEgressRequest {
                 egress_id: "EG_stop_live".into(),
-                ..Default::default()
             },
             options(Duration::from_secs(3)),
         )
@@ -1215,7 +1211,6 @@ async fn egress_cancel_terminate_disconnect_forwards_worker_and_store_verdicts()
             Some(&record_token()),
             pb::StopEgressRequest {
                 egress_id: "EG_stop_live".into(),
-                ..Default::default()
             },
             options(Duration::from_secs(3)),
         )
@@ -1235,7 +1230,6 @@ async fn egress_cancel_terminate_disconnect_forwards_worker_and_store_verdicts()
             Some(&record_token()),
             pb::StopEgressRequest {
                 egress_id: "EG_never_existed".into(),
-                ..Default::default()
             },
             options(Duration::from_secs(3)),
         )
@@ -1289,7 +1283,6 @@ async fn egress_cancel_terminate_disconnect_midjob_backend_goes_silent() {
             Some(&record_token()),
             WireValue::from_message(pb::StopEgressRequest {
                 egress_id: "EG_stop_dead".into(),
-                ..Default::default()
             }),
             options(Duration::from_millis(400)),
         )
@@ -1317,7 +1310,6 @@ async fn egress_cancel_terminate_disconnect_midjob_backend_goes_silent() {
             Some(&record_token()),
             WireValue::from_message(pb::StopEgressRequest {
                 egress_id: "EG_stop_dead".into(),
-                ..Default::default()
             }),
             options(Duration::from_millis(400)),
         )
