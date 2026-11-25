@@ -567,12 +567,11 @@ pub fn encode_signal(
         }
         SignalEvent::SubscribedAudioCodec { track_sid, codecs } => {
             // Go ParticipantImpl.onSubscribedAudioCodecChange
-            // (participant.go:2955-2982): an empty list sends nothing, and each
-            // full mime from the dynacast manager is trimmed of `audio/` then
-            // lower-cased before it goes on the wire.
-            if codecs.is_empty() {
-                return None;
-            }
+            // (participant.go:2955-2982) trims the exact `audio/` prefix then
+            // lower-cases each full mime from the dynacast manager before
+            // building the message. The empty-demand and dynacast returns
+            // happen in that callback, before this arm is reached
+            // (room/media_events.rs), so the builder itself never filters.
             Resp::SubscribedAudioCodecUpdate(pb::SubscribedAudioCodecUpdate {
                 track_sid: track_sid.0,
                 subscribed_audio_codecs: codecs
@@ -1275,21 +1274,27 @@ mod rtt_original_conversion_observer {
     }
 
     #[test]
-    fn an_empty_subscribed_audio_codec_list_sends_nothing() {
+    fn an_empty_subscribed_audio_codec_list_encodes_the_empty_message() {
         let client = ClientMeta::default();
         let mut cache = RequestCache::default();
-        assert!(
-            encode_signal(
-                SignalEvent::SubscribedAudioCodec {
-                    track_sid: TrackSid::from("TR_audio"),
-                    codecs: vec![],
-                },
-                &EncodeCtx { client: &client },
-                &mut cache,
-            )
-            .is_none(),
-            "Go returns before building the message on an empty list (participant.go:2963-2965)"
-        );
+        let reply = encode_signal(
+            SignalEvent::SubscribedAudioCodec {
+                track_sid: TrackSid::from("TR_audio"),
+                codecs: vec![],
+            },
+            &EncodeCtx { client: &client },
+            &mut cache,
+        )
+        .unwrap();
+        // The builder has no filter of its own: upstream returns before it ever
+        // reaches here (participant.go:2963), so this input only exists if a
+        // caller bypassed that gate. Encoding it verbatim keeps the gate in one
+        // place, and the router leg `an_empty_demand_writes_no_signal_message`
+        // is where the suppression is proven.
+        let Some(Resp::SubscribedAudioCodecUpdate(update)) = reply.message else {
+            panic!("audio codec update expected")
+        };
+        assert!(update.subscribed_audio_codecs.is_empty());
     }
 }
 

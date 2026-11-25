@@ -110,27 +110,9 @@ fn the_prefix_trim_is_exact_and_case_sensitive_on_input() {
     );
 }
 
-#[test]
-fn an_empty_demand_from_negotiation_encodes_no_frame_at_all() {
-    // Go returns before building the message when the list is empty
-    // (participant.go:2963-2965), so the publisher never sees a zero-length
-    // update. This is the falsifiable half of "empty list emits nothing":
-    // the event exists, the wire stays silent.
-    let client = ClientMeta::default();
-    let mut cache = RequestCache::default();
-    assert!(
-        encode_signal(
-            SignalEvent::SubscribedAudioCodec {
-                track_sid: TrackSid::from("TR_a"),
-                codecs: vec![],
-            },
-            &EncodeCtx { client: &client },
-            &mut cache,
-        )
-        .is_none(),
-        "an empty committed list must produce no SignalResponse frame"
-    );
-}
+// The empty-demand and dynacast returns are the publisher participant's, not the
+// message builder's (participant.go:2906/2910/2959/2963), so they are proven in
+// crates/rtc-core/src/room/tests/dynacast_signal_routing.rs instead of here.
 
 #[test]
 fn the_quality_encoder_normalizes_video_mimes_the_same_way() {

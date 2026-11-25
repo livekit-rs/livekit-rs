@@ -79,6 +79,11 @@ pub(crate) struct Participant {
     pub next_data_handle: u16,
     pub data_blobs: Vec<DataBlob>,
     pub adaptive_stream: bool,
+    /// The server-side dynacast switch (`participant.go:218`, read at `:2906`
+    /// and `:2959`). Fixed Go declares it in `ParticipantParams` and never
+    /// assigns it anywhere in the tree, so no client query, token claim or
+    /// config key reaches it here either; it only defaults to the same off.
+    pub disable_dynacast: bool,
     pub transports: Vec<(TransportId, PcRole)>,
     pub primary: TransportId,
     /// Current physical transports whose native PC state has left New. Retained

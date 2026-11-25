@@ -357,20 +357,40 @@ impl Room {
                 track_sid,
                 codecs,
             } => {
-                self.signal(
-                    &publisher,
-                    SignalEvent::SubscribedQuality { track_sid, codecs },
-                );
+                // Fixed Go applies both gates inside the publisher participant,
+                // before it builds the message: the dynacast switch returns at
+                // `participant.go:2906` and an empty demand returns at `:2910`.
+                if !codecs.is_empty()
+                    && self
+                        .participants
+                        .get(&publisher)
+                        .is_some_and(|p| !p.disable_dynacast)
+                {
+                    self.signal(
+                        &publisher,
+                        SignalEvent::SubscribedQuality { track_sid, codecs },
+                    );
+                }
             }
             MediaEvent::SubscribedAudioCodec {
                 publisher,
                 track_sid,
                 codecs,
             } => {
-                self.signal(
-                    &publisher,
-                    SignalEvent::SubscribedAudioCodec { track_sid, codecs },
-                );
+                // The audio callback is the same pair of returns
+                // (`participant.go:2959` and `:2963`), not a filter inside the
+                // manager that measured the demand.
+                if !codecs.is_empty()
+                    && self
+                        .participants
+                        .get(&publisher)
+                        .is_some_and(|p| !p.disable_dynacast)
+                {
+                    self.signal(
+                        &publisher,
+                        SignalEvent::SubscribedAudioCodec { track_sid, codecs },
+                    );
+                }
             }
             MediaEvent::AudioLevels(levels) => self.handle_audio_levels(levels),
             MediaEvent::Quality(samples) => self.handle_quality(samples),

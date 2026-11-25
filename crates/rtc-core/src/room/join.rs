@@ -123,6 +123,7 @@ impl Room {
             next_data_handle: 0,
             data_blobs: Vec::new(),
             adaptive_stream: params.adaptive_stream,
+            disable_dynacast: false,
             transports: transports.clone(),
             primary,
             established_transports: HashSet::new(),
