@@ -685,3 +685,7 @@ mod rtc_capacity_tests;
 #[cfg(test)]
 #[path = "nonpositive_attempt_tests.rs"]
 mod nonpositive_attempt_tests;
+
+#[cfg(test)]
+#[path = "negotiated_dynacast_wire_tests.rs"]
+mod negotiated_dynacast_wire_tests;

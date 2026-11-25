@@ -6488,6 +6488,8 @@ mod force_tls_failure_branches;
 
 mod publisher_identity;
 
+mod dynacast_signal_routing;
+
 #[test]
 fn resolved_room_stream_sync_and_firefox_capability_reach_actual_pc_creation() {
     for sync in [false, true] {
