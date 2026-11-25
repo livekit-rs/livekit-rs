@@ -26,6 +26,7 @@
 use super::registry::ROOM_NODE_KEY;
 use super::store_discovery_tests::{allocator, isolated_leg_url, raw, require_empty_db};
 use super::*;
+use std::sync::OnceLock;
 
 /// Register a fresh SERVING row carrying `clients` so `sortBy=clients` ranking is
 /// deterministic between the two nodes.
@@ -84,6 +85,7 @@ async fn explicit_create_pin_overrides_the_ranking_and_persists() {
     let url = isolated_leg_url(11);
     require_empty_db(&mut raw(&url).await).await;
     let allocator = allocator(&url, 0.0, 0.0, "clients", "lowest").await;
+    let capture = Capture::install();
     // ND_busy is deliberately the worse `clients` choice: selecting must pick ND_light.
     register(&allocator, "ND_light", 0).await;
     register(&allocator, "ND_busy", 500).await;
@@ -117,6 +119,16 @@ async fn explicit_create_pin_overrides_the_ranking_and_persists() {
         "ND_absent",
         "Go SelectRoomNode never validates an explicit node id"
     );
+    // Neither room had a mapping when it was pinned, so neither may claim an
+    // override: this is the leg a mutant that logs unconditionally has to redden.
+    let captured = capture.text();
+    for room in ["pin-new", "pin-absent"] {
+        assert_eq!(
+            override_lines(&captured, room).len(),
+            0,
+            "a first pinned create replaces nothing: {captured}"
+        );
+    }
 }
 
 /// With a *fresh* assignment the pin is ignored and the existing owner is kept
@@ -129,6 +141,7 @@ async fn fresh_assignment_beats_a_conflicting_explicit_pin() {
     let allocator = allocator(&url, 0.0, 0.0, "clients", "lowest").await;
     register(&allocator, "ND_owner", 0).await;
     register(&allocator, "ND_other", 500).await;
+    let capture = Capture::install();
 
     assert_eq!(
         allocator.select_owner("pin-reuse", "").await.unwrap(),
@@ -146,6 +159,12 @@ async fn fresh_assignment_beats_a_conflicting_explicit_pin() {
         assignment(&url, "pin-reuse").await.as_deref(),
         Some("ND_owner"),
         "the reuse branch must not rewrite the mapping to the pinned id"
+    );
+    let captured = capture.text();
+    assert_eq!(
+        override_lines(&captured, "pin-reuse").len(),
+        0,
+        "an available owner is kept, so nothing was overridden: {captured}"
     );
 }
 
@@ -169,16 +188,9 @@ async fn stale_assignment_is_adopted_by_the_pin_with_an_authority_log() {
     );
     age(&allocator, "ND_stale").await;
 
-    let seen = ErrorLog::default();
-    let _guard = tracing::subscriber::set_default(
-        tracing_subscriber::fmt()
-            .with_writer(seen.clone())
-            .with_ansi(false)
-            .with_max_level(tracing::Level::DEBUG)
-            .finish(),
-    );
+    let capture = Capture::install();
     let chosen = allocator.select_owner("pin-stale", "ND_pin").await.unwrap();
-    drop(_guard);
+    let captured = capture.text();
 
     assert_eq!(
         chosen, "ND_pin",
@@ -189,19 +201,18 @@ async fn stale_assignment_is_adopted_by_the_pin_with_an_authority_log() {
         Some("ND_pin"),
         "the adopted pin overwrites the stale mapping in place"
     );
-    let captured = String::from_utf8(seen.0.lock().unwrap().clone()).unwrap();
+    let lines = override_lines(&captured, "pin-stale");
     assert_eq!(
-        captured
-            .matches("explicit create pin overrides an existing stale room assignment")
-            .count(),
+        lines.len(),
         1,
         "the port must report that it replaced a stale assignment instead of \
          silently re-pinning (the honest-diagnostic half of this verdict): {captured}"
     );
-    // The log must name both authorities, otherwise it is not actionable.
+    // The line must name both authorities, otherwise it is not actionable.
     assert!(
-        captured.contains("pin-stale") && captured.contains("ND_pin"),
-        "the diagnostic must carry the room and the pinned node: {captured}"
+        lines[0].contains("pinned=\"ND_pin\""),
+        "the diagnostic must carry the pinned node: {}",
+        lines[0]
     );
 }
 
@@ -215,32 +226,48 @@ async fn first_pinned_create_reports_no_override_diagnostic() {
     let allocator = allocator(&url, 0.0, 0.0, "clients", "lowest").await;
     register(&allocator, "ND_pin", 500).await;
 
-    let seen = ErrorLog::default();
-    let _guard = tracing::subscriber::set_default(
-        tracing_subscriber::fmt()
-            .with_writer(seen.clone())
-            .with_ansi(false)
-            .with_max_level(tracing::Level::DEBUG)
-            .finish(),
-    );
+    let capture = Capture::install();
     let chosen = allocator.select_owner("pin-first", "ND_pin").await.unwrap();
-    drop(_guard);
+    let captured = capture.text();
     assert_eq!(chosen, "ND_pin");
-    let captured = String::from_utf8(seen.0.lock().unwrap().clone()).unwrap();
-    assert!(
-        !captured.contains("overrides an existing stale room assignment"),
+    assert_eq!(
+        override_lines(&captured, "pin-first").len(),
+        0,
         "an absent mapping is not an override: {captured}"
     );
 }
 
-/// Captures the subscriber output for the legs above, mirroring the existing
-/// `agent/cluster/tests.rs` ErrorLog convention rather than a new framework.
+/// Process-wide DEBUG sink for the legs that reason about log events.
+///
+/// A thread-scoped default cannot carry an absence claim here: a probe that
+/// printed `std::thread::current().id()` showed the explicit-pin branch emitting
+/// from `ThreadId(2)` while the leg that installed its capture guard ran on
+/// `ThreadId(5)`, so the event missed the thread-local subscriber, the buffer
+/// stayed empty and the leg passed for the wrong reason. One global subscriber
+/// receives the event from whichever thread emits it; the `room` field, unique per
+/// leg, is what attributes it, and `Capture::text` proves the sink is live before
+/// any leg is allowed to reason about what it did not receive.
 #[derive(Clone, Default)]
 struct ErrorLog(Arc<std::sync::Mutex<Vec<u8>>>);
 
+/// Ceiling on the shared buffer: these legs read what they need within one call,
+/// so retaining the tail is enough while a full `--ignored` run cannot grow it.
+const SINK_CAP: usize = 1 << 20;
+
+impl ErrorLog {
+    fn snapshot(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap().clone()).into_owned()
+    }
+}
+
 impl std::io::Write for ErrorLog {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
+        let mut log = self.0.lock().unwrap();
+        log.extend_from_slice(buf);
+        if log.len() > SINK_CAP {
+            let cut = log.len() - SINK_CAP;
+            log.drain(..cut);
+        }
         Ok(buf.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -253,4 +280,67 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for ErrorLog {
     fn make_writer(&'a self) -> Self::Writer {
         self.clone()
     }
+}
+
+static SINK: OnceLock<(
+    ErrorLog,
+    Result<(), tracing::subscriber::SetGlobalDefaultError>,
+)> = OnceLock::new();
+static CANARY_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
+/// A leg's handle on the shared sink plus a token only this install could write.
+struct Capture {
+    sink: ErrorLog,
+    canary: String,
+}
+
+impl Capture {
+    /// Installs the process-wide sink once and emits a per-leg canary through it.
+    fn install() -> Self {
+        let (sink, install) = SINK.get_or_init(|| {
+            let log = ErrorLog::default();
+            let install = tracing::subscriber::set_global_default(
+                tracing_subscriber::fmt()
+                    .with_writer(log.clone())
+                    .with_ansi(false)
+                    .with_max_level(tracing::Level::DEBUG)
+                    .finish(),
+            );
+            (log, install)
+        });
+        let canary = format!(
+            "direct-pin-subscriber-canary-{}",
+            CANARY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let _ = install;
+        tracing::debug!("{canary}");
+        Self {
+            sink: sink.clone(),
+            canary,
+        }
+    }
+
+    /// The lines the sink holds, with this leg's canary proven present.
+    fn text(self) -> String {
+        let captured = self.sink.snapshot();
+        assert!(
+            captured.contains(&self.canary),
+            "the shared sink holds no canary for this leg, so any claim about the logs it \
+             did or did not receive is void: {captured}"
+        );
+        captured
+    }
+}
+
+/// The diagnostic under test, and the only line the override legs count.
+const OVERRIDE: &str = "explicit create pin overrides an existing stale room assignment";
+
+/// The override lines the sink holds for one room. Keying on the room is what
+/// makes the count leg-local even though the sink is shared by the whole process.
+fn override_lines<'a>(captured: &'a str, room: &str) -> Vec<&'a str> {
+    let needle = format!("room=\"{room}\"");
+    captured
+        .lines()
+        .filter(|line| line.contains(OVERRIDE) && line.contains(&needle))
+        .collect()
 }
