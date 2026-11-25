@@ -1007,9 +1007,14 @@ impl MediaEngine {
                         .on_feedback(p.egress_loss_fraction, p.rtt, p.bytes_tx, now);
                 let capacity_after = t.capacity();
                 let native_control_pending = t.probes.has_pending_control();
+                let capacity_commit_pending = t.probes.has_pending_capacity_commit();
                 reallocate = capacity_before != capacity_after
                     || safety_reallocated
-                    || native_control_pending;
+                    || native_control_pending
+                    // A finalized probe measurement has not reached the channel
+                    // capacity yet, so the receipt that produced it must still
+                    // schedule the pass that publishes it and reallocates.
+                    || capacity_commit_pending;
                 tracing::debug!(transport = %tid, stats_rtt = ?p.rtt,
                     rolling_egress_loss = ?p.egress_loss_fraction,
                     native_feedback = ?snapshot.and_then(|s| s.latest_feedback),

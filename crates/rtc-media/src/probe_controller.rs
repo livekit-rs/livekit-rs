@@ -41,6 +41,17 @@ enum DiscoveryGoal {
     TotalDemand,
 }
 
+/// The measurement a controller may hand to the channel-capacity authority: a
+/// finalized non-congesting probe cluster, which Go lets only raise
+/// `committedChannelCapacity` (`streamallocator.go:758-761`). The congested
+/// transition replaces the commit with the *detector's* estimate (`:874-895`)
+/// and is owned by that path, and a receiver REMB or an expired high-water mark
+/// is neither of Go's two writers, so no other event produces one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CapacityCommit {
+    ProbeFinalized(u64),
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Validation {
     goal: DiscoveryGoal,
@@ -58,7 +69,7 @@ struct NativeSafetyReduction {
     budget: u64,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ProbeCounters {
     pub attempts: u64,
     pub successes: u64,
@@ -94,6 +105,7 @@ pub(crate) struct ProbeController {
     feedback_at: Instant,
     rtcp_feedback_at: Option<Instant>,
     committed_capacity: u64,
+    pending_capacity_commit: Option<CapacityCommit>,
     verified_at: Instant,
     last_twcc_at: Option<Instant>,
     last_stats_twcc_at: Option<Instant>,
@@ -134,6 +146,7 @@ impl ProbeController {
             // committed nothing allocates against 0 bps. The vendor estimate is not
             // an authority, so it must not seed this field either.
             committed_capacity: 0,
+            pending_capacity_commit: None,
             verified_at: now,
             last_twcc_at: None,
             last_stats_twcc_at: None,
@@ -426,6 +439,8 @@ impl ProbeController {
                         if admitted > self.committed_capacity {
                             self.committed_capacity = admitted;
                             self.last_growth_at = at;
+                            self.pending_capacity_commit =
+                                Some(CapacityCommit::ProbeFinalized(admitted));
                         }
                         if admitted >= self.committed_capacity {
                             self.verified_at = at;
@@ -478,6 +493,9 @@ impl ProbeController {
                 .filter(|(_, at)| now.saturating_duration_since(*at) < STALE_AFTER)
                 .map(|(rate, _)| rate.min(self.admission_limit()))
                 .unwrap_or_else(|| self.estimate.unwrap_or(MIN_CAPACITY));
+            // An expired high-water mark is not one of Go's two writers, so this
+            // stops the controller claiming an uncovered budget; it is never
+            // published as a channel-capacity commit.
             self.committed_capacity = self.committed_capacity.min(observed);
             self.verified_at = now;
         }
@@ -588,6 +606,13 @@ impl ProbeController {
 
     fn congest(&mut self, capacity: u64, now: Instant) {
         self.counters.congestion_events += 1;
+        // A transport-level congestion observation is the controller's own
+        // reaction: it uncovers the budget it was gating on, but it is not
+        // published as a channel-capacity commit. Go's congested writer reads
+        // the *detector's* current estimate (`streamallocator.go:874-895`), and
+        // that transition already owns the field in this engine
+        // (`forward.rs:1670-1676`); copying a stale local mirror into it would
+        // invent a second reduction.
         self.committed_capacity = self.committed_capacity.min(capacity);
         self.admitted_probe = None;
         self.cancel_validation();
@@ -612,11 +637,27 @@ impl ProbeController {
         Some(self.committed_capacity)
     }
 
-    /// Hand the authority over to the application-owned Go-parity estimator's
-    /// commit, which is the value `Transport::capacity()` returns in native mode.
-    /// Called from the allocation pass so that both surfaces report one capacity.
+    /// Hand the authority over to the channel-capacity commit, which is the
+    /// value `Transport::capacity()` returns in native mode. Called from the
+    /// allocation pass after it merged this controller's own measurement into
+    /// that single field, so both surfaces report one capacity.
     pub(crate) fn sync_committed_capacity(&mut self, committed_bps: u64) {
         self.committed_capacity = committed_bps;
+    }
+
+    /// Take the measurement this controller made since the last allocation pass,
+    /// so the pass can apply it to the single channel-capacity field with Go's
+    /// rule for that event.
+    pub(crate) fn take_capacity_commit(&mut self) -> Option<CapacityCommit> {
+        self.pending_capacity_commit.take()
+    }
+
+    /// A finalized probe measurement that the next allocation pass still owes
+    /// the channel-capacity authority. The receipt that produced it changed no
+    /// committed field yet, so a callback that only compares `capacity()`
+    /// before and after would otherwise skip the pass that publishes it.
+    pub(crate) fn has_pending_capacity_commit(&self) -> bool {
+        self.pending_capacity_commit.is_some()
     }
 
     /// `desired_bps` is demand before allocation; `allocated_bps` is committed
@@ -656,9 +697,13 @@ impl ProbeController {
         if now.saturating_duration_since(self.feedback_at) >= STALE_AFTER
             && now.saturating_duration_since(self.last_adjustment) >= Duration::from_secs(1)
         {
-            let previous = self.capacity(self.estimate).unwrap_or(MIN_CAPACITY);
-            self.committed_capacity =
-                (previous.saturating_mul(80) / 100).max(previous.min(MIN_CAPACITY));
+            // The stale-feedback reaction in the pinned Go oracle is a state
+            // change, never a budget write: `committedChannelCapacity` moves only
+            // at probe finalization (`streamallocator.go:759-760`) and the
+            // congested transition (`:892`), and the send-side detector has no
+            // timeout decay either (`congestion_detector.go` has none). So this
+            // controller may stop and back off discovery here, but the capacity it
+            // mirrors must survive the dry spell for the pass that commits it.
             self.last_adjustment = now;
             if !all_video_paused {
                 self.probe = None;
@@ -667,7 +712,7 @@ impl ProbeController {
             }
             // With video entirely paused and no audio there may be no packet
             // to elicit fresh feedback. Keep the existing bounded discovery
-            // deadline/backoff while still reducing this stale media budget.
+            // deadline/backoff while leaving the mirrored commit untouched.
             self.counters.stale_feedback_events += 1;
         }
         let capacity = self.capacity(self.estimate).unwrap_or(allocated_bps);
@@ -923,7 +968,13 @@ mod tests {
         let result = c.tick(at, 1_000_000, 150_000, None, true, false);
         assert!(result.start_validation_bps.is_none());
         assert!(c.validation.is_none());
-        assert!(c.capacity(None).unwrap() < 400_000);
+        // A dry spell is a discovery reaction, not a capacity writer: the pinned
+        // oracle moves `committedChannelCapacity` only at probe finalization
+        // (`streamallocator.go:759-760`) and the congested transition (`:892`).
+        assert_eq!(c.capacity(None), Some(400_000));
+        assert_eq!(c.counters.stale_feedback_events, 1);
+        assert!(c.probe.is_none());
+        assert!(c.next_probe_at > at);
         assert_eq!(c.last_twcc_at, Some(now));
     }
 
@@ -1144,10 +1195,22 @@ mod tests {
         let now = Instant::now();
         let mut c = ProbeController::new(now);
         let verified = c.verified_at;
-        let at = now + Duration::from_millis(100);
+        let at = now + BASE_INTERVAL + Duration::from_millis(100);
+        // str0m withholds the permission to probe until it has produced a
+        // cause-bearing estimate (`vendor/str0m/src/bwe/probe/control.rs:680`),
+        // and `forward.rs:1776` forwards that answer verbatim, so a cold
+        // controller that never heard it must not discover on its own.
+        let denied = c.tick(at, 2_000_000, 1_800_000, None, true, false);
+        assert!(denied.discovery_needed);
+        assert!(c.probe.is_none());
+        c.on_estimate(2_000_000, true, now);
+        // The estimate event is a capability, not feedback, so it must not
+        // open a validation request either; only native TWCC does that.
         let result = c.tick(at, 2_000_000, 1_800_000, None, true, false);
         assert!(result.discovery_needed);
         assert!(c.probe.is_some());
+        assert_eq!(result.start_validation_bps, None);
+        assert_eq!(result.reset_bwe_to, None);
         // The controller starts at the Go cold committed capacity
         // (`streamallocator.go:234`: no initializer), so any positive demand is
         // deficient and a bootstrap pass may close its coverage gap without
@@ -2736,7 +2799,11 @@ mod tests {
         c.tick(at, 1_000_000, 150_000, None, true, false);
         assert_eq!(c.feedback_at, now);
         assert_eq!(c.counters.stale_feedback_events, 1);
-        assert_eq!(c.capacity(Some(400_000)), Some(320_000));
+        // RTT pings and periodic estimates never refresh the feedback clock, so
+        // the stale pass fires once — and it is a discovery reaction only: the
+        // mirrored channel capacity keeps the value the allocation pass committed
+        // (`streamallocator.go:759-760`, `:892`; no writer on stale feedback).
+        assert_eq!(c.capacity(Some(400_000)), Some(400_000));
     }
 
     #[test]

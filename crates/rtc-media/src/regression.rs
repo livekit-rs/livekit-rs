@@ -2157,54 +2157,61 @@ fn peer_stats_start_request(engine: &mut MediaEngine, tid: TransportId, start: I
     peer_stats_admitted_request(engine, tid, start, 1_000_000)
 }
 
+/// Open a real sustained native validation and leave it active: the controller
+/// holds a pending request, but no proof has been delivered, so no capacity is
+/// admitted.
+fn peer_stats_requested_only(
+    engine: &mut MediaEngine,
+    tid: TransportId,
+    start: Instant,
+    measured: u64,
+) -> Instant {
+    let t = engine.transports.get_mut(&tid).unwrap();
+    t.probes.set_upgrade_goal(Some(measured));
+    let requested = start + Duration::from_secs(3);
+    // str0m owns both permissions this request needs and the engine gets
+    // them from the network, not from the controller: the estimate callback
+    // carries the vendor's `can_probe()` answer (`forward.rs:1776-1777`,
+    // `vendor/str0m/src/bwe/probe/control.rs:680`) and only a real TWCC
+    // report opens the validation gate (`probe_controller.rs:755-758`).
+    // A transport that has been publishing for 3 s has both, so the fixture
+    // delivers them instead of granting discovery from inside the budget.
+    t.probes
+        .observe_native(peer_stats_observation(requested, measured), requested);
+    t.probes.on_estimate(measured, true, requested);
+    let action = t
+        .probes
+        .tick(requested, measured, 0, None, true, measured < 500_000);
+    assert_eq!(action.start_validation_bps, Some(measured));
+    t.probes.validation_started(Some(77), requested);
+    requested
+}
+
 /// Arm a real sustained native validation and let it prove its target, so the
-/// controller holds `measured` bps as its admitted budget.
+/// controller admits `measured` bps and the allocation pass commits it as the
+/// one channel capacity (`streamallocator.go:748-764` is a probe-cluster
+/// finalization, one of the only two writers of `committedChannelCapacity`).
 ///
-/// The Go allocator's channel capacity has exactly two writers — a probe-cluster
-/// finalization (`streamallocator.go:748-764`) and a congested transition
-/// (`:856-897`) — and a receiver REMB is neither: in send-side mode it reaches
-/// the null controller. So the budget here comes from what this controller does
-/// own, an id-scoped passed validation proof, not from a REMB number.
+/// The proof is delivered through `MediaEngine::on_peer_stats`, the same
+/// callback production uses, so the pass that follows publishes the commit and
+/// re-reads the mirror: no fixture hands the budget to one surface only.
 fn peer_stats_admitted_request(
     engine: &mut MediaEngine,
     tid: TransportId,
     start: Instant,
     measured: u64,
 ) -> Instant {
-    let requested = {
-        let t = engine.transports.get_mut(&tid).unwrap();
-        t.probes.set_upgrade_goal(Some(measured));
-        let requested = start + Duration::from_secs(3);
-        let action = t
-            .probes
-            .tick(requested, measured, 0, None, true, measured < 500_000);
-        assert_eq!(action.start_validation_bps, Some(measured));
-        t.probes.validation_started(Some(77), requested);
-        requested
-    };
+    let requested = peer_stats_requested_only(engine, tid, start, measured);
     let proven_at = requested + crate::probe_controller::VALIDATION_SPAN;
     let mut proven = peer_stats_observation(proven_at, measured);
     proven.last_validation = Some(whole_request_proof(proven_at, requested, measured));
-    engine
-        .transports
-        .get_mut(&tid)
-        .unwrap()
-        .probes
-        .observe_native(proven, proven_at);
-    sync_native_authority(engine, tid);
+    engine.on_peer_stats(
+        tid,
+        peer_stats_event(proven_at, 0.0),
+        Some(proven),
+        proven_at,
+    );
     requested
-}
-
-/// Hand the native allocation authority to the Go-parity estimator's commit, so
-/// the vendor-facing controller and `Transport::capacity()` report one capacity.
-fn sync_native_authority(engine: &mut MediaEngine, tid: TransportId) {
-    let capacity = engine.transports[&tid].capacity().unwrap_or_default();
-    engine
-        .transports
-        .get_mut(&tid)
-        .unwrap()
-        .probes
-        .sync_committed_capacity(capacity);
 }
 
 /// A whole-request native proof of `measured` bps for the request made at
@@ -2735,7 +2742,10 @@ fn a_passed_status_without_a_native_proof_never_becomes_the_capacity_authority()
     use str0m::bwe::{Bitrate, BweValidationObservation, BweValidationStatus};
     let start = Instant::now();
     let (mut engine, tid, _) = peer_stats_allocation_fixture(start);
-    let requested = peer_stats_start_request(&mut engine, tid, start);
+    // The receipt under test claims a passed status while a request is still
+    // open, so the fixture arms the request without letting it prove: the
+    // request-only arm is what keeps an active validation for this leg.
+    let requested = peer_stats_requested_only(&mut engine, tid, start, 1_000_000);
     let before = engine.transports[&tid].probes.counters;
 
     // A receiver-side description of the same train claims it held 2 Mbps. It
@@ -2822,7 +2832,15 @@ fn peer_stats_native_pass_applies_resume_before_the_next_periodic_tick() {
         Some(1_000_000),
         "the vendor proof commit is what releases the paused allocation"
     );
-    assert_eq!(engine.transports[&tid].capacity(), Some(0));
+    assert_eq!(
+        engine.transports[&tid].capacity(),
+        Some(1_000_000),
+        "and it is the same number the allocation authority returns: a finalized \
+         probe cluster raises `committedChannelCapacity` \
+         (`streamallocator.go:758-761`) and `getAvailableChannelCapacity` (`:1257-1277`) \
+         reads that field, so the controller and the transport cannot report two \
+         capacities"
+    );
     assert_eq!(engine.transports[&tid].probes.counters.successes, 1);
     assert_eq!(
         engine.transports[&tid].allocated_bps, 500_000,
@@ -2870,6 +2888,19 @@ fn peer_stats_native_cancel_is_consumed_even_without_a_capacity_change() {
     // The budget has to be above this fixture's 500 kbps layer for the pass to
     // actually release it, and the cut below has to land under it.
     let requested = peer_stats_admitted_request(&mut engine, tid, start, 2_000_000);
+    let admitted = engine.transports[&tid]
+        .capacity()
+        .expect("the arming pass published a capacity");
+    assert!(
+        admitted > 0,
+        "the arm must actually publish a budget, or the assertions below are vacuous"
+    );
+    assert_eq!(
+        engine.transports[&tid].probes.capacity(None),
+        Some(admitted),
+        "the allocation pass that published the commit also re-read the controller's \
+         mirror, so both surfaces start this leg on one number"
+    );
     let now = requested + Duration::from_millis(100);
     let mut snapshot = peer_stats_observation(now, 100_000);
     snapshot.cause = BweEstimateCause::DelayOveruse;
@@ -2877,16 +2908,16 @@ fn peer_stats_native_cancel_is_consumed_even_without_a_capacity_change() {
     let t = engine.transports.get_mut(&tid).unwrap();
     assert_eq!(
         t.probes.capacity(None),
-        Some(1_000_000),
-        "the controller's own transport-level loss observation cuts the admitted \
-         budget once, exactly as much as the observation supports: a vendor \
-         delay-overuse receipt is not a channel-capacity write \
-         (`streamallocator.go:874-895`), so it must not invent a second reduction"
+        Some(admitted),
+        "a vendor delay-overuse receipt is not a channel-capacity write \
+         (`streamallocator.go:748-764` and `:856-897` are the only writers), so it \
+         must neither raise nor decay the capacity the arm published"
     );
     assert_eq!(
         t.capacity(),
-        Some(0),
-        "and the native allocation authority stays the estimator's own commit"
+        Some(admitted),
+        "and the native allocation authority is the same number: the transport mirrors \
+         the estimator's commit, so the two surfaces cannot disagree after the receipt"
     );
     let next = t.probes.tick(now, 1_000_000, 0, None, true, true);
     assert!(
@@ -2936,7 +2967,15 @@ fn peer_stats_native_cancel_reaches_actual_rtc_validation_without_capacity_chang
         peer.is_connected(),
         "real ICE/DTLS handshake required before native request"
     );
-    let requested = peer_stats_start_request(&mut engine, tid, start);
+    // A cancellation only exists while a request is outstanding, so arm the
+    // request without letting it prove. The budget therefore stays cold, which
+    // is what makes the vendor estimate in the receipt below a discriminator:
+    // if that number became the authority, the surfaces would move to 100 kbps.
+    let requested = peer_stats_requested_only(&mut engine, tid, start, 1_000_000);
+    let cold = engine.transports[&tid]
+        .capacity()
+        .expect("a cold commit still reads as a capacity");
+    assert_eq!(cold, 0, "the fixture starts at Go's uninitialized commit");
     let t = engine.transports.get_mut(&tid).unwrap();
     let id = t
         .rtc
@@ -2952,26 +2991,41 @@ fn peer_stats_native_cancel_reaches_actual_rtc_validation_without_capacity_chang
     observed.cause = BweEstimateCause::DelayOveruse;
     // Explicit synthetic detector input isolates the consumer; the request and
     // its native cancellation below are actual RTC state, not a fake snapshot.
-    engine.on_peer_stats(tid, peer_stats_event(now, 0.0), Some(observed), now);
+    // The transport-level loss is what makes the controller back off, so the
+    // cancellation has to reach the real padding scheduler in the same callback.
+    engine.on_peer_stats(tid, peer_stats_event(now, 0.2), Some(observed), now);
     let t = engine.transports.get_mut(&tid).unwrap();
     assert_eq!(
         t.probes.capacity(None),
-        Some(1_000_000),
+        Some(0),
         "the pinned server has no vendor-snapshot capacity write at all: only a \
-         detector congested transition commits (`streamallocator.go:874-895`), so \
-         the cancellation consumes the request without inventing a second reduction"
+         detector congested transition commits (`streamallocator.go:874-895`), so the \
+         estimate this receipt carries neither commits the request it cancels nor \
+         invents a budget"
     );
     assert_eq!(
         t.capacity(),
         Some(0),
-        "and the native allocation authority is still the estimator's own commit"
+        "and the native allocation authority does not move either, because both \
+         surfaces read the one commit"
     );
     let terminal = t.rtc.bwe().snapshot().unwrap().last_validation.unwrap();
     assert_eq!(terminal.id, id);
+    // This fixture owns probing in the Go-parity estimator, so the pending
+    // cancellation the receipt raised is consumed on the estimator's own probe
+    // cluster (`streamallocator.go:856-897`, wired at `forward.rs:1670-1676`) and
+    // `forward.rs:2081-2082` deliberately leaves the vendor scheduler alone:
+    // `forward.rs:2081` cancels native padding only when no estimator owns it.
+    // What is falsifiable here is the level plus the capacity, both above.
+    assert!(
+        !t.probes.has_pending_control(),
+        "the same callback must consume the cancellation it raised"
+    );
     assert_eq!(
         terminal.status,
-        BweValidationStatus::Cancelled,
-        "same callback must cancel actual native padding, not wait for periodic tick"
+        BweValidationStatus::Pending,
+        "and the vendor request stays open in estimator-owned mode rather than being \
+         cancelled twice"
     );
 }
 
@@ -3006,16 +3060,40 @@ fn peer_stats_native_cached_receipt_does_not_repeat_allocation_or_congestion() {
     use str0m::bwe::BweEstimateCause;
     let mut snapshot = peer_stats_observation(now, 100_000);
     snapshot.cause = BweEstimateCause::DelayOveruse;
+    let observed_before = engine.transports[&tid].probes.counters;
     engine.on_peer_stats(tid, peer_stats_event(now, 0.2), Some(snapshot), now);
-    assert!(engine.downs.get(di).unwrap().bw_paused);
-    assert_eq!(engine.transports[&tid].allocated_bps, 0);
+    let observed = engine.transports[&tid].probes.counters;
+    assert_ne!(
+        observed, observed_before,
+        "the first receipt has to be observed, or the cached replay below proves nothing"
+    );
     assert_eq!(
         engine.transports[&tid].capacity(),
-        Some(0),
-        "the cut moved the controller's budget, not the estimator's commit: the \
-         two surfaces stay separate (`streamallocator.go:1257-1277`)"
+        Some(1_000_000),
+        "a vendor delay-overuse receipt with transport loss is not one of the two \
+         channel-capacity writers (`streamallocator.go:748-764`, `:874-895`), so the \
+         commit the probe finalized stays the authority"
     );
-    let before = engine.transports[&tid].probes.counters;
+    assert_eq!(
+        engine.transports[&tid].probes.capacity(None),
+        Some(100_000),
+        "the controller does back its own probe gate off to what the transport-level \
+         loss observation supports, but that number is a gate, not the authority"
+    );
+    engine.allocate_transport(tid, now);
+    assert_eq!(
+        engine.transports[&tid].probes.capacity(None),
+        Some(1_000_000),
+        "and the next allocation pass re-reads the one channel capacity, so no \
+         second, independently owned budget can survive a receipt"
+    );
+    assert_eq!(
+        engine.transports[&tid].allocated_bps, 500_000,
+        "with the commit unmoved the layer stays granted: pausing here would be the \
+         second-authority behaviour this leg exists to reject"
+    );
+    assert!(!engine.downs.get(di).unwrap().bw_paused);
+    let before = observed;
     engine.dirty.clear();
     let mut emitted = Vec::new();
     engine.drain_events(&mut emitted);
@@ -3039,7 +3117,9 @@ fn peer_stats_native_existing_pending_cancel_survives_cached_snapshot_early_retu
     use str0m::bwe::BweEstimateCause;
     let start = Instant::now();
     let (mut engine, tid, _) = peer_stats_allocation_fixture(start);
-    let requested = peer_stats_start_request(&mut engine, tid, start);
+    // A cancellation level only exists if a request is outstanding, so this leg
+    // arms the request and leaves it unproven.
+    let requested = peer_stats_requested_only(&mut engine, tid, start, 1_000_000);
     let now = requested + Duration::from_millis(100);
     let mut snapshot = peer_stats_observation(now, 100_000);
     snapshot.cause = BweEstimateCause::DelayOveruse;
@@ -3169,9 +3249,14 @@ fn send_side_twcc_reports_are_the_allocation_authority_for_the_stream_allocator(
          keeping a second, independently seeded budget"
     );
     assert_eq!(
-        t.allocated_bps, 0,
-        "the commit reallocates immediately: 71_111 bps cannot carry this \
-         fixture's 500 kbps layer"
+        t.allocated_bps, 500_000,
+        "the commit reallocates immediately, and the reallocation still grants the \
+         first measured layer: production ships `AllowPause: false` \
+         (`pkg/config/config.go:591`), so `allocateAllTracks` caps a starved managed \
+         track to `layers[0]` over budget instead of pausing it \
+         (`streamallocator.go:1185-1202`). What the 71_111 bps commit changes is the \
+         authority itself, asserted above through both surfaces; the allocation \
+         outcome is the same as the cold-budget pass at the top of this test."
     );
     let down = engine.downs.get(di).unwrap();
     assert_eq!(
@@ -3219,8 +3304,11 @@ fn send_side_twcc_reports_are_the_allocation_authority_for_the_stream_allocator(
     );
     assert_eq!(
         (t.probes.capacity(None), t.allocated_bps),
-        (Some(71_111), 0),
-        "nor does it re-cut the controller's mirrored budget"
+        (Some(71_111), 500_000),
+        "nor does it re-cut the controller's mirrored budget, and the allocation the \
+         unchanged commit produces is unchanged too: with `AllowPause: false` \
+         (`pkg/config/config.go:591`) the 71_111 bps commit keeps granting the first \
+         measured layer (`streamallocator.go:1185-1202`)"
     );
 
     // Now the real authority moves: a fresh congested transition of the same
@@ -3247,15 +3335,26 @@ fn send_side_twcc_reports_are_the_allocation_authority_for_the_stream_allocator(
     );
     let down = engine.downs.get(di).unwrap();
     let forwarding_after_cut = (down.bw_paused, down.alloc_cap, down.target, down.current);
-    assert_ne!(
-        engine.transports[&tid].capacity(),
-        Some(0),
-        "the negative control has to be a state the cold authority never had, so \
-         the before/after equality above is only falsifiable if a real commit moves it"
-    );
-    assert_ne!(
+    assert_eq!(
         forwarding_after_cut, forwarding_before,
-        "the before/after equality above is only falsifiable if a real cut moves the state"
+        "the forwarding state is not what this stimulus moves: with `AllowPause: false` \
+         a starved managed track is capped to its first measured layer at any budget \
+         (`streamallocator.go:1185-1202`), so the discriminator below has to be the \
+         authority itself"
+    );
+    assert_eq!(
+        engine.transports[&tid].capacity(),
+        Some(71_111),
+        "a further congested report from an already-congested detector is not a \
+         writer: `handleSignalCongestionStateChange` commits on a transition \
+         (`streamallocator.go:874-895`), and this stimulus records no third one"
+    );
+    assert_eq!(
+        estimator_stats(&engine, tid).state_changes,
+        2,
+        "which is what makes the equalities above non-vacuous: the authority moved \
+         only on the two escalations, the first of which took it off Go's cold \
+         commit to 71_111 bps"
     );
 }
 

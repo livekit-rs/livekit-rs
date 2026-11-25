@@ -1897,8 +1897,30 @@ impl MediaEngine {
             .saturating_add(audio_count.saturating_mul(allocator::AUDIO_ALLOWANCE_BPS));
         let desired_wire = payload_demand.saturating_add(payload_demand.div_ceil(9));
         if t.remote_feedback.is_none() {
-            // The Go-parity estimator owns the channel capacity in native mode;
-            // the vendor-facing controller mirrors that commit so its probe
+            // One channel-capacity authority for both surfaces. Go moves
+            // `committedChannelCapacity` from exactly two observations — a
+            // finalized non-congesting probe cluster, which may only raise it
+            // (`streamallocator.go:758-761`), and the congested transition,
+            // which replaces it (`:874-895`) — and the allocation pass reads
+            // that one field back (`:1257-1277`). Rust measures the same two
+            // events on two paths, the ported estimator's own cluster commit
+            // (`:1487`) and the vendor-facing controller's id-scoped proof, so
+            // this is where the controller's measurement merges into the single
+            // field under Go's upward-only rule. Nothing else is published: the
+            // congested transition is already owned by the estimator's state
+            // change (`:1670-1676`), a receiver estimate or an expired
+            // high-water mark has no writer in the pinned oracle, and an
+            // explicit override lives in `overriddenChannelCapacity` instead
+            // (`:846-854`).
+            match t.probes.take_capacity_commit() {
+                Some(crate::probe_controller::CapacityCommit::ProbeFinalized(bps)) => {
+                    if i64::try_from(bps).unwrap_or(i64::MAX) > t.committed_channel_capacity_bps {
+                        t.committed_channel_capacity_bps = i64::try_from(bps).unwrap_or(i64::MAX);
+                    }
+                }
+                None => {}
+            }
+            // The vendor-facing controller mirrors that commit so its probe
             // gates read the same authority `Transport::capacity()` returns
             // (`streamallocator.go:1257-1277`).
             t.probes
