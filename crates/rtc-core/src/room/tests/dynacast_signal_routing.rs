@@ -32,6 +32,9 @@ fn audio_codecs() -> Vec<SubscribedAudioCodec> {
 fn an_engine_audio_codec_announcement_signals_the_publisher_once() {
     let (mut room, now) = room();
     let publisher = room.join(params("publisher", 17, false), now).unwrap();
+    // A second participant owns the "publisher only" claim: without it the
+    // addressing assertion could not fail for any wiring.
+    let subscriber = room.join(params("subscriber", 17, false), now).unwrap();
     room.take_effects();
 
     room.handle_media_event(
@@ -65,9 +68,11 @@ fn an_engine_audio_codec_announcement_signals_the_publisher_once() {
     assert!(
         !effects.iter().any(|e| matches!(
             e,
-            Effect::Signal { to, .. } if to != &publisher.sid
+            Effect::Signal { to, .. } if to == &subscriber.sid
         )),
-        "the update is addressed to the publisher only"
+        "the subscriber that negotiated the codecs is not the address of a \
+         demand notification (participant.go:3723 wires the listener on the \
+         publisher participant): {effects:?}"
     );
 }
 
