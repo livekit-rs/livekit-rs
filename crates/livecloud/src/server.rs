@@ -83,7 +83,11 @@ pub enum ServerError {
 }
 
 /// Identical allocation policy for local and Redis-backed room ownership.
-fn allocation_selector_config(loaded: &LoadedConfig) -> lk_compat::room_control::selector::Config {
+/// `pub` so the C96 config_projection legs can drive the real loading path
+/// through this exact projection site instead of a hand-built `Config`.
+pub fn allocation_selector_config(
+    loaded: &LoadedConfig,
+) -> lk_compat::room_control::selector::Config {
     let selector = &loaded.official.node_selector;
     lk_compat::room_control::selector::Config {
         kind: selector.kind.clone(),
@@ -2124,3 +2128,7 @@ mod signal_registration_tests {
 #[cfg(test)]
 #[path = "cli_join_token_tests.rs"]
 mod cli_join_token_tests;
+
+#[cfg(test)]
+#[path = "node_selector_projection_tests.rs"]
+mod node_selector_projection_tests;
