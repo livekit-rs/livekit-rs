@@ -10,14 +10,15 @@
 //!   which `pkg/sfu/receiver_base.go:240-246` gives to the down-track spreader.
 //!
 //! The Rust engine keeps the same quantity at its own broadcast-measurement
-//! boundary (`forward_timing.rs`): a cohort accumulates one write per
-//! successful subscriber per admitted original packet, and once the running
-//! total passes the threshold the remaining packets are attributed to Go's
-//! spreader worker pool instead of this call's serial path, so they lose their
-//! forwarding-latency sample. The threshold is therefore observable as the
-//! *number of samples* a cohort produces, not as their size — the packet whose
-//! own write count overshoots the budget is the discriminator, which is why the
-//! fixture leads with one 45-subscriber broadcast.
+//! boundary (`forward_timing.rs`): one admitted original packet costs one write
+//! per successful subscriber, and the packet whose own write count exceeds the
+//! budget left over ends the serial measurement there — the loop breaks, so the
+//! packets after it never get a forwarding-latency sample. A cohort that merely
+//! exhausts the budget without any single packet overshooting it is still
+//! sampled whole, because a zero remainder skips only the accounting. The
+//! threshold is therefore observable as the *number of samples* a cohort
+//! produces, never as their size, and the discriminator is the leading
+//! packet's write count, not the cohort total.
 use super::*;
 use str0m::media::ForwardingPacket;
 
@@ -112,7 +113,8 @@ fn a_small_broadcast_is_sampled_whole_under_either_threshold() {
         )
         .unwrap();
         engine.cfg.rtc.forward_stats = Some(stats.clone());
-        // 2 subscribers x 6 packets = 12 writes, below the 20 budget.
+        // 2 writes on the leading packet, 1 on each of the other five: seven in
+        // total, inside even the 20 budget.
         engine.record_forwarding_cohort(&cohort(now, 2), now, now);
         stats.tick(now + Duration::from_millis(100));
         assert_eq!(
