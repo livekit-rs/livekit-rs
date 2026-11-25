@@ -423,6 +423,62 @@ mod tests {
         b.unsubscribe(&channel).await.unwrap();
         assert!(bus.groups.lock().unwrap().is_empty());
     }
+
+    /// The pinned local transport indexes both of its sub-list maps by
+    /// `channel.Legacy` (localbus.go:42-43,56,60), and a request's legacy
+    /// subject carries the method, so two topic-less methods of one service
+    /// keep separate queue members even though their hierarchical
+    /// `SRV.<service>.Q` subjects are identical.
+    #[tokio::test]
+    async fn queued_membership_is_keyed_per_method_not_per_hierarchical_subject() {
+        let bus = bus(8);
+        let start = MethodSpec {
+            service: "EgressMembershipLocalTransportComponent".into(),
+            method: "StartEgress".into(),
+            topics: vec![],
+            require_claim: false,
+            queue: true,
+        };
+        let stop = MethodSpec {
+            method: "StopEgress".into(),
+            ..start.clone()
+        };
+        let start_channel = start.request_channel();
+        let stop_channel = stop.request_channel();
+        assert_eq!(
+            start_channel.server, stop_channel.server,
+            "the hierarchical subjects of one queued service do coincide"
+        );
+        assert_ne!(
+            start_channel.legacy, stop_channel.legacy,
+            "the legacy subjects are per method"
+        );
+        let mut start_reader = bus.subscribe(&start_channel, true).await;
+        let mut stop_reader = bus.subscribe(&stop_channel, true).await;
+        // Two offers, because a collapsed key would round-robin the second one
+        // onto the other method's member while a single offer could pick the
+        // right member by chance.
+        for offer in [b"for-start-1", b"for-start-2"] {
+            assert_eq!(
+                bus.publish_encoded(&start_channel, offer).await.unwrap(),
+                1,
+                "only the StartEgress queue member is a candidate"
+            );
+        }
+        assert_eq!(start_reader.receiver.try_recv().unwrap(), b"for-start-1");
+        assert_eq!(
+            start_reader.receiver.try_recv().unwrap(),
+            b"for-start-2",
+            "both StartEgress offers stayed in the StartEgress queue"
+        );
+        assert!(
+            stop_reader.receiver.try_recv().is_err(),
+            "a StopEgress member must not receive a StartEgress offer"
+        );
+        start_reader.unsubscribe(&start_channel).await.unwrap();
+        stop_reader.unsubscribe(&stop_channel).await.unwrap();
+        assert!(bus.groups.lock().unwrap().is_empty());
+    }
     #[tokio::test]
     async fn closing_selected_reader_releases_real_capacity_blocked_publish() {
         let bus = bus(1);
