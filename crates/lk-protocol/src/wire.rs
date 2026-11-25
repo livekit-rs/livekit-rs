@@ -606,6 +606,9 @@ mod attribution_tests {
     }
 
     #[test]
+    // The leg exercises the field Go's sync reads and backfills, so the
+    // deprecated name is the subject under test rather than an oversight.
+    #[expect(deprecated)]
     fn envelope_identity_overwrites_stale_user_identity() {
         // room.go:2138-2139: non-empty dp.ParticipantIdentity wins over u.
         let body = packet(
@@ -624,6 +627,9 @@ mod attribution_tests {
     }
 
     #[test]
+    // The backfill direction reads the deprecated field Go copies from, so the
+    // deprecated name is the subject under test rather than an oversight.
+    #[expect(deprecated)]
     fn empty_envelope_backfills_from_user_identity() {
         // room.go:2141: dp.ParticipantIdentity = u.ParticipantIdentity.
         let body = packet(
@@ -683,6 +689,9 @@ mod attribution_tests {
     }
 
     #[test]
+    // The collapse is checked on the field Go's sync writes, so the deprecated
+    // name is the subject under test rather than an oversight.
+    #[expect(deprecated)]
     fn duplicate_identity_records_collapse_to_one_synced_value() {
         // Go decode keeps the last occurrence in the typed struct; marshal then
         // emits exactly one synced field on each side.

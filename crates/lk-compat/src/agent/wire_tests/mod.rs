@@ -373,10 +373,7 @@ async fn register_identity_ordering_and_deadline_over_real_websocket() {
         response.endpoint_settings.is_none(),
         "the WS path serves no data plane, so settings stay withheld (agenthandler.go:183-189,200)"
     );
-    assert_eq!(
-        reply.text, true,
-        "JSON in answers JSON out (wsprotocol.go:205)"
-    );
+    assert!(reply.text, "JSON in answers JSON out (wsprotocol.go:205)");
     let worker_id = response.worker_id.clone();
 
     // Ordering: the registry becomes ready only after the writer acknowledged
@@ -526,7 +523,7 @@ async fn pingpong_echo_codec_switch_and_transport_keepalive() {
     };
     assert_eq!(pong.last_timestamp, 123, "echo of the request timestamp");
     assert!(pong.timestamp >= now_ms() - 1000, "server clock in ms");
-    assert_eq!(frame.text, true, "pong follows the JSON codec");
+    assert!(frame.text, "pong follows the JSON codec");
 
     peer.send_json(b"{\"register\":{\"type\":\"JT_ROOM\",\"agentName\":\"pp\"}}")
         .await;

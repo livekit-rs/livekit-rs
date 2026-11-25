@@ -476,8 +476,7 @@ fn sdp_negotiated_single_pc_audio_subscription_announces_the_committed_mime() {
     let sub_section = sections
         .iter()
         .copied()
-        .filter(|s| crate::sdp_munge::section_direction(s) == Some("recvonly"))
-        .next()
+        .find(|s| crate::sdp_munge::section_direction(s) == Some("recvonly"))
         .expect("client offers a recvonly audio section");
     assert!(
         sub_section.contains("a=rtpmap:63 red/"),
@@ -493,8 +492,7 @@ fn sdp_negotiated_single_pc_audio_subscription_announces_the_committed_mime() {
     let section = crate::sdp_munge::split_sections(&answer)
         .1
         .into_iter()
-        .filter(|s| crate::sdp_munge::section_direction(s) == Some("sendonly"))
-        .next()
+        .find(|s| crate::sdp_munge::section_direction(s) == Some("sendonly"))
         .expect("server answers the subscription m-line sendonly");
     assert!(
         section.contains("a=rtpmap:63 red/"),

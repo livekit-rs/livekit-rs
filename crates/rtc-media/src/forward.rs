@@ -1912,13 +1912,12 @@ impl MediaEngine {
             // high-water mark has no writer in the pinned oracle, and an
             // explicit override lives in `overriddenChannelCapacity` instead
             // (`:846-854`).
-            match t.probes.take_capacity_commit() {
-                Some(crate::probe_controller::CapacityCommit::ProbeFinalized(bps)) => {
-                    if i64::try_from(bps).unwrap_or(i64::MAX) > t.committed_channel_capacity_bps {
-                        t.committed_channel_capacity_bps = i64::try_from(bps).unwrap_or(i64::MAX);
-                    }
-                }
-                None => {}
+            if let Some(crate::probe_controller::CapacityCommit::ProbeFinalized(bps)) =
+                t.probes.take_capacity_commit()
+            {
+                t.committed_channel_capacity_bps = t
+                    .committed_channel_capacity_bps
+                    .max(i64::try_from(bps).unwrap_or(i64::MAX));
             }
             // The vendor-facing controller mirrors that commit so its probe
             // gates read the same authority `Transport::capacity()` returns

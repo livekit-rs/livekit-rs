@@ -253,20 +253,21 @@ async fn whip_http_envelope_table_matches_pinned_go() {
     let join = || json!({"roomJoin": true, "room": "whip-row-room"});
     // (id, method, path, req content-type, If-Match, identity, video, body,
     //  status, resp content-type, error, empty body)
-    let rows: Vec<(
-        &str,
-        &str,
-        &str,
-        Option<&str>,
-        Option<&str>,
-        &str,
+    type RawRow = (
+        &'static str,
+        &'static str,
+        &'static str,
+        Option<&'static str>,
+        Option<&'static str>,
+        &'static str,
         Option<serde_json::Value>,
-        Option<&str>,
+        Option<&'static str>,
         u16,
-        Option<&str>,
-        Option<&str>,
+        Option<&'static str>,
+        Option<&'static str>,
         bool,
-    )> = vec![
+    );
+    let rows: Vec<RawRow> = vec![
         // GET /whip/v1 — whipservice.go:88-91: bare 204, no headers set.
         (
             "get-root", "GET", "/whip/v1", None, None, "", None, None, 204, None, None, true,

@@ -8,6 +8,7 @@
 //!   `participant_signal.go:389`.
 //! - `participant.go:2904-2952`: the same shape for `SubscribedQualityUpdate`
 //!   with the `video/` prefix (`:2939-2941`).
+//!
 //! The values fed here are the two shapes the engines commit: the audio
 //! manager keeps full canonical mimes with the `audio/` prefix (Go
 //! `dynacastmanageraudio.go:178-198`, `DynacastAudio::payload()`), while the
