@@ -414,8 +414,9 @@ const SERVER_GRACE: Duration = Duration::from_secs(3);
 /// The legs carry a separate deadline because they carry different evidence. A client that
 /// never returns is a hung process; a client that returns while the server leg is still
 /// pending refused the stimulus, and its exit status and stderr are the only record of why.
-/// Run 45700623620 is the first bounded verdict: `P256/TLS_AES_128_GCM_SHA256/P-256: no
-/// outcome within 15s` in 15.50s, which names the cell but not the refusal.
+/// Run 45700623620 turned the 45-minute stall into a 15.50-second named cell, and the split
+/// deadline then turned that name into a cause: `the client exited with exit status: 1 but
+/// the server leg never completed; stderr: Call to SSL_CONF_cmd(-groups, P-256:P-256) failed`.
 async fn await_cell(
     label: &str,
     client: tokio::task::JoinHandle<std::process::Output>,
@@ -602,12 +603,15 @@ async fn openssl_client_verifies_rsa_ecdsa_ed25519_all_ciphers_and_key_exchanges
     }
 }
 
+/// Ceiling for the named-stall control test, deliberately independent of the cell
+/// deadlines it checks. Deriving it from them would let a wider grace silently widen the
+/// test's patience: a candidate `SERVER_GRACE` of an hour was measured to leave that
+/// version of the control running past 200 s instead of reddening.
+const CONTROL_DEADLINE: Duration = Duration::from_secs(30);
+
 /// The stall shape the CI hit: the client process is gone while the accept leg is still
 /// being awaited, and only the client leg carries a deadline. An option every OpenSSL
 /// build rejects reproduces it without depending on any particular cipher support.
-///
-/// The outer deadline here is longer than the per-cell one, so an `await_cell` that
-/// leaves the accept leg unbounded fails this test rather than hanging it.
 #[tokio::test]
 #[ignore = "requires independent OpenSSL 3 via RTC_TLS_OPENSSL"]
 async fn openssl_cell_without_a_connection_reports_a_named_stall() {
@@ -627,8 +631,7 @@ async fn openssl_cell_without_a_connection_reports_a_named_stall() {
             .unwrap()
     });
     let label = "RSA/AES128-GCM-SHA256/X25519";
-    let outer = CELL_TIMEOUT + SERVER_GRACE + Duration::from_secs(10);
-    let outcome = tokio::time::timeout(outer, await_cell(label, client, server))
+    let outcome = tokio::time::timeout(CONTROL_DEADLINE, await_cell(label, client, server))
         .await
         .expect("the accept leg must be bounded by the cell deadline");
     let err = outcome.expect_err("a client that never connects must fail its cell, not hang it");
