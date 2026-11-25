@@ -403,6 +403,11 @@ impl Transport {
             requested: (0, 0),
             requirement_dirty: false,
             requirement_force: false,
+            // `estimate_bps` is a diagnostic of the vendor estimate only. The
+            // allocation authority in native mode is the committed channel
+            // capacity (`streamallocator.go:234`: no initializer, so a cold
+            // transport allocates against 0 bps), and in the receiver-estimate
+            // modes it is the feedback owner's own capacity — neither reads this.
             estimate_bps: has_bwe.then_some(crate::allocator::INITIAL_CAPACITY_BPS),
             probes: crate::probe_controller::ProbeController::new(now),
             send_side: None,

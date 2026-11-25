@@ -26,7 +26,7 @@ const VERIFIED_FOR: Duration = Duration::from_secs(60);
 // three-second request-to-feedback deadline. Neither polling nor another short
 // discovery train may renew that authorization.
 const VALIDATION_WINDOW: Duration = Duration::from_secs(3);
-const VALIDATION_SPAN: Duration = Duration::from_secs(1);
+pub(crate) const VALIDATION_SPAN: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug)]
 struct Probe {
@@ -129,7 +129,11 @@ impl ProbeController {
             estimate: None,
             feedback_at: now,
             rtcp_feedback_at: None,
-            committed_capacity: crate::allocator::INITIAL_CAPACITY_BPS,
+            // Go `StreamAllocator.committedChannelCapacity` has no initializer
+            // (`streamallocator.go:234`, constructor at :260-284): a transport that
+            // committed nothing allocates against 0 bps. The vendor estimate is not
+            // an authority, so it must not seed this field either.
+            committed_capacity: 0,
             verified_at: now,
             last_twcc_at: None,
             last_stats_twcc_at: None,
@@ -597,8 +601,22 @@ impl ProbeController {
         self.reset_allowed_at = self.next_probe_at;
     }
 
+    /// The channel capacity this controller would allocate against.
+    ///
+    /// In native send-side mode the Go `StreamAllocator` field this mirrors is
+    /// written by exactly two operations (`streamallocator.go:748-764` probe
+    /// finalization, `:856-897` congested transition) and nothing else, so a
+    /// vendor BWE snapshot must not feed it. `estimate` is kept for the receiver
+    /// path's diagnostics only.
     pub fn capacity(&self, _estimate: Option<u64>) -> Option<u64> {
         Some(self.committed_capacity)
+    }
+
+    /// Hand the authority over to the application-owned Go-parity estimator's
+    /// commit, which is the value `Transport::capacity()` returns in native mode.
+    /// Called from the allocation pass so that both surfaces report one capacity.
+    pub(crate) fn sync_committed_capacity(&mut self, committed_bps: u64) {
+        self.committed_capacity = committed_bps;
     }
 
     /// `desired_bps` is demand before allocation; `allocated_bps` is committed
@@ -1128,11 +1146,13 @@ mod tests {
         let verified = c.verified_at;
         let at = now + Duration::from_millis(100);
         let result = c.tick(at, 2_000_000, 1_800_000, None, true, false);
-        assert!(!result.discovery_needed);
-        assert_eq!(
-            c.capacity(None),
-            Some(crate::allocator::INITIAL_CAPACITY_BPS)
-        );
+        assert!(result.discovery_needed);
+        assert!(c.probe.is_some());
+        // The controller starts at the Go cold committed capacity
+        // (`streamallocator.go:234`: no initializer), so any positive demand is
+        // deficient and a bootstrap pass may close its coverage gap without
+        // claiming a proof of its own.
+        assert_eq!(c.capacity(None), Some(0));
         assert_eq!(c.verified_at, verified);
         assert_eq!(c.last_twcc_at, None);
         assert_eq!(c.counters.successes, 0);
