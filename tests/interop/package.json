@@ -5,7 +5,7 @@
   "scripts": {
     "test": "node run.mjs",
     "test:normalize": "node --test normalize.test.mjs",
-    "test:fixtures": "node --test normalize.test.mjs fixtures.test.mjs",
+    "test:fixtures": "node --test normalize.test.mjs fixtures.test.mjs tls-der.test.mjs",
     "tls:fixture": "node generate-tls-fixture.mjs"
   },
   "dependencies": {

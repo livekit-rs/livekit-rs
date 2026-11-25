@@ -5,9 +5,10 @@ Binds `DATA_PACKET:rpc_request`, `DATA_PACKET:rpc_ack`, `DATA_PACKET:rpc_respons
 `DATA_PACKET:stream_trailer` to a launched `livecloud` binary and the pinned
 official `livekit-client` 2.23.0 in headless Chromium. Every count in this file
 comes from bytes the harness decoded off the wire, not from an assumption about
-what the SDK must send. Twelve legs (A–L) and 29 gates; Leg L exists specifically so
-the `rpc_ack` consumption claim can fail, which the 28-gate revision of this harness
-could not show.
+what the SDK must send. Twelve legs (A–L) and 30 gates; Leg L exists specifically so
+the `rpc_ack` consumption claim can fail, and the single-dispatch gate
+`one_admin_psrpc_dispatch_and_genuine_resolution` exists so the resolved finding below
+stays gated rather than logged.
 
 ## Run
 
@@ -46,7 +47,7 @@ built from a partial sample.
 | Leg | Stimulus | Measured wire evidence |
 |---|---|---|
 | A `api_send_data` | Twirp `SendData` (protojson base64) | HTTP 200, the payload reaches the peer channel |
-| B `admin_perform_rpc` | Twirp `PerformRpc` → handler | `rpcRequest` frame at the handler whose sender field carries the request id (`from === rpc.id`, which is what `rpc_request_packet` in `crates/lk-compat/src/rpc.rs:280` stamps), handler invoked, 200 |
+| B `admin_perform_rpc` | Twirp `PerformRpc` → handler | one `rpcRequest` frame at the handler whose sender field carries the request id (`from === rpc.id`, which is what `rpc_request_packet` in `crates/lk-compat/src/rpc.rs:280` stamps), handler invoked once, 200; the fast leg returns in ~12 ms |
 | C `sdk_to_sdk_rpc` | `performRpc` `probe.echo` | handler publishes `rpcAck`; the same id is relayed to the caller; response resolves |
 | D `sdk_rpc_slowack` | handler sleeps 1500 ms before returning | `rpcAck` on the wire strictly before the late `rpcResponse` (1506 ms) — ordering, not correlation |
 | E `sdk_rpc_noack` | handler returns without awaiting the ack | the leg still resolves, so the ack is not a response precondition |
@@ -58,16 +59,19 @@ built from a partial sample.
 | K `sender_scope_spoof` | the caller (a non-owner) publishes an `rpcAck` and an `rpcResponse{payload:"spoof"}` for the handler's live server-initiated request id | both frames are FORWARDED (seen at the handler tap, absent at the caller tap) and the Twirp waiter still resolves with the true payload `slow:spoof-target` at ≥1400 ms |
 | L `owner_ack_consumed` | the handler — the real owner of that same live request — publishes an `rpcAck` addressed to a participant that exists (`destinationIdentities: ["caller"]`) | 0 copies reach the caller tap, so the registry consumed it, while the two published frames for that id stay distinguishable at the handler tap |
 
-Legs K and L deliberately share one request id: minting a second admin
-`PerformRpc` inside the same run was measured to dispatch twice and lose the
-first attempt's ack (`/tmp/c86-lanes/L-control/receipt.json`: ids
-`c4f7207b`/`4cd3bc42`, admin leg 4516 ms), which would have made L's negative
-observation ambiguous. L writes after the SDK's own ack for the same id and continues that page's reliable
-sequence (`sdk_ack_seqs` < `injected_seq`), otherwise the per-publisher reliable
-sequence guard (`sequence <= lastPubReliableSeq` → drop, documented at the head of
-`crates/lk-compat/src/data.rs`) discards the frame before it ever reaches the
-`rpc_ack` arm — the caller would see nothing and the gate would pass for the wrong
-reason.
+Legs K and L share one request id. They originally did so because a second admin
+`PerformRpc` in the same run measured a double dispatch — now known to be this
+harness's injected-frame sequence collision, see "Resolved finding" below — but the
+sharing stays: one pending entry exercised by both halves is the tightest fixture.
+L writes after the SDK's own ack for the same id with `sequence: 0`, which is outside
+the receiver-side replay window on both parity engines (Go
+`references/livekit-stable/pkg/rtc/participant.go:2551` gates only `dp.Sequence > 0`;
+Rust `crates/rtc-core/src/room/data.rs:42` gates only `envelope_sequence > 0`). The
+frame is processed without advancing the window, so it cannot consume the number the
+SDK will use next. The previous design continued the page's sequence
+(`injected_seq == sdk_ack_seqs + 1`), which stole the SDK's next number and made the
+caller drop its genuine RpcResponse as a replay — the exact confound the resolved
+finding section documents.
 
 Leg J exists because SDK 2.23.0 performs a client RPC through data streams, so no
 page ever emits a bare `rpcRequest`; without J the server's `rpc_request` arm has
@@ -82,7 +86,7 @@ frame on this harness whose non-consumption would be visible at another page.
 
 ## Gates
 
-`leg_gates` holds 29 falsifiable assertions; all true ⇒ `PROBE_DONE`, any false ⇒
+`leg_gates` holds 30 falsifiable assertions; all true ⇒ `PROBE_DONE`, any false ⇒
 `FAIL` naming the gate. Twenty cover the arms and the RPC/stream lifecycle:
 `api_send_data_relayed`, `admin_rpc_delivered_to_handler_frame`,
 `admin_rpc_handler_invoked`, `handler_published_rpc_ack_frames`,
@@ -121,18 +125,19 @@ participant.
 
 So an unexplained consumption, an explained consumption that stopped happening, or an
 extra relay of a server-initiated ack each fail it. On the control the consumed set is
-exactly `{admin echo id, slowack id, duplicate-dispatch id}` — the three the room
-registry had pending for `handler`.
+exactly `{admin echo id, slowack id}` — the two the room registry had pending for
+`handler` (the older receipt also listed a duplicate-dispatch id, which came from the
+harness bug resolved below).
 
 ### Owner ack of a live request (Leg L)
 
 The negative half is the part the earlier runs could not see, so
 `owner_ack_of_live_request_consumed` states it as one conjunction with its own
-anti-vacuity controls, all read off the wire:
+anti-vacuity controls, all read off the wire (gates: 30):
 
-- the injected frame really left the page (`sent.state == "open"`, 51 bytes) and its
-  sequence continues the SDK's own (`sdk_ack_frames == 1`, `sdk_ack_seqs == ["13"]`,
-  `injected_seq == 14`);
+- the injected frame really left the page (`sent.state == "open"`, 51 bytes) and carries
+  the writer's invariant sequence (`injected_seq == 0`, outside the replay window; the
+  SDK's own ack sequence `sdk_ack_seqs` is recorded as an observation only);
 - the id has exactly two published ack frames at the handler tap, so the injected copy
   is a duplicate of a live-registry ack rather than a fresh entry;
 - 0 copies appear at the caller tap although the frame is addressed to `caller`, a
@@ -180,35 +185,55 @@ the Rust room-level registry storing the bound SID reaches the same verdict rath
 than a stricter one (the earlier "measured stricter-than-Go" note in
 `crates/lk-compat/tests/data_packet_leaves.rs` was wrong and is corrected here).
 
-## Open finding: one admin `PerformRpc` reaches the client twice
+## Resolved finding: the double `PerformRpc` dispatch was a harness artifact, not a server defect
 
-The same run records a defect that the gates deliberately do not assert, because
-hiding it would make the ack-split numbers meaningless. A single Twirp
-`RoomService/PerformRpc` against a destination that replies slowly delivers **two**
-`rpcRequest` frames with **two different request ids** to the callee, and the client
-answers both (`receipt4.json`: ids `da260e94…` and `e9926dd1…`, 2 handler
-invocations, 4517 ms for a 1500 ms handler, while the fast admin leg returns in
-12 ms). `report.findings.admin_psrpc_dispatch` carries the evidence, including
-`duplicated`.
+The earlier revision of this file attributed a measured double dispatch — one slow
+admin `PerformRpc`, two request ids at the callee, ~4.5 s for a 1500 ms handler — to
+duplicate `Participant/PerformRpc` queue-group membership. That attribution is
+retired; three independent measurements killed it, and the actual cause was found in
+this harness's own raw-frame writer.
 
-Attribution, from the pinned sources rather than guesswork: two production components
-register the identical PSRPC topic `Participant/PerformRpc` on `{room}_{identity}` as
-queue group members — `register_perform_rpc`
-(`crates/lk-compat/src/room_control/accepted.rs:221`, pushed from
-`crates/lk-compat/src/room_control/participants.rs:374`) and
-`LocalParticipantRpc::refresh` (`crates/lk-compat/src/local_participant.rs:248`, topic
-from `:22`). The two `accepted_native*` call sites are `#[cfg(test)]` and do not add a
-third member. `state.rs:59` already warns that a divergent registry leaves HTTP
-`PerformRpc` callers waiting forever. One of the two members consumes the
-round-robin delivery and produces a response the caller cannot correlate, so
-`configured()` (`crates/lk-compat/src/room_control/mod.rs:449-473`) re-publishes under
-`GenericRetry` (`crates/lk-compat/src/workers/retry.rs`: max 3 attempts, 3 s → 5 s →
-7 s with no sleep), which is where the second id comes from and why the leg takes
-~4.5 s. The first attempt's callee ack is registered under the discarded id, which is
-the "lost ack" measured in `/tmp/c86-lanes/L-control/receipt.json`. Tracked as a real
-gap (task #417: decide the faithful single membership against the pinned Go, add a
-deliveries-per-publish component test, re-measure this leg at 1 dispatch / ~1500 ms,
-and file the fixed-Go differential); the ledger items stay open until it closes.
+Measured cause. The shared writer (`sendRawFrame` in `probe.mjs`) used to number an
+injected reliable frame `last outbound sequence + 1`. The SDK keeps its own counter on
+the same `_reliable` channel and does not know about injected frames, so the handler
+page's genuine `RpcResponse` came out with the *same* sequence the probe had just
+consumed for its injected owner ack. Both receivers gate reliable replay on the
+envelope sequence only when it is positive — Go
+`references/livekit-stable/pkg/rtc/participant.go:2551` (`if kind == ...RELIABLE && dp.Sequence > 0`,
+drop when `lastPubReliableSeq >= dp.Sequence`) and Rust
+`crates/rtc-core/src/room/data.rs:42` (`if envelope_sequence > 0 { ... envelope_sequence <= p.last_reliable_seq → return }`)
+— so the caller silently discarded the genuine response, attempt 1 hit the retry
+policy's per-attempt deadline, and `configured()`
+(`crates/lk-compat/src/room_control/mod.rs:449-473`) re-dispatched. The server trace
+matches: attempt 1 final-timeout at 3.001 s, attempt 2 returned Ok at 4.516 s. The fix
+is in the writer: injected frames now carry `sequence: 0`, which both parity engines
+treat as outside the replay window — processed, but never advancing the receiver's
+window or stealing the SDK's next number.
+
+Guard 1 — component tier. `in_window_answer_runs_the_handler_once_per_publish` and
+`two_members_on_one_topic_run_the_handler_once_per_publish`
+(`crates/lk-compat/src/local_participant/tests.rs:244` and `:307`) pass: an answer that
+arrives inside the attempt window causes exactly one handler run, and two live RPC
+members on one topic still run the handler once per publish.
+
+Guard 2 — transport-tier negative control. Patching the queue arm of
+`LocalTransport::publish_encoded` (`crates/lk-compat/src/service_bus/local_transport.rs:161`)
+to write to every member makes
+`absent_publication_is_not_replayed_to_later_subscription_and_queue_round_robins`
+(`local_transport.rs:406`) fail with `left: 2, right: 1` — duplicate fan-out is real if
+forced — while the same patch leaves the RPC-tier test green, because `require_claim: true`
+with `ServerLimits.allow_skip_claim: false` (`local_transport.rs:363`, `:377`) arbitrates a
+duplicated delivery before the destination handler runs. Duplicated fan-out therefore
+cannot double-run a destination handler.
+
+With the sequence collision removed the campaign re-measured one dispatch per admin
+`PerformRpc` (~1500 ms), so the claim is now gated rather than logged:
+`one_admin_psrpc_dispatch_and_genuine_resolution` asserts
+`expected_dispatches == measured_dispatches == handler_invocations == 1`, no gap between
+dispatch frames, the caller-side tap showing no relayed copy of the consumed response,
+and the Twirp result resolving with the handler's genuine payload inside the retry
+budget. `findings.admin_psrpc_dispatch` carries the full expected-versus-measured pair.
+No production change was warranted; task #417 closes on this evidence.
 
 ## Falsifiability
 
@@ -334,10 +359,10 @@ has launched-server traffic that a mutant of that exact arm breaks. `rpc_ack` an
 the wire — the id-attributed publish/relay split, Leg K for "a non-owner does not
 consume" and Leg L for "the owner does" — which is what the earlier runs could not
 separate from relay; sweep 3 is the record of what claiming it without L looked like.
-The duplicate `PerformRpc` dispatch recorded above is an open defect on this same path
-and is not absorbed by these gates: it makes the admin leg slower and gives one
-destination two request ids, so the RPC family cannot be promoted past
-`main_server_consumer` on this harness until task #417 closes.
+The duplicate `PerformRpc` dispatch formerly recorded on this path is resolved as a
+harness artifact (see above) and is now gated by
+`one_admin_psrpc_dispatch_and_genuine_resolution`, so the single-dispatch claim is part
+of the campaign instead of an open defect; task #417 closes on this evidence.
 `official_differential_lifecycle` is not claimed by this campaign for the arms whose
 Go-side counterpart the pinned client cannot produce, and tier 5 stays withheld in
 the ledger for the RPC family because cancellation and mid-RPC departure have no

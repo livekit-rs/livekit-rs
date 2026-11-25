@@ -220,3 +220,172 @@ async fn participant_close_resolves_only_that_captured_sid() {
     registry.disconnect_participant(&new);
     assert_eq!(registry.pending_count(), 0);
 }
+
+fn local_bus() -> Arc<LocalTransport> {
+    LocalTransport::new(TransportLimits {
+        wire: WireLimits {
+            encoded_bytes: 1 << 20,
+            decompressed_bytes: 1 << 20,
+        },
+        compression: CompressionPolicy::default(),
+        inbox_messages: 100,
+        subscriptions: 100,
+        commands: 100,
+        io_timeout: Duration::from_secs(2),
+    })
+    .unwrap()
+}
+
+/// A destination that answers inside the attempt window must run once per
+/// `perform`. A lost in-window answer costs the caller a whole 3 s attempt and a
+/// second client-visible RPC dispatch, which is the shape the interoperability
+/// harness once mistook for duplicate queue membership.
+#[tokio::test]
+async fn in_window_answer_runs_the_handler_once_per_publish() {
+    for handler_ms in [500u64, 1500, 2500] {
+        let bus = local_bus();
+        let rpc = LocalParticipantRpc::new(
+            bus.clone(),
+            RpcPolicy::default(),
+            Arc::new(RpcRegistry::new()),
+        )
+        .unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let server = RpcServer::register::<pb::PerformRpcRequest, pb::PerformRpcResponse, _, _>(
+            bus.clone(),
+            spec("probe-r", "probe-p"),
+            ServerLimits {
+                concurrent: 10,
+                max_request_duration: Duration::MAX,
+                allow_skip_claim: false,
+            },
+            move |_, _| {
+                let count = count.clone();
+                async move {
+                    let attempt = count.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(handler_ms)).await;
+                    Ok(pb::PerformRpcResponse {
+                        payload: format!("ok-{attempt}"),
+                    })
+                }
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let result = rpc
+            .perform(pb::PerformRpcRequest {
+                room: "probe-r".into(),
+                destination_identity: "probe-p".into(),
+                method: "probe".into(),
+                response_timeout_ms: 6000,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.payload, "ok-0", "handler_ms={handler_ms}");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "handler_ms={handler_ms} must not be re-dispatched"
+        );
+        server.close().await;
+        rpc.shutdown().await;
+    }
+}
+
+/// One `{room}_{identity}` Participant topic is a PSRPC queue group, so a request
+/// can never run the destination handler twice even while two members are live.
+/// Two independent guards hold, and the mutant matrix separates them: selecting
+/// every queue member in `publish_encoded` turns
+/// `service_bus::local_transport::tests::absent_publication_is_not_replayed_to_later_subscription_and_queue_round_robins`
+/// red on its write count (`left: 2, right: 1`) yet leaves this test green, because
+/// `require_claim: true` with `allow_skip_claim: false` arbitrates a duplicated
+/// delivery before the handler runs.
+#[tokio::test]
+async fn two_members_on_one_topic_run_the_handler_once_per_publish() {
+    let bus = local_bus();
+    let rpc = LocalParticipantRpc::new(
+        bus.clone(),
+        RpcPolicy::default(),
+        Arc::new(RpcRegistry::new()),
+    )
+    .unwrap();
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let member = |tag: &'static str| {
+        let seen = seen.clone();
+        RpcServer::register::<pb::PerformRpcRequest, pb::PerformRpcResponse, _, _>(
+            bus.clone(),
+            spec("queue-r", "queue-p"),
+            ServerLimits {
+                concurrent: 10,
+                max_request_duration: Duration::MAX,
+                allow_skip_claim: false,
+            },
+            move |_, request| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock()
+                        .unwrap()
+                        .push(format!("{tag}:{}", request.method));
+                    Ok(pb::PerformRpcResponse {
+                        payload: format!("{tag}:{}", request.method),
+                    })
+                }
+            },
+            None,
+        )
+    };
+    let first = member("left").await.unwrap();
+    let second = member("right").await.unwrap();
+    let perform = |method: String| {
+        rpc.perform(pb::PerformRpcRequest {
+            room: "queue-r".into(),
+            destination_identity: "queue-p".into(),
+            method,
+            response_timeout_ms: 6000,
+            ..Default::default()
+        })
+    };
+    for idx in 0..3 {
+        perform(format!("probe-{idx}")).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let deliveries = seen.lock().unwrap().clone();
+    // Every publish carries its own method, so an extra handler run shows up either
+    // as more deliveries than publishes or one method delivered twice.
+    assert_eq!(
+        deliveries.len(),
+        3,
+        "one publish must reach one queue member: {deliveries:?}"
+    );
+    let mut methods: Vec<_> = deliveries
+        .iter()
+        .map(|d| d.split_once(':').expect("tagged delivery").1.to_string())
+        .collect();
+    methods.sort();
+    methods.dedup();
+    assert_eq!(
+        methods.len(),
+        3,
+        "no publish may be served twice: {deliveries:?}"
+    );
+    first.close().await;
+    let after = perform("probe-after-close".to_string())
+        .await
+        .unwrap()
+        .payload;
+    let deliveries = seen.lock().unwrap().clone();
+    assert_eq!(
+        after, "right:probe-after-close",
+        "the surviving member must still take publishes: {deliveries:?}"
+    );
+    assert_eq!(
+        deliveries.len(),
+        4,
+        "the retired member must not keep serving: {deliveries:?}"
+    );
+    second.close().await;
+    rpc.shutdown().await;
+}

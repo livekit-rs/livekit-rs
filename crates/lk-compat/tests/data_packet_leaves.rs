@@ -1007,3 +1007,61 @@ fn consumed_rpc_frames_do_not_leak_on_the_lossy_channel() {
     h.assert_no_forward();
     assert_eq!(resp_rx.try_recv(), Ok(RpcOutcome::Payload("p".into())));
 }
+
+/// The window advances for a frame the server consumes: Go stores
+/// `lastPubReliableSeq` at participant.go:2561, ahead of the payload switch, and the
+/// engine mirrors that at `crates/rtc-core/src/room/data.rs:53`. So a callee that
+/// numbers its ack and its response with the same sequence has the response dropped
+/// as a replay. That is the exact shape the browser interoperability harness fell
+/// into when it injected an owner ack numbered from the SDK's own outbound sequence
+/// (task #417), and it is why a raw stimulus must use sequence 0 instead.
+#[test]
+fn consumed_rpc_ack_advances_the_reliable_window_and_shadows_a_replayed_response() {
+    let mut h = Harness::new();
+    let (mut ack_rx, mut resp_rx) = h.rpc.register("req-window", h.bob.clone()).unwrap();
+    let ack = pb::DataPacket {
+        sequence: 30,
+        value: Some(pb::data_packet::Value::RpcAck(pb::RpcAck {
+            request_id: "req-window".into(),
+        })),
+        ..Default::default()
+    }
+    .encode_to_vec();
+    let response = |sequence: u32| {
+        pb::DataPacket {
+            sequence,
+            value: Some(pb::data_packet::Value::RpcResponse(pb::RpcResponse {
+                request_id: "req-window".into(),
+                value: Some(pb::rpc_response::Value::Payload("late".into())),
+            })),
+            ..Default::default()
+        }
+        .encode_to_vec()
+    };
+    h.inbound(&h.bob.clone(), DataKind::Reliable, RELIABLE_LABEL, &ack);
+    assert_eq!(ack_rx.try_recv(), Ok(()), "ack reached the pending call");
+    h.assert_no_forward();
+    assert_eq!(h.rpc.pending_count(), 1, "an ack keeps the call pending");
+    // Same sequence as the consumed ack: replay-dropped before the registry sees it.
+    h.inbound(
+        &h.bob.clone(),
+        DataKind::Reliable,
+        RELIABLE_LABEL,
+        &response(30),
+    );
+    h.assert_no_forward();
+    assert!(
+        resp_rx.try_recv().is_err(),
+        "a response reusing the ack's sequence must not resolve the call"
+    );
+    assert_eq!(h.rpc.pending_count(), 1);
+    // The next sequence is an ordinary frame and resolves it.
+    h.inbound(
+        &h.bob.clone(),
+        DataKind::Reliable,
+        RELIABLE_LABEL,
+        &response(31),
+    );
+    assert_eq!(resp_rx.try_recv(), Ok(RpcOutcome::Payload("late".into())));
+    assert_eq!(h.rpc.pending_count(), 0);
+}

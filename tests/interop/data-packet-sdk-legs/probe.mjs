@@ -48,12 +48,16 @@ window.p = {
   async connect(u,t){
     room = new LivekitClient.Room({ singlePeerConnection:true, adaptiveStream:false, dynacast:false });
     room.localParticipant.registerRpcMethod('probe.echo', async ({payload, requestId}) => {
-      log.rpcHandlerCalls.push({requestId, payload, method:'probe.echo'});
+      log.rpcHandlerCalls.push({requestId, payload, method:'probe.echo', at_ms: Date.now()});
       return 'echo:' + payload;
     });
     room.localParticipant.registerRpcMethod('probe.slowack', async ({payload, requestId}) => {
-      log.rpcHandlerCalls.push({requestId, payload, method:'probe.slowack'});
+      // One entry per invocation: the return stamp lives on the same object, so a
+      // reader counting invocations cannot mistake a stamp for a second dispatch.
+      const call = {requestId, payload, method:'probe.slowack', at_ms: Date.now()};
+      log.rpcHandlerCalls.push(call);
       await new Promise(r => setTimeout(r, 1500));
+      call.returned_ms = Date.now();
       return 'slow:' + payload;
     });
     room.localParticipant.registerRpcMethod('probe.noack', async ({payload, requestId}) => {
@@ -142,7 +146,7 @@ try {
             try {
               const u8 = new Uint8Array(ev.data);
               let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
-              const e = { label: this.label, b64: btoa(s), bytes: u8.length };
+              const e = { label: this.label, b64: btoa(s), bytes: u8.length, t: Date.now() };
               if (window.__dpLog.length < 400) window.__dpLog.push(e); else window.__dpCapped = true;
             } catch (err) {
               const u8 = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : null;
@@ -176,7 +180,7 @@ try {
           const u8 = Uint8Array.prototype.slice.call(view);
           let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
           window.__dpOut = window.__dpOut || [];
-          if (window.__dpOut.length < 400) window.__dpOut.push({ label: this.label, b64: btoa(s), bytes: u8.length });
+          if (window.__dpOut.length < 400) window.__dpOut.push({ label: this.label, b64: btoa(s), bytes: u8.length, t: Date.now() });
         } catch {}
       }
       return origSend.apply(this, arguments);
@@ -238,7 +242,7 @@ try {
   {
     const t0 = Date.now();
     const r = await twirp('PerformRpc', { room: roomName, destinationIdentity: 'handler', method: 'probe.echo', payload: 'admin', responseTimeoutMs: 8000 });
-    report.legs.admin_perform_rpc = { elapsed_ms: Date.now() - t0, ...r };
+    report.legs.admin_perform_rpc = { started_at_ms: t0, elapsed_ms: Date.now() - t0, ...r };
     await sleep(800);
   }
 
@@ -283,16 +287,18 @@ try {
     report.legs.single_send_text = { sent: r };
   }
 
-  // Shared raw-frame writer. The sequence must continue the SDK's own reliable
-  // channel numbering, otherwise the receiving client treats the frame as a replay
-  // of an old sequence and discards it before the tap can be trusted.
+  // Shared raw-frame writer. An injected frame must never consume a reliable
+  // sequence number that the SDK's own numbering will reuse. Both receivers gate
+  // replay on the envelope sequence only when it is positive (Go
+  // references/livekit-stable/pkg/rtc/participant.go:2551 `if dp.Sequence > 0`; Rust
+  // crates/rtc-core/src/room/data.rs:42 `if envelope_sequence > 0`), so 0 is the
+  // documented "not in the replay window" value: the frame is still processed, it
+  // does not advance the receiver's window, and it cannot steal the SDK's next
+  // number. The previous derivation (last outbound sequence + 1) did exactly that —
+  // it consumed the number the SDK was about to use, so the caller dropped the SDK's
+  // genuine RpcResponse as a replay and the retry policy re-dispatched the request.
   const sendRawFrame = async (page, build) => {
-    const last = await page.evaluate(() => (window.__dpOut || []).slice(-1)[0]?.b64 ?? null);
-    let seq = 1;
-    if (last) {
-      const prev = DataPacket.fromBinary(new Uint8Array(Buffer.from(last, 'base64')));
-      if (typeof prev.sequence === 'number') seq = prev.sequence + 1;
-    }
+    const seq = 0;
     const frame = build(seq);
     const sent = await page.evaluate(args => p.sendRaw(...args), ['_reliable', Buffer.from(frame).toString('base64')]);
     return { seq, bytes: frame.length, sent };
@@ -317,13 +323,24 @@ try {
     }).toBinary());
     await sleep(2500);
     const calls = await pages[0].evaluate(id => p.log().rpcHandlerCalls.filter(x => x.requestId === id), rawId);
-    report.legs.raw_rpc_request = { id: rawId, publisher: 'caller', ...raw, handler_calls: calls };
+    report.legs.raw_rpc_request = {
+      id: rawId, publisher: 'caller', injected_seq: raw.seq ?? null,
+      sequence_window_note: 'injected reliable frames carry sequence 0, which both Go and Rust receivers treat as outside the replay window',
+      ...raw, handler_calls: calls,
+    };
   }
 
-  // Leg K + Leg L share one live server-initiated request id, because minting a
-  // second admin PerformRpc in the same run was measured to dispatch twice and lose
-  // the first attempt's ack (control receipt /tmp/c86-lanes/L-control: ids
-  // c4f7207b/4cd3bc42, admin elapsed 4516 ms), which would confound both claims.
+  // Leg K + Leg L share one live server-initiated request id. They originally did so
+  // because a second admin PerformRpc in the same run was measured to dispatch twice
+  // and lose the first attempt's ack (control receipt /tmp/c86-lanes/L-control: ids
+  // c4f7207b/4cd3bc42, admin elapsed 4516 ms). That double dispatch is now attributed
+  // to this harness, not the server: the raw-frame writer used to number its injected
+  // frame last-outbound-sequence + 1, which collided with the SDK's own next frame, so
+  // the reliable replay window (data.rs:42, participant.go:2551) dropped the genuine
+  // RpcResponse and the retry policy re-dispatched at the 3 s per-attempt deadline.
+  // The sharing stays — one pending entry exercised by both halves is still the
+  // tightest fixture — but the confound is gone, and findings.admin_psrpc_dispatch
+  // now gates the single-dispatch claim instead of logging it.
   //
   // Leg K (sender scope): a frame carrying the live id from a participant that does
   // not own the pending entry must be relayed, not consumed, and must not resolve the
@@ -350,10 +367,10 @@ try {
       }
       if (!spoofId) await sleep(150);
     }
-    // Let the SDK's own ack for this id leave the page first, so the injected frame
-    // continues the channel sequence instead of colliding with it: a colliding
-    // sequence would let a receiving client drop the relayed copy and turn the gate
-    // into a vacuous pass.
+    // Let the SDK's own ack for this id leave the page first, so the receipt can
+    // record the SDK's channel sequence at injection time as an observation. The
+    // injected frames carry sequence 0, so they are outside the receiver's replay
+    // window and cannot collide with what the SDK sends next.
     await sleep(250);
     const preOut = await pages[0].evaluate(() => (window.__dpOut || []).slice(-6).map(it => it.b64));
     const sdkAcks = preOut
@@ -372,11 +389,22 @@ try {
       value: { case: 'rpcResponse', value: new RpcResponse({ requestId: spoofId, value: { case: 'payload', value: 'spoof' } }) },
     }).toBinary()) : null;
     const admin = await pending;
-    report.legs.sender_scope_spoof = { spoof_id: spoofId, publisher: 'caller', ack, rsp, admin, elapsed_ms: Date.now() - t0 };
+    report.legs.sender_scope_spoof = { started_at_ms: t0, spoof_id: spoofId, publisher: 'caller', ack, rsp, admin, elapsed_ms: Date.now() - t0 };
     report.legs.owner_ack_consumed = {
       owner_id: spoofId, publisher: 'handler', destination: 'caller',
       sdk_ack_frames: sdkAcks.length, sdk_ack_seqs: sdkAcks.map(dp => String(dp.sequence)),
       injected_seq: ownerAck?.seq ?? null, ack: ownerAck, admin, elapsed_ms: Date.now() - t0,
+      // The sequence-window story, stated in the receipt instead of a comment:
+      // the previous design numbered the injected frame after the SDK's ack, which
+      // made the SDK's own next frame look like a replay. Sequence 0 keeps the
+      // injected frame out of the window, so the only remaining explanation for an
+      // absent ack at the caller is server consumption.
+      sequence_window: {
+        gate: 'injected_seq == 0',
+        injected_seq: ownerAck?.seq ?? null,
+        sdk_ack_seqs: sdkAcks.map(dp => String(dp.sequence)),
+        reason: 'sequence 0 is outside the reliable replay window on both receivers (Go participant.go:2551, Rust data.rs:42), so an injected frame never consumes the SDK numbering',
+      },
     };
     await sleep(800);
   }
@@ -395,7 +423,7 @@ try {
         try {
           const dp = DataPacket.fromBinary(new Uint8Array(Buffer.from(it.b64, 'base64')));
           const v = dp.value ?? {};
-          const e = { label: it.label, bytes: it.bytes, case: v.case ?? null, from: dp.participantIdentity || null, kind: dp.kind ?? null, seq: dp.sequence !== undefined && dp.sequence !== null ? dp.sequence.toString() : null };
+          const e = { label: it.label, bytes: it.bytes, case: v.case ?? null, from: dp.participantIdentity || null, kind: dp.kind ?? null, seq: dp.sequence !== undefined && dp.sequence !== null ? dp.sequence.toString() : null, t_ms: typeof it.t === 'number' ? it.t : null };
           // Destination fields decide who a non-consumed frame may reach, so the
           // consumed-vs-relayed split is only attributable when they are recorded.
           const dstSid = dp.destinationSid ?? [];
@@ -528,25 +556,72 @@ try {
   const slowackDispatchIds = [...new Set(H
     .filter(e => e.case === 'rpcRequest' && e.rpc?.payload === 'spoof-target')
     .map(e => e.rpc.id))].sort();
-  // Recorded, not gated: one admin PerformRpc whose destination replies slowly was
-  // measured to execute twice (control /tmp/c86-lanes/L-control/receipt2.json: ids
-  // 1d0962c5 + bab02ac6, 4514 ms for a 1500 ms handler). Two live queue-group members
-  // subscribe to Participant/PerformRpc for one participant topic
-  // (room_control/accepted.rs register_perform_rpc and local_participant.rs spec()),
-  // and configured() re-publishes an attempt whose response cannot be correlated
-  // (room_control/mod.rs:449-473 with workers/retry.rs 3s+2s steps).
+  // The page clock and the harness clock are both wall clocks on this host, but the
+  // claim being measured is a gap of a few seconds, so the offset between them is
+  // recorded instead of assumed.
+  report.clock_bridge = await (async () => {
+    const before = Date.now();
+    const page = await pages[0].evaluate(() => Date.now());
+    const after = Date.now();
+    return { page_minus_node_ms: page - Math.round((before + after) / 2), evaluate_round_trip_ms: after - before };
+  })();
+  const slowackFrames = H
+    .filter(e => e.case === 'rpcRequest' && e.rpc?.payload === 'spoof-target')
+    .map(e => ({ id: e.rpc.id, at_ms: e.t_ms, since_admin_call_ms: e.t_ms - (k.started_at_ms ?? e.t_ms) }));
+  const slowackCalls = (report.handler_final_log.rpcHandlerCalls || [])
+    .filter(x => x.method === 'probe.slowack' && x.payload === 'spoof-target')
+    .map(x => ({ id: x.requestId, at_ms: x.at_ms, returned_ms: x.returned_ms ?? null,
+      handler_ms: x.returned_ms ? x.returned_ms - x.at_ms : null,
+      since_admin_call_ms: x.at_ms - (k.started_at_ms ?? x.at_ms) }));
+  // The historical double dispatch of one slow admin PerformRpc is now attributed
+  // to this harness's raw-frame writer: the injected frame used to carry last-SDK-
+  // sequence + 1, which stole the number the SDK's own RpcResponse would use, so
+  // the reliable replay window (data.rs:42 / participant.go:2551) dropped the
+  // genuine response and the retry policy re-dispatched at the 3 s per-attempt
+  // deadline. With injected sequence 0 the claim "one dispatch per admin
+  // PerformRpc" is gated below as one_admin_psrpc_dispatch_and_genuine_resolution.
+  // The caller-side RpcResponse evidence for the slow admin leg: on the pristine
+  // server this id's response is consumed by the room registry, so it must NOT be
+  // relayed to the caller tap; a genuine arrival at the caller would mean the server
+  // stopped consuming it. What proves the response reached the SERVER is the Twirp
+  // payload plus the elapsed profile — one dispatch, ~1500 ms handler, no retry.
+  const spoofRspAtCaller = C.filter(e => e.case === 'rpcResponse' && e.rpc?.requestId === k.spoof_id);
   report.findings = {
     admin_psrpc_dispatch: {
+      expected_dispatches: 1,
       server_initiated_ids: serverInitiatedIds,
       slowack_dispatch_ids: slowackDispatchIds,
       duplicated: slowackDispatchIds.length > 1,
+      measured_dispatches: slowackDispatchIds.length,
       admin_leg_elapsed_ms: report.legs.admin_perform_rpc?.elapsed_ms,
       spoof_leg_elapsed_ms: k.elapsed_ms,
-      handler_invocations: (report.handler_final_log.rpcHandlerCalls || [])
-        .filter(x => x.method === 'probe.slowack' && x.payload === 'spoof-target').length,
+      admin_call_started_at_ms: k.started_at_ms ?? null,
+      dispatch_frames: slowackFrames,
+      handler_invocations_detail: slowackCalls,
+      gap_between_dispatches_ms: slowackFrames.length > 1
+        ? slowackFrames[1].at_ms - slowackFrames[0].at_ms : null,
+      handler_invocations: slowackCalls.length,
+      // The gate that used to encode the buggy design compared injected_seq with the
+      // SDK's ack sequence; the discriminator now lives here: the spoof request's own
+      // ack/response are consumed exactly once each (no re-dispatch id at the caller)
+      // and the genuine response resolves the single pending waiter.
+      owner_ack_injected_seq: l.injected_seq ?? null,
+      sdk_owner_ack_seq_observed: (l.sdk_ack_seqs || [])[0] ?? null,
+      genuine_rpc_response_consumed_by_server: !!k.spoof_id && k.admin?.body?.payload === 'slow:spoof-target'
+        && spoofRspAtCaller.length === 0,
       retry_policy: { max_attempts: 3, timeout_s: 3, backoff_s: 2 },
     },
   };
+  chk('one_admin_psrpc_dispatch_and_genuine_resolution', () => {
+    const f = report.findings.admin_psrpc_dispatch;
+    return f.measured_dispatches === f.expected_dispatches
+      && f.handler_invocations === f.expected_dispatches
+      && f.duplicated === false
+      && f.gap_between_dispatches_ms === null
+      && f.genuine_rpc_response_consumed_by_server === true
+      && k.admin?.status === 200 && k.admin?.body?.payload === 'slow:spoof-target'
+      && k.elapsed_ms >= 1400 && k.elapsed_ms < 3000;
+  });
   chk('rpc_ack_publish_relay_split_attributed', () => consumedAckIds.length >= 2
     && consumedAckIds.join() === publishedAckIds.filter(id => serverInitiatedIds.includes(id)).sort().join()
     && relayedAckIds.every(id => !serverInitiatedIds.includes(id) && publishedAckIds.includes(id))
@@ -565,17 +640,23 @@ try {
     && k.admin?.body?.payload === 'slow:spoof-target' && k.elapsed_ms >= 1400);
   // Leg L control: the owner's ack for a live pending request must be taken by the
   // server, not forwarded. Every positive control is inside the gate — the injected
-  // frame was really written on an open channel, the SDK's own ack for the same id
-  // preceded it on the wire, a copy of that same id addressed to a participant IS
-  // observable at that participant (the Leg K relay), the caller is receiving other
-  // acks in this run, and the admin request still completed on its response phase. An
-  // absent send or an unrecorded tap fails instead of passing.
+  // frame was really written on an open channel, it carries sequence 0 (the writer's
+  // invariant: an injected frame never consumes a number the SDK will reuse), the
+  // SDK's own ack for the same id preceded it on the wire, a copy of that same id
+  // addressed to a participant IS observable at that participant (the Leg K relay),
+  // the caller is receiving other acks in this run, and the admin request resolved
+  // with the handler's genuine value, not the spoofed one. An absent send or an
+  // unrecorded tap fails instead of passing. If the server stopped consuming, the
+  // caller's tap would show the ack (ownerAckAtCaller.length > 0) while every other
+  // conjunct still held; if the harness regressed to numbering injected frames after
+  // the SDK's ack, the injected_seq == 0 conjunct fails before the server claim is
+  // ever read.
   const ownerAckAtCaller = C.filter(e => e.case === 'rpcAck' && e.rpc?.requestId === l.owner_id);
   const ownerAckPublished = handlerAckSends.filter(e => e.rpc?.requestId === l.owner_id);
   chk('owner_ack_of_live_request_consumed', () => !!l.owner_id && l.owner_id === k.spoof_id
     && l.ack?.sent?.state === 'open' && Number(l.ack?.sent?.bytes) > 0
+    && Number(l.injected_seq) === 0
     && l.sdk_ack_frames === 1 && ownerAckPublished.length === 2
-    && Number(l.injected_seq) > Number(l.sdk_ack_seqs?.[0])
     && spoofAckAtHandler.length === 1 && ackIds.length >= 4 && ownerAckAtCaller.length === 0
     && l.admin?.status === 200 && l.admin?.body?.payload === 'slow:spoof-target' && l.elapsed_ms >= 1400);
   chk('tap_decode_clean', () => report.tap_handler.undecodable.length === 0 && report.tap_caller.undecodable.length === 0 && report.tap_handler.errs.length === 0 && report.tap_caller.errs.length === 0);

@@ -15,10 +15,12 @@ import { createHash } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
 import https from 'node:https';
+import http from 'node:http';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { leafSpki } from './tls-der.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const output = process.env.INTEROP_OUTPUT_DIR ? resolve(process.env.INTEROP_OUTPUT_DIR) : join(root, 'output');
@@ -72,7 +74,16 @@ function tlsProbe() {
     const socket = tls.connect({ host: TURN_HOST, port: TURN_TLS_PORT, servername: 'turn.localhost', ca, rejectUnauthorized: true }, () => {
       const cert = socket.getPeerCertificate(true);
       const der = cert.raw ? Buffer.from(cert.raw) : undefined;
-      const spkiPin = der ? createHash('sha256').update(spkiOf(der)).digest('base64') : undefined;
+      // An unparseable leaf must cost the pin, not the whole post-mortem: an
+      // exception here escapes the TLS event handler and kills the process, which
+      // is how this probe first failed on a runner.
+      let spkiPin;
+      let spkiError;
+      if (der) {
+        const spki = leafSpki(der);
+        if (spki) spkiPin = createHash('sha256').update(spki).digest('base64');
+        else spkiError = 'unable to locate TBSCertificate.SubjectPublicKeyInfo in the leaf DER';
+      }
       resolveProbe({
         ok: true, elapsedMs: Date.now() - startedAt, tlsVersion: socket.getProtocol(),
         cipher: socket.getCipher()?.standardName, authorized: socket.authorized,
@@ -80,7 +91,8 @@ function tlsProbe() {
         subject: cert.subject, issuer: cert.issuer, validFrom: cert.valid_from, validTo: cert.valid_to,
         subjectAltNames: cert.subjectaltname, publicKeyType: cert.asymmetricKeyType,
         fingerprint256: cert.fingerprint256, sha256OfLeafDer: der ? createHash('sha256').update(der).digest('hex') : undefined,
-        spkiSha256Base64: spkiPin, spkiMatchesHarnessPin: spkiPin === harnessSpki,
+        spkiSha256Base64: spkiPin, spkiMatchesHarnessPin: spkiPin === undefined ? undefined : spkiPin === harnessSpki,
+        spkiError,
       });
       socket.destroy();
     });
@@ -90,42 +102,8 @@ function tlsProbe() {
   });
 }
 
-// SubjectPublicKeyInfo DER is the openssl `pkey -pubout -outform DER` blob that
-// generate-tls-fixture.mjs pins, so both sides produce the same base64 SHA-256.
-function spkiOf(leafDer) {
-  const asn = parseDer(leafDer);
-  const tbs = asn?.value?.children?.find(child => child.tag === 0x30)?.value?.children;
-  const spki = tbs?.find(child => child.tag === 0x30);
-  if (!spki) throw new Error('unable to locate TBSCertificate.SubjectPublicKeyInfo');
-  return spki.bytes;
-}
-
-function parseDer(buffer) {
-  let offset = 0;
-  function readLength() {
-    const first = buffer[offset++];
-    if (first < 0x80) return first;
-    const count = first & 0x7f;
-    let length = 0;
-    for (let i = 0; i < count; i++) length = (length << 8) | buffer[offset++];
-    return length;
-  }
-  function readNode() {
-    const tag = buffer[offset++];
-    const length = readLength();
-    const start = offset;
-    const end = offset + length;
-    const node = { tag, bytes: buffer.subarray(start, end), value: null, children: [] };
-    if ((tag & 0x20) !== 0) {
-      while (offset < end) node.children.push(readNode());
-    } else {
-      node.value = buffer.subarray(start, end);
-      offset = end;
-    }
-    return node;
-  }
-  return readNode();
-}
+// SubjectPublicKeyInfo helpers live in tls-der.mjs so the unit test can import them
+// without executing this probe.
 
 async function wsHandshakeProbe() {
   const target = new URL(SIGNAL_URL);
@@ -150,16 +128,23 @@ async function wsHandshakeProbe() {
   }
 }
 
-function httpsApiProbe() {
+function apiProbe() {
   return new Promise(resolveProbe => {
     const target = new URL(SIGNAL_URL.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:'));
-    const request = https.get({ host: target.hostname, port: target.port, path: '/', ca: tlsCa, agent: false, rejectUnauthorized: false }, response => {
-      resolveProbe({ reachable: true, status: response.statusCode });
+    // The scheme follows the leg's own URL. Forcing TLS against a plain ws://
+    // signaling listener returned EPROTO, which reads as a dead API endpoint
+    // instead of the plain-HTTP port it actually is.
+    const secure = target.protocol === 'https:';
+    const client = secure ? https : http;
+    const options = { host: target.hostname, port: target.port, path: '/', agent: false };
+    if (secure) Object.assign(options, { ca: tlsCa, rejectUnauthorized: false });
+    const request = client.get(options, response => {
+      resolveProbe({ reachable: true, scheme: target.protocol, status: response.statusCode });
       response.resume();
       response.on('end', () => {});
     });
     request.setTimeout(3000, () => request.destroy(new Error('timeout')));
-    request.on('error', error => resolveProbe({ reachable: false, error: `${error.code || error.name}` }));
+    request.on('error', error => resolveProbe({ reachable: false, scheme: target.protocol, error: `${error.code || error.name}` }));
   });
 }
 
@@ -283,7 +268,7 @@ if (!found.length) {
 report.harnessSideProbes = {
   signalTcp: await tcpProbe(Number(new URL(SIGNAL_URL).port) || 80, new URL(SIGNAL_URL).hostname),
   signalWsHandshake: await wsHandshakeProbe(),
-  signalHttpApi: await httpsApiProbe(),
+  signalHttpApi: await apiProbe(),
   turnTlsTcpConnect: await tcpProbe(TURN_TLS_PORT),
   turnTlsHandshake: harnessSpki && tlsCa ? await tlsProbe() : { skipped: 'no CA or SPKI material readable' },
 };

@@ -33,14 +33,26 @@ jobs:
       - name: Tests
         run: cargo test --locked --workspace --no-fail-fast
       - name: WebSocket close policy feature-off and feature-on conformance
+        # always(): a red `Tests` step must not hide this verdict. The step stays
+        # fatal, so its own failure still reddens the job.
+        if: always()
         run: |
           CARGO_TARGET_DIR=target/websocket-close-policy cargo test --locked --manifest-path tests/conformance/websocket-close-policy/Cargo.toml --no-default-features
           CARGO_TARGET_DIR=target/websocket-close-policy cargo test --locked --manifest-path tests/conformance/websocket-close-policy/Cargo.toml --no-default-features --features livekit-policy
       - name: RSA public-only dependency boundary and mutation regressions
+        # always(): a red `Tests` step must not hide this verdict. The step stays
+        # fatal, so its own failure still reddens the job.
+        if: always()
         run: python3 crates/rtc-tls/scripts/check-rsa-boundary.py --self-test
       - name: Dependency gate regression tests
+        # always(): a red `Tests` step must not hide this verdict. The step stays
+        # fatal, so its own failure still reddens the job.
+        if: always()
         run: python3 scripts/test-check-dependencies.py
       - name: Architecture and production dependency graphs
+        # always(): a red `Tests` step must not hide this verdict. The step stays
+        # fatal, so its own failure still reddens the job.
+        if: always()
         run: python3 scripts/check-dependencies.py
       - name: Upload dependency evidence
         if: always()
@@ -258,9 +270,13 @@ jobs:
       # ICE-never-relayed apart from a rejected pinned certificate or a dead TURN
       # listener. The trigger reads the recorded leg conclusion instead of an `if:`
       # expression, because a continue-on-error step has no unambiguous step outcome.
+      # The step itself is tolerated: it is a diagnostic, and a crashing diagnostic
+      # must not decide whether the legs behind it run. On run 45679262055 this step
+      # threw inside the probe and that single failure skipped six never-executed legs.
       - name: Collect failed TURN TLS leg attribution evidence
         id: turn-tls-attribution
         if: always()
+        continue-on-error: true
         working-directory: tests/interop
         env:
           LIVEKIT_URL: ws://127.0.0.1:8080
