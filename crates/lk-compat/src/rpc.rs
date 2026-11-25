@@ -147,7 +147,12 @@ impl RpcRegistry {
         Self::default()
     }
 
-    pub(crate) fn register(
+    /// Registers a pending server RPC.
+    ///
+    /// `PerformRpc` calls this right after the request packet is handed to the
+    /// send path, mirroring upstream's ordering of `rpcPendingAcks`/
+    /// `rpcPendingResponses` registration after `SendDataMessage`.
+    pub fn register(
         &self,
         id: &str,
         participant: ParticipantSid,
