@@ -110,7 +110,7 @@ def main():
             work.mkdir(parents=True, exist_ok=True)
             values = {k: v.replace('{out}', str(work)) for k, v in values.items()}
             missing = sorted(set(fresh) - set(values))
-            outside = [k for k in fresh
+            outside = [] if missing else [k for k in fresh
                        if work not in pathlib.Path(values[k]).parents]
             if missing:
                 blocked = 'fresh_outputs names no env_values entry: %s' % ', '.join(missing)
