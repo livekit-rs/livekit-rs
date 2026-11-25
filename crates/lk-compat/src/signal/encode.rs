@@ -1317,7 +1317,8 @@ mod subscribed_audio_codec_tests {
                 },
             ],
         };
-        match encode_signal(ev, &EncodeCtx { client: &client }, &mut cache).and_then(|r| r.message) {
+        match encode_signal(ev, &EncodeCtx { client: &client }, &mut cache).and_then(|r| r.message)
+        {
             Some(Resp::SubscribedAudioCodecUpdate(u)) => {
                 assert_eq!(u.track_sid, "TR_a");
                 assert_eq!(

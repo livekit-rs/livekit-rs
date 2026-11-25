@@ -3230,7 +3230,10 @@ fn send_side_twcc_reports_are_the_allocation_authority_for_the_stream_allocator(
         sequence += 1;
         engine.on_send_side_input(
             tid,
-            send_side_sent(committed_next + Duration::from_micros(u64::from(step) * 100_000), sequence),
+            send_side_sent(
+                committed_next + Duration::from_micros(u64::from(step) * 100_000),
+                sequence,
+            ),
         );
     }
     engine.on_send_side_input(
