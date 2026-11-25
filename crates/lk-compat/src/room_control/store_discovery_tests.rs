@@ -42,7 +42,7 @@ fn isolated_url() -> String {
 /// free slot for each leg. A reused instance therefore stays reproducible,
 /// while an index another product already filled is still refused by
 /// `require_empty_db` rather than swept.
-fn isolated_leg_url(leg: usize) -> String {
+pub(super) fn isolated_leg_url(leg: usize) -> String {
     let base = isolated_url();
     let (head, index) = base.rsplit_once('/').unwrap();
     let base_index = index
@@ -55,7 +55,7 @@ fn isolated_leg_url(leg: usize) -> String {
     format!("{head}/{}", base_index - leg)
 }
 
-async fn raw(url: &str) -> MultiplexedConnection {
+pub(super) async fn raw(url: &str) -> MultiplexedConnection {
     redis::Client::open(url)
         .unwrap()
         .get_multiplexed_async_connection()
@@ -65,7 +65,7 @@ async fn raw(url: &str) -> MultiplexedConnection {
 
 /// Refuse a database that already holds another product's keys: this suite
 /// would otherwise sweep state it does not own.
-async fn require_empty_db(connection: &mut MultiplexedConnection) {
+pub(super) async fn require_empty_db(connection: &mut MultiplexedConnection) {
     let size: i64 = redis::cmd("DBSIZE")
         .query_async(&mut *connection)
         .await
@@ -163,7 +163,7 @@ fn node_message(id: &str, updated_at: i64) -> pb::Node {
 
 /// allocator over the same db as the registry, mirroring how RoomControl wires
 /// one shared command connection (`room_control/mod.rs:262-271`).
-async fn allocator(
+pub(super) async fn allocator(
     url: &str,
     cpu_limit: f32,
     sysload_limit: f32,

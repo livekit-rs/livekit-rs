@@ -860,6 +860,23 @@ impl RoomAllocator {
                 .collect();
             self.selector.select(&available)?
         } else {
+            // Go's SelectRoomNode (pkg/service/roomallocator.go:157-169) trusts a
+            // caller-supplied node id with no IsAvailable/SERVING check and no
+            // second ListNodes pass, so an explicit pin is adopted verbatim here.
+            // The only upstream-visible honesty gap is that this port can also be
+            // reached with a *stale* mapping already in place (the reuse branch
+            // above was skipped), where Go would still route to the old owner.
+            // Report which authority was used instead of silently re-pinning.
+            if !matches!(
+                self.registry.get_node_for_room(name).await,
+                Err(RegistryError::NotFound)
+            ) {
+                tracing::debug!(
+                    room = name,
+                    pinned = explicit,
+                    "explicit create pin overrides an existing stale room assignment"
+                );
+            }
             explicit.to_owned()
         };
         self.registry.set_node_for_room(name, &id).await?;

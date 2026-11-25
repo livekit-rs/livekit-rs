@@ -1404,6 +1404,11 @@ mod tests;
 #[path = "store_discovery_tests.rs"]
 mod store_discovery_tests;
 
+/// Measured direct-pin (`CreateRoomRequest.node_id`) create-routing verdict legs.
+#[cfg(test)]
+#[path = "direct_pin_tests.rs"]
+mod direct_pin_tests;
+
 #[cfg(test)]
 mod accepted_native;
 
