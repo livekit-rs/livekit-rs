@@ -14,5 +14,10 @@ pub mod service;
 
 #[cfg(test)]
 mod oracle_tests;
+/// AGENT_WIRE leaf suite. Compiled into the library only for tests so both the
+/// in-crate legs (the WebTransport control plane) and the integration-tier fake
+/// worker (`tests/agent_worker_lifecycle.rs`, the real `/agent` WebSocket plus
+/// the real room/job graph) share one codec-framing implementation instead of
+/// two diverging copies.
 #[cfg(test)]
-mod wire_tests;
+pub mod wire_tests;

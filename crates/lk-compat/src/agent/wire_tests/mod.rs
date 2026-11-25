@@ -53,13 +53,13 @@ async fn recv_event(events: &mut mpsc::Receiver<WorkerEvent>) -> Option<WorkerEv
 }
 
 /// One observed server->worker frame with its actual websocket opcode.
-struct Frame {
-    text: bool,
-    message: pb::ServerMessage,
+pub struct Frame {
+    pub text: bool,
+    pub message: pb::ServerMessage,
 }
 
 impl Frame {
-    fn one(&self) -> &pb::server_message::Message {
+    pub fn one(&self) -> &pb::server_message::Message {
         self.message
             .message
             .as_ref()
@@ -200,11 +200,11 @@ impl Drop for Harness {
 }
 
 /// Minimal masked client frames, like the existing peer-control fixture.
-struct RawWs {
+pub struct RawWs {
     peer: tokio::net::TcpStream,
 }
 impl RawWs {
-    async fn connect(addr: std::net::SocketAddr, token: &str) -> Self {
+    pub async fn connect(addr: std::net::SocketAddr, token: &str) -> Self {
         let peer = tokio::net::TcpStream::connect(addr).await.unwrap();
         let mut me = Self { peer };
         me.peer
@@ -241,7 +241,7 @@ impl RawWs {
             }
         }
     }
-    async fn send(&mut self, text: bool, payload: &[u8]) {
+    pub async fn send(&mut self, text: bool, payload: &[u8]) {
         assert!(payload.len() < 126, "fixture frames stay short");
         let mask = [1, 2, 3, 4];
         let mut frame = vec![if text { 0x81 } else { 0x82 }, 0x80 | payload.len() as u8];
@@ -249,14 +249,14 @@ impl RawWs {
         frame.extend(payload.iter().enumerate().map(|(n, v)| v ^ mask[n % 4]));
         self.peer.write_all(&frame).await.unwrap();
     }
-    async fn send_proto(&mut self, message: &pb::WorkerMessage) {
+    pub async fn send_proto(&mut self, message: &pb::WorkerMessage) {
         self.send(false, &prost::Message::encode_to_vec(message))
             .await;
     }
-    async fn send_json(&mut self, json: &[u8]) {
+    pub async fn send_json(&mut self, json: &[u8]) {
         self.send(true, json).await;
     }
-    async fn receive(&mut self) -> Frame {
+    pub async fn receive(&mut self) -> Frame {
         let mut header = [0; 2];
         self.read_bounded(&mut header).await;
         assert_eq!(header[1] & 128, 0, "server frames are unmasked");
@@ -280,7 +280,7 @@ impl RawWs {
         Frame { text, message }
     }
     /// Expect EOF/reset: the session tore down without another data frame.
-    async fn expect_abrupt_end(&mut self) {
+    pub async fn expect_abrupt_end(&mut self) {
         let start = std::time::Instant::now();
         let mut probe = [0u8; 1];
         loop {
@@ -634,6 +634,100 @@ impl RawWs {
             self.peer.write_all(&frame).await.unwrap();
         }
         opcode
+    }
+}
+
+/// One server WebSocket frame as the fake worker sees it: either a protocol
+/// message decoded through the production codec, or the transport-level 10s
+/// keepalive Ping (`wsprotocol.go:37,219-235`) with its payload so the caller can
+/// answer it like a conformant client and keep reading control frames.
+#[derive(Debug)]
+pub enum WsEvent {
+    Data(Frame),
+    KeepalivePing(Vec<u8>),
+}
+
+impl RawWs {
+    /// Send a raw HTTP request line set and return the response status code —
+    /// the pre-upgrade gate probe (`agentws.go:49-58` answers 404/401 before any
+    /// frame is read, so a normal `connect` cannot observe those rejections).
+    pub async fn request_status(addr: std::net::SocketAddr, request: &str) -> u16 {
+        let mut peer = tokio::net::TcpStream::connect(addr).await.unwrap();
+        peer.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        let start = std::time::Instant::now();
+        while !response.ends_with(b"\r\n\r\n") && response.len() < 8192 {
+            let mut byte = [0u8; 1];
+            match peer.try_read(&mut byte) {
+                Ok(1) => response.push(byte[0]),
+                Ok(_) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    check_io_bound(start, "response head");
+                    tokio::task::yield_now().await;
+                }
+                Err(error) => panic!("socket read: {error}"),
+            }
+        }
+        String::from_utf8_lossy(&response)
+            .split_whitespace()
+            .nth(1)
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+    }
+
+    /// Read the next server frame, transparently answering the ws-level keepalive
+    /// Ping so a data frame is never mistaken for a heartbeat.
+    pub async fn receive_data(&mut self) -> Frame {
+        loop {
+            match self.next_opcode().await {
+                1 | 2 => return self.receive().await,
+                9 => {}
+                other => panic!("unexpected server opcode {other}"),
+            }
+        }
+    }
+
+    /// Like [`RawWs::receive_data`], but hands a keepalive Ping back to the caller
+    /// instead of answering it, so a test can assert the heartbeat itself.
+    pub async fn receive_data_or_ping(&mut self) -> WsEvent {
+        let mut header = [0; 2];
+        self.read_bounded(&mut header).await;
+        let opcode = header[0] & 15;
+        let len = match header[1] & 127 {
+            126 => {
+                let mut extra = [0; 2];
+                self.read_bounded(&mut extra).await;
+                u16::from_be_bytes(extra) as usize
+            }
+            127 => panic!("unbounded fixture response"),
+            n => n as usize,
+        };
+        let mut body = vec![0u8; len];
+        self.read_bounded(&mut body).await;
+        match opcode {
+            1 | 2 => WsEvent::Data(Frame {
+                text: opcode == 1,
+                message: if opcode == 1 {
+                    lk_protocol::json::decode::<pb::ServerMessage>(&body).unwrap()
+                } else {
+                    prost::Message::decode(&body[..]).unwrap()
+                },
+            }),
+            9 => {
+                self.send_pong(&body).await;
+                WsEvent::KeepalivePing(body)
+            }
+            other => panic!("unexpected server opcode {other}"),
+        }
+    }
+
+    /// A masked client Pong carrying `payload` back to the server.
+    pub async fn send_pong(&mut self, payload: &[u8]) {
+        let mask = [1, 2, 3, 4];
+        let mut frame = vec![0x8a, 0x80 | payload.len() as u8];
+        frame.extend(mask);
+        frame.extend(payload.iter().enumerate().map(|(n, v)| v ^ mask[n % 4]));
+        self.peer.write_all(&frame).await.unwrap();
     }
 }
 

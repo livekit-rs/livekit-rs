@@ -437,6 +437,29 @@ impl Registry {
             worker.jobs.len(),
         )
     }
+    /// The pinned Go `Worker.runningJobs` view (`pkg/agent/worker.go:334`,
+    /// populated at :470-476 *before* the assignment frame is written and
+    /// rolled back at :476-480 when that write fails). A fake worker cannot
+    /// observe it over the transport, yet it is exactly what the room-side
+    /// dispatch consumer reads back (`pkg/agent/roomworker.go` /
+    /// `Room.GetJobState`, worker.go:380-388), so the "in runningJobs before
+    /// the send" ordering claim is only falsifiable through this seam.
+    #[cfg(test)]
+    pub fn running_job_ids_for_test(&self, id: &str) -> Vec<String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .workers
+            .get(id)
+            .map(|w| w.jobs.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    }
+    /// Go's `Worker.GetJobState` (pkg/agent/worker.go:380-388): the stored job's
+    /// state, or nothing when the worker/job is not in `runningJobs`.
+    #[cfg(test)]
+    pub fn get_job_state_for_test(&self, id: &str, job: &str) -> Option<pb::JobState> {
+        self.job_state(id, job).ok()
+    }
     pub fn registration(&self, id: &str) -> Option<Registration> {
         self.inner
             .lock()
