@@ -23,6 +23,16 @@ fn next_cost_generation() -> u64 {
     COST_GENERATION.fetch_add(1, Ordering::Relaxed)
 }
 
+/// `MediaTrackReceiver.GetTemporalLayerForSpatialFps`: the first temporal layer whose
+/// measured rate covers 90% of the request, otherwise the widest layer.
+fn temporal_layer_for_spatial_fps(rates: [f32; 4], fps: u32) -> u8 {
+    let request = fps as f32 * 0.9_f32;
+    rates
+        .iter()
+        .position(|rate| request <= *rate)
+        .map_or(3, |layer| layer as u8)
+}
+
 #[derive(Default, Clone)]
 pub(crate) struct LayerStat {
     pub last_seen: Option<Instant>,
@@ -704,12 +714,7 @@ impl UpTrack {
         if fps == 0 {
             return 3;
         }
-        let rates = self.temporal_rates(spatial.max(0) as usize);
-        let request = fps as f32 * 0.9_f32;
-        rates
-            .iter()
-            .position(|rate| request <= *rate)
-            .map_or(3, |layer| layer as u8)
+        temporal_layer_for_spatial_fps(self.temporal_rates(spatial.max(0) as usize), fps)
     }
     /// Layer-0 temporal cap, the entry the temporal-rate tests and the SVC
     /// forward-timing regression drive; forwarding names the spatial layer.
@@ -718,11 +723,7 @@ impl UpTrack {
         if fps == 0 {
             return 3;
         }
-        let rates = self.temporal_rates(0);
-        let requested = fps as f32 * 0.9_f32;
-        (0..=3)
-            .find(|layer| requested <= rates[*layer as usize])
-            .unwrap_or(3)
+        temporal_layer_for_spatial_fps(self.temporal_rates(0), fps)
     }
 
     /// Audio level observation from the RFC 6464 extension (`audio_level` is the
@@ -1785,5 +1786,67 @@ mod svc_tests {
         up.set_mime("video/VP8", now + Duration::from_secs(2));
         assert!(!up.svc);
         assert_eq!(up.svc_temporal_cap(8), 3);
+    }
+}
+
+#[cfg(test)]
+mod original_consumer_oracle {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires fixed original Go temporal ceiling rows, never helper-generated expected output"]
+    fn original_go_temporal_ceil_rows_match_the_ported_derivation() {
+        let path =
+            std::env::var("GO_TEMPORAL_CEIL_RESULTS").expect("actual original Go ceiling log");
+        let input = std::fs::read_to_string(path).unwrap();
+        let mut rows = 0;
+        let mut zero_request = 0;
+        let mut tables = std::collections::HashSet::new();
+        for line in input.lines() {
+            let Some(rest) = line
+                .strip_prefix("TEMPORAL_CEIL ")
+                .or_else(|| line.strip_prefix("MEASURED_TEMPORAL "))
+            else {
+                continue;
+            };
+            let (rates, tail) = rest.split_once("] ").expect("rates array then request");
+            let rates: [f32; 4] = rates
+                .trim_start_matches("rates=[")
+                .split_whitespace()
+                .map(|value| value.parse().unwrap())
+                .collect::<Vec<f32>>()
+                .try_into()
+                .expect("original source has four temporal columns");
+            let requested: u32 = tail
+                .split("requested=")
+                .nth(1)
+                .unwrap()
+                .split(' ')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let actual: u8 = tail
+                .split("actual=")
+                .nth(1)
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            tables.insert(format!("{rates:?}"));
+            zero_request += usize::from(requested == 0);
+            assert_eq!(
+                temporal_layer_for_spatial_fps(rates, requested),
+                actual,
+                "actual Go ceiling row {line}"
+            );
+            rows += 1;
+        }
+        assert_eq!(rows, 44, "every ceiling and measured-rate row must replay");
+        assert_eq!(tables.len(), 4, "all four original rate tables must replay");
+        assert_eq!(
+            zero_request, 4,
+            "the inner function answers layer 0 at fps 0, the caller gate answers 3"
+        );
     }
 }
