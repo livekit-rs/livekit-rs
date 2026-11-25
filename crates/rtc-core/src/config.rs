@@ -675,6 +675,14 @@ pub struct RtcConfig {
     /// writer is a pass-through, matching pion's `runtime.GOOS` gate.
     pub batch_write_size: usize,
     pub batch_write_interval: Duration,
+    /// Upstream `participant.Params.MediaBatchIOEnabled`
+    /// (`pkg/service/roommanager.go:546-548`): the batched UDP mux is actually
+    /// installed for this room, i.e. `batch_io.batch_size > 0`, no ephemeral
+    /// ICE port range was configured (`ICEPortRangeStart == 0 ||
+    /// ICEPortRangeEnd == 0`) and `rtc.udp_port` is a valid range. It is the
+    /// sole input of the receiver load-balance threshold
+    /// (`pkg/rtc/mediatrack.go:276-286`).
+    pub media_batch_io_enabled: bool,
     pub interfaces: Filter<String>,
     /// CIDR filters as (network, prefix length).
     pub ips: Filter<(IpAddr, u8)>,
@@ -972,6 +980,7 @@ mod room_policy_tests {
                 external_ip_only: false,
                 batch_write_size: 0,
                 batch_write_interval: Duration::ZERO,
+                media_batch_io_enabled: false,
                 interfaces: Filter::default(),
                 ips: Filter::default(),
                 enable_loopback_candidate: false,

@@ -51,6 +51,7 @@ fn engine_with_audio_interval(now: Instant, interval: Duration) -> MediaEngine {
                 external_ip_only: false,
                 batch_write_size: 0,
                 batch_write_interval: Duration::ZERO,
+                media_batch_io_enabled: false,
                 interfaces: Filter::default(),
                 ips: Filter::default(),
                 enable_loopback_candidate: false,
@@ -8273,3 +8274,6 @@ mod seq_gap_wire;
 mod rid_publication;
 
 mod media_counting_boundary;
+
+#[path = "regression/batch_io_lb_threshold.rs"]
+mod batch_io_lb_threshold;

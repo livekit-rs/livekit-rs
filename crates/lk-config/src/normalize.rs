@@ -465,6 +465,18 @@ pub(crate) fn to_server_config(
         );
     }
 
+    // Upstream `participant.Params.MediaBatchIOEnabled`
+    // (`pkg/service/roommanager.go:546-548`) is the *condition under which the
+    // batched UDP mux is actually installed*: a positive batch size, no
+    // ephemeral ICE port range and a valid `rtc.udp_port` range. It is not a
+    // re-derivation of the listener mode above: Go tests the raw source fields
+    // (`ICEPortRangeStart == 0 || ICEPortRangeEnd == 0`, `UDPPort.Valid()`), so
+    // a half-set port range still leaves the mux path enabled here, exactly as
+    // in Go where only `port_range_start` is honoured by `getPortPublisher`.
+    let media_batch_io_enabled = r.batch_io.batch_size > 0
+        && (r.port_range_start == 0 || r.port_range_end == 0)
+        && r.udp_port.valid();
+
     // SPEC-0074 C30: the node IP is not validated at load time upstream. The
     // base `--node-ip` flag and YAML go through `NodeIP.UnmarshalString` (a bad
     // value is a warning and the field stays empty), but a dotted generated
@@ -592,6 +604,7 @@ pub(crate) fn to_server_config(
         external_ip_only: r.external_ip_only,
         batch_write_size: r.batch_io.batch_size.max(0) as usize,
         batch_write_interval: r.batch_io.max_flush_interval.to_std(),
+        media_batch_io_enabled,
         interfaces: Filter {
             includes: r.interfaces.includes.clone(),
             excludes: r.interfaces.excludes.clone(),

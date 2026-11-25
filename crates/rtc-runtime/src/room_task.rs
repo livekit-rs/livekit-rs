@@ -1527,6 +1527,7 @@ mod tests {
                 external_ip_only: false,
                 batch_write_size: 0,
                 batch_write_interval: std::time::Duration::ZERO,
+                media_batch_io_enabled: false,
                 interfaces: Filter::default(),
                 ips: Filter::default(),
                 enable_loopback_candidate: false,
