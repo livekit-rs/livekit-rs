@@ -627,21 +627,6 @@ pub fn encode_signal(
                 num_videos: videos,
             })
         }
-        // participant.go:2961-2987 -> participant_signal.go:389 sends the audio codec
-        // list on its own signal; the video `SubscribedCodec` shape is not reused.
-        SignalEvent::SubscribedAudioCodecs {
-            track_sid,
-            codecs,
-        } => Resp::SubscribedAudioCodecUpdate(pb::SubscribedAudioCodecUpdate {
-            track_sid: track_sid.0,
-            subscribed_audio_codecs: codecs
-                .into_iter()
-                .map(|c| pb::SubscribedAudioCodec {
-                    codec: c.codec,
-                    enabled: c.enabled,
-                })
-                .collect(),
-        }),
         // Declared by the proto and encodable, but no engine producer exists: the
         // pinned Go server only reaches `SendRoomMovedResponse`
         // (participant_signal.go:174) from generated fakes, never from MoveToRoom
@@ -1303,7 +1288,7 @@ mod subscribed_audio_codec_tests {
     fn subscribed_audio_codecs_encode_on_their_own_signal() {
         let client = ClientMeta::default();
         let mut cache = RequestCache::default();
-        let ev = SignalEvent::SubscribedAudioCodecs {
+        let ev = SignalEvent::SubscribedAudioCodec {
             track_sid: TrackSid("TR_a".into()),
             codecs: vec![
                 SubscribedAudioCodec {
@@ -1348,7 +1333,10 @@ mod subscribed_audio_codec_tests {
             track_sid: TrackSid("TR_v".into()),
             codecs: vec![SubscribedCodec {
                 codec: "vp8".into(),
-                qualities: vec![(VideoQuality::High, true)],
+                qualities: vec![SubscribedQuality {
+                    quality: VideoQuality::High,
+                    enabled: true,
+                }],
             }],
         };
         match encode_signal(ev, &EncodeCtx { client: &client }, &mut cache).and_then(|r| r.message)
