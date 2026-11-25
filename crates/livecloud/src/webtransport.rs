@@ -2127,6 +2127,20 @@ mod tests {
         Some(buf[4..4 + len].to_vec())
     }
 
+    /// Open a WT bidi stream on `session`, write `payload` and report the first
+    /// receive outcome. A session torn down by a peer capsule can refuse the
+    /// open itself (`Err` from `open_bi`) or terminate it after the write, so
+    /// both shapes are returned for the caller to classify instead of being
+    /// unwrapped into a panic.
+    async fn probe_session_stream(
+        session: &lk_webtransport::WtSession,
+        payload: &'static [u8],
+    ) -> lk_webtransport::WtResult<Option<Bytes>> {
+        let mut stream = session.open_bi().await?;
+        stream.send_data(Bytes::from_static(payload)).await?;
+        stream.recv_data().await
+    }
+
     /// A length-prefixed `Register` control frame for `agent_name` (JT_ROOM).
     fn register_frame(agent_name: &str) -> Bytes {
         let request = pb::WorkerMessage {
@@ -2324,21 +2338,23 @@ mod tests {
         .await
         .expect("peer capsule must release the worker registration");
         tokio::time::timeout(Duration::from_secs(5), async {
+            // The QUIC layer does not order a new stream's RESET against the
+            // CONNECT capsule that ends its session, so `open_bi`/`send_data`
+            // may already report the teardown instead of the read. Every stage
+            // must carry the session-gone code: the server terminates owned
+            // streams with it (`SessionStreams::close`) and refuses a stream
+            // whose route is still live while the session is closed with it too
+            // (`handle_connection`'s closed-but-registered branch). The reject
+            // code only appears after the pump retires the route, which the
+            // late-stream loop below waits for.
             for _ in 0..2 {
-                let mut closing = client.session().open_bi().await.unwrap();
-                closing
-                    .send_data(Bytes::from_static(b"closing-session-stream"))
-                    .await
-                    .unwrap();
-                let error = closing
-                    .recv_data()
-                    .await
-                    .expect_err("stream on closing session must reset");
-                assert!(
-                    matches!(error, lk_webtransport::WtError::StreamTerminated(code)
-                    if code == lk_webtransport::WT_SESSION_GONE_ERROR_CODE),
-                    "{error:?}"
-                );
+                let outcome =
+                    probe_session_stream(client.session(), b"closing-session-stream").await;
+                match outcome {
+                    Err(lk_webtransport::WtError::StreamTerminated(code))
+                        if code == lk_webtransport::WT_SESSION_GONE_ERROR_CODE => {}
+                    other => panic!("stream on closing session must reset, got {other:?}"),
+                }
             }
         })
         .await
@@ -2384,20 +2400,17 @@ mod tests {
         }
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                let mut late = client.session().open_bi().await.unwrap();
-                late.send_data(Bytes::from_static(b"late-closed-session-stream"))
-                    .await
-                    .unwrap();
-                let error = late.recv_data().await.expect_err("late stream must reset");
-                match error {
-                    lk_webtransport::WtError::StreamTerminated(
+                let outcome =
+                    probe_session_stream(client.session(), b"late-closed-session-stream").await;
+                match outcome {
+                    Err(lk_webtransport::WtError::StreamTerminated(
                         lk_webtransport::WT_BUFFERED_STREAM_REJECTED_ERROR_CODE,
-                    ) => break,
+                    )) => break,
                     // The disconnect notification can finish before the
                     // connection pump consumes the route retirement event.
-                    lk_webtransport::WtError::StreamTerminated(
+                    Err(lk_webtransport::WtError::StreamTerminated(
                         lk_webtransport::WT_SESSION_GONE_ERROR_CODE,
-                    ) => continue,
+                    )) => continue,
                     other => panic!("unexpected late stream error: {other:?}"),
                 }
             }
