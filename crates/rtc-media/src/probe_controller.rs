@@ -27,13 +27,6 @@ const VERIFIED_FOR: Duration = Duration::from_secs(60);
 // discovery train may renew that authorization.
 const VALIDATION_WINDOW: Duration = Duration::from_secs(3);
 pub(crate) const VALIDATION_SPAN: Duration = Duration::from_secs(1);
-// The vendor emits the configured starting estimate exactly once, before any
-// TWCC report exists (`session.rs` `last_estimate()` first emission), and Google's
-// estimator only adopts a new rate while feedback is younger than 10 s
-// (`delay/control.rs` `trendline_hypothesis_valid`). A controller seeded from
-// that one event keeps the bootstrap probe arm open for the same window; after
-// it, discovery needs a real report like every other claim.
-const INITIAL_SEED_VALID_FOR: Duration = STALE_AFTER;
 
 #[derive(Clone, Copy, Debug)]
 struct Probe {
@@ -115,15 +108,6 @@ pub(crate) struct ProbeController {
     next_probe_at: Instant,
     reset_allowed_at: Instant,
     interval: Duration,
-    // The vendor emits the configured starting estimate once, before any TWCC
-    // report exists (`session.rs`: `(true, None) => bwe.last_estimate()`). Go
-    // seeds its remote-BWE probe controller with that same initial bitrate
-    // (`remotebwe/probe_controller.go` `NewProbeController(initialBitrate)`),
-    // so this controller remembers it as a one-shot bootstrap budget and keeps
-    // the probe arm open for `INITIAL_SEED_VALID_FOR`. A first-time pass with no
-    // observed feedback must still be able to discover; after the window or a
-    // real report, only fresh feedback authorizes discovery.
-    seed: Option<(u64, Instant)>,
     probe: Option<Probe>,
     last_adjustment: Instant,
     last_growth_at: Instant,
@@ -164,7 +148,6 @@ impl ProbeController {
             next_probe_at: now + BASE_INTERVAL,
             reset_allowed_at: now + BASE_INTERVAL,
             interval: BASE_INTERVAL,
-            seed: None,
             probe: None,
             last_adjustment: now,
             last_growth_at: now,
@@ -236,21 +219,8 @@ impl ProbeController {
             self.probe = None;
             self.cancel_validation();
         }
-        // The vendor emits its configured starting estimate exactly once before
-        // any TWCC report exists (`session.rs`: `(true, None) =>
-        // bwe.last_estimate()`). That event is a capability + initial-rate
-        // observation, not feedback, so it stays out of `feedback_at`; but like
-        // Go's remote-BWE probe controller, seeded with the initial bitrate
-        // (`remotebwe/probe_controller.go` `NewProbeController(initialBitrate)`),
-        // it arms the bootstrap discovery window. A first-time pass with no
-        // observed feedback must still be able to schedule a probe.
-        if self.last_twcc_at.is_none() && self.rtcp_feedback_at.is_none() {
-            // Still the vendor's pre-feedback initial estimate: re-affirm the
-            // one-shot seed rather than treating a repeat as a new observation.
-            self.seed = Some((estimate, now));
-        } else {
-            self.seed = None;
-        }
+        // Configuration/capability and timer-produced estimates are not feedback.
+        let _ = now;
     }
 
     /// A receiver-reported REMB is a direct observation, unlike a local GCC tick.
@@ -718,18 +688,9 @@ impl ProbeController {
             self.reset_allowed_at = self.next_probe_at;
         }
         let feedback_fresh = now.saturating_duration_since(self.feedback_at) < STALE_AFTER;
-        // Bootstrap arm: the vendor's one-shot initial estimate (no observed
-        // TWCC report yet) keeps discovery schedulable for the estimator's own
-        // hypothesis-validity window, mirroring Go's probe controller seeded
-        // with the initial bitrate. It grants no capacity and no validation.
-        let bootstrap_probe = self.seed.is_some_and(|(rate, at)| {
-            rate > 0
-                && at <= now
-                && now.saturating_duration_since(at) < INITIAL_SEED_VALID_FOR
-        });
         if self.can_probe
             && deficient
-            && (feedback_fresh || all_video_paused || bootstrap_probe)
+            && (feedback_fresh || all_video_paused)
             && self.probe.is_none()
             && now >= self.next_probe_at
         {
