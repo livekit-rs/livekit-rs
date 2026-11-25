@@ -18,7 +18,7 @@
 //! * `WorkerMessage.update_worker` →
 //!   [`worker_message_update_worker_flows_through_the_production_dispatch_loop`]
 //! * `WorkerMessage.update_job` →
-//!   [`worker_message_update_job_drives_the_producerion_room_job_state_machine`]
+//!   [`worker_message_update_job_drives_the_production_room_job_state_machine`]
 //! * `WorkerMessage.ping` / `ServerMessage.pong` →
 //!   [`worker_message_ping_is_answered_by_server_message_pong_with_a_real_round_trip`]
 //! * `ServerMessage.termination` →
@@ -382,7 +382,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// AGENT_WIRE:WorkerMessage.register / ServerMessage.register
+// AGENT_WIRE:WorkerMessage.register + AGENT_WIRE:ServerMessage.register
 // ---------------------------------------------------------------------------
 
 #[tokio::test(start_paused = true)]
@@ -461,7 +461,7 @@ async fn worker_message_register_answers_server_message_register_over_real_webso
 }
 
 // ---------------------------------------------------------------------------
-// AGENT_WIRE:ServerMessage.availability / WorkerMessage.availability
+// AGENT_WIRE:ServerMessage.availability + AGENT_WIRE:WorkerMessage.availability
 // ---------------------------------------------------------------------------
 
 #[tokio::test(start_paused = true)]
@@ -883,7 +883,7 @@ async fn worker_message_update_job_drives_the_production_room_job_state_machine(
 }
 
 // ---------------------------------------------------------------------------
-// AGENT_WIRE:WorkerMessage.ping / ServerMessage.pong
+// AGENT_WIRE:WorkerMessage.ping + AGENT_WIRE:ServerMessage.pong
 // ---------------------------------------------------------------------------
 
 #[tokio::test(start_paused = true)]
