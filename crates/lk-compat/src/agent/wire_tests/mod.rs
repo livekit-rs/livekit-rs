@@ -53,18 +53,48 @@ async fn recv_event(events: &mut mpsc::Receiver<WorkerEvent>) -> Option<WorkerEv
 }
 
 /// One observed server->worker frame with its actual websocket opcode.
+#[derive(Debug)]
 pub struct Frame {
     pub text: bool,
     pub message: pb::ServerMessage,
 }
 
 impl Frame {
+    /// The oneof arm actually on the wire. Cloning through the reference lets a
+    /// leg both match on and `unwrap()` the payload without moving the frame.
     pub fn one(&self) -> &pb::server_message::Message {
         self.message
             .message
             .as_ref()
             .expect("non-empty ServerMessage")
     }
+}
+
+/// Pre-upgrade HTTP gate probe: send a raw request line set and return the status
+/// code. `RawWs::connect` asserts a 101, so a rejection (404/401, the ordering
+/// Go enforces at `pkg/service/agentws.go:49-58`) is only observable this way.
+pub async fn request_status(addr: std::net::SocketAddr, request: &str) -> u16 {
+    let mut peer = tokio::net::TcpStream::connect(addr).await.unwrap();
+    peer.write_all(request.as_bytes()).await.unwrap();
+    let mut response = Vec::new();
+    let start = std::time::Instant::now();
+    while !response.ends_with(b"\r\n\r\n") && response.len() < 8192 {
+        let mut byte = [0u8; 1];
+        match peer.try_read(&mut byte) {
+            Ok(1) => response.push(byte[0]),
+            Ok(_) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                check_io_bound(start, "response head");
+                tokio::task::yield_now().await;
+            }
+            Err(error) => panic!("socket read: {error}"),
+        }
+    }
+    String::from_utf8_lossy(&response)
+        .split_whitespace()
+        .nth(1)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
 }
 
 /// The same registry/service assembly the `/agent` route runs on. Tests that
@@ -643,7 +673,7 @@ impl RawWs {
 /// answer it like a conformant client and keep reading control frames.
 #[derive(Debug)]
 pub enum WsEvent {
-    Data(Frame),
+    Data(Box<Frame>),
     KeepalivePing(Vec<u8>),
 }
 
@@ -705,14 +735,14 @@ impl RawWs {
         let mut body = vec![0u8; len];
         self.read_bounded(&mut body).await;
         match opcode {
-            1 | 2 => WsEvent::Data(Frame {
+            1 | 2 => WsEvent::Data(Box::new(Frame {
                 text: opcode == 1,
                 message: if opcode == 1 {
                     lk_protocol::json::decode::<pb::ServerMessage>(&body).unwrap()
                 } else {
                     prost::Message::decode(&body[..]).unwrap()
                 },
-            }),
+            })),
             9 => {
                 self.send_pong(&body).await;
                 WsEvent::KeepalivePing(body)

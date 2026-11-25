@@ -460,6 +460,22 @@ impl Registry {
     pub fn get_job_state_for_test(&self, id: &str, job: &str) -> Option<pb::JobState> {
         self.job_state(id, job).ok()
     }
+    /// The offered-but-unanswered job slots of one worker — Go's
+    /// `Worker.availability` (declared at `worker.go:339`, keyed at :396 before the
+    /// availability request is written at :414, deleted by `HandleAvailability` at
+    /// :565 after the channel is handed out, and again by the deferred cleanup at
+    /// :401). `runningJobs` proves a job was assigned; only this map shows whether
+    /// an answered offer was retired.
+    #[cfg(test)]
+    pub fn pending_job_ids_for_test(&self, id: &str) -> Vec<String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .workers
+            .get(id)
+            .map(|w| w.pending.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    }
     pub fn registration(&self, id: &str) -> Option<Registration> {
         self.inner
             .lock()
