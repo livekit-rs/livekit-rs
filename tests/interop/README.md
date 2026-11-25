@@ -160,7 +160,7 @@ VIDEO=true VIDEO_CODEC=vp9 SCALABILITY_MODE=L3T3_KEY \
 SVC_SWITCH=true SVC_TEMPORAL=true DURATION_MS=10000 npm test
 ```
 
-`SVC_SWITCH=true` 请求低/高空间层并检查真实解码尺寸；`SVC_TEMPORAL=true` 通过官方订阅设置请求 `5`/`15` FPS，分别观测六秒，检查实际解码帧数随请求改变并恢复。它不是仅检查 SDP 中包含 VP9。将命令中的 `VIDEO_CODEC=vp9` 改为 `VIDEO_CODEC=av1`，并更换 `SERVER_LABEL`，可复现 AV1 `L3T3_KEY` 的同组空间/时间订阅门禁；上面的原生 EC WSS 命令已组合 AV1 与 TURN/TLS。AV1 场景需要浏览器实际支持该编码，检查真实解码尺寸、帧数与 dependency descriptor 驱动的层选择，不能用仅出现 SDP codec 名代替。当前覆盖 Chrome/Chromium 的 VP9/AV1 `L3T3_KEY`，没有据此覆盖全部编码模式、其他浏览器或客户端。结合拥塞的层选择使用下一组独立门禁，不从本组关闭拥塞的结果推导。
+`SVC_SWITCH=true` 请求低/高空间层并检查真实解码尺寸；`SVC_TEMPORAL=true` 先把两路订阅切到空间层 `1`，再按 `0`/`2`/`15` FPS 各请求一次：每次请求后静置 2.5 秒，再取相隔 6 秒的两个采样，用订阅端 `inbound-rtp.framesDecoded`（无该字段时回退 `framesReceived`）增量作为服务端实际转发的视频帧数，要求低请求不足无请求的 60%、提高到 15 后至少是无请求限制的 1.5 倍且回到无请求值的 70% 以上。时间层上限读的是当前订阅空间层自己的帧率表，因此选两路发布都能稳定测得的空间层，而不是仅检查 SDP 中出现 VP9。发布端 `outbound-rtp.framesEncoded` 与 `videoFrames` 渲染回调一并写入证据但不作判定口径：VP9 SVC 一张图会按各空间层分别计一次编码帧，渲染回调只反映显示节奏。将命令中的 `VIDEO_CODEC=vp9` 改为 `VIDEO_CODEC=av1`，并更换 `SERVER_LABEL`，可复现 AV1 `L3T3_KEY` 的同组空间/时间订阅门禁；上面的原生 EC WSS 命令已组合 AV1 与 TURN/TLS。AV1 场景需要浏览器实际支持该编码，检查真实解码尺寸、帧数与 dependency descriptor 驱动的层选择，不能用仅出现 SDP codec 名代替。当前覆盖 Chrome/Chromium 的 VP9/AV1 `L3T3_KEY`，没有据此覆盖全部编码模式、其他浏览器或客户端。结合拥塞的层选择使用下一组独立门禁，不从本组关闭拥塞的结果推导。
 
 ### 真实 TURN 限速、暂停与恢复
 
