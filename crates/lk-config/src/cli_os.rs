@@ -554,8 +554,7 @@ mod tests {
                 "--identity=f56-identity".into(),
             ];
             let bytes = crate::parse_with_probe(argv, &env, &info(), &probe)
-                .err()
-                .expect("actual missing key-file error")
+                .expect_err("actual missing key-file error")
                 .stdout_bytes();
             let mut expected = b"stat ".to_vec();
             expected.extend_from_slice(owned.0.join("missing").as_os_str().as_encoded_bytes());

@@ -167,11 +167,11 @@ async fn dedicated_alias_bases_are_distinct_and_release_both_real_ports() {
     assert!(read(&net.inner.udp_sockets).is_empty());
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            if let Ok(first) = std::net::UdpSocket::bind((a, port)) {
-                if let Ok(second) = std::net::UdpSocket::bind((b, port)) {
-                    drop((first, second));
-                    break;
-                }
+            if let Ok(first) = std::net::UdpSocket::bind((a, port))
+                && let Ok(second) = std::net::UdpSocket::bind((b, port))
+            {
+                drop((first, second));
+                break;
             }
             tokio::task::yield_now().await;
         }
