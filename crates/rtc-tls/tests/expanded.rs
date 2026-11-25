@@ -397,34 +397,73 @@ async fn root_intermediate_leaf_fullchain_verifies_and_missing_or_wrong_order_fa
 /// Wall-clock ceiling for one OpenSSL client/server cell, covering the accept leg.
 const CELL_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// Await both legs of one cell under a single deadline, and name the cell if either
-/// leg cannot produce an outcome.
+/// Grace given to the server task once the client process has already exited.
+const SERVER_GRACE: Duration = Duration::from_secs(3);
+
+/// Await both legs of one cell, naming the cell and the surviving evidence when a leg
+/// cannot produce an outcome.
 ///
-/// Bounding only the client leg is not enough. When the client process exits before
-/// the accept leg can complete - a build that rejects the cipher or group string does
-/// exactly that - the server task stays pending forever, and an unbounded
-/// `server.await` stalls the whole matrix in silence. Run 45691070092 spent 44 of the
-/// job's 45 minutes on this step, printing only "has been running for over 60
-/// seconds", and the teardown listed no OpenSSL process among the orphans it killed,
-/// so the client had already been gone for the entire stall.
+/// Bounding only the client leg is not enough. When the client process exits before the
+/// accept leg can complete - a build that rejects the cipher or group string does exactly
+/// that - the server task stays pending forever, and an unbounded `server.await` stalls
+/// the whole matrix in silence. Run 45691070092 spent 44 of the job's 45 minutes on this
+/// step, printing only "has been running for over 60 seconds", and the teardown listed no
+/// OpenSSL process among the orphans it killed, so the client had already been gone for the
+/// entire stall.
+///
+/// The legs carry a separate deadline because they carry different evidence. A client that
+/// never returns is a hung process; a client that returns while the server leg is still
+/// pending refused the stimulus, and its exit status and stderr are the only record of why.
+/// Run 45700623620 is the first bounded verdict: `P256/TLS_AES_128_GCM_SHA256/P-256: no
+/// outcome within 15s` in 15.50s, which names the cell but not the refusal.
 async fn await_cell(
     label: &str,
     client: tokio::task::JoinHandle<std::process::Output>,
     server: tokio::task::JoinHandle<()>,
 ) -> Result<std::process::Output, String> {
-    let stalled = format!("{label}: no outcome within {}s", CELL_TIMEOUT.as_secs());
-    let legs = async move {
-        let out = client
+    let client_leg = async move {
+        client
             .await
-            .map_err(|e| format!("{label}: client task failed: {e}"))?;
+            .map_err(|e| format!("{label}: client task failed: {e}"))
+    };
+    let out = match tokio::time::timeout(CELL_TIMEOUT, client_leg).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            return Err(format!(
+                "{label}: the client produced no outcome within {}s",
+                CELL_TIMEOUT.as_secs()
+            ));
+        }
+    };
+    let server_leg = async move {
         server
             .await
-            .map_err(|e| format!("{label}: server task failed: {e}"))?;
-        Ok(out)
+            .map_err(|e| format!("{label}: server task failed: {e}"))
     };
-    tokio::time::timeout(CELL_TIMEOUT, legs)
-        .await
-        .map_err(|_| stalled)?
+    match tokio::time::timeout(SERVER_GRACE, server_leg).await {
+        Ok(Ok(())) => Ok(out),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(format!(
+            "{label}: the client exited with {} but the server leg never completed; stderr: {}",
+            out.status,
+            stderr_tail(&out.stderr)
+        )),
+    }
+}
+
+/// The tail of a client's stderr, trimmed, so a refusal stays quotable in one line.
+fn stderr_tail(stderr: &[u8]) -> String {
+    const KEEP: usize = 400;
+    let text = String::from_utf8_lossy(stderr);
+    if text.len() <= KEEP {
+        return text.trim().to_string();
+    }
+    let mut start = text.len() - KEEP;
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    text[start..].trim().to_string()
 }
 
 #[tokio::test]
@@ -503,11 +542,22 @@ async fn openssl_client_verifies_rsa_ecdsa_ed25519_all_ciphers_and_key_exchanges
                     if name == "RSA" { "RSA" } else { "ECDSA" }
                 )
             };
-            let group_list = match name {
-                "P256" => format!("{group_name}:P-256"),
-                "P384" => format!("{group_name}:P-384"),
-                "P521" => format!("{group_name}:P-521"),
-                _ => group_name.to_string(),
+            // The client must offer the group the server keeps, and the leaf's own curve for
+            // the ECDSA keys. OpenSSL 3.0 refuses a group list with a repeated entry
+            // ("Call to SSL_CONF_cmd(-groups, P-256:P-256) failed") and exits before
+            // connecting, while 3.6 and 4.1 accept it; the rotation makes (P256, si 0) and
+            // (P384, si 1) land on their own curve, so the list is built only when the two
+            // differ.
+            let key_curve = match name {
+                "P256" => "P-256",
+                "P384" => "P-384",
+                "P521" => "P-521",
+                _ => "",
+            };
+            let group_list = if key_curve.is_empty() || key_curve == group_name {
+                group_name.to_string()
+            } else {
+                format!("{group_name}:{key_curve}")
             };
             let client = tokio::task::spawn_blocking(move || {
                 let mut c = Command::new(openssl);
@@ -577,13 +627,20 @@ async fn openssl_cell_without_a_connection_reports_a_named_stall() {
             .unwrap()
     });
     let label = "RSA/AES128-GCM-SHA256/X25519";
-    let outer = CELL_TIMEOUT + Duration::from_secs(10);
+    let outer = CELL_TIMEOUT + SERVER_GRACE + Duration::from_secs(10);
     let outcome = tokio::time::timeout(outer, await_cell(label, client, server))
         .await
         .expect("the accept leg must be bounded by the cell deadline");
     let err = outcome.expect_err("a client that never connects must fail its cell, not hang it");
     assert!(err.contains(label), "the failure must name the cell: {err}");
-    assert!(err.contains("no outcome"), "{err}");
+    assert!(
+        err.contains("server leg never completed"),
+        "the failure must say which leg stalled: {err}"
+    );
+    assert!(
+        err.contains("exit status"),
+        "the failure must carry the client verdict that explains the stall: {err}"
+    );
 }
 
 #[tokio::test]
