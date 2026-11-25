@@ -135,6 +135,58 @@ async fn same_peer_two_owners_keep_distinct_admitted_routes_and_late_reply_sourc
 async fn dedicated_alias_bases_are_distinct_and_release_both_real_ports() {
     let a: IpAddr = "127.0.0.2".parse().unwrap();
     let b: IpAddr = "127.0.0.3".parse().unwrap();
+    let alias_a: IpAddr = "127.0.0.1".parse().unwrap();
+    let alias_b: IpAddr = "127.0.0.4".parse().unwrap();
+    let reserve = std::net::UdpSocket::bind((a, 0)).unwrap();
+    let port = reserve.local_addr().unwrap().port();
+    drop(reserve);
+    let net = NetRouter::start(NetConfig {
+        udp_enabled: true,
+        udp_port: None,
+        port_range: (port, port),
+        tcp_port: None,
+        interfaces: vec![
+            LocalInterface {
+                bind: a,
+                advertise: alias_a,
+            },
+            LocalInterface {
+                bind: b,
+                advertise: alias_b,
+            },
+        ],
+    })
+    .await
+    .unwrap();
+    let (tx, _) = mpsc::channel(1);
+    let id = TransportId::next();
+    let c = net.open_transport(id, "dedicated", tx).unwrap();
+    assert_eq!(c[0].addr, SocketAddr::new(alias_a, port));
+    assert_eq!(c[1].addr, SocketAddr::new(alias_b, port));
+    assert_ne!(c[0].base, c[1].base);
+    assert_eq!(read(&net.inner.udp_sockets).len(), 2);
+    net.close_transport(id);
+    assert!(read(&net.inner.udp_sockets).is_empty());
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if let Ok(first) = std::net::UdpSocket::bind((a, port))
+                && let Ok(second) = std::net::UdpSocket::bind((b, port))
+            {
+                drop((first, second));
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    net.shutdown();
+}
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn dedicated_alias_endpoint_collision_keeps_one_base_and_closes_the_other_socket() {
+    let a: IpAddr = "127.0.0.2".parse().unwrap();
+    let b: IpAddr = "127.0.0.3".parse().unwrap();
     let alias: IpAddr = "127.0.0.1".parse().unwrap();
     let reserve = std::net::UdpSocket::bind((a, 0)).unwrap();
     let port = reserve.local_addr().unwrap().port();
@@ -159,18 +211,24 @@ async fn dedicated_alias_bases_are_distinct_and_release_both_real_ports() {
     .unwrap();
     let (tx, _) = mpsc::channel(1);
     let id = TransportId::next();
-    let c = net.open_transport(id, "dedicated", tx).unwrap();
-    assert_eq!(c[0].addr, c[1].addr);
-    assert_ne!(c[0].base, c[1].base);
-    assert_eq!(read(&net.inner.udp_sockets).len(), 2);
+    let c = net.open_transport(id, "collision", tx).unwrap();
+    assert_eq!(
+        c.len(),
+        1,
+        "two owners of one advertised endpoint are one candidate"
+    );
+    assert_eq!(c[0].addr, SocketAddr::new(alias, port));
+    assert_eq!(c[0].base, SocketAddr::new(a, port));
+    assert_eq!(read(&net.inner.udp_sockets).len(), 1);
+    assert!(
+        std::net::UdpSocket::bind((b, port)).is_ok(),
+        "the rejected duplicate must release its descriptor while the survivor stays registered"
+    );
     net.close_transport(id);
     assert!(read(&net.inner.udp_sockets).is_empty());
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            if let Ok(first) = std::net::UdpSocket::bind((a, port))
-                && let Ok(second) = std::net::UdpSocket::bind((b, port))
-            {
-                drop((first, second));
+            if std::net::UdpSocket::bind((a, port)).is_ok() {
                 break;
             }
             tokio::task::yield_now().await;
