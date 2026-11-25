@@ -223,8 +223,21 @@ mod tests {
 
     #[tokio::test]
     async fn verified_https_and_wss_keep_peer_address_and_avoid_handshake_head_of_line_blocking() {
-        let (addr, stop, force, _, task) = fixture(3, Duration::from_millis(200)).await;
+        // The stalled handshake must still hold its permit when the good
+        // connections are served, so the deadline cannot be the thing under test.
+        let (addr, stop, force, slots, task) = fixture(3, Duration::from_secs(5)).await;
         let stalled = TcpStream::connect(addr).await.unwrap();
+        for _ in 0..100 {
+            if slots.available_permits() == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            slots.available_permits(),
+            2,
+            "stalled handshake did not occupy a connection slot"
+        );
         let mut client = tokio::time::timeout(Duration::from_secs(2), tls(addr))
             .await
             .unwrap()
