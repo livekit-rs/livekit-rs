@@ -2,18 +2,38 @@
 //! path, not by hand-built objects.
 //!
 //! The sibling unit file calls `notify_audio_codec_negotiated` directly, so it
-//! stays green even when no negotiation path invokes it. These vectors feed
-//! genuine str0m offers and answers into `MediaEngine::on_remote_description`,
-//! the entry the signal connection uses, and assert the announcement leaves the
-//! engine with the committed mime set. Upstream reaches the same shape from the
-//! wire: a multi-codec audio publication builds `dynacastManagerAudio`
-//! (mediatrack.go:161-167) and every answered subscription reports its
-//! negotiated mime (subscribedtrack.go:456-482 → participant.go:2955-2982).
+//! stays green even when no negotiation path invokes it. These vectors reach the
+//! two production call sites instead: one subscribes on the publishing PC, where
+//! the client re-offers and the offer path binds
+//! ([`MediaEngine::on_remote_description`] → `signaling.rs:838`), and one
+//! subscribes on a second PC that answers the offer the engine wrote
+//! (`signaling.rs:1006`). Each leg asserts the announcement leaves the engine
+//! with the mime its own negotiation selected, so a hard-coded mime fails the
+//! RED-first pair (measured: `M-C84-2`, see the evidence slot).
 //!
-//! Parked unfinished: all three legs are `#[ignore]`d with their measured
-//! outcome — two assert failures and one that does not terminate. The crate
-//! still compiles them, so the next pass starts from the build rather than from
-//! a guess about the wiring.
+//! Ground truth (pinned livekit v1.13.10 e5655ac):
+//! - `participant.go:3170-3247`: the publisher's audio codec list is the
+//!   AddTrack request's `SimulcastCodecs` in the client's own order, deduped by
+//!   mime, each entry keeping its `Cid`. The order is client data, so "RED
+//!   first" is a real publication shape rather than a server-side preference.
+//! - `mediatrack.go:161-167`: the audio dynacast manager exists only when that
+//!   list has more than one codec, and `mediatrack.go:167-175` feeds every
+//!   receiver the negotiation sets up into `AddCodec(mime)`.
+//! - `mediatrackreceiver.go:182-228`: `SetupReceiver` keys receivers by
+//!   `receiver.Mime()` — the mime of the stream that arrived — and writes that
+//!   mime back into the TrackInfo codec entry at the receiver's priority index.
+//!   No TrackInfo update in v1.13.10 replaces or reorders the codec list:
+//!   `UpdateCodecInfo` (`:803`) patches `Cid` and layers on mime matches,
+//!   `UpdateCodecSdpCid` (`:835`) patches `SdpCid`, `UpdateAudioTrack` (`:919`)
+//!   patches the stereo/DTX features, and `RoomService` exposes no `UpdateTrack`
+//!   RPC at all (`roomservice.go:73-396`).
+//! - `subscribedtrack.go:456-482` → `mediatrack.go:189-195`: the demand comes
+//!   from each subscriber's own negotiated codec
+//!   (`OnCodecNegotiated` → `NotifySubscription(sub, mime, true)`), so the
+//!   announced mime follows the negotiation and never a constant.
+//!
+//! The payload types are the ones `codecs.rs:59-64` registers: PT 111 opus and
+//! PT 63 red with `apt=111`.
 
 use super::*;
 use rtc_core::media_api::{DownTrackSpec, MediaCommand, PcRole, PublishedTrackSpec};
@@ -23,38 +43,30 @@ use rtc_core::model::{
 use str0m::Rtc;
 use str0m::change::SdpAnswer;
 use str0m::media::{Direction, MediaKind};
-use str0m::{Candidate, Input, Output};
 
 const OPUS: &str = "audio/opus";
 const RED: &str = "audio/red";
 const SDP_SID: &str = "TR_audio_sdp";
-const PUB: &str = "PA_sdp_pub";
-// The fixture registers every transport under one participant, so the down
-// track's subscriber must be that id for `sending_transport` to find the PC.
+// The fixture registers every transport under one participant, so both sides of
+// the exchange carry that id: `transport_spec` (regression.rs:116-135) fixes it
+// and `bind_track` takes the publisher from the transport spec. Publisher-only
+// delivery of the announcement is the room router's contract, proven in
+// crates/rtc-core/src/room/tests/dynacast_signal_routing.rs.
 const PARTICIPANT: &str = "PA_test";
-// The server ICE agent address every leg of this file gathers and routes
-// through, matching the sibling dual-PC regressions in `regression.rs`.
-const SERVER_ADDR: &str = "127.0.0.1:9741";
-const CLIENT_ADDR: &str = "127.0.0.1:9742";
 // A plain `engine(now)` has only opus registered, so a published RED codec
 // would be refused at bind ("receiver codec absent from published codec
 // set"). Every engine here enables both mimes instead.
 const ENABLED_CODECS: [&str; 2] = [OPUS, RED];
 
-/// A client that offers and receives `audio/opus` plus `audio/red` with the
-/// LiveKit payload types the server registers (codecs.rs:59-64: PT 111 opus,
-/// PT 63 red with `apt=111`), so both codecs survive the intersection.
+/// A client offering `audio/opus` (PT 111) and `audio/red` (PT 63), so both
+/// survive the intersection with the server's codec config.
 fn dual_codec_client(now: Instant) -> Rtc {
-    let mut rtc = Rtc::builder()
+    Rtc::builder()
         .set_crypto_provider(rtc_crypto::provider().into())
         .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
         .clear_codecs()
         .enable_opus(true, true)
-        .build(now);
-    rtc.add_local_candidate(
-        Candidate::host(CLIENT_ADDR.parse().unwrap(), "udp").expect("test client candidate"),
-    );
-    rtc
+        .build(now)
 }
 
 fn sdp_engine(now: Instant) -> MediaEngine {
@@ -68,85 +80,11 @@ fn sdp_engine(now: Instant) -> MediaEngine {
     engine
 }
 
-/// Create a transport the way `transport()` does, but with the server host
-/// candidate already gathered, so connectivity can complete for PCs driven
-/// through `drive_client`.
-fn connected_transport(engine: &mut MediaEngine, role: PcRole, now: Instant) -> TransportId {
-    connected_transport_with(engine, role, false, now)
-}
-
-/// Same, with the option to put the reliable/lossy/data-track channels on the
-/// server side of the offer. A Single PC needs them so its very first local
-/// description is non-empty (str0m suppresses change-free offers), which is
-/// what establishes the PC before any media is negotiated.
-fn connected_transport_with(
-    engine: &mut MediaEngine,
-    role: PcRole,
-    server_data_channels: bool,
-    now: Instant,
-) -> TransportId {
-    let tid = TransportId::next();
-    let addr = SERVER_ADDR.parse().expect("test server address");
-    let mut spec = transport_spec(tid, role);
-    spec.server_data_channels = server_data_channels;
-    engine.create_transport(
-        spec,
-        IceCredentials::random(),
-        vec![crate::net::LocalCandidate {
-            proto: Proto::Udp,
-            addr,
-            base: addr,
-        }],
-        now,
-    );
-    tid
-}
-
-/// Drive one client `Rtc` against the engine until its ICE agent reports
-/// connected, routing every client packet into `handle_datagram` and every
-/// engine output back to the client. Returns once DTLS/ICE completed or the
-/// budget is exhausted; callers assert observable consequences afterwards.
-fn drive_client(
-    engine: &mut MediaEngine,
-    client: &mut Rtc,
-    tid: TransportId,
-    from: Instant,
-    steps: u64,
-) -> bool {
-    let client_addr = CLIENT_ADDR.parse().expect("test client address");
-    let server_addr = SERVER_ADDR.parse().expect("test server address");
-    let mut now = from;
-    for _ in 0..steps {
-        if client.is_connected() {
-            return true;
-        }
-        let _ = client.handle_input(Input::Timeout(now));
-        loop {
-            match client.poll_output() {
-                Ok(Output::Transmit(packet)) => engine.handle_datagram(crate::net::Datagram {
-                    transport: tid,
-                    proto: Proto::Udp,
-                    source: client_addr,
-                    destination: server_addr,
-                    data: &packet.contents,
-                    received_at: now,
-                }),
-                Ok(Output::Event(_)) | Ok(Output::Timeout(_)) => {}
-                Err(_) => break,
-            }
-        }
-        engine.handle_timeout(now);
-        now += Duration::from_millis(10);
-    }
-    client.is_connected()
-}
-
-/// A codec list whose first entry — the primary, the one a receiver binds —
-/// is `mime`, with the other declared codec second. Mirrors what the room
-/// writes into TrackInfo after it has merged the negotiated codec set.
+/// The codec list as the pinned Go stores an AddTrack request's
+/// `SimulcastCodecs`: the client's order, each mime under its own CID.
 fn codec_list(primary: &str) -> Vec<TrackCodec> {
     let secondary = if primary == OPUS { RED } else { OPUS };
-    [(primary, "audio-cid"), (secondary, "red-cid")]
+    [(primary, "primary-cid"), (secondary, "secondary-cid")]
         .into_iter()
         .map(|(mime, cid)| TrackCodec {
             mime_type: mime.into(),
@@ -156,472 +94,350 @@ fn codec_list(primary: &str) -> Vec<TrackCodec> {
         .collect()
 }
 
-/// Two declared codecs — opus first, RED second under its own CID — with
-/// `disable_red` set so the RED codec is reachable only through an explicit
-/// codec CID, exactly like a publisher whose TrackInfo lists both mimes.
-fn dual_codec_audio_spec() -> PublishedTrackSpec {
+/// A two-codec audio publication whose primary codec is `primary`. RED stays
+/// enabled because the leg under test is the negotiated codec set, not the
+/// encoder fallback policy.
+fn audio_spec(primary: &str) -> PublishedTrackSpec {
     PublishedTrackSpec {
         backup_codec_policy: BackupCodecPolicy::Simulcast,
         sid: TrackSid::from(SDP_SID),
         kind: TrackKind::Audio,
         source: TrackSource::Microphone,
-        cid: "audio-cid".into(),
+        cid: "primary-cid".into(),
         layers: vec![],
-        codecs: codec_list(OPUS),
+        codecs: codec_list(primary),
         stereo: false,
         disable_dtx: false,
-        disable_red: true,
+        disable_red: false,
         encrypted: false,
         muted: false,
     }
 }
 
-/// Drain queued events, returning the audio-codec announcements and panicking
-/// on any other event so a stray queue item cannot hide a missing one.
-fn take_announcements(engine: &mut MediaEngine) -> Vec<(ParticipantSid, TrackSid, Vec<String>)> {
-    let mut events = Vec::new();
-    engine.drain_events(&mut events);
+/// The audio-codec announcements inside an event list, keeping the publisher,
+/// track and committed mimes the production call site queued.
+///
+/// Both real call sites push the announcement into the same queue that carries
+/// their negotiation bookkeeping, so the tolerated variants are listed instead
+/// of filtered quietly: anything else panics, and a stray queue item cannot hide
+/// a missing announcement.
+fn announcements(events: &[MediaEvent]) -> Vec<(ParticipantSid, TrackSid, Vec<String>)> {
     events
-        .into_iter()
+        .iter()
         .filter_map(|event| match event {
             MediaEvent::SubscribedAudioCodec {
                 publisher,
                 track_sid,
                 codecs,
             } => Some((
-                publisher,
-                track_sid,
-                codecs.into_iter().map(|c| c.codec).collect(),
+                publisher.clone(),
+                track_sid.clone(),
+                codecs.iter().map(|c| c.codec.clone()).collect(),
             )),
-            MediaEvent::LocalDescription { .. } => None,
+            MediaEvent::LocalDescription { .. }
+            | MediaEvent::MediaSectionsRequirement { .. }
+            | MediaEvent::RemoteMediaAdded { .. }
+            | MediaEvent::SubscriptionPrepared { .. }
+            | MediaEvent::SubscriptionBound { .. }
+            | MediaEvent::TransportEstablished { .. } => None,
             other => panic!("unexpected queued event {other:?}"),
         })
         .collect()
 }
 
-fn local_descriptions(events: &[MediaEvent]) -> Vec<(SdpType, String, u32)> {
-    events
-        .iter()
-        .filter_map(|event| match event {
-            MediaEvent::LocalDescription { kind, sdp, id, .. } => Some((*kind, sdp.clone(), *id)),
-            _ => None,
-        })
-        .collect()
-}
-
-fn local_descriptions_of(engine: &mut MediaEngine) -> Vec<(SdpType, String, u32)> {
+/// Drain whatever the engine still holds after a step and read its announcements.
+fn queued_announcements(engine: &mut MediaEngine) -> Vec<(ParticipantSid, TrackSid, Vec<String>)> {
     let mut events = Vec::new();
     engine.drain_events(&mut events);
-    local_descriptions(&events)
+    announcements(&events)
+}
+
+/// Let `client` add a media section, offer it, and accept the engine's answer.
+/// This is the exchange the signal connection performs, and the negotiation
+/// itself needs no ICE or DTLS completion — the way the sibling regressions in
+/// `regression.rs` drive both publish and subscribe.
+fn negotiate(
+    engine: &mut MediaEngine,
+    client: &mut Rtc,
+    tid: TransportId,
+    now: Instant,
+    edit: impl FnOnce(&mut str0m::change::SdpApi<'_>),
+) -> Vec<MediaEvent> {
+    let mut change = client.sdp_api();
+    edit(&mut change);
+    let (offer, pending) = change.apply().unwrap();
+    engine.on_remote_description(tid, SdpType::Offer, offer.to_sdp_string(), 1, now);
+    let mut events = Vec::new();
+    engine.drain_events(&mut events);
+    let answer = events
+        .iter()
+        .find_map(|event| match event {
+            MediaEvent::LocalDescription {
+                kind: SdpType::Answer,
+                sdp,
+                ..
+            } => Some(sdp.clone()),
+            _ => None,
+        })
+        .expect("the engine answers a real client offer");
+    client
+        .sdp_api()
+        .accept_answer(pending, SdpAnswer::from_sdp_string(&answer).unwrap())
+        .unwrap();
+    events
 }
 
 /// Run the registration the room performs after AddTrack: re-bind through the
 /// real `RemoteMediaAdded` rows so each negotiated publisher mime gets its
 /// receiver row, like Go's `OnSetupReceiver` path (mediatrack.go:167-175).
-fn register_remote_media(engine: &mut MediaEngine, tid: TransportId, now: Instant) {
-    let mut events = Vec::new();
-    engine.drain_events(&mut events);
+fn register_remote_media(
+    engine: &mut MediaEngine,
+    events: &[MediaEvent],
+    tid: TransportId,
+    now: Instant,
+) {
     for event in events {
-        if let MediaEvent::RemoteMediaAdded(remote) = &event
+        if let MediaEvent::RemoteMediaAdded(remote) = event
             && remote.transport == tid
         {
             engine.bind_track(tid, &remote.mid, TrackSid::from(SDP_SID), now);
         }
     }
+    let mut follow_up = Vec::new();
+    engine.drain_events(&mut follow_up);
+}
+
+/// One fixture PC whose publisher negotiated a two-codec audio publication with
+/// `primary` first.
+struct SdpAudioPublish {
+    engine: MediaEngine,
+    client: Rtc,
+    tid: TransportId,
+    start: Instant,
+}
+
+impl SdpAudioPublish {
+    fn new(primary: &'static str) -> Self {
+        let start = Instant::now();
+        let mut engine = sdp_engine(start);
+        engine.out = Box::new(RoutedPacketQueue::default());
+        let tid = transport(&mut engine, PcRole::Single, start);
+        engine.handle_command(
+            MediaCommand::ExpectTrack {
+                transport: tid,
+                track: audio_spec(primary),
+            },
+            start,
+        );
+        let mut client = dual_codec_client(start);
+        let events = negotiate(&mut engine, &mut client, tid, start, |change| {
+            change.add_media(
+                MediaKind::Audio,
+                Direction::SendOnly,
+                None,
+                Some("primary-cid".into()),
+                None,
+            );
+        });
+        register_remote_media(&mut engine, &events, tid, start);
+        SdpAudioPublish {
+            engine,
+            client,
+            tid,
+            start,
+        }
+    }
+
+    /// Mimes of the receiver rows bound to the published track, sorted.
+    fn receiver_mimes(&self) -> Vec<String> {
+        let mut mimes: Vec<String> = self
+            .engine
+            .ups
+            .iter()
+            .filter(|(_, up)| up.sid == TrackSid::from(SDP_SID))
+            .map(|(_, up)| up.mime.clone())
+            .collect();
+        mimes.sort();
+        mimes
+    }
+
+    /// The subscription the room issues for `subscriber` on this publication.
+    fn down_spec(&self, subscriber: &str, stream_id: &str) -> DownTrackSpec {
+        DownTrackSpec {
+            subscriber: subscriber.into(),
+            publisher: ParticipantSid::from(PARTICIPANT),
+            track_sid: TrackSid::from(SDP_SID),
+            stream_id: stream_id.into(),
+            settings: TrackSettings::default(),
+            adaptive_stream: false,
+        }
+    }
+
+    /// Subscribe on the publishing PC: the client re-offers and the engine binds
+    /// the down track in the offer path (`signaling.rs:838`).
+    fn subscribe_over_client_offer(
+        &mut self,
+        stream_id: &str,
+    ) -> Vec<(ParticipantSid, TrackSid, Vec<String>)> {
+        self.engine.events.clear();
+        self.engine
+            .subscribe(self.down_spec(PARTICIPANT, stream_id), self.start);
+        self.engine.run(self.start);
+        let events = negotiate(
+            &mut self.engine,
+            &mut self.client,
+            self.tid,
+            self.start,
+            |change| {
+                change.add_media(
+                    MediaKind::Audio,
+                    Direction::RecvOnly,
+                    Some(stream_id.into()),
+                    Some(SDP_SID.into()),
+                    None,
+                );
+            },
+        );
+        // The call site queues into the same drain `negotiate` returned, so the
+        // announcement has to be read there; a second drain alone would find
+        // nothing and report a pass as an absence.
+        let mut out = announcements(&events);
+        out.extend(queued_announcements(&mut self.engine));
+        out
+    }
+
+    /// Subscribe on a second PC owned by `subscriber`: the engine writes the
+    /// offer, so the down track binds in the answer path (`signaling.rs:1006`).
+    fn subscribe_over_server_offer(
+        &mut self,
+        subscriber: &str,
+    ) -> Vec<(ParticipantSid, TrackSid, Vec<String>)> {
+        let start = self.start;
+        let tid = TransportId::next();
+        let mut spec = transport_spec(tid, PcRole::Subscriber);
+        spec.participant = subscriber.into();
+        // The publishing PC keeps the primary slot, as in a two-PC SDK client.
+        spec.primary = false;
+        self.engine
+            .create_transport(spec, IceCredentials::random(), vec![], start);
+        self.engine.events.clear();
+        let stream_id = format!("{subscriber}|{SDP_SID}");
+        self.engine
+            .subscribe(self.down_spec(subscriber, &stream_id), start);
+        // `negotiate` only arms the debounce timer; the offer is written when it
+        // fires, so the clock has to reach it before the client can answer.
+        self.engine
+            .handle_timeout(start + Duration::from_millis(200));
+        let mut client = dual_codec_client(start);
+        answer_server_offer(&mut self.engine, &mut client, tid, start);
+        queued_announcements(&mut self.engine)
+    }
 }
 
 #[test]
-#[ignore = "parked WIP (C79-c follow-up): the red-primary list plus red-cid renegotiated offer leaves the receiver row at [\"audio/opus\"]"]
-fn sdp_negotiated_codec_switch_to_red_announces_the_audio_red_mime() {
-    // A publisher whose TrackInfo declares opus first answers with opus as its
-    // receiver mime. When the room switches the media options to the declared
-    // RED codec (`UpdatePublishedTrack`, room/publish.rs:535 — the same command
-    // upstream's `UpdateTrack` feeds into the receiver selection), the next
-    // negotiated subscription must announce `audio/red`. This leg proves the
-    // announced mime follows the live receiver row, not a fixture constant.
-    let start = Instant::now();
-    let mut engine = sdp_engine(start);
-    engine.out = Box::new(RoutedPacketQueue::default());
-    let tid = connected_transport(&mut engine, PcRole::Publisher, start);
-    engine.transports.get_mut(&tid).unwrap().spec.primary = false;
-    // Publish with opus as the primary codec: the receiver row is audio/opus.
-    let mut publisher = publish_over_sdp(&mut engine, tid, start);
-    let ui = *engine.up_by_sid.get(&TrackSid::from(SDP_SID)).unwrap();
-    assert_eq!(engine.ups.get(ui).unwrap().mime, OPUS);
-
-    // The room switches the media options to the declared RED codec: upstream
-    // reorders the TrackInfo codecs so the chosen codec is primary with its own
-    // CID first (room/publish.go UpdateTrack → ToProto ordered by the selected
-    // codec, and mediatrack.go OnTrackAdded picks codecs[0]). The publisher
-    // then offers that codec under the new track-id, and the re-bind through
-    // the real RemoteMediaAdded path resolves the receiver mime from the
-    // updated codec list matched on the offered CID.
-    let mut switched = dual_codec_audio_spec();
-    switched.codecs = vec![
-        TrackCodec {
-            mime_type: RED.into(),
-            cid: "red-cid".into(),
-            ..Default::default()
-        },
-        TrackCodec {
-            mime_type: OPUS.into(),
-            cid: "audio-cid".into(),
-            ..Default::default()
-        },
-    ];
-    switched.cid = "red-cid".into();
-    engine.handle_command(
-        MediaCommand::UpdatePublishedTrack {
-            track: switched.clone(),
-        },
-        start,
-    );
-    // Reuse the publishing client so the renegotiation offer keeps the same
-    // ICE credentials and session version as the first one.
-    let mut change = publisher.sdp_api();
-    let mid = change.add_media(
-        MediaKind::Audio,
-        Direction::SendOnly,
-        None,
-        Some("red-cid".into()),
-        None,
-    );
-    let (offered, pending) = change.apply().unwrap();
-    engine.on_remote_description(tid, SdpType::Offer, offered.to_sdp_string(), 9, start);
-    let mut events = Vec::new();
-    engine.drain_events(&mut events);
-    let answer = local_descriptions(&events)
-        .into_iter()
-        .find_map(|(kind, sdp, _)| (kind == SdpType::Answer).then_some(sdp))
-        .expect("server answers the red-first renegotiation");
-    publisher
-        .sdp_api()
-        .accept_answer(pending, SdpAnswer::from_sdp_string(&answer).unwrap())
-        .unwrap();
-    register_remote_media(&mut engine, tid, start);
-    engine.bind_track(tid, &mid.to_string(), TrackSid::from(SDP_SID), start);
-    let receivers: Vec<String> = engine
-        .ups
-        .iter()
-        .filter(|(_, up)| up.sid == TrackSid::from(SDP_SID))
-        .map(|(_, up)| up.mime.clone())
-        .collect();
-    assert!(
-        receivers.iter().any(|m| m == RED),
-        "the red-primary codec list plus the red-cid renegotiated offer must move \
-         a receiver row to audio/red; got {receivers:?}"
-    );
-    assert_eq!(engine.audio_dynacast.len(), 1);
-
-    // Subscribe on a second PC that has completed ICE/DTLS, so the answered
-    // subscription really reaches `handle_answer`'s bound-track loop. The
-    // announcement must carry the publisher's receiver mime (audio/red),
-    // which only the wiring under test can supply. str0m suppresses an offer
-    // with no changes, so this PC's initial server description is the
-    // subscription renegotiation itself.
-    let sub_tid = connected_transport(&mut engine, PcRole::Subscriber, start);
-    let mut subscriber = dual_codec_client(start);
-    drive_client(&mut engine, &mut subscriber, sub_tid, start, 80);
-    assert!(
-        subscriber.is_connected(),
-        "the subscriber PC must complete ICE/DTLS"
-    );
-    engine.events.clear();
-    engine.subscribe(
-        DownTrackSpec {
-            subscriber: ParticipantSid::from(PARTICIPANT),
-            publisher: ParticipantSid::from(PUB),
-            track_sid: TrackSid::from(SDP_SID),
-            stream_id: "audio-subs".into(),
-            settings: TrackSettings::default(),
-            adaptive_stream: false,
-        },
-        start,
-    );
-    let negotiation_at = start + Duration::from_millis(160);
-    engine.handle_timeout(negotiation_at);
-    let mut events = Vec::new();
-    engine.drain_events(&mut events);
-    let (offer_sdp, id) = local_descriptions(&events)
-        .into_iter()
-        .find_map(|(kind, sdp, id)| (kind == SdpType::Offer).then_some((sdp, id)))
-        .expect("subscription triggers a renegotiated offer");
-    let answer = subscriber
-        .sdp_api()
-        .accept_offer(str0m::change::SdpOffer::from_sdp_string(&offer_sdp).unwrap())
-        .unwrap()
-        .to_sdp_string();
-    engine.on_remote_description(sub_tid, SdpType::Answer, answer, id, negotiation_at);
+fn an_opus_first_negotiation_binds_the_audio_opus_receiver() {
+    let published = SdpAudioPublish::new(OPUS);
     assert_eq!(
-        take_announcements(&mut engine),
+        published.receiver_mimes(),
+        vec![OPUS.to_string()],
+        "the receiver row takes the mime the publisher negotiation arrived on"
+    );
+    assert_eq!(
+        published.engine.audio_dynacast.len(),
+        1,
+        "a two-codec audio publication builds the manager (mediatrack.go:161-167)"
+    );
+}
+
+#[test]
+fn a_red_first_negotiation_binds_the_audio_red_receiver() {
+    // The only difference from the previous leg is the client's own codec order,
+    // so the mime here cannot be a fixture constant.
+    let published = SdpAudioPublish::new(RED);
+    assert_eq!(
+        published.receiver_mimes(),
+        vec![RED.to_string()],
+        "RED declared first must bind the audio/red receiver"
+    );
+    assert_eq!(published.engine.audio_dynacast.len(), 1);
+}
+
+#[test]
+fn the_negotiated_subscription_announces_the_mime_of_its_own_receiver_row() {
+    // The real offer path reaches the production call site
+    // (`signaling.rs:838`, the sibling of the answer path at `:1006`) and each
+    // leg announces what its own publication negotiated.
+    let mut opus_first = SdpAudioPublish::new(OPUS);
+    assert_eq!(
+        opus_first.subscribe_over_client_offer("PA_test|TR_audio_sdp"),
         vec![(
-            ParticipantSid::from(PUB),
+            ParticipantSid::from(PARTICIPANT),
+            TrackSid::from(SDP_SID),
+            vec![OPUS.to_string()]
+        )],
+        "an opus-first publication announces audio/opus"
+    );
+
+    let mut red_first = SdpAudioPublish::new(RED);
+    assert_eq!(
+        red_first.subscribe_over_client_offer("PA_test|TR_audio_sdp"),
+        vec![(
+            ParticipantSid::from(PARTICIPANT),
             TrackSid::from(SDP_SID),
             vec![RED.to_string()]
         )],
-        "the committed mime set follows the audio/red receiver row"
-    );
-}
-
-/// One real publisher exchange over `tid`: offer with the audio section, answer,
-/// bind, then register what the SDP actually negotiated. Returns the client so
-/// a renegotiation vector can reuse its ICE identity and session version.
-fn publish_over_sdp(engine: &mut MediaEngine, tid: TransportId, now: Instant) -> str0m::Rtc {
-    engine.handle_command(
-        MediaCommand::ExpectTrack {
-            transport: tid,
-            track: dual_codec_audio_spec(),
-        },
-        now,
-    );
-    let mut publisher = dual_codec_client(now);
-    let mut change = publisher.sdp_api();
-    let mid = change.add_media(
-        MediaKind::Audio,
-        Direction::SendOnly,
-        None,
-        Some("audio-cid".into()),
-        None,
-    );
-    let (offered, pending) = change.apply().unwrap();
-    engine.on_remote_description(tid, SdpType::Offer, offered.to_sdp_string(), 1, now);
-    let events_all = {
-        let mut events = Vec::new();
-        engine.drain_events(&mut events);
-        events
-    };
-    let answer = local_descriptions(&events_all)
-        .into_iter()
-        .find_map(|(kind, sdp, _)| (kind == SdpType::Answer).then_some(sdp))
-        .expect("server answers the publisher offer");
-    publisher
-        .sdp_api()
-        .accept_answer(pending, SdpAnswer::from_sdp_string(&answer).unwrap())
-        .unwrap();
-    engine.bind_track(tid, &mid.to_string(), TrackSid::from(SDP_SID), now);
-    // The registration the room performs after AddTrack: re-bind through the
-    // RemoteMediaAdded rows so each negotiated publisher mime gets its receiver
-    // row, like Go's `OnSetupReceiver` path (mediatrack.go:167-175).
-    register_remote_media(engine, tid, now);
-    publisher
-}
-
-#[test]
-#[ignore = "parked WIP (C79-c follow-up): the subscriber transport never yields a serialized server offer, so `connected_transport` unwraps nothing"]
-fn sdp_negotiated_single_pc_audio_subscription_announces_the_committed_mime() {
-    let start = Instant::now();
-    let mut engine = sdp_engine(start);
-    engine.out = Box::new(RoutedPacketQueue::default());
-    let tid = connected_transport_with(&mut engine, PcRole::Single, true, start);
-    let mut client = dual_codec_client(start);
-    // The initial server offer (data channels only) establishes the PC.
-    answer_server_offer(&mut engine, &mut client, tid, start);
-    // Publication on the same PC: the client adds its sendonly audio m-line.
-    let _ = publish_over_sdp(&mut engine, tid, start);
-    let ui = *engine.up_by_sid.get(&TrackSid::from(SDP_SID)).unwrap();
-    assert_eq!(engine.ups.get(ui).unwrap().mime, OPUS);
-    assert_eq!(
-        engine.audio_dynacast.len(),
-        1,
-        "a two-codec audio publication must build the manager"
-    );
-
-    // Subscription on the same PC. The engine asks the client for one more
-    // send audio section — the `MediaSectionsRequirement` the room turns into
-    // an AddTrack response — and the client honours it with a recvonly m-line.
-    engine.events.clear();
-    engine.subscribe(
-        DownTrackSpec {
-            subscriber: ParticipantSid::from(PARTICIPANT),
-            publisher: ParticipantSid::from(PUB),
-            track_sid: TrackSid::from(SDP_SID),
-            stream_id: "audio-subs".into(),
-            settings: TrackSettings::default(),
-            adaptive_stream: false,
-        },
-        start,
-    );
-    engine.run(start);
-    let mut events = Vec::new();
-    engine.drain_events(&mut events);
-    let requirement = events
-        .iter()
-        .find_map(|event| match event {
-            MediaEvent::MediaSectionsRequirement { audios, videos, .. } => Some((*audios, *videos)),
-            _ => None,
-        })
-        .expect("the single-PC subscription requests a send section");
-    assert_eq!(requirement, (1, 0));
-
-    // Drive the Single PC through ICE/DTLS: the client's STUN bindings go into
-    // `handle_datagram` and every packet the engine queues is delivered back,
-    // so the transport reaches the connected state a real answer arrives on.
-    drive_client(&mut engine, &mut client, tid, start, 80);
-    assert!(
-        client.is_connected(),
-        "the single PC must complete ICE/DTLS"
-    );
-
-    let mut change = client.sdp_api();
-    change.add_media(
-        MediaKind::Audio,
-        Direction::RecvOnly,
-        Some("audio-subs".into()),
-        Some(SDP_SID.into()),
-        None,
-    );
-    let (offered, pending) = change.apply().unwrap();
-    let offered = offered.to_sdp_string();
-    let sections = crate::sdp_munge::split_sections(&offered).1;
-    let sub_section = sections
-        .iter()
-        .copied()
-        .find(|s| crate::sdp_munge::section_direction(s) == Some("recvonly"))
-        .expect("client offers a recvonly audio section");
-    assert!(
-        sub_section.contains("a=rtpmap:63 red/"),
-        "the client offer must carry opus and red: {sub_section}"
-    );
-    engine.on_remote_description(tid, SdpType::Offer, offered, 2, start);
-    let mut events = Vec::new();
-    engine.drain_events(&mut events);
-    let answer = local_descriptions(&events)
-        .into_iter()
-        .find_map(|(kind, sdp, _)| (kind == SdpType::Answer).then_some(sdp.clone()))
-        .expect("server answers the subscription renegotiation");
-    let section = crate::sdp_munge::split_sections(&answer)
-        .1
-        .into_iter()
-        .find(|s| crate::sdp_munge::section_direction(s) == Some("sendonly"))
-        .expect("server answers the subscription m-line sendonly");
-    assert!(
-        section.contains("a=rtpmap:63 red/"),
-        "RED stays negotiated on the subscription m-line: {section}"
-    );
-    client
-        .sdp_api()
-        .accept_answer(pending, SdpAnswer::from_sdp_string(&answer).unwrap())
-        .unwrap();
-
-    // The load-bearing chain: the real offer path bound the down track, took
-    // the receiver mime of the bound up track, committed it and queued the
-    // announcement addressed to the publisher participant.
-    assert_eq!(
-        take_announcements(&mut engine),
-        vec![(
-            ParticipantSid::from(PUB),
-            TrackSid::from(SDP_SID),
-            vec![OPUS.to_string()]
-        )],
-        "one announcement per negotiated sub, carrying the full receiver mime"
+        "the same subscription shape on a RED-first publication announces audio/red"
     );
 }
 
 #[test]
-#[ignore = "parked WIP (C79-c follow-up): does not terminate; the drive loop keeps polling output instead of completing the second answer"]
-fn sdp_negotiated_dual_pc_answer_announces_and_a_repeat_subscriber_stays_silent() {
-    let start = Instant::now();
-    let mut engine = sdp_engine(start);
-    engine.out = Box::new(RoutedPacketQueue::default());
-    let pub_tid = connected_transport(&mut engine, PcRole::Publisher, start);
-    engine.transports.get_mut(&pub_tid).unwrap().spec.primary = false;
-    let _ = publish_over_sdp(&mut engine, pub_tid, start);
+fn a_second_subscription_of_the_same_committed_mime_announces_nothing() {
+    // Go commits the demand per subscriber (dynacastmanageraudio.go:144-158), so
+    // re-negotiating a mime that is already committed leaves the payload map
+    // unchanged and writes no message. One fixture PC has one participant, so
+    // the repeat is the same subscriber re-negotiating.
+    let mut published = SdpAudioPublish::new(RED);
     assert_eq!(
-        engine.audio_dynacast.len(),
-        1,
-        "a two-codec audio publication must build the manager"
-    );
-    let ui = *engine.up_by_sid.get(&TrackSid::from(SDP_SID)).unwrap();
-    assert_eq!(engine.ups.get(ui).unwrap().mime, OPUS);
-
-    // The subscriber PC completes ICE/DTLS on its own transport first. str0m
-    // suppresses an offer with no changes, so the server's initial offer for
-    // this PC is the subscription renegotiation itself — the same way a real
-    // subscriber receives its first media after the add debounce.
-    let sub_tid = connected_transport(&mut engine, PcRole::Subscriber, start);
-    let mut subscriber = dual_codec_client(start);
-    drive_client(&mut engine, &mut subscriber, sub_tid, start, 80);
-    assert!(
-        subscriber.is_connected(),
-        "the subscriber PC must complete ICE/DTLS"
-    );
-    engine.events.clear();
-
-    engine.subscribe(
-        DownTrackSpec {
-            subscriber: ParticipantSid::from("PA_sdp_sub"),
-            publisher: ParticipantSid::from(PUB),
-            track_sid: TrackSid::from(SDP_SID),
-            stream_id: "audio-subs".into(),
-            settings: TrackSettings::default(),
-            adaptive_stream: false,
-        },
-        start,
-    );
-    let negotiation_at = start + Duration::from_millis(160);
-    engine.handle_timeout(negotiation_at);
-    let (offer_sdp, id) = local_descriptions_of(&mut engine)
-        .into_iter()
-        .find_map(|(kind, sdp, id)| (kind == SdpType::Offer).then_some((sdp, id)))
-        .expect("the subscription triggers a renegotiated offer");
-    assert!(
-        offer_sdp.contains("a=rtpmap:63 red/"),
-        "the server offer must present opus and red: {offer_sdp}"
-    );
-    let answer = subscriber
-        .sdp_api()
-        .accept_offer(str0m::change::SdpOffer::from_sdp_string(&offer_sdp).unwrap())
-        .unwrap()
-        .to_sdp_string();
-    let section = crate::sdp_munge::split_sections(&answer)
-        .1
-        .into_iter()
-        .find(|s| crate::sdp_munge::section_kind(s) == Some("audio"))
-        .expect("answered audio section");
-    assert!(
-        section.contains("a=rtpmap:111 opus/48000"),
-        "the subscriber answered opus: {section}"
-    );
-    engine.on_remote_description(sub_tid, SdpType::Answer, answer, id, negotiation_at);
-
-    // Chain leg 1: the real answer path produced the announcement.
-    assert_eq!(
-        take_announcements(&mut engine),
+        published.subscribe_over_client_offer("PA_test|TR_audio_sdp"),
         vec![(
-            ParticipantSid::from(PUB),
+            ParticipantSid::from(PARTICIPANT),
+            TrackSid::from(SDP_SID),
+            vec![RED.to_string()]
+        )],
+        "the first subscription must announce, or the empty second one proves nothing"
+    );
+    assert!(
+        published
+            .subscribe_over_client_offer("PA_test|TR_audio_sdp")
+            .is_empty(),
+        "an unchanged committed mime set announces nothing, even over real SDP"
+    );
+}
+
+#[test]
+fn the_server_offer_answer_path_announces_the_mime_its_receiver_row_negotiated() {
+    // The second production call site. A subscriber PC answers the offer the
+    // engine wrote, so the demand comes from `signaling.rs:1006` instead of the
+    // offer path, and each publication still announces its own negotiated mime.
+    let mut opus_first = SdpAudioPublish::new(OPUS);
+    assert_eq!(
+        opus_first.subscribe_over_server_offer("PA_sub_opus"),
+        vec![(
+            ParticipantSid::from(PARTICIPANT),
             TrackSid::from(SDP_SID),
             vec![OPUS.to_string()]
         )],
-        "the real answer path must notify through the audio dynacast manager"
+        "an opus-first publication announces audio/opus to its answering subscriber"
     );
 
-    // Chain leg 2: a second subscriber of the same mime changes nothing,
-    // because the committed map is unchanged (dynacastmanageraudio.go:144-158).
-    engine.subscribe(
-        DownTrackSpec {
-            subscriber: ParticipantSid::from("PA_sdp_sub2"),
-            publisher: ParticipantSid::from(PUB),
-            track_sid: TrackSid::from(SDP_SID),
-            stream_id: "audio-subs2".into(),
-            settings: TrackSettings::default(),
-            adaptive_stream: false,
-        },
-        start,
-    );
-    let second_at = start + Duration::from_millis(400);
-    engine.handle_timeout(second_at);
-    let (offer_sdp, id) = local_descriptions_of(&mut engine)
-        .into_iter()
-        .find_map(|(kind, sdp, id)| (kind == SdpType::Offer).then_some((sdp, id)))
-        .expect("the second subscription renegotiates");
-    let answer = subscriber
-        .sdp_api()
-        .accept_offer(str0m::change::SdpOffer::from_sdp_string(&offer_sdp).unwrap())
-        .unwrap()
-        .to_sdp_string();
-    engine.on_remote_description(sub_tid, SdpType::Answer, answer, id, second_at);
-    assert!(
-        take_announcements(&mut engine).is_empty(),
-        "an unchanged committed map announces nothing, even over real SDP"
+    let mut red_first = SdpAudioPublish::new(RED);
+    assert_eq!(
+        red_first.subscribe_over_server_offer("PA_sub_red"),
+        vec![(
+            ParticipantSid::from(PARTICIPANT),
+            TrackSid::from(SDP_SID),
+            vec![RED.to_string()]
+        )],
+        "a RED-first publication announces audio/red over the same answer path"
     );
 }
