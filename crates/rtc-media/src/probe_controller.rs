@@ -439,9 +439,16 @@ impl ProbeController {
                         if admitted > self.committed_capacity {
                             self.committed_capacity = admitted;
                             self.last_growth_at = at;
-                            self.pending_capacity_commit =
-                                Some(CapacityCommit::ProbeFinalized(admitted));
                         }
+                        // The measurement goes to the allocation pass whatever
+                        // this controller's own view had retired to. In pinned Go
+                        // `ProbeClusterFinalize` returns the capacity and the
+                        // upward-only rule lives at the writer
+                        // (`streamallocator.go:758-761`), so a controller whose
+                        // mirror was lowered elsewhere cannot smuggle that
+                        // lowering into the channel capacity.
+                        self.pending_capacity_commit =
+                            Some(CapacityCommit::ProbeFinalized(admitted));
                         if admitted >= self.committed_capacity {
                             self.verified_at = at;
                         }

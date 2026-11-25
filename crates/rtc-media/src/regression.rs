@@ -2881,6 +2881,68 @@ fn peer_stats_native_pass_applies_resume_before_the_next_periodic_tick() {
 }
 
 #[test]
+fn a_lower_probe_measurement_cannot_replace_the_committed_channel_capacity() {
+    let start = Instant::now();
+    let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
+    engine.transports.get_mut(&tid).unwrap().spec.allow_pause = true;
+    engine.allocate_transport(tid, start);
+    assert_eq!(
+        engine.transports[&tid].capacity(),
+        Some(0),
+        "the authority starts at Go's uninitialized `committedChannelCapacity` \
+         (`streamallocator.go:234`)"
+    );
+
+    // One finalized cluster raises the authority to 1 Mbps.
+    peer_stats_admitted_request(&mut engine, tid, start, 1_000_000);
+    assert_eq!(engine.transports[&tid].capacity(), Some(1_000_000));
+
+    // A receiver estimate is not a writer of the authority, but it does retire
+    // the controller's own gating view, so the two values now disagree and the
+    // stale one is the lower.
+    let at = start + Duration::from_secs(5);
+    engine
+        .transports
+        .get_mut(&tid)
+        .unwrap()
+        .probes
+        .on_remb(100_000, at);
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.probes.capacity(None),
+        Some(100_000),
+        "the controller gates on the newest receiver observation"
+    );
+    assert_eq!(
+        t.capacity(),
+        Some(1_000_000),
+        "and that observation never reaches the channel capacity \
+         (`streamallocator.go:846-854` keeps an explicit override in its own field)"
+    );
+
+    // A second cluster that proves 500 kbps is a legitimate measurement, but
+    // Go's probe writer only ever raises (`:758-761`); only the congested
+    // transition replaces the field (`:892`). So the pass must keep 1 Mbps.
+    let second = at + Duration::from_secs(1);
+    peer_stats_admitted_request(&mut engine, tid, second, 500_000);
+    let t = &engine.transports[&tid];
+    assert_eq!(
+        t.capacity(),
+        Some(1_000_000),
+        "a probe cluster that measures below the committed capacity does not lower it"
+    );
+    assert_eq!(
+        t.probes.capacity(None),
+        Some(1_000_000),
+        "`getAvailableChannelCapacity` (`:1257-1277`) reads the field both surfaces report"
+    );
+    assert!(
+        !engine.downs.get(di).unwrap().bw_paused,
+        "and the allocation that the higher authority already served stays served"
+    );
+}
+
+#[test]
 fn peer_stats_native_cancel_is_consumed_even_without_a_capacity_change() {
     use str0m::bwe::BweEstimateCause;
     let start = Instant::now();
