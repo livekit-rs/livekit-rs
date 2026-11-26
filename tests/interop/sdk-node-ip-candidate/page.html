@@ -187,12 +187,28 @@
           }
           published = publishedTracks(room.localParticipant);
         }
-        // Two samples 2 s apart: bytesSent must grow, which only happens if media
-        // actually egresses over the nominated candidate pair.
+        // Two samples: bytesSent must grow, which only happens if media actually egresses
+        // over the nominated candidate pair. The gap is a bounded poll, not a fixed sleep --
+        // under load the transport's selected pair can still be `in-progress` 2 s after
+        // publish, and a snapshot taken then is a sample taken too early rather than a
+        // behaviour finding, so it used to surface as a divergence from the other side of the
+        // pairing. Whether a terminal state was ever reached is recorded, so the classifier
+        // can report an unsettled row instead of silently comparing it. The minimum of three
+        // polls keeps the counter-growth window (>= 1.5 s) that the original sleep provided.
+        const terminalPairStates = ['succeeded', 'failed', 'disconnected', 'closed'];
         const pc = window.__pcs[0];
         const first = pc ? await collect(pc) : null;
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        const second = pc ? await collect(pc) : null;
+        const settleStart = Date.now();
+        let second = first;
+        let nominationSettled = null;
+        for (let i = 0; pc && i < 20; i += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          second = await collect(pc);
+          const state = ((second.selected_pairs || [])[0] || {}).state;
+          nominationSettled = terminalPairStates.includes(state);
+          if (nominationSettled && i >= 2) break;
+        }
+        const nominationSettleMs = Date.now() - settleStart;
         const result = {
           room_state: room.state,
           can_update_subscriptions: room.canUpdateSubscriptions,
@@ -214,6 +230,8 @@
           console: window.__console.slice(0, 40),
           stats_first: first,
           stats_second: second,
+          nomination_settled: nominationSettled,
+          nomination_settle_ms: nominationSettleMs,
         };
         document.getElementById('out').textContent = JSON.stringify(result, null, 1);
         return result;

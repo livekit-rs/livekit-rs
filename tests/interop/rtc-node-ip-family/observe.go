@@ -115,7 +115,7 @@ func main() {
 		fatal(record, *out, err)
 	}
 	record["binary_sha256_before"] = before
-	runErr := runProfile(*binary, *out, *profile, *nodeIPValue, *nodeIPFlag,
+	runErr := runProfileWithPortRetry(*binary, *out, *profile, *nodeIPValue, *nodeIPFlag,
 		*nodeIPFlagValue, *nodeIPMapping, *useExternalIP, *pinLoopback, record)
 	after, hashErr := hashFile(*binary)
 	record["binary_sha256_after"] = after
@@ -158,6 +158,76 @@ func hashFile(path string) (string, error) {
 	}
 	sum := sha256.Sum256(data)
 	return fmt.Sprintf("%x", sum[:]), nil
+}
+
+// maxPortRetries bounds how many times a profile is relaunched after its daemon dies on a
+// port this harness had just reserved for it.
+const maxPortRetries = 3
+
+// errPortConflict marks a daemon that exited because a reserved loopback port was claimed
+// between Close() and its own bind. Without the marker the readiness loop sees an early exit
+// and records the row as a clean refusal (`refused: true`, `whip_create_status: 0`,
+// `server_exit: 1`), so a fence whose oracle is supposed to START reads as a behaviour
+// divergence -- which is how the C100 lane B run lost `fence-flag-v4-nonip`.
+var errPortConflict = errors.New("reserved loopback port was claimed before the daemon bound it")
+
+// runProfileWithPortRetry relaunches a profile whose daemon lost the bind race. The retry is
+// recorded in the receipt rather than swallowed: a collision the harness absorbed is still a
+// fact about this run, and the next reader has to be able to tell a recovered transient from a
+// clean launch. Retries exhausted returns the error, so the lane stops loudly instead of
+// filing an infrastructure collision as a parity finding.
+func runProfileWithPortRetry(binary, out, profile, value, ipFlag, ipFlagValue, mapping string,
+	useExternalIP, pinLoopback bool, record map[string]any) error {
+	err := runProfile(binary, out, profile, value, ipFlag, ipFlagValue, mapping,
+		useExternalIP, pinLoopback, record)
+	for attempt := 1; errors.Is(err, errPortConflict) && attempt <= maxPortRetries; attempt++ {
+		dir := filepath.Join(out, fmt.Sprintf("port-retry-%d", attempt))
+		if mkErr := os.MkdirAll(dir, 0700); mkErr != nil {
+			return errors.Join(err, mkErr)
+		}
+		record["port_conflict_retries"] = attempt
+		record["port_conflict_error"] = err.Error()
+		err = runProfile(binary, dir, profile, value, ipFlag, ipFlagValue, mapping,
+			useExternalIP, pinLoopback, record)
+		if err == nil {
+			err = promoteLogs(dir, out)
+		}
+	}
+	return err
+}
+
+// promoteLogs copies the winning attempt's daemon streams over the canonical names the
+// harness reads, so a retried profile is laid out like any other while the losing attempts
+// stay under port-retry-N/.
+func promoteLogs(from, to string) error {
+	var err error
+	for _, name := range []string{"server.log", "server.stdout"} {
+		data, readErr := os.ReadFile(filepath.Join(from, name))
+		if readErr != nil {
+			err = errors.Join(err, readErr)
+			continue
+		}
+		err = errors.Join(err, os.WriteFile(filepath.Join(to, name), data, 0600))
+	}
+	return err
+}
+
+// reservePort binds an explicit loopback port BELOW the OS ephemeral band instead of asking
+// the allocator for one. `net.Listen(":0")` returns 49152-65535 here (the measured
+// `net.inet.ip.portrange.first` is 49152) -- the same pool the kernel draws on for an
+// outbound socket's source port, and this profile opens a fresh client socket every 20 ms
+// while it waits for readiness. A reserved number in that band is therefore only free until
+// the next allocation takes it, which is what produced
+// `listen tcp :50975: bind: address already in use` in the C100 lane B run.
+func reservePort() (net.Listener, error) {
+	base := 41000 + (os.Getpid()%150)*4
+	for offset := 0; offset < 600; offset++ {
+		listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", base+offset))
+		if err == nil {
+			return listener, nil
+		}
+	}
+	return net.Listen("tcp4", "127.0.0.1:0")
 }
 
 // loopbackName resolves the UP loopback interface against the live OS table so the
@@ -203,13 +273,14 @@ func runProfile(binary, out, profile, value, ipFlag, ipFlagValue, mapping string
 		return fmt.Errorf("refusing node_ip flag value with disallowed characters")
 	}
 	// Reserve exclusive loopback ports, then release them for the daemon to bind.
-	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	listener, err := reservePort()
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
-	media, err := net.Listen("tcp4", "127.0.0.1:0")
+	media, err := reservePort()
 	if err != nil {
+		listener.Close()
 		return err
 	}
 	defer media.Close()
@@ -402,6 +473,13 @@ func runProfile(binary, out, profile, value, ipFlag, ipFlagValue, mapping string
 		select {
 		case e := <-exited:
 			early = true
+			// A daemon that died holding a port we just released is the harness's own
+			// collision, not a refusal: checked here, before the refusal defaults are
+			// written, so the row can be relaunched instead of recorded.
+			if data, readErr := os.ReadFile(stdoutPath); readErr == nil &&
+				strings.Contains(string(data), "bind: address already in use") {
+				return fmt.Errorf("%w: %s", errPortConflict, strings.TrimSpace(string(data)))
+			}
 			record["refused"] = true
 			record["whip_create_status"] = 0
 			record["whip_delete_status"] = 0

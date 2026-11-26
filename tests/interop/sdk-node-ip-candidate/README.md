@@ -253,6 +253,25 @@ A fourth, mechanical refutation: `has_tcpcandidate` used to search the SDP for t
   the harness must not touch the host's real interfaces. The consequence is stated above —
   connectable legs use `127.0.0.1`, advertisement-only legs use `127.0.0.2`.
 
+## Nomination settle poll (C100)
+
+The page used to take its second stats sample after a fixed 2 s sleep, and `run-paired.py` recorded
+`sample_grow_ms = 2000` as a literal — the receipt asserted the harness's own sleep instead of
+measuring it. Under load the transport's selected pair can still be `in-progress` 2 s after publish,
+and that is what cost the first C100 lane C run its fence: the Go side of `flag-v4-mapped` reported
+`nominated_pair_state: in-progress` against the Rust side's `succeeded`, so
+`fence_divergence_reproduces` failed on a row that had merely been sampled too early.
+
+The second sample is now taken by a bounded poll — 500 ms steps, floor of three, ceiling 10 s —
+until the selected pair reaches a terminal state, and the page reports `nomination_settled` and
+`nomination_settle_ms`, from which `sample_grow_ms` is read. A row that connected, still reads
+`in-progress` and reports it never settled stops the lane rather than becoming a divergence. Two
+controls hold that line, `connected_rows_reached_terminal_pair_state` and `sample_gap_is_measured`
+(≥ 1500 ms), each with a matching `--selftest-gate` injection (`pair_never_settled`,
+`sample_gap_unmeasured`). A terminal-but-not-`succeeded` state stays a behaviour row: the poll
+separates "we did not wait long enough" from "the daemon did not finish", which is the distinction
+the fixed sleep could not make.
+
 ## What this lane does not attest
 
 * No claim about production NAT, a real public interface, TURN, or `use_external_ip`

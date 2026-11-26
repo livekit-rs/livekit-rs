@@ -355,6 +355,11 @@ def normalise(record):
         'candidate_lines': redact(record.get('candidate_lines') or []),
         'loopback_name': record.get('loopback_name'),
         'interfaces_pinned': record.get('interfaces_pinned'),
+        # Harness metadata, deliberately outside the compared field set: a profile whose first
+        # daemon lost the bind race and was relaunched still has a valid behaviour record, and
+        # comparing retry counts across the two sides would turn a harness event into a
+        # divergence. It is reported once at manifest level instead.
+        'port_conflict_retries': record.get('port_conflict_retries', 0),
     }
     return out
 
@@ -372,6 +377,13 @@ def run(binary, observer, profile, side, work):
                          f'(exit {proc.returncode}): {proc.stderr[-400:]}')
     record = json.loads(path.read_text())
     record['_observer_exit'] = proc.returncode
+    # An observer that reports an error (a port collision its retries could not absorb, a
+    # gather timeout) produced no behaviour to compare. Normalising its partial record would
+    # file the infrastructure failure as a parity or fence finding, which is the exact failure
+    # mode the relaunch above exists to remove -- so the lane stops here instead.
+    if record.get('error'):
+        raise SystemExit(f'{profile["name"]}/{side}: observer error: {record["error"]} '
+                         f'(see {path})')
     return record, out
 
 
@@ -577,6 +589,18 @@ def finish(manifest, out):
     controls['receipt_has_no_machine_address'] = not surviving
     manifest['redaction_survivors'] = surviving
     manifest['redaction_applied'] = '<discovered-address>' in json.dumps(P)
+    # A port the harness reserved and lost is retried inside the observer. That recovery has to
+    # be visible here: assert that every relaunched row actually reached the daemon's readiness
+    # line (or was a row expected to refuse), so a retry cannot quietly stand in for a launch.
+    conflicts = {n: {s: P[n][s].get('port_conflict_retries') or 0
+                     for s in ('go', 'rust')
+                     if P[n][s].get('port_conflict_retries')}
+                 for n in P if any(P[n][s].get('port_conflict_retries')
+                                   for s in ('go', 'rust'))}
+    manifest['port_conflicts_recovered'] = conflicts
+    controls['conflict_retries_reached_readiness'] = all(
+        P[n][s].get('readiness_line_found') or n.startswith('refusal-')
+        for n, sides in conflicts.items() for s in sides)
     # The harness identity check has to run before failed_controls is assembled: it is the one
     # control whose answer changes between the launch and an offline --report of the same receipt,
     # and computing it afterwards let a receipt re-derived with a edited harness report
@@ -617,6 +641,7 @@ def finish(manifest, out):
         'harness_unchanged': controls['harness_unchanged_since_run'],
     }
     manifest['status_gates'] = gate
+    manifest['unmet_gates'] = [k for k, v in gate.items() if not v]
     all_ok = all(gate.values())
     manifest['status'] = ('PARTIAL_LAUNCHED_MAIN_NODE_IP_WITH_FENCED_DIVERGENCES'
                           if all_ok else 'FAIL')

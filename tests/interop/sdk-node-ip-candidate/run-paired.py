@@ -489,6 +489,7 @@ COMPARE = ('sdk_connected', 'room_state', 'can_update_subscriptions',
 # timings, the negotiated ports, the minted join token and the SDK track SID. Keeping
 # them out of COMPARE is asserted below so an edit cannot quietly make the lane flaky.
 RECORDED_ONLY = ('connected_ms', 'selected_remote_port', 'sample_grow_ms',
+                 'nomination_settled', 'nomination_settle_ms',
                  'track_sources', 'token_sha256', 'ports', 'client', 'browser',
                  'server_sdk_version', 'page_sha256', 'probe_error')
 
@@ -699,13 +700,21 @@ def normalise(case_dir, daemon, probe, profile, ports):
         'page_sha256': (receipt.get('page') or {}).get('sha256'),
         'token_sha256': receipt.get('token_sha256'),
         'sample_grow_ms': None,
+        'nomination_settled': None,
+        'nomination_settle_ms': None,
     }
     # The two samples exist to prove counters MOVE; a single positive counter could be a
     # stale pre-existing value.
     first = result.get('stats_first') or {}
     second = result.get('stats_second') or {}
     if first and second:
-        out['sample_grow_ms'] = 2000
+        # Measured rather than restated: the page now polls the transport's selected pair
+        # until it reaches a terminal state (bounded at 10 s, floor of three polls), so the
+        # gap is whatever that took. Hard-coding the old 2000 ms sleep here would have made
+        # the receipt describe the harness the page no longer has.
+        out['sample_grow_ms'] = result.get('nomination_settle_ms')
+        out['nomination_settled'] = result.get('nomination_settled')
+        out['nomination_settle_ms'] = result.get('nomination_settle_ms')
         out['counters_grew'] = (json.dumps(first.get('transports'))
                                 != json.dumps(second.get('transports')))
     else:
@@ -770,7 +779,19 @@ def run_case(binary, profile, side, work, redis_port, ports):
     daemon['log_bytes'] = log_path.stat().st_size
     shutil.copyfile(log_path, work.parent / f'{profile["name"]}-{side}.log')
     (work.parent / f'{profile["name"]}-{side}.yaml').write_text(cfg_text)
-    return normalise(case, daemon, probe, profile, ports)
+    rec = normalise(case, daemon, probe, profile, ports)
+    # The page polls the transport's selected pair until it reaches a terminal state. If it
+    # still says `in-progress` after that budget, the second sample was taken mid-nomination,
+    # and comparing it across the two sides files a harness deadline as a behavioural
+    # divergence -- which is what cost the `flag-v4-mapped` fence in the first C100 lane C run.
+    # A terminal-but-not-succeeded state is different: that is the daemon's behaviour, and it
+    # stays a row.
+    if (rec['sdk_connected'] and rec['nominated_pair_state'] == 'in-progress'
+            and rec['nomination_settled'] is False):
+        raise SystemExit(f'{profile["name"]}/{side}: the selected candidate pair never left '
+                         f'"in-progress" in {rec["nomination_settle_ms"]} ms of polling, so the '
+                         f'row cannot be compared as behaviour (see {case})')
+    return rec
 
 
 p = argparse.ArgumentParser()
@@ -865,6 +886,17 @@ def finish(manifest, out, write=True):
         controls[f'probe_ran_{name}_{side}'] = rec.get('probe_exit') == 0
 
     controls['all_profiles_measured'] = len(P) == len(PROFILES)
+    # Settlement is measured, not assumed. Every row the SDK connected on must have seen its
+    # transport reach a terminal selected-pair state inside the page's poll budget, and the gap
+    # between the two samples must be the number the page actually waited: `sample_grow_ms` used
+    # to be the literal 2000 written by this file, which proved only that the page had once
+    # slept, and a sample taken mid-nomination reads as a divergence from the other side.
+    connected = [r for _, _, r in all_cases() if r.get('sdk_connected')]
+    controls['connected_rows_reached_terminal_pair_state'] = bool(connected) and all(
+        r.get('nomination_settled') is True for r in connected)
+    controls['sample_gap_is_measured'] = bool(connected) and all(
+        isinstance(r.get('sample_grow_ms'), int) and r['sample_grow_ms'] >= 1500
+        for r in connected)
     controls['volatile_fields_excluded_from_compare'] = not (
         set(COMPARE) & set(RECORDED_ONLY))
     # A run whose declared rows are still empty is a measurement, never a PASS.
@@ -1061,6 +1093,10 @@ GATE_INJECTIONS = (
      'the Go-derived row is checked per side, so a wrong claim fails both lanes'),
     ('fence_stops_reproducing', 'FAIL_SDK_NODE_IP_FENCES',
      'an absorbed or stale fence cannot silently become parity'),
+    ('pair_never_settled', 'FAIL_SDK_NODE_IP_CONTROLS',
+     'a sample taken mid-nomination is an early read, not a settled measurement'),
+    ('sample_gap_unmeasured', 'FAIL_SDK_NODE_IP_CONTROLS',
+     'the two-sample gap has to be what the page waited, not a constant this file asserts'),
     ('client_bundle_tampered', 'FAIL_SDK_NODE_IP_CONTROLS',
      'the lane only claims the ORIGINAL SDK, so a patched bundle invalidates it'),
     ('oracle_identity_broken', 'FAIL_SDK_NODE_IP_CONTROLS',
@@ -1178,7 +1214,32 @@ def gate_selftest(manifest, out):
         e = m['profiles']['baseline-no-node-ip']
         e['rust']['host_candidate_ips'] = ['198.18.0.7']
 
+    def inj_unsettled(m):
+        # A row whose selected pair never reached a terminal state is an early sample, and an
+        # early sample must not be able to pass as a settled measurement.
+        for e in m['profiles'].values():
+            for side in ('go', 'rust'):
+                if e[side].get('sdk_connected'):
+                    e[side]['nomination_settled'] = False
+                    break
+            else:
+                continue
+            break
+
+    def inj_unmeasured_gap(m):
+        # The other half: the gap the page waited has to be in the receipt. Restoring the old
+        # hardcoded constant is modelled as its absence, since that is what the field is for.
+        for e in m['profiles'].values():
+            for side in ('go', 'rust'):
+                if e[side].get('sdk_connected'):
+                    e[side]['sample_grow_ms'] = None
+                    break
+            else:
+                continue
+            break
+
     mutators = {'declared_rows_emptied': inj_declared, 'parity_declaration_wrong': inj_parity,
+                'pair_never_settled': inj_unsettled, 'sample_gap_unmeasured': inj_unmeasured_gap,
                 'fence_stops_reproducing': inj_fence, 'client_bundle_tampered': inj_client,
                 'oracle_identity_broken': inj_binaries,
                 'binary_hash_drifted': inj_hash_drift,

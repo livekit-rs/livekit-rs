@@ -159,6 +159,35 @@ consumed:
 reproduces `26219632…`; the mutant FAIL lives under `positive-control/mutant-b/` and is
 **not** cited as acceptance evidence.
 
+## Port reservations and retries (C100)
+
+The driver used to reserve its loopback ports with `net.Listen("127.0.0.1:0")`. That returns a port
+from the OS ephemeral band — measured on this host as `net.inet.ip.portrange.first = 49152` — which
+is the same pool the kernel draws on for an outbound socket's source port, and this profile opens a
+fresh client socket every 20 ms while it waits for readiness. A reserved number is therefore free
+only until the next allocation takes it, and the first C100 run lost exactly that race:
+
+```
+listen tcp :50975: bind: address already in use
+```
+
+The daemon died, the readiness loop recorded `refused: true` / `server_exit: 1`, and a fence whose
+oracle is supposed to *start* scored as a non-reproducing divergence (`failed_fences:
+[fence-flag-v4-nonip]`, `failed_controls: [clean_lifecycle_go, fences_all_reproduce]`). Two changes.
+Reservations come from an explicit band below the ephemeral range (`reservePort`: `41000 +
+4·(pid%150)`, scanning up to 600 ports, falling back to the allocator), and a daemon that dies with
+a bind conflict returns `errPortConflict` *before* any refusal datum is written, so the profile is
+relaunched (≤3 times) into `work/<profile>/port-retry-N/` and the winning streams are promoted to
+the canonical `server.log` / `server.stdout` names. `port_conflict_retries` is recorded per row —
+outside the compared field set, so a harness event cannot become a cross-side divergence — and
+`conflict_retries_reached_readiness` asserts that a relaunched daemon really reached its readiness
+line. Retries exhausted exits the observer with an error, and `run-paired.py` turns any observer
+error into a hard stop rather than a row. Proven both ways with a mutant driver that squats the
+reserved port after releasing it: one collision absorbed (`port_conflicts_recovered:
+{'yaml-v4-loopback': {'go': 1, 'rust': 1}}`, `match=True`, control true) and the same injection with
+the retry bound at 0 stopping the lane with `reserved loopback port was claimed before the daemon
+bound it: listen tcp 127.0.0.1:41432 …`.
+
 ## Run
 
 ```bash
