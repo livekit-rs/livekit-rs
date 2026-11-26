@@ -122,11 +122,20 @@ and is never named.
 
 ## Reproduce
 
+The oracle image is built from the pinned checkout, and a rebuild on this host reproduced the recorded digest byte for
+byte (`4bc2378e636740b29093061036249ffc9ebbef91f4ece1de12177c8dfee1e7dc`):
+
 ```
+cd references/livekit-stable && GOTOOLCHAIN=go1.26.0 GOPROXY=off GOWORK=off \
+  go build -mod=readonly -o /tmp/c99-build/livekit-server-go ./cmd/server
 python3 tests/interop/turn-material-channels/run-paired.py --record --out /tmp/c104-lane
 python3 tests/interop/turn-material-channels/run-paired.py --report /tmp/c104-lane/execution.json --out /tmp/c104-lane
 python3 tests/interop/turn-material-channels/run-paired.py --selftest-gate /tmp/c104-lane/execution.json --out /tmp/c104-lane
 ```
+
+`--report` and `--selftest-gate` need no binaries at all and were re-run against the *filed* receipt in
+`livekit-rs-docs/server/evidence/2026-11-27/spec0077-c104-turn-material-channels/`, which gave the same
+`PASS_LAUNCHED_TURN_MATERIAL_CHANNELS` verdict, 86/86 discriminated cases and an unchanged receipt digest.
 
 The harness refuses to record unless both binaries hash to the pinned images. It imports the C102 launcher and the
 C103 probes instead of copying them, so those two lane files stay byte-identical and their filed receipts stay
