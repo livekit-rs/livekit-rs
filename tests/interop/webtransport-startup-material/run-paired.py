@@ -82,6 +82,12 @@ p.add_argument('--shutdown-window', type=float, default=30.0)
 p.add_argument('--skip-redis', action='store_true')
 a = p.parse_args()
 a.output = a.output.resolve()
+if '/server/evidence/' in str(a.output):
+    # This harness writes execution.json and BATCH.json into --output, so an --output aimed at a
+    # committed slot would overwrite filed evidence. Filed slots are immutable: write a scratch dir
+    # and copy the receipt in as part of filing.
+    raise SystemExit(json.dumps({'error': 'refusing_to_touch_filed_evidence', 'path': str(a.output),
+                                 'use': 'pass a scratch --output, then copy the receipt'}))
 a.output.mkdir(parents=True, exist_ok=False)
 
 
@@ -553,6 +559,7 @@ def main():
         'fixtures': fixture_log,
         'openssl_version': openssl_version,
         'redis': {'owned': bool(redis_port), 'port': redis_port},
+        'harness_sha256_at_start': sha(pathlib.Path(__file__).resolve()),
         'driven_items': COVERS,
         'settle_s': a.settle,
         'profiles': {},
@@ -718,17 +725,29 @@ def main():
                 and alive.get('count') == 1 and len(alive.get('entries') or []) == 1
                 and alive['entries'][0].get('ip') == '127.0.0.1'
                 and valid['nodes'].get('count') == 0)
+    manifest['binary_hash_now'] = {'go': sha(go), 'rust': sha(rust)}
+    manifest['harness_sha256_now'] = sha(pathlib.Path(__file__).resolve())
+    controls['harness_unchanged_during_run'] = (
+        manifest['harness_sha256_now'] == manifest['harness_sha256_at_start'])
     manifest['cross_profile_controls'] = controls
     manifest['failed_profiles'] = [n for n, e in P.items() if not e['match']]
     manifest['failed_controls'] = [k for k, v in controls.items() if not v]
     manifest['binaries_unchanged'] = (
-        sha(go) == manifest['binaries']['go']['sha256']
-        and sha(rust) == manifest['binaries']['rust']['sha256'])
+        manifest['binary_hash_now']['go'] == manifest['binaries']['go']['sha256']
+        and manifest['binary_hash_now']['rust'] == manifest['binaries']['rust']['sha256'])
     manifest['reference_commit_matches'] = (
         manifest['reference']['go_checkout_commit'] == FIXED_GO_COMMIT)
-    all_ok = (manifest['binaries_unchanged'] and manifest['reference_commit_matches']
-              and not manifest['failed_profiles'] and not manifest['failed_controls']
-              and manifest['binaries']['go']['is_fixed_oracle'])
+    # The same six-key shape lanes B and C publish, so one reader can ask the same question of all
+    # three slots: which condition, if any, stopped holding?
+    manifest['status_gates'] = {
+        'binaries_unchanged': manifest['binaries_unchanged'],
+        'reference_commit_matches': manifest['reference_commit_matches'],
+        'go_is_fixed_oracle': manifest['binaries']['go']['is_fixed_oracle'],
+        'no_failed_profiles': not manifest['failed_profiles'],
+        'no_failed_controls': not manifest['failed_controls'],
+        'harness_unchanged_during_run': controls['harness_unchanged_during_run'],
+    }
+    all_ok = all(manifest['status_gates'].values())
     manifest['status'] = ('PASS_LAUNCHED_MAIN_WEBTRANSPORT_MATERIAL'
                           if all_ok else 'FAIL')
     manifest['harness_sha256'] = sha(pathlib.Path(__file__).resolve())
@@ -743,6 +762,9 @@ def main():
                           for n, e in P.items()},
              'controls': controls, 'failed_profiles': manifest['failed_profiles'],
              'failed_controls': manifest['failed_controls'],
+             'status_gates': manifest['status_gates'],
+             'binary_hash_now': manifest['binary_hash_now'],
+             'harness_sha256_now': manifest['harness_sha256_now'],
              'binaries': manifest['binaries'],
              'reference': manifest['reference'],
              'harness_sha256': manifest['harness_sha256']}
@@ -759,7 +781,8 @@ def main():
             stale.unlink()
     print(json.dumps({'status': manifest['status'], 'cases': len(P),
                       'failed_profiles': manifest['failed_profiles'],
-                      'failed_controls': manifest['failed_controls']}))
+                      'failed_controls': manifest['failed_controls'],
+                      'unmet_gates': [k for k, v in manifest['status_gates'].items() if not v]}))
     return 0 if all_ok else 1
 
 

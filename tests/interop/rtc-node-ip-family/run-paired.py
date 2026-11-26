@@ -500,12 +500,25 @@ def main():
 
 
 
+def refuse_filed_slot(path):
+    """--report rewrites execution.json and BATCH.json next to the receipt it reads, so pointing it
+    at a committed evidence slot destroys that evidence instead of checking it. Filed slots are
+    immutable: copy the receipt to a scratch directory and report the copy."""
+    resolved = pathlib.Path(path).resolve()
+    if '/server/evidence/' in str(resolved):
+        raise SystemExit(json.dumps({
+            'error': 'refusing_to_touch_filed_evidence', 'path': str(resolved),
+            'why': 'finish() writes execution.json/BATCH.json beside the receipt it reads',
+            'use': 'cp the receipt to a scratch dir and run --report on the copy'}))
+
+
 def finish(manifest, out):
     """Recompute the verdict from the per-profile records in `manifest`.
 
     Kept separate from the launch loop so a persisted execution.json can be
     re-checked without re-running a single daemon.
     """
+    refuse_filed_slot(out)
 
     P = manifest['profiles']
     parity = [n for n, e in P.items() if e['group'] == 'parity']

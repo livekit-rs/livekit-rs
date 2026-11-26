@@ -840,6 +840,8 @@ def finish(manifest, out, write=True):
     Kept separate from the launch loop so a persisted execution.json can be re-checked
     without starting a single daemon or browser.
     """
+    if write:
+        refuse_filed_slot(out)
     P = manifest['profiles']
     parity = [n for n, e in P.items() if e['group'] == 'parity']
     fences = [n for n, e in P.items() if e['group'] == 'fence']
@@ -1076,6 +1078,19 @@ GATE_INJECTIONS = (
 )
 
 
+def refuse_filed_slot(path):
+    """--report rewrites the receipt beside itself and --selftest-gate drops
+    gate-falsification.json next to it, so either one aimed at a committed evidence slot destroys
+    the evidence it was meant to check. Filed slots are immutable: copy and re-derive the copy."""
+    resolved = pathlib.Path(path).resolve()
+    if '/server/evidence/' in str(resolved):
+        raise SystemExit(json.dumps({
+            'error': 'refusing_to_touch_filed_evidence', 'path': str(resolved),
+            'why': 'finish() writes execution.json beside the receipt it reads and the gate sweep '
+                   'writes gate-falsification.json beside it',
+            'use': 'cp the receipt to a scratch dir and run --report/--selftest-gate on the copy'}))
+
+
 def gate_selftest(manifest, out):
     """Prove each gate branch can fail, using the persisted records as the input.
 
@@ -1083,6 +1098,7 @@ def gate_selftest(manifest, out):
     stored per-side records), so a passing self-test shows the verdict is a function of the
     measurements rather than a constant.
     """
+    refuse_filed_slot(out)
     def rebuild(mutate=None):
         by_name = {pr['name']: pr for pr in PROFILES}
         fresh = {'binaries': json.loads(json.dumps(manifest['binaries'])),
