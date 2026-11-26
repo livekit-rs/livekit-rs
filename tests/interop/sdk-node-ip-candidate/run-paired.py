@@ -926,6 +926,16 @@ def finish(manifest, out, write=True):
         for e in P.values() if 'go_yaml_text' in e)
     controls['go_binary_is_fixed_oracle'] = (
         manifest['binaries']['go']['sha256'] == FIXED_GO_SHA256)
+    # The launch recorded each binary's hash. Re-derive it on every finish, launched or offline,
+    # so a receipt that is re-read after a rebuild names the moved identity instead of reporting
+    # a green gate over a binary that is no longer the one under test.
+    manifest['binary_hash_now'] = {
+        side: (sha(manifest['binaries'][side]['path'])
+               if pathlib.Path(manifest['binaries'][side].get('path', '')).exists() else None)
+        for side in ('go', 'rust')}
+    controls['binary_hash_now_matches_recorded'] = all(
+        manifest['binary_hash_now'][side] == manifest['binaries'][side]['sha256']
+        for side in ('go', 'rust'))
     controls['binaries_immutable'] = all(rec.get('binary_unchanged') is True
                                         for _, _, rec in all_cases())
     controls['clean_startup_and_teardown'] = all(
@@ -1046,6 +1056,8 @@ GATE_INJECTIONS = (
      'the lane only claims the ORIGINAL SDK, so a patched bundle invalidates it'),
     ('oracle_identity_broken', 'FAIL_SDK_NODE_IP_CONTROLS',
      'the comparison is only meaningful against the locked Go binary'),
+    ('binary_hash_drifted', 'FAIL_SDK_NODE_IP_CONTROLS',
+     'a receipt re-read after the candidate was rebuilt must name the moved binary'),
     ('rust_needs_sigkill', 'FAIL_SDK_NODE_IP_PARITY',
      'an unclean shutdown is a behavioural divergence, not noise'),
     ('volatile_field_compared', 'FAIL_SDK_NODE_IP_CONTROLS',
@@ -1116,6 +1128,9 @@ def gate_selftest(manifest, out):
             for side in ('go', 'rust'):
                 e[side]['binary_unchanged'] = False
 
+    def inj_hash_drift(m):
+        m['binaries']['rust']['sha256'] = 'stale-hash-from-an-older-build'
+
     def inj_shutdown(m):
         for e in m['profiles'].values():
             for side in ('go', 'rust'):
@@ -1135,7 +1150,9 @@ def gate_selftest(manifest, out):
 
     mutators = {'declared_rows_emptied': inj_declared, 'parity_declaration_wrong': inj_parity,
                 'fence_stops_reproducing': inj_fence, 'client_bundle_tampered': inj_client,
-                'oracle_identity_broken': inj_binaries, 'rust_needs_sigkill': inj_shutdown,
+                'oracle_identity_broken': inj_binaries,
+                'binary_hash_drifted': inj_hash_drift,
+                'rust_needs_sigkill': inj_shutdown,
                 'volatile_field_compared': inj_volatile,
                 'unredacted_address_in_receipt': inj_leak}
     for name, expect, why in GATE_INJECTIONS:

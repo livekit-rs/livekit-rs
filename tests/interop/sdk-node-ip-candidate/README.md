@@ -104,15 +104,20 @@ A row is never accepted because both daemons disagree identically:
   injects one fault per gate branch. `gate-falsification.json` records the result: with the
   untouched measurement green (PARTIAL as expected), each of
   `declared_rows_emptied`, `parity_declaration_wrong`, `fence_stops_reproducing`,
-  `client_bundle_tampered`, `oracle_identity_broken`, `rust_needs_sigkill`,
+  `client_bundle_tampered`, `oracle_identity_broken`, `binary_hash_drifted`, `rust_needs_sigkill`,
   `volatile_field_compared`, `unredacted_address_in_receipt` moves the verdict off the
   expected branch. `--report` recomputes a verdict without starting anything.
+* `binary_hash_now_matches_recorded` re-hashes `binaries.*.path` at finish time and compares it
+  with the hash recorded during the launch. `binaries_immutable` only reports what each leg
+  observed while it ran, so without this control an offline `--report` of an old receipt over a
+  rebuilt binary stayed green; the drift now surfaces as that one named control.
 * Running the same selftest against a **mutant** receipt discriminates 4 of those 9, and that is the
   ladder working rather than breaking: a mutant run already stops at the fences rung
   (`FAIL_SDK_NODE_IP_FENCES`), so an injection whose expected branch is the controls rung cannot also
-  move the verdict — `client_bundle_tampered`, `oracle_identity_broken`, `volatile_field_compared` and
-  `unredacted_address_in_receipt` are only reachable on a sweep that gets that far. Those four are
-  therefore proven on the clean sweeps; `mutant.json` records both cases per run.
+  move the verdict — `client_bundle_tampered`, `oracle_identity_broken`, `binary_hash_drifted`,
+  `volatile_field_compared` and `unredacted_address_in_receipt` are only reachable on a sweep that
+  gets that far. Those are therefore proven on the clean sweeps; `mutant.json` records both cases
+  per run.
 
 ## Results
 
