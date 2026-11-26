@@ -936,6 +936,13 @@ def finish(manifest, out, write=True):
     controls['binary_hash_now_matches_recorded'] = all(
         manifest['binary_hash_now'][side] == manifest['binaries'][side]['sha256']
         for side in ('go', 'rust'))
+    # Same reasoning for the harness itself: this file defines the declarations the rows compare,
+    # so a receipt read back after it was edited is provenance about an older lane, and the only
+    # way a reader learns that is if the receipt says so.
+    manifest['harness_hash_now'] = sha(HERE / 'run-paired.py')
+    recorded_harness = (manifest.get('harness') or {}).get('sha256', '')
+    controls['harness_hash_now_matches_recorded'] = bool(recorded_harness) and (
+        manifest['harness_hash_now'] == recorded_harness)
     controls['binaries_immutable'] = all(rec.get('binary_unchanged') is True
                                         for _, _, rec in all_cases())
     controls['clean_startup_and_teardown'] = all(
@@ -1058,6 +1065,8 @@ GATE_INJECTIONS = (
      'the comparison is only meaningful against the locked Go binary'),
     ('binary_hash_drifted', 'FAIL_SDK_NODE_IP_CONTROLS',
      'a receipt re-read after the candidate was rebuilt must name the moved binary'),
+    ('harness_hash_drifted', 'FAIL_SDK_NODE_IP_CONTROLS',
+     'a receipt re-read after the harness was edited describes an older lane, not this one'),
     ('rust_needs_sigkill', 'FAIL_SDK_NODE_IP_PARITY',
      'an unclean shutdown is a behavioural divergence, not noise'),
     ('volatile_field_compared', 'FAIL_SDK_NODE_IP_CONTROLS',
@@ -1076,7 +1085,9 @@ def gate_selftest(manifest, out):
     """
     def rebuild(mutate=None):
         by_name = {pr['name']: pr for pr in PROFILES}
-        fresh = {'binaries': json.loads(json.dumps(manifest['binaries'])), 'profiles': {}}
+        fresh = {'binaries': json.loads(json.dumps(manifest['binaries'])),
+                 'harness': json.loads(json.dumps(manifest.get('harness', {}))),
+                 'profiles': {}}
         for name, stored in manifest['profiles'].items():
             pr = by_name.get(name)
             if pr is None:
@@ -1131,6 +1142,9 @@ def gate_selftest(manifest, out):
     def inj_hash_drift(m):
         m['binaries']['rust']['sha256'] = 'stale-hash-from-an-older-build'
 
+    def inj_harness_drift(m):
+        m['harness']['sha256'] = 'stale-hash-from-an-older-harness'
+
     def inj_shutdown(m):
         for e in m['profiles'].values():
             for side in ('go', 'rust'):
@@ -1152,6 +1166,7 @@ def gate_selftest(manifest, out):
                 'fence_stops_reproducing': inj_fence, 'client_bundle_tampered': inj_client,
                 'oracle_identity_broken': inj_binaries,
                 'binary_hash_drifted': inj_hash_drift,
+                'harness_hash_drifted': inj_harness_drift,
                 'rust_needs_sigkill': inj_shutdown,
                 'volatile_field_compared': inj_volatile,
                 'unredacted_address_in_receipt': inj_leak}

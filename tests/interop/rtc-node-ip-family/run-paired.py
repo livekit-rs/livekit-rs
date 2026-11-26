@@ -564,6 +564,16 @@ def finish(manifest, out):
     controls['receipt_has_no_machine_address'] = not surviving
     manifest['redaction_survivors'] = surviving
     manifest['redaction_applied'] = '<discovered-address>' in json.dumps(P)
+    # The harness identity check has to run before failed_controls is assembled: it is the one
+    # control whose answer changes between the launch and an offline --report of the same receipt,
+    # and computing it afterwards let a receipt re-derived with a edited harness report
+    # `failed_controls: []` while its own cross_profile_controls said `harness_unchanged_since_run:
+    # false` -- the drift was visible only to a reader who diffed the two by hand.
+    manifest['harness_sha256_now'] = sha(pathlib.Path(__file__).resolve())
+    controls['harness_unchanged_since_run'] = (
+        manifest.get('harness_sha256', manifest['harness_sha256_now'])
+        == manifest['harness_sha256_now'])
+    manifest['harness_sha256'] = manifest.get('harness_sha256') or manifest['harness_sha256_now']
 
     manifest['parity_rows'] = len(parity)
     manifest['fence_rows'] = len(fences)
@@ -591,6 +601,7 @@ def finish(manifest, out):
         'no_failed_parity': not manifest['failed_parity'],
         'no_failed_fences': not manifest['failed_fences'],
         'no_failed_controls': not manifest['failed_controls'],
+        'harness_unchanged': controls['harness_unchanged_since_run'],
     }
     manifest['status_gates'] = gate
     all_ok = all(gate.values())
@@ -600,11 +611,6 @@ def finish(manifest, out):
         n: {'oracle': {k: P[n]['go'].get(k) for k in P[n]['recorded_rust_divergence']},
             'rust': {k: P[n]['rust'].get(k) for k in P[n]['recorded_rust_divergence']},
             'why': P[n]['why']} for n in fences}
-    manifest['harness_sha256_now'] = sha(pathlib.Path(__file__).resolve())
-    if 'harness_sha256' in manifest:
-        controls['harness_unchanged_since_run'] = (
-            manifest['harness_sha256'] == manifest['harness_sha256_now'])
-    manifest['harness_sha256'] = manifest.get('harness_sha256') or manifest['harness_sha256_now']
     out.joinpath('execution.json').write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
     batch = {'status': manifest['status'], 'parity_rows': len(parity),
