@@ -180,6 +180,20 @@ python3 /Users/zoujiaqing/projects/livekit-rs/tests/interop/rtc-node-ip-family/r
 python3 run-paired.py --report <fresh-dir>/execution.json
 ```
 
+### Verdict fields
+
+`--report` recomputes `status` as the conjunction of six named conditions and persists them,
+so a FAIL states which one broke instead of leaving the reader to infer it from the row lists:
+
+- `status_gates` — `binaries_unchanged`, `reference_commit_matches`, `go_is_fixed_oracle`,
+  `no_failed_parity`, `no_failed_fences`, `no_failed_controls`.
+- `binary_hash_now` — the `--go`/`--rust` hashes at re-derivation time, beside the
+  `binaries.*.sha256` recorded during the launch. Rebuilding either binary is the only way
+  `binaries_unchanged` can flip on a receipt that was green when it was written.
+- `unmet_gates` (stdout summary) — the names that failed. `failed_parity`, `failed_fences`
+  and `failed_controls` all empty with `unmet_gates: ["binaries_unchanged"]` means every row
+  reproduced and only the provenance check drifted: stale identity, not a behaviour finding.
+
 ## Out of scope (honest residual)
 
 - `use_external_ip: true` rows: they depend on public STUN discovery, would advertise a

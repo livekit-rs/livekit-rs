@@ -577,12 +577,23 @@ def finish(manifest, out):
         recorded[side].exists()
         and sha(recorded[side]) == manifest['binaries'][side]['sha256']
         for side in ('go', 'rust'))
+    manifest['binary_hash_now'] = {
+        side: (sha(recorded[side]) if recorded[side].exists() else None)
+        for side in ('go', 'rust')}
     manifest['reference_commit_matches'] = (
         manifest['reference']['go_checkout_commit'] == FIXED_GO_COMMIT)
-    all_ok = (manifest['binaries_unchanged'] and manifest['reference_commit_matches']
-              and manifest['binaries']['go']['is_fixed_oracle']
-              and not manifest['failed_parity'] and not manifest['failed_fences']
-              and not manifest['failed_controls'])
+    # A FAIL must name the condition that broke, otherwise the offline re-derivation reads
+    # as "every row failed" when in fact only an identity check drifted after the run.
+    gate = {
+        'binaries_unchanged': manifest['binaries_unchanged'],
+        'reference_commit_matches': manifest['reference_commit_matches'],
+        'go_is_fixed_oracle': manifest['binaries']['go']['is_fixed_oracle'],
+        'no_failed_parity': not manifest['failed_parity'],
+        'no_failed_fences': not manifest['failed_fences'],
+        'no_failed_controls': not manifest['failed_controls'],
+    }
+    manifest['status_gates'] = gate
+    all_ok = all(gate.values())
     manifest['status'] = ('PARTIAL_LAUNCHED_MAIN_NODE_IP_WITH_FENCED_DIVERGENCES'
                           if all_ok else 'FAIL')
     manifest['open_divergences'] = {
@@ -604,7 +615,9 @@ def finish(manifest, out):
                               'cross_equal': e.get('cross_equal'),
                               'rust_diverges_as_recorded': e.get('rust_diverges_as_recorded')}
                           for n, e in P.items()},
-             'controls': controls, 'failed_parity': manifest['failed_parity'],
+             'controls': controls, 'status_gates': manifest['status_gates'],
+             'binary_hash_now': manifest['binary_hash_now'],
+             'failed_parity': manifest['failed_parity'],
              'failed_fences': manifest['failed_fences'],
              'failed_controls': manifest['failed_controls'],
              'open_divergences': manifest['open_divergences'],
@@ -614,7 +627,8 @@ def finish(manifest, out):
     print(json.dumps({'status': manifest['status'], 'parity': len(parity),
                       'fences': len(fences), 'failed_parity': manifest['failed_parity'],
                       'failed_fences': manifest['failed_fences'],
-                      'failed_controls': manifest['failed_controls']}))
+                      'failed_controls': manifest['failed_controls'],
+                      'unmet_gates': [k for k, v in gate.items() if not v]}))
     return 0 if all_ok else 1
 
 
