@@ -59,6 +59,18 @@ fn load_ext(args: &[&str], env: &Env) -> ServerConfig {
     parse(args, env, &WithExternal)
 }
 
+/// `Extras::cpus` is the loader's own `std::thread::available_parallelism()` (load.rs:430-432)
+/// and the mux projection truncates the configured range with it (normalize.rs:447-456), so one
+/// config legitimately projects 4 ports on a CI runner and 6 on a workstation. The legs re-derive
+/// that count from the standard library instead of reading it back through the projection under
+/// test: deriving it from the same code would hide a broken range (an ignored `end` collapses
+/// both the wide probe and the short range to one port, and the comparison stays green).
+fn loader_cpus() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+}
+
 fn parse(args: &[&str], env: &Env, probe: &dyn NetProbe) -> ServerConfig {
     let info = ProgramInfo {
         binary_name: "livecloud".into(),
@@ -152,9 +164,10 @@ fn rtc_udp_port_range_projects_into_the_udp_mode_and_gates_batch_io() {
                 ports.first(),
                 "C98C-02 the mux list must start at the configured port: {ports:?}"
             );
-            assert!(
-                (1..=11).contains(&ports.len()),
-                "C98C-02 the list is capped by the CPU count, got {ports:?}"
+            assert_eq!(
+                11.min(loader_cpus()),
+                ports.len(),
+                "C98C-02 the list is the range truncated by the core count, got {ports:?}"
             );
             assert_eq!(
                 (50000..50000 + ports.len() as u16).collect::<Vec<_>>(),
@@ -176,11 +189,30 @@ fn rtc_udp_port_range_projects_into_the_udp_mode_and_gates_batch_io() {
     );
     match &flags.rtc.udp {
         UdpMode::Mux { ports } => assert_eq!(
-            vec![51000, 51001, 51002, 51003, 51004, 51005],
+            (51000u16..=51005).take(loader_cpus()).collect::<Vec<_>>(),
             *ports,
             "C98C-03 both flags must project into the mux list"
         ),
         other => panic!("C98C-03 the flag pair must project as UdpMode::Mux, got {other:?}"),
+    }
+
+    // The cap has to bind here too, otherwise a projection that ignores `Extras::cpus` would
+    // still match the short range on any machine with at least six cores. A range one port
+    // wider than the core count must project exactly `loader_cpus()` ports on every host.
+    let one_wider = load(
+        &[
+            "--rtc.udp_port.start=51000",
+            &format!("--rtc.udp_port.end={}", 51000 + loader_cpus() as u16),
+        ],
+        &Env::default(),
+    );
+    match &one_wider.rtc.udp {
+        UdpMode::Mux { ports } => assert_eq!(
+            loader_cpus(),
+            ports.len(),
+            "C98C-03b a range of cpus+1 ports must truncate to cpus, got {ports:?}"
+        ),
+        other => panic!("C98C-03b the flag pair must project as UdpMode::Mux, got {other:?}"),
     }
 
     let one_sided = load(&["--rtc.udp_port.start=51000"], &Env::default());
