@@ -83,31 +83,25 @@ fn body(yaml: &str) -> Vec<String> {
 #[test]
 fn logging_json_projects_from_all_three_sources_in_precedence_order() {
     let base = logging(&["--dev"], &Env::default());
-    assert_eq!(false, base.json, "C98B1-01 Go default is false");
+    assert!(!base.json, "C98B1-01 Go default is false");
 
     let yaml = logging(
         &["--config-body", "logging:\n  json: true\n"],
         &Env::default(),
     );
-    assert_eq!(true, yaml.json, "C98B1-02 YAML logging.json must project");
+    assert!(yaml.json, "C98B1-02 YAML logging.json must project");
 
     let env_on = logging(
         &["--dev"],
         &Env::from_pairs([("LIVEKIT_LOGGING_JSON", "true")]),
     );
-    assert_eq!(
-        true, env_on.json,
-        "C98B1-03 LIVEKIT_LOGGING_JSON must project"
-    );
+    assert!(env_on.json, "C98B1-03 LIVEKIT_LOGGING_JSON must project");
 
     let cli = logging(
         &["--dev", "--logging.json=true"],
         &Env::from_pairs([("LIVEKIT_LOGGING_JSON", "false")]),
     );
-    assert_eq!(
-        true, cli.json,
-        "C98B1-04 CLI must beat the environment value"
-    );
+    assert!(cli.json, "C98B1-04 CLI must beat the environment value");
 
     let over = logging(
         &[
@@ -117,8 +111,8 @@ fn logging_json_projects_from_all_three_sources_in_precedence_order() {
         ],
         &Env::default(),
     );
-    assert_eq!(
-        false, over.json,
+    assert!(
+        !over.json,
         "C98B1-05 CLI false must beat YAML true, not merge into it"
     );
 }
@@ -391,9 +385,9 @@ fn logging_pion_level_projects_from_env_and_cli() {
 fn logging_parent_projects_each_field_into_its_own_slot() {
     let yaml = "logging:\n  json: true\n  level: warn\n  sample: false\n  sample_initial: 7\n  sample_interval: 8\n  item_sample_seconds: 9\n  item_sample_initial: 10\n  item_sample_interval: 11\n  pion_level: error\n  component_levels:\n    router: trace\n";
     let got = logging(&["--config-body", yaml], &Env::default());
-    assert_eq!(true, got.json, "C98B1-21 json");
+    assert!(got.json, "C98B1-21 json");
     assert_eq!("warn", got.level, "C98B1-21 level");
-    assert_eq!(false, got.sample, "C98B1-21 sample");
+    assert!(!got.sample, "C98B1-21 sample");
     assert_eq!(7, got.sample_initial, "C98B1-21 sample_initial");
     assert_eq!(8, got.sample_interval, "C98B1-21 sample_interval");
     assert_eq!(9, got.item_sample_seconds, "C98B1-21 item_sample_seconds");

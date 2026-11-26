@@ -16,6 +16,7 @@
 //!   `SentinelUsername`/`SentinelPassword`/`MasterName`,
 //! - `:131-143` the Cluster branch is the only one that sets `MaxRedirects`,
 //! - `:144-155` the simple branch passes no dial/read/write timeouts at all.
+//!
 //! references/livekit-stable @ pkg/service/webtransport.go:44-53 returns the
 //! `os.ReadFile` error verbatim and refuses a non-development listener without a
 //! certificate pair.

@@ -243,7 +243,7 @@ pub fn webtransport_tls(
     development: bool,
 ) -> Result<Option<lk_webtransport::ServerTls>, crate::webtransport::SetupError> {
     let wt = &official.webtransport;
-    if wt.port <= 0 {
+    if wt.port == 0 {
         return Ok(None);
     }
     Ok(Some(crate::webtransport::build_server_tls(

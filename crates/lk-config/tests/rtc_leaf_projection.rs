@@ -12,6 +12,7 @@
 //!   (slow threshold / max buffered / lossy target) -> ordinary_data_writer.rs:97,
 //!   data_track_writer.rs:113/:122.
 //! - rtc-media/src/engine.rs:466 (enable_rtp_stream_restart_detection).
+//!
 //! Not projected at all: `rtc.strict_acks` (see its test for the finding).
 use lk_config::{EntryAction, Env, ProgramInfo, netdetect::NetProbe, parse_with_probe};
 use rtc_core::config::PolicyDuration;

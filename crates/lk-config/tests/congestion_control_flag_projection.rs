@@ -184,7 +184,7 @@ fn cc_generated_flag_table_matches_the_go_walk() {
         .map(|s| s.path.as_str())
         .collect();
     got.sort_unstable();
-    let want: Vec<&str> = EXPECTED.iter().copied().collect();
+    let want: Vec<&str> = EXPECTED.to_vec();
     assert_eq!(want.len(), 99, "congestion_control generated flag count");
     assert_eq!(want, got, "generated flag table drifted from the Go walk");
 }
@@ -2962,8 +2962,8 @@ fn cc_flag_stream_allocator_disable_etimation_unmanaged_tracks() {
         &["--rtc.congestion_control.stream_allocator.disable_etimation_unmanaged_tracks=true"],
         &Env::default(),
     );
-    assert_eq!(
-        true, got.stream_allocator.disable_estimation_unmanaged_tracks,
+    assert!(
+        got.stream_allocator.disable_estimation_unmanaged_tracks,
         "C98A-89 --rtc.congestion_control.stream_allocator.disable_etimation_unmanaged_tracks=true must project the Bool leaf"
     );
     assert_eq!(
