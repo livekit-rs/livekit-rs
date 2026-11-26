@@ -128,12 +128,15 @@ pub fn build_server_tls(
 }
 
 /// `tls.LoadX509KeyPair` for the file branch: read + PEM-decode the leaf-first
-/// chain and a supported private key.
+/// chain and a supported private key. Go returns the `os.ReadFile` error
+/// verbatim (`open <path>: <errno>`), so the path must appear in the text.
 fn load_cert_files(cert_file: &str, key_file: &str) -> Result<ServerTls, SetupError> {
-    let cert_pem = std::fs::read(cert_file)
-        .map_err(|e| SetupError::text(format!("failed to load certificate: {e}")))?;
-    let key_pem = std::fs::read(key_file)
-        .map_err(|e| SetupError::text(format!("failed to load private key: {e}")))?;
+    let read = |path: &str| -> Result<Vec<u8>, SetupError> {
+        std::fs::read(path)
+            .map_err(|e| SetupError::text(format!("open {path}: {}", lk_config::go_errno_text(&e))))
+    };
+    let cert_pem = read(cert_file)?;
+    let key_pem = read(key_file)?;
     let chain = CertificateDer::pem_slice_iter(&cert_pem)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| SetupError::text(format!("failed to parse certificate chain: {e}")))?;
@@ -2726,7 +2729,11 @@ mod tests {
             Err(e) => e,
             Ok(_) => panic!("an unreadable cert file is fatal"),
         };
-        assert!(err.to_string().contains("failed to load certificate"));
+        assert_eq!(
+            "open /nonexistent/livekit-wt-cert.pem: no such file or directory",
+            err.to_string(),
+            "Go returns the os.ReadFile error verbatim, path included"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

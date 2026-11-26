@@ -474,6 +474,28 @@ impl RedisEndpoint {
         matches!(&self.kind, EndpointKind::Cluster(_))
     }
 
+    /// The Sentinel branch's settings as the builder carried them: master name,
+    /// node list, Sentinel-only credentials and the discovery budget seeded from
+    /// `redis.dial_timeout`/`read_timeout`/`write_timeout`
+    /// (`references/protocol-stable/redis/redis.go:103-114`). The Debug view
+    /// redacts the credential, so this is the only way a config leg can show the
+    /// leaf reached the target instead of only that a Sentinel endpoint exists.
+    pub fn sentinel_target(&self) -> Option<&SentinelTarget> {
+        match &self.kind {
+            EndpointKind::Sentinel(shared) => Some(&shared.target),
+            _ => None,
+        }
+    }
+
+    /// The `ConnectionInfo` a simple endpoint dials, i.e. the credentials and
+    /// database the `redis.username`/`password`/`db` leaves actually reached.
+    pub fn simple_info(&self) -> Option<&ConnectionInfo> {
+        match &self.kind {
+            EndpointKind::Simple(info, _) => Some(&**info),
+            _ => None,
+        }
+    }
+
     /// The static address a dial targets, for rendering a startup dial failure
     /// as Go's `net.OpError`. A `Simple` endpoint dials its configured address;
     /// a `Cluster` endpoint dials its seeds. A `Sentinel` endpoint resolves the

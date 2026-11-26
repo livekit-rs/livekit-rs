@@ -16,7 +16,7 @@ mod cli_redis_resp;
 #[path = "cli_redis_retry.rs"]
 pub(crate) mod cli_redis_retry;
 #[path = "cli_redis_session.rs"]
-mod cli_redis_session;
+pub(crate) mod cli_redis_session;
 #[path = "cli_redis_wire.rs"]
 mod cli_redis_wire;
 

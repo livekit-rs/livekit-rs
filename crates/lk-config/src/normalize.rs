@@ -486,25 +486,35 @@ pub(crate) fn to_server_config(
     // (webrtc_config.go:257-286), so an invalid literal simply never matches
     // and the server starts. Mirror that here: parse best-effort and drop a
     // value that is not an IP rather than failing the whole load; a value that
-    // parses is applied as a real 1:1 NAT mapping below.
+    // parses is applied as a real 1:1 NAT mapping below. Family follows Go's
+    // `ip.To4() != nil` test (`rtcconfig/config.go:249`), which sends an
+    // IPv4-mapped literal to the v4 slot: the YAML/base path arrives already
+    // normalised that way (`ports.rs:112-140`), and a dotted
+    // `rtc.node_ip.ipv6=::ffff:a.b.c.d` flag bypasses that unmarshal, so the
+    // classification is repeated here rather than losing the address. An
+    // explicit v4 leaf keeps its slot.
+    let mut node_ip_v4 = if r.node_ip.v4.is_empty() {
+        None
+    } else {
+        r.node_ip.v4.parse::<IpAddr>().ok().and_then(|ip| match ip {
+            IpAddr::V4(v4) => Some(v4),
+            IpAddr::V6(v6) => v6.to_ipv4_mapped(),
+        })
+    };
+    let mut node_ip_v6 = None;
+    if let Ok(v6) = r.node_ip.v6.parse::<Ipv6Addr>() {
+        match v6.to_ipv4_mapped() {
+            Some(mapped) => {
+                if node_ip_v4.is_none() {
+                    node_ip_v4 = Some(mapped);
+                }
+            }
+            None => node_ip_v6 = Some(v6),
+        }
+    }
     let node_ip = NodeIp {
-        v4: if r.node_ip.v4.is_empty() {
-            None
-        } else {
-            r.node_ip.v4.parse::<IpAddr>().ok().and_then(|ip| match ip {
-                IpAddr::V4(v4) => Some(v4),
-                IpAddr::V6(v6) => v6.to_ipv4_mapped(),
-            })
-        },
-        v6: if r.node_ip.v6.is_empty() {
-            None
-        } else {
-            r.node_ip
-                .v6
-                .parse::<Ipv6Addr>()
-                .ok()
-                .filter(|v6| v6.to_ipv4_mapped().is_none())
-        },
+        v4: node_ip_v4,
+        v6: node_ip_v6,
     };
 
     let mut turn_servers = Vec::new();

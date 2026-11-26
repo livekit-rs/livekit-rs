@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::task::JoinHandle;
 #[derive(Clone)]
-pub(super) struct Options {
+pub(crate) struct Options {
     pub username: String,
     pub password: String,
     pub db: i64,

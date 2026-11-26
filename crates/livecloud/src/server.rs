@@ -110,6 +110,149 @@ pub fn allocation_selector_config(
     }
 }
 
+/// `InitializeServer`'s agent-service parameters (`cmd/server/main.go:303` →
+/// `agent.NewService`). `pub` so the C98-B2 config_projection legs assert the
+/// `agents.*` leaves through this exact site instead of a hand-built `Config`.
+pub fn agent_service_config(
+    official: &lk_config::official::Config,
+) -> lk_compat::agent::service::ServiceConfig {
+    let agents = &official.agents;
+    lk_compat::agent::service::ServiceConfig {
+        signal_message_size_limit: official.limit.agent_signal_message_size_limit,
+        enable_recording: agents.enable_user_data_recording,
+        enable_redaction: agents.enable_user_data_redaction,
+        target_load: agents.target_load,
+        endpoints_disabled: agents.endpoints.disabled,
+        endpoints_max_streams: agents.endpoints.max_streams,
+        endpoints_max_tunnels: agents.endpoints.max_tunnels,
+        endpoints_tunnel_drain_timeout_ns: agents.endpoints.tunnel_drain_timeout.nanos(),
+    }
+}
+
+/// `rpc.GetBusOpts`' retry half: one `psrpc.*` group feeds the WHIP client and
+/// the worker graph, so both sites must read the same policy.
+pub fn psrpc_retry_policy(
+    rpc: &lk_config::official::PsrpcConfig,
+) -> lk_compat::workers::retry::RpcPolicy {
+    lk_compat::workers::retry::RpcPolicy::from_raw(
+        rpc.max_attempts,
+        rpc.timeout.nanos(),
+        rpc.backoff.nanos(),
+        rpc.buffer_size,
+    )
+}
+
+/// `rpc.CompressionConfig` → the bus's compression options and the
+/// decompressed-size ceiling, shared by the local and the worker bus.
+pub fn psrpc_compression(
+    rpc: &lk_config::official::PsrpcConfig,
+) -> (lk_compat::service_bus::wire::CompressionPolicy, usize) {
+    let c = &rpc.compression;
+    let unlimited = isize::MAX as usize - 1;
+    (
+        lk_compat::service_bus::wire::CompressionPolicy {
+            quality: c.quality.clamp(0, 9) as i32,
+            threshold: worker_compression_threshold(c.threshold),
+        },
+        if c.max_decompressed_size <= 0 {
+            unlimited
+        } else {
+            usize::try_from(c.max_decompressed_size)
+                .unwrap_or(unlimited)
+                .min(unlimited)
+        },
+    )
+}
+
+/// `ingress.*` as the worker graph hands them to the ingress worker.
+pub fn worker_ingress_config(
+    ingress: &lk_config::official::IngressConfig,
+) -> lk_compat::workers::ingress::IngressConfig {
+    lk_compat::workers::ingress::IngressConfig {
+        rtmp_base_url: ingress.rtmp_base_url.clone(),
+        whip_base_url: ingress.whip_base_url.clone(),
+        enable_udp_url_pull: ingress.enable_udp_url_pull,
+    }
+}
+
+/// `node_stats.*` for the cluster node-state publisher.
+pub fn node_stats_policy(
+    official: &lk_config::official::Config,
+) -> lk_compat::routing::NodeStatsPolicy {
+    lk_compat::routing::NodeStatsPolicy {
+        update_interval: official.node_stats.stats_update_interval.to_std(),
+        max_delay: official.node_stats.stats_max_delay.to_std(),
+    }
+}
+
+/// `node_stats.stats_update_interval` and `stats_rate_measurement_intervals` as
+/// `node_stats::Sampler::new` receives them.
+pub fn node_stats_sampler_intervals(
+    official: &lk_config::official::Config,
+) -> (std::time::Duration, Vec<std::time::Duration>) {
+    (
+        official.node_stats.stats_update_interval.to_std(),
+        official
+            .node_stats
+            .stats_rate_measurement_intervals
+            .iter()
+            .map(|interval| interval.to_std())
+            .collect(),
+    )
+}
+
+/// `signal_relay.connect_attempts`, clamped to a count the retry loop accepts.
+pub fn signal_connect_attempts(official: &lk_config::official::Config) -> usize {
+    official.signal_relay.connect_attempts.max(0) as usize
+}
+
+/// Go `redis.IsConfigured` (`protocol-stable/redis/redis.go:48-64`): address OR
+/// sentinel OR cluster, in that order of precedence.
+pub fn redis_configured(redis: &lk_config::official::RedisConfig) -> bool {
+    !redis.address.is_empty()
+        || !redis.sentinel_addresses.is_empty()
+        || !redis.cluster_addresses.is_empty()
+}
+
+/// `trace.jaeger_url`: an empty URL means no exporter is installed at all.
+pub fn jaeger_endpoint(official: &lk_config::official::Config) -> Option<&str> {
+    (!official.trace.jaeger_url.is_empty()).then_some(official.trace.jaeger_url.as_str())
+}
+
+/// `config.SignalRelayConfig` → the cluster signal relay's parameters, in the
+/// order Go's `NewSignalRelayClient` reads them; the non-negative clamps are the
+/// ones the port needs before `RelayConfig::validate` runs.
+pub fn signal_relay_config(
+    official: &lk_config::official::Config,
+) -> lk_compat::cluster_signal::RelayConfig {
+    let relay = &official.signal_relay;
+    lk_compat::cluster_signal::RelayConfig {
+        retry_timeout: relay.retry_timeout.to_std(),
+        min_retry_interval: relay.min_retry_interval.to_std(),
+        max_retry_interval: relay.max_retry_interval.to_std(),
+        stream_buffer_size: relay.stream_buffer_size.max(1) as usize,
+        connect_attempts: relay.connect_attempts.max(0) as usize,
+    }
+}
+
+/// `server.go:184-195`: the WebTransport TLS material exists only while
+/// `webtransport.port > 0`, and a port without a cert pair is fatal outside
+/// development mode.
+pub fn webtransport_tls(
+    official: &lk_config::official::Config,
+    development: bool,
+) -> Result<Option<lk_webtransport::ServerTls>, crate::webtransport::SetupError> {
+    let wt = &official.webtransport;
+    if wt.port <= 0 {
+        return Ok(None);
+    }
+    Ok(Some(crate::webtransport::build_server_tls(
+        &wt.tls_cert_file,
+        &wt.tls_key_file,
+        development,
+    )?))
+}
+
 fn media_text(e: &std::io::Error) -> String {
     match e
         .get_ref()
@@ -173,13 +316,9 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     // global OTLP/Jaeger tracer provider before the rest of startup when
     // `trace.jaeger_url` is set. It emits no startup line, so the server runs
     // with the identical default startup output as the Go binary.
-    let mut tracing_provider = if !loaded.official.trace.jaeger_url.is_empty() {
-        Some(crate::jaeger::configure(
-            &loaded.official.trace.jaeger_url,
-            "livekit",
-        )?)
-    } else {
-        None
+    let mut tracing_provider = match jaeger_endpoint(&loaded.official) {
+        Some(url) => Some(crate::jaeger::configure(url, "livekit")?),
+        None => None,
     };
     // Startup log lines (SPEC-0074 C32): emitted through the zap encoder in
     // upstream order — deprecation/config warnings first (some are logged and
@@ -239,49 +378,14 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     lk_config::validate_server_wiring(&loaded.official).map_err(ServerError::Wiring)?;
 
     // Webhooks (fail fast like upstream wire.go).
-    let mut services = CompatServices::new(cfg.clone()).with_agent_config(
-        lk_compat::agent::service::ServiceConfig {
-            signal_message_size_limit: loaded.official.limit.agent_signal_message_size_limit,
-            enable_recording: loaded.official.agents.enable_user_data_recording,
-            enable_redaction: loaded.official.agents.enable_user_data_redaction,
-            target_load: loaded.official.agents.target_load,
-            endpoints_disabled: loaded.official.agents.endpoints.disabled,
-            endpoints_max_streams: loaded.official.agents.endpoints.max_streams,
-            endpoints_max_tunnels: loaded.official.agents.endpoints.max_tunnels,
-            endpoints_tunnel_drain_timeout_ns: loaded
-                .official
-                .agents
-                .endpoints
-                .tunnel_drain_timeout
-                .nanos(),
-        },
-    );
-    services =
-        services.with_signal_connect_attempts(
-            loaded.official.signal_relay.connect_attempts.max(0) as usize
-        );
+    let mut services =
+        CompatServices::new(cfg.clone()).with_agent_config(agent_service_config(&loaded.official));
+    services = services.with_signal_connect_attempts(signal_connect_attempts(&loaded.official));
     let rpc_policy = &loaded.official.psrpc;
-    services = services.with_whip_policy(lk_compat::workers::retry::RpcPolicy::from_raw(
-        rpc_policy.max_attempts,
-        rpc_policy.timeout.nanos(),
-        rpc_policy.backoff.nanos(),
-        rpc_policy.buffer_size,
-    ));
+    services = services.with_whip_policy(psrpc_retry_policy(rpc_policy));
     // Source getMessageBus applies PSRPC bus options to localbus as well as Redis.
-    let local_compression = &rpc_policy.compression;
-    services = services.with_local_rpc_compression(
-        lk_compat::service_bus::wire::CompressionPolicy {
-            quality: local_compression.quality.clamp(0, 9) as i32,
-            threshold: worker_compression_threshold(local_compression.threshold),
-        },
-        if local_compression.max_decompressed_size <= 0 {
-            isize::MAX as usize - 1
-        } else {
-            usize::try_from(local_compression.max_decompressed_size)
-                .unwrap_or(isize::MAX as usize - 1)
-                .min(isize::MAX as usize - 1)
-        },
-    );
+    let (local_compression, local_max_decompressed) = psrpc_compression(rpc_policy);
+    services = services.with_local_rpc_compression(local_compression, local_max_decompressed);
     let redis = &loaded.official.redis;
     // SPEC-0074 C11/C12: `redis.IsConfigured` is address OR sentinel OR cluster
     // (`references/protocol-stable/redis/redis.go:48-64`), so a cluster-only
@@ -289,9 +393,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     // branches in that same order — Sentinel, then Cluster, then the address —
     // and never reaches the cluster client while Sentinel addresses are present
     // (`redis.go:100-155`), so a shared client here means one of the three is set.
-    let redis_enabled = !redis.address.is_empty()
-        || !redis.sentinel_addresses.is_empty()
-        || !redis.cluster_addresses.is_empty();
+    let redis_enabled = redis_configured(redis);
     let mut redis_base: Option<Arc<lk_compat::service_bus::redis_transport::RedisTransport>> = None;
     let redis_endpoint = if redis_enabled {
         // Upstream `GetRedisClient` builds the `tls.Config` (`redis.go:88-98`, whose
@@ -475,30 +577,12 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     // when the Redis client is nil — so only the transport and the store handles
     // differ; the policy does not.
     let rpc = &loaded.official.psrpc;
-    let compression = &rpc.compression;
-    let quality = compression.quality.clamp(0, 9) as i32;
-    let threshold = worker_compression_threshold(compression.threshold);
-    let max_decompressed_size = if compression.max_decompressed_size <= 0 {
-        isize::MAX as usize - 1
-    } else {
-        usize::try_from(compression.max_decompressed_size)
-            .unwrap_or(isize::MAX as usize - 1)
-            .min(isize::MAX as usize - 1)
-    };
+    let (compression, max_decompressed_size) = psrpc_compression(rpc);
     let worker_policy = lk_compat::worker_services::WorkerPolicy {
-        rpc: lk_compat::workers::retry::RpcPolicy::from_raw(
-            rpc.max_attempts,
-            rpc.timeout.nanos(),
-            rpc.backoff.nanos(),
-            rpc.buffer_size,
-        ),
-        compression: lk_compat::service_bus::wire::CompressionPolicy { quality, threshold },
+        rpc: psrpc_retry_policy(rpc),
+        compression,
         max_decompressed_size,
-        ingress: lk_compat::workers::ingress::IngressConfig {
-            rtmp_base_url: loaded.official.ingress.rtmp_base_url.clone(),
-            whip_base_url: loaded.official.ingress.whip_base_url.clone(),
-            enable_udp_url_pull: loaded.official.ingress.enable_udp_url_pull,
-        },
+        ingress: worker_ingress_config(&loaded.official.ingress),
         ingress_legacy_psrpc: cfg
             .extension
             .as_ref()
@@ -551,24 +635,16 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
         .await
         .map_err(|e| ServerError::ClusterStart(e.to_string()))?;
     let manager = state.manager().clone();
+    let (stats_interval, stats_intervals) = node_stats_sampler_intervals(&loaded.official);
     current_node.set_stats_provider(Arc::new(
-        crate::node_stats::Sampler::new(
-            manager.clone(),
-            loaded.official.node_stats.stats_update_interval.to_std(),
-            loaded
-                .official
-                .node_stats
-                .stats_rate_measurement_intervals
-                .iter()
-                .map(|d| d.to_std())
-                .collect(),
-        )
-        .map_err(|e| {
-            ServerError::Media(std::io::Error::new(
-                e.kind(),
-                format!("could not initialize node statistics: {e}"),
-            ))
-        })?,
+        crate::node_stats::Sampler::new(manager.clone(), stats_interval, stats_intervals).map_err(
+            |e| {
+                ServerError::Media(std::io::Error::new(
+                    e.kind(),
+                    format!("could not initialize node statistics: {e}"),
+                ))
+            },
+        )?,
     ));
 
     let turn_handle = turn::start(&cfg, &loaded.official.rtc, state.turn_auth().clone()).await?;
@@ -581,18 +657,8 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     // A port without a cert pair is fatal in non-development mode. The TLS
     // startup error is printed on stdout with exit 1.
     let wt = &loaded.official.webtransport;
-    let wt_tls = if wt.port > 0 {
-        Some(
-            crate::webtransport::build_server_tls(
-                &wt.tls_cert_file,
-                &wt.tls_key_file,
-                cfg.development,
-            )
-            .map_err(|e| ServerError::WebTransport(e.to_string()))?,
-        )
-    } else {
-        None
-    };
+    let wt_tls = webtransport_tls(&loaded.official, cfg.development)
+        .map_err(|e| ServerError::WebTransport(e.to_string()))?;
     // SPEC-0074 C12 / SPEC-0076 workline B: `InitializeServer` ends with
     // `router.RemoveDeadNodes()` (`pkg/service/server.go:197`), after the whole
     // component graph exists and before `Start()` binds anything. The sweep reads
@@ -609,10 +675,7 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
     // (`pkg/service/wire_gen.go:57`) is built in that same construction phase,
     // before `CreateRouter`, which is why the pubsub connection is dialled here and
     // not inside `Start()`.
-    let stats_policy = lk_compat::routing::NodeStatsPolicy {
-        update_interval: loaded.official.node_stats.stats_update_interval.to_std(),
-        max_delay: loaded.official.node_stats.stats_max_delay.to_std(),
-    };
+    let stats_policy = node_stats_policy(&loaded.official);
     let cluster_endpoint = prune_endpoint.clone();
     let (node_registry, keepalive_bus, cluster_bus) = match (prune_endpoint, redis_base.as_ref()) {
         (Some(_endpoint), Some(base)) => {
@@ -691,18 +754,8 @@ pub async fn run(loaded: LoadedConfig) -> Result<(), ServerError> {
             .await
             .map_err(|e| ServerError::ClusterStart(e.to_string()))?;
         cluster_guard.rooms = Some(control);
-        let relay = &loaded.official.signal_relay;
         let signal = state
-            .enable_cluster_signal(
-                bus,
-                lk_compat::cluster_signal::RelayConfig {
-                    retry_timeout: relay.retry_timeout.to_std(),
-                    min_retry_interval: relay.min_retry_interval.to_std(),
-                    max_retry_interval: relay.max_retry_interval.to_std(),
-                    stream_buffer_size: relay.stream_buffer_size.max(1) as usize,
-                    connect_attempts: relay.connect_attempts.max(0) as usize,
-                },
-            )
+            .enable_cluster_signal(bus, signal_relay_config(&loaded.official))
             .await
             .map_err(|e| ServerError::ClusterStart(e.to_string()))?;
         cluster_guard.signal = Some(signal);
@@ -2132,3 +2185,11 @@ mod cli_join_token_tests;
 #[cfg(test)]
 #[path = "node_selector_projection_tests.rs"]
 mod node_selector_projection_tests;
+
+#[cfg(test)]
+#[path = "boot_leaf_projection_tests.rs"]
+mod boot_leaf_projection_tests;
+
+#[cfg(test)]
+#[path = "redis_webtransport_leaf_projection_tests.rs"]
+mod redis_webtransport_leaf_projection_tests;

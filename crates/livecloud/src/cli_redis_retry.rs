@@ -10,7 +10,10 @@ use super::{
 };
 use lk_config::official::RedisConfig;
 use std::time::Duration;
-fn simple_options(settings: &RedisConfig) -> Result<Options, String> {
+/// The simple-client settings `GetRedisClient`'s address branch ends up with, kept
+/// visible so a config leg can show `redis.username`/`password`/`db`/`pool_*` reaching
+/// the dial instead of only that they parse.
+pub(crate) fn simple_options(settings: &RedisConfig) -> Result<Options, String> {
     Ok(Options {
         username: settings.username.clone(),
         password: settings.password.clone(),
