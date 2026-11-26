@@ -997,6 +997,16 @@ def finish(manifest, out, write=True):
         P[n]['fence_reproduces'] for n in fences) and bool(fences)
     text = json.dumps({k: v for k, v in manifest['profiles'].items()}, ensure_ascii=False)
     controls['receipt_has_no_machine_address'] = not leaks(text)
+    # A control written after a launch cannot be satisfied by a receipt that never recorded the
+    # field it reads. Say so, so re-deriving older evidence reports "this receipt predates the
+    # settle poll" instead of leaving a bare False for a reader to reverse-engineer.
+    notes = {}
+    if not controls['connected_rows_reached_terminal_pair_state'] and all(
+            'nomination_settled' not in rec for _, _, rec in all_cases()):
+        notes['connected_rows_reached_terminal_pair_state'] = (
+            'no row in this receipt recorded nomination_settled: the launch predates the settle '
+            'poll, so settlement is unmeasurable here rather than false')
+    manifest['control_notes'] = notes
     manifest['counts'] = {'parity': len(parity), 'fences': len(fences),
                           'failed_parity': failed_parity, 'failed_fences': failed_fences,
                           'controls_total': len(controls),
@@ -1021,6 +1031,7 @@ def finish(manifest, out, write=True):
         tmp.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + '\n')
         tmp.replace(out / 'execution.json')
     print(json.dumps({'status': manifest['status'], 'counts': manifest['counts'],
+                      'control_notes': notes,
                       'missing_declarations': missing}, indent=2))
     return 0 if manifest['status'].startswith('PASS') or manifest['status'].startswith('PARTIAL') else 1
 
