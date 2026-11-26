@@ -748,9 +748,13 @@ def main():
         'harness_unchanged_during_run': controls['harness_unchanged_during_run'],
     }
     all_ok = all(manifest['status_gates'].values())
+    manifest['unmet_gates'] = [k for k, v in manifest['status_gates'].items() if not v]
     manifest['status'] = ('PASS_LAUNCHED_MAIN_WEBTRANSPORT_MATERIAL'
                           if all_ok else 'FAIL')
-    manifest['harness_sha256'] = sha(pathlib.Path(__file__).resolve())
+    # The canonical identity field names the harness that produced this run, not whichever file
+    # happens to be on disk when the manifest closes: `harness_sha256_now` already carries the
+    # end-of-run hash, and the difference between the two is the mid-run edit the gate reports.
+    manifest['harness_sha256'] = manifest['harness_sha256_at_start']
     save()
     batch = {'status': manifest['status'], 'case_count': len(P),
              'profiles': {n: {'match': e['match'], 'kind': e['kind'],
@@ -763,6 +767,7 @@ def main():
              'controls': controls, 'failed_profiles': manifest['failed_profiles'],
              'failed_controls': manifest['failed_controls'],
              'status_gates': manifest['status_gates'],
+             'unmet_gates': manifest['unmet_gates'],
              'binary_hash_now': manifest['binary_hash_now'],
              'harness_sha256_now': manifest['harness_sha256_now'],
              'binaries': manifest['binaries'],
