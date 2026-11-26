@@ -504,8 +504,10 @@ fn pem_block_types(pem: &[u8]) -> Vec<String> {
 /// `LoadX509KeyPair`; this covers the parsing half. Only what Go's text actually
 /// derives from is rendered here: a pair whose two halves each parse but do not
 /// belong together still fails, and its reason comes from rustls, not from a
-/// sentence invented below.
-fn check_key_pair_pem(cert: &[u8], key: &[u8]) -> Result<(), String> {
+/// sentence invented below. Shared with the WebTransport listener material
+/// ([`crate::webtransport::build_server_tls`]), which Go also loads through
+/// `tls.LoadX509KeyPair`.
+pub(crate) fn check_key_pair_pem(cert: &[u8], key: &[u8]) -> Result<(), String> {
     let cert_types = pem_block_types(cert);
     let certificates: Vec<&String> = cert_types
         .iter()
@@ -754,7 +756,7 @@ fn private_key_public_key(der: &PrivateKeyDer<'_>) -> Option<(KeyFamily, Option<
 /// layer, which reports them inside the dial in its own wording. A pair this walk cannot
 /// classify — an unknown algorithm, an Ed25519 seed with no `[4]` public key, a block
 /// whose DER does not match its label — is still left to that layer.
-fn check_key_pair_der(cert: &[u8], key: &[u8]) -> Result<(), String> {
+pub(crate) fn check_key_pair_der(cert: &[u8], key: &[u8]) -> Result<(), String> {
     use rtc_tls::rustls::pki_types::{CertificateDer, pem::PemObject};
     let Some(Ok(cert_der)) = CertificateDer::pem_slice_iter(cert).next() else {
         return Ok(());

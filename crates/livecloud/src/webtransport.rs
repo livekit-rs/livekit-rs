@@ -96,8 +96,8 @@ impl SetupError {
 
 /// Build the listener TLS material (`WebTransportTLS`). The dev self-signed
 /// path emits the Go WARN. The pair/leaf/key validation that Go performs in
-/// `tls.LoadX509KeyPair` happens here for PEM parsing and, for key/leaf
-/// compatibility, when [`bind`] builds the QUIC crypto config.
+/// `tls.LoadX509KeyPair` happens in [`load_cert_files`] for the file branch, so
+/// a switched or mismatched pair is refused before any socket exists.
 ///
 /// # Errors
 /// [`SetupError`] reproducing the upstream messages: the missing-file error in
@@ -129,22 +129,31 @@ pub fn build_server_tls(
 
 /// `tls.LoadX509KeyPair` for the file branch: read + PEM-decode the leaf-first
 /// chain and a supported private key. Go returns the `os.ReadFile` error
-/// verbatim (`open <path>: <errno>`), so the path must appear in the text.
+/// verbatim, and that error names the syscall that failed — `open` when the path
+/// cannot be opened, `read` when it opens but cannot be read (a directory) — so
+/// the two halves are attempted separately instead of through `fs::read`, which
+/// would report a directory as an `open` failure.
 fn load_cert_files(cert_file: &str, key_file: &str) -> Result<ServerTls, SetupError> {
     let read = |path: &str| -> Result<Vec<u8>, SetupError> {
-        std::fs::read(path)
-            .map_err(|e| SetupError::text(format!("open {path}: {}", lk_config::go_errno_text(&e))))
+        let mut file = std::fs::File::open(path).map_err(|e| {
+            SetupError::text(format!("open {path}: {}", lk_config::go_errno_text(&e)))
+        })?;
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|e| {
+            SetupError::text(format!("read {path}: {}", lk_config::go_errno_text(&e)))
+        })?;
+        Ok(bytes)
     };
     let cert_pem = read(cert_file)?;
     let key_pem = read(key_file)?;
+    // `X509KeyPair` checks the PEM block shapes of both halves and then compares
+    // the leaf's and the key's public halves, before any listener exists, so both
+    // refusals are reported here rather than left to [`bind`]'s crypto config.
+    crate::redis_tls::check_key_pair_pem(&cert_pem, &key_pem).map_err(SetupError::text)?;
+    crate::redis_tls::check_key_pair_der(&cert_pem, &key_pem).map_err(SetupError::text)?;
     let chain = CertificateDer::pem_slice_iter(&cert_pem)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| SetupError::text(format!("failed to parse certificate chain: {e}")))?;
-    if chain.is_empty() {
-        return Err(SetupError::text(
-            "failed to parse private key: no certificates",
-        ));
-    }
     let key = PrivateKeyDer::from_pem_slice(&key_pem)
         .map_err(|e| SetupError::text(format!("failed to parse private key: {e}")))?;
     Ok(ServerTls::new(chain, key))
@@ -154,9 +163,9 @@ fn load_cert_files(cert_file: &str, key_file: &str) -> Result<ServerTls, SetupEr
 /// the socket/`quic.ListenEarly` half of `WebTransportServer.Listen`. Bind is
 /// transactional: a failure closes the sockets bound so far (Go `closeAll`).
 ///
-/// Builds the server crypto config here so a certificate/key mismatch is fatal
-/// before the readiness line, like Go surfacing `LoadX509KeyPair`/TLS config
-/// errors during `InitializeServer`.
+/// Builds the server crypto config here so anything the material step could not
+/// classify is still fatal before the readiness line, like Go surfacing
+/// `LoadX509KeyPair`/TLS config errors during `InitializeServer`.
 ///
 /// # Errors
 /// [`SetupError`] wrapping the Go-style `net.ListenUDP`/bind failure text.
@@ -2734,6 +2743,82 @@ mod tests {
             err.to_string(),
             "Go returns the os.ReadFile error verbatim, path included"
         );
+    }
+
+    #[test]
+    fn tls_material_refusals_use_go_key_pair_wording() {
+        // `tls.LoadX509KeyPair` names each degenerate material shape with its own
+        // sentence, and `os.ReadFile` names the syscall that failed. The launched
+        // Go/Rust pair comparison (SPEC-0077 C99) asserts these strings on stdout,
+        // so they are pinned here too.
+        let dir = std::env::temp_dir().join("livekit-wt-material-taxonomy");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp fixture dir");
+        std::fs::create_dir(dir.join("certdir")).expect("cert dir");
+        std::fs::write(
+            dir.join("cert.pem"),
+            include_bytes!("../../rtc-tls/tests/fixtures/expanded/p256.pem"),
+        )
+        .expect("write cert");
+        let keys = [
+            (
+                "key-p256.pem",
+                include_bytes!("../../rtc-tls/tests/fixtures/expanded/p256-key.pem") as &[u8],
+            ),
+            (
+                "key-p384.pem",
+                include_bytes!("../../rtc-tls/tests/fixtures/expanded/p384-key.pem"),
+            ),
+            (
+                "key-ed25519.pem",
+                include_bytes!("../../rtc-tls/tests/fixtures/expanded/ed25519-key.pem"),
+            ),
+        ];
+        for (name, bytes) in keys {
+            std::fs::write(dir.join(name), bytes).expect("write key");
+        }
+        std::fs::write(dir.join("empty.pem"), b"").expect("write empty");
+        std::fs::write(dir.join("junk.pem"), b"not a pem file\n").expect("write junk");
+        let path = |name: &str| dir.join(name).to_str().unwrap().to_owned();
+
+        let refusal = |cert: &str, key: &str| match build_server_tls(cert, key, false) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("{cert}/{key} must not load as listener material"),
+        };
+        assert_eq!(
+            refusal(&path("empty.pem"), &path("key-p256.pem")),
+            "tls: failed to find any PEM data in certificate input",
+            "an empty certificate file has no PEM block at all"
+        );
+        assert_eq!(
+            refusal(&path("cert.pem"), &path("junk.pem")),
+            "tls: failed to find any PEM data in key input",
+            "the certificate half is read first, so the key half is what is named"
+        );
+        assert_eq!(
+            refusal(&path("cert.pem"), &path("key-p384.pem")),
+            "tls: private key does not match public key",
+            "same family, different key"
+        );
+        assert_eq!(
+            refusal(&path("cert.pem"), &path("key-ed25519.pem")),
+            "tls: private key type does not match public key type",
+            "Go distinguishes a family disagreement from a value disagreement"
+        );
+        let cert_dir = path("certdir");
+        assert_eq!(
+            refusal(&cert_dir, &path("key-p256.pem")),
+            format!("read {cert_dir}: is a directory"),
+            "os.ReadFile opens a directory and fails on the read"
+        );
+        assert_eq!(
+            refusal(&path("cert.pem"), &path("cert.pem")),
+            "tls: found a certificate rather than a key in the PEM for the private key",
+            "a certificate cannot stand in for its own private key"
+        );
+        build_server_tls(&path("cert.pem"), &path("key-p256.pem"), false)
+            .expect("the matching pair still loads");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

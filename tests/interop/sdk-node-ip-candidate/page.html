@@ -1,0 +1,223 @@
+<!doctype html>
+<!-- SPEC-0077 C99 SDK lane: observation surface for the official livekit-client build.
+     The SDK file is served byte-for-byte from tests/interop/node_modules and is never
+     patched; the only tap here is the RTCPeerConnection constructor, which records the
+     object the SDK creates so its stats can be read. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>c99 sdk node_ip candidate probe</title>
+    <script src="/livekit-client.umd.js"></script>
+  </head>
+  <body>
+    <pre id="out">running</pre>
+    <script>
+      const params = new URLSearchParams(location.search);
+      window.__iceStates = [];
+      window.__console = [];
+      const realPC = window.RTCPeerConnection;
+      window.__pcs = [];
+      function TrackedPC(...args) {
+        const pc = new realPC(...args);
+        window.__pcs.push(pc);
+        pc.addEventListener('iceconnectionstatechange', () =>
+          window.__iceStates.push(pc.iceConnectionState));
+        return pc;
+      }
+      // A constructor that returns an object wins over `this`, so `new TrackedPC()`
+      // hands out the SDK's real peer connection.
+      TrackedPC.prototype = realPC.prototype;
+      window.RTCPeerConnection = TrackedPC;
+      window.webkitRTCPeerConnection = TrackedPC;
+      for (const level of ['warn', 'error']) {
+        const original = console[level].bind(console);
+        console[level] = (...args) => {
+          window.__console.push(level + ': ' + args.map(String).join(' '));
+          original(...args);
+        };
+      }
+
+      function snapshotCollection(pc) {
+        // Every candidate the SDK's remote description actually offers, verbatim.
+        // After stripping the attribute name the ICE layout is
+        // <foundation> <component> <transport> <priority> <ip> <port> typ <type>, so
+        // ip is field 4 and port field 5 of the REMAINDER — off-by-one here silently
+        // turns the priority into the address, which is the whole point of the row.
+        const sdp = pc.remoteDescription ? pc.remoteDescription.sdp : '';
+        return sdp
+          .split('\r\n')
+          .filter((line) => line.startsWith('a=candidate:'))
+          .map((line) => {
+            const f = line.slice('a=candidate:'.length).split(' ');
+            const typIndex = f.indexOf('typ');
+            return { foundation: f[0], component: f[1], transport: f[2],
+                     priority: f[3], ip: f[4], port: f[5],
+                     type: typIndex >= 0 ? f[typIndex + 1] : null, raw: f.join(' ') };
+          });
+      }
+
+      async function collect(pc) {
+        const stats = await pc.getStats();
+        const byId = new Map();
+        const transports = [];
+        const pairs = [];
+        const candidates = [];
+        const rtp = [];
+        stats.forEach((entry) => {
+          byId.set(entry.id, entry);
+          if (entry.type === 'transport') transports.push(entry);
+          if (entry.type === 'candidate-pair') pairs.push(entry);
+          if (entry.type === 'local-candidate' || entry.type === 'remote-candidate') candidates.push(entry);
+          if (entry.type === 'outbound-rtp' || entry.type === 'inbound-rtp') rtp.push(entry);
+        });
+        const selected = transports
+          .map((t) => (t.selectedCandidatePairId ? byId.get(t.selectedCandidatePairId) : null))
+          .filter(Boolean);
+        const address = (id) => {
+          const c = byId.get(id);
+          if (!c) return null;
+          return { ip: c.ip || c.address, port: c.port, transport: c.transport,
+                   candidateType: c.candidateType, priority: c.priority, relay: c.relay };
+        };
+        return {
+          pc_connection_state: pc.connectionState,
+          pc_ice_connection_state: pc.iceConnectionState,
+          pc_ice_states_seen: window.__iceStates.slice(),
+          signaling_state: pc.signalingState,
+          ice_transport: pc.iceTransport,
+          peer_connection_count: window.__pcs.length,
+          remote_candidates: snapshotCollection(pc),
+          transports: transports.map((t) => ({ id: t.id, selected: t.selectedCandidatePairId,
+                                                bytes_sent: t.bytesSent, bytes_received: t.bytesReceived,
+                                                dtls_state: t.dtlsState })),
+          candidate_pairs: pairs.map((p) => ({ id: p.id, state: p.state, nominated: p.nominated,
+                                               bytes_sent: p.bytesSent, bytes_received: p.bytesReceived,
+                                               last_packet_sent_timestamp: p.lastPacketSentTimestamp,
+                                               local: address(p.localCandidateId),
+                                               remote: address(p.remoteCandidateId) })),
+          selected_pairs: selected.map((p) => ({ id: p.id, state: p.state,
+                                                 local: address(p.localCandidateId),
+                                                 remote: address(p.remoteCandidateId) })),
+          rtp: rtp.map((r) => ({ entry_type: r.type, kind: r.kind, media_type: r.mediaType,
+                                 bytes_sent: r.bytesSent,
+                                 bytes_received: r.bytesReceived, packets_sent: r.packetsSent,
+                                 packets_received: r.packetsReceived,
+                                 state: r.rtpSendState || r.rtpReceiveState })),
+        };
+      }
+
+      function withTimeout(promise, ms, label) {
+        // A hang must become a recorded datum, not a lost case: the probe's outer
+        // budget would otherwise discard every field this row is about.
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(
+            () => reject(new Error('probe-timeout ' + label + ' after ' + ms + 'ms')), ms)),
+        ]);
+      }
+
+      // `livekit-client@2.23.0` exposes published tracks as `getTrackPublications()`
+      // (a plain array of TrackPublication). There is no `audioTracks`/`videoTracks`
+      // Map on the participant in this build, so reading `.size` off one throws and the
+      // whole evaluate rejects — which the receipt records as a probe error, not as a
+      // media result.
+      function publishedTracks(participant) {
+        const pubs = participant.getTrackPublications();
+        return {
+          total: pubs.length,
+          audio: pubs.filter((p) => p.kind === 'audio').length,
+          video: pubs.filter((p) => p.kind === 'video').length,
+          sources: pubs.map((p) => p.source + '/' + p.kind + '/' + (p.trackSid || '-')),
+        };
+      }
+
+      window.__run = async () => {
+        const room = new LivekitClient.Room({ adaptiveStream: false, dynacast: false });
+        const events = [];
+        room.on('participantConnected', () => events.push('participantConnected'));
+        room.on('localTrackPublished', () => events.push('localTrackPublished'));
+        room.on('disconnected', () => events.push('disconnected'));
+        // The media kind is an input to the row, not a detail: this host's CoreAudio
+        // path wedges fake audio capture (and a bare AudioContext.resume()), while fake
+        // video capture resolves, so the launch may have to publish video instead.
+        const mediaKind = params.get('media') === 'video' ? 'video' : 'audio';
+        // Fake-device capture is checked separately from publication: if getUserMedia
+        // itself is unavailable, `publish_error` would otherwise read as a
+        // server/ICE failure.
+        let gum_result = 'not-tried';
+        try {
+          const stream = await withTimeout(
+            navigator.mediaDevices.getUserMedia(
+              mediaKind === 'video' ? { video: true } : { audio: true }),
+            8000, 'getUserMedia');
+          const track = mediaKind === 'video'
+            ? stream.getVideoTracks()[0] : stream.getAudioTracks()[0];
+          gum_result = 'ok:' + (track ? track.label + ':' + track.readyState : 'no-track');
+          stream.getTracks().forEach((t) => t.stop());
+        } catch (error) {
+          gum_result = 'err:' + String((error && (error.name + ' ' + error.message)) || error);
+        }
+        const t0 = Date.now();
+        let connect_error = null;
+        try {
+          await withTimeout(room.connect(params.get('server'), params.get('token'),
+                                         { e2ee: undefined }), 25000, 'connect');
+        } catch (error) {
+          // A failed connect is the evidence for the negative legs (the single-mux
+          // rewrite and the Twirp-POST scheme rows), so it is caught rather than
+          // propagated: the peer connection the SDK already built, its remote
+          // description and its ICE states are exactly what the row claims to
+          // observe. `sdk_connected` below distinguishes the outcome.
+          connect_error = String(error && error.message || error);
+        }
+        const connected_ms = Date.now() - t0;
+        let publish_error = null;
+        let published = { total: 0, audio: 0, video: 0, sources: [] };
+        if (!connect_error) {
+          try {
+            if (mediaKind === 'video') {
+              await withTimeout(room.localParticipant.setCameraEnabled(true),
+                                15000, 'setCameraEnabled');
+            } else {
+              await withTimeout(room.localParticipant.setMicrophoneEnabled(true),
+                                15000, 'setMicrophoneEnabled');
+            }
+          } catch (error) {
+            publish_error = String(error && error.message || error);
+          }
+          published = publishedTracks(room.localParticipant);
+        }
+        // Two samples 2 s apart: bytesSent must grow, which only happens if media
+        // actually egresses over the nominated candidate pair.
+        const pc = window.__pcs[0];
+        const first = pc ? await collect(pc) : null;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const second = pc ? await collect(pc) : null;
+        const result = {
+          room_state: room.state,
+          can_update_subscriptions: room.canUpdateSubscriptions,
+          server: params.get('server'),
+          media_kind: mediaKind,
+          sdk_global: typeof window.LivekitClient,
+          sdk_version: window.LivekitClient.version || null,
+          connected_ms,
+          connect_error,
+          publish_error,
+          gum_result,
+          local_participant_sid: room.localParticipant.sid,
+          tracks_published: published.total,
+          audio_tracks: published.audio,
+          video_tracks: published.video,
+          track_sources: published.sources,
+          engine_peers: room.remoteParticipants.size,
+          events,
+          console: window.__console.slice(0, 40),
+          stats_first: first,
+          stats_second: second,
+        };
+        document.getElementById('out').textContent = JSON.stringify(result, null, 1);
+        return result;
+      };
+    </script>
+  </body>
+</html>
