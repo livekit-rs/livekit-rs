@@ -834,6 +834,11 @@ def main() -> int:
            "safety": {"off_limits": list(OFF_LIMITS), "ports_before": default_port_state()},
            "profiles": {}, "runs": {}, "verdicts": []}
     selected = [p for p in profiles(work) if profile_selected(p, args)]
+    # The same vacuity the --report path refuses: a filter that matched nothing would write a
+    # receipt with zero legs that every aggregate below reads as unanimous success.
+    if not selected:
+        raise SystemExit(json.dumps({"error": "no_legs_selected", "filter": args.only,
+                                     "known_ids": [p["id"] for p in profiles(work)]}))
     doc["profiles"] = {p["id"]: {"kind": p["kind"], "rows": p["rows"], "argv": p["argv"],
                                  "expect": p.get("expect", []),
                                  "probes": [name for name, _ in p.get("probes", [])]}
@@ -881,6 +886,26 @@ def main() -> int:
                                 "reported under scoped_observations, not asserted here",
                       "status": "DONE" if clean else ("FAILED" if passed != len(doc["verdicts"])
                                                       else "IDENTITY_DRIFT")}
+    doc["status"] = ("PASS_LAUNCHED_MAIN_BASE_FLAGS" if clean
+                     else "IDENTITY_DRIFT" if all(v["pass"] for v in doc["verdicts"])
+                     else "FAILED")
+    # A ledger auditor reads the *top level* of a receipt to decide whether the run accepted
+    # anything (scripts/check-parity-ledger.py only looks at `status`/`result` there), and the
+    # other launched lanes all publish a lane-level BATCH.json beside the raw records. This lane
+    # has to say the same thing in the same place, or a passing pair of servers cannot support a
+    # row. Nothing new is claimed here: every field is lifted from the verdicts above.
+    rows = collections.Counter(r for v in doc["verdicts"] for r in v["rows"])
+    batch = {"status": doc["status"], "case_count": len(doc["verdicts"]),
+             "passed": passed, "failed_cases": doc["summary"]["failed"],
+             "ledger_rows": sorted(rows), "rows_attested": dict(sorted(rows.items())),
+             "identity_gate": gate, "identity_now": doc["identity_now"],
+             "binaries": doc["binaries"], "timing": doc["timing"],
+             "ports_untouched": doc["summary"]["ports_untouched"],
+             "scoped_observations": doc["summary"]["scoped_observations"],
+             "claims": doc["summary"]["claims"],
+             "started_at": doc["started_at"], "finished_at": doc["finished_at"]}
+    (work / "BATCH.json").write_text(json.dumps(batch, indent=1, ensure_ascii=True) + "\n",
+                                     encoding="utf-8")
     (work / "execution.json").write_text(json.dumps(doc, indent=1, ensure_ascii=True) + "\n",
                                         encoding="utf-8")
     print(json.dumps(doc["summary"]))
