@@ -139,7 +139,7 @@ def wait_exit(proc, seconds: float) -> bool:
 
 def capture(binary: Path, argv: list[str], env: dict[str, str], work: Path,
             label: str, port: int | None, probes: list[tuple[str, str]],
-            settle: float) -> dict:
+            settle: float, refuse_wait: float | None = None) -> dict:
     """Run one profile against one binary. `port=None` marks a row that must refuse before it
     ever serves, so it carries a guard port instead (see main) and can never reach 7881/7882."""
     out = work / f"{label}.stdout"
@@ -149,6 +149,14 @@ def capture(binary: Path, argv: list[str], env: dict[str, str], work: Path,
         proc = subprocess.Popen([str(binary), *argv], stdout=out_f, stderr=err_f,
                                 env=env, start_new_session=True)
         accepted = None
+        self_exited = None
+        exit_wait_ms = None
+        if refuse_wait is not None:
+            # A refusal has to end the process on its own before the harness touches it. Signalled
+            # straight away, the child dies inside its first millisecond and prints nothing, and the
+            # row's parity checks then compare two empty streams and agree.
+            self_exited = wait_exit(proc, refuse_wait)
+            exit_wait_ms = int((time.time() - started) * 1000)
         probe_results: dict[str, dict] = {}
         if port is not None:
             accepted = wait_accept(port, started + settle)
@@ -174,6 +182,7 @@ def capture(binary: Path, argv: list[str], env: dict[str, str], work: Path,
     stderr = err.read_text(encoding="utf-8", errors="replace")
     return {"argv": argv, "env_added": {k: v for k, v in env.items() if k not in BASE_ENV},
             "exit": proc.returncode, "accepted": accepted, "signals": signals,
+            "self_exited": self_exited, "exit_wait_ms": exit_wait_ms,
             "stop_latency_ms": stop_latency_ms,
             "probes": probe_results, "stdout": stdout[-6000:], "stderr": stderr[-3000:],
             "elapsed_ms": int((time.time() - started) * 1000)}
@@ -407,6 +416,10 @@ def verdict(profile: dict, go: dict, rust: dict) -> dict:
         # `expect_*` alone would pass if both sides served and were then SIGINTed to 0; a refusal
         # row is only a refusal if the process itself returned 1.
         checks.append(("refusal_exit_1", go["exit"] == 1 and rust["exit"] == 1))
+        # ...and it only means the process reached the refusal if it ended before the harness
+        # signalled it. A row killed by SIGINT exits negative whatever its argv said.
+        checks.append(("refusal_self_exits",
+                       go.get("self_exited") is True and rust.get("self_exited") is True))
     # Stream choice is part of the contract (main.go:190-192 prints refusals on stdout),
     # so stdout and stderr are compared apart before they are compared together.
     checks.append(("parity_stdout", normalize(go["stdout"]) == normalize(rust["stdout"])))
@@ -416,6 +429,11 @@ def verdict(profile: dict, go: dict, rust: dict) -> dict:
     # request/shutdown logging is reported below so a difference there names itself instead of
     # either failing this row or disappearing from it.
     checks.append(("parity_flag_lines", "flag" not in divergences))
+    if profile["kind"] == "refusal":
+        # Two empty streams are "equal" on every parity check above, so a refusal row also has to
+        # show that *something* flag-decided was printed on each side.
+        checks.append(("refusal_printed", cmp["counts"]["go"]["flag"] > 0
+                       and cmp["counts"]["rust"]["flag"] > 0))
     # A whole-stream difference that no bucket accounts for is an ordering difference between the
     # classes of line, which is behaviour and not log noise.
     checks.append(("parity_line_order", not (cmp["whole_equal"] is False and cmp["buckets_equal"])))
@@ -469,10 +487,22 @@ def verdict(profile: dict, go: dict, rust: dict) -> dict:
                             "signals": {"go": go["signals"], "rust": rust["signals"]}}
         elif label.startswith("refusal_exit"):
             diffs[label] = {"exit": {"go": go["exit"], "rust": rust["exit"]}}
+        elif label == "refusal_self_exits":
+            diffs[label] = {"self_exited": {"go": go.get("self_exited"),
+                                            "rust": rust.get("self_exited")},
+                            "exit": {"go": go["exit"], "rust": rust["exit"]},
+                            "exit_wait_ms": {"go": go.get("exit_wait_ms"),
+                                             "rust": rust.get("exit_wait_ms")},
+                            "signals": {"go": go["signals"], "rust": rust["signals"]}}
+        elif label == "refusal_printed":
+            diffs[label] = {"flag_lines": {"go": cmp["counts"]["go"]["flag"],
+                                           "rust": cmp["counts"]["rust"]["flag"]}}
     problems = list(dict.fromkeys(problems))
     return {"id": profile["id"], "kind": profile["kind"], "rows": profile["rows"],
             "pass": not problems, "problems": problems, "diffs": diffs,
             "exits": {"go": go["exit"], "rust": rust["exit"]},
+            "self_exited": {"go": go.get("self_exited"), "rust": rust.get("self_exited")},
+            "exit_wait_ms": {"go": go.get("exit_wait_ms"), "rust": rust.get("exit_wait_ms")},
             "accepted": {"go": go["accepted"], "rust": rust["accepted"]},
             "streams_equal": cmp["whole_equal"],
             "line_counts": cmp["counts"],
@@ -544,6 +574,10 @@ GATE_INJECTIONS = (
      "a process that ignored SIGINT until SIGKILL never demonstrated a graceful stop"),
     ("refusal_starts_serving", "refusal_exit_1",
      "a refusal row that serves and is then signalled is not a refusal"),
+    ("refusal_survives_the_wait", "refusal_self_exits",
+     "a refusal the harness had to signal never demonstrated that the flag ends the process"),
+    ("refusal_prints_nothing", "refusal_printed",
+     "two empty streams agree on every parity check while proving nothing was printed"),
     ("never_accepts", "accepted",
      "if neither side ever binds, equal failures must not read as parity"),
     ("needle_missing", "expect_rust",
@@ -566,6 +600,7 @@ def selftest_gate(doc: dict, out_dir: Path) -> int:
     # target nothing (or crash in a dict lookup), and a green falsification sweep that never
     # exercised a check is worse than no sweep.
     needs = {"parity_exit_drifted": ("start",), "refusal_starts_serving": ("refusal",),
+             "refusal_survives_the_wait": ("refusal",), "refusal_prints_nothing": ("refusal",),
              "never_accepts": ("start",), "needle_missing": ("expect",),
              "probe_secret_split": ("probes",), "service_log_only_difference": ("start",),
              "line_order_swapped": ("start",), "forced_kill": ("start",),
@@ -612,6 +647,27 @@ def selftest_gate(doc: dict, out_dir: Path) -> int:
         for side in ("go", "rust"):
             d["runs"][pid][side]["exit"] = 0
 
+    def inj_refusal_survives(d):
+        """The process was still alive when the harness signalled it: the row cannot claim the
+        flag ended the run, whatever the streams look like afterwards."""
+        pid = one("refusal")
+        for side in ("go", "rust"):
+            d["runs"][pid][side]["self_exited"] = False
+            d["runs"][pid][side]["exit"] = 0
+            d["runs"][pid][side]["signals"] = ["SIGINT"]
+
+    def inj_refusal_silent(d):
+        """Both streams empty, exit 1 on both sides: every parity check agrees because there is
+        nothing to compare, which is the vacuous pass this injection exists to redden."""
+        pid = one("refusal")
+        for side in ("go", "rust"):
+            run = d["runs"][pid][side]
+            run["stdout"] = ""
+            run["stderr"] = ""
+            run["self_exited"] = True
+            run["exit"] = 1
+            run["signals"] = ["already-exited"]
+
     def inj_accept(d):
         pid = one("start")
         for side in ("go", "rust"):
@@ -655,6 +711,8 @@ def selftest_gate(doc: dict, out_dir: Path) -> int:
         d["runs"][pid]["rust"]["signals"] = ["SIGINT", "SIGINT#2", "SIGKILL"]
 
     mutators = {"parity_exit_drifted": inj_parity, "refusal_starts_serving": inj_refusal,
+                "refusal_survives_the_wait": inj_refusal_survives,
+                "refusal_prints_nothing": inj_refusal_silent,
                 "never_accepts": inj_accept, "needle_missing": inj_needle,
                 "probe_secret_split": inj_probe, "binary_identity_drifted": inj_binary,
                 "harness_identity_drifted": inj_harness,
@@ -711,6 +769,9 @@ def main() -> int:
     ap.add_argument("--output", type=Path, default=None)
     ap.add_argument("--only", default=None, help="run one profile id")
     ap.add_argument("--settle", type=float, default=12.0)
+    ap.add_argument("--refuse-wait", type=float, default=20.0,
+                    help="how long a refusal row may take to exit on its own before the harness "
+                         "signals it; a refusal the harness had to kill proves nothing")
     ap.add_argument("--reference", type=Path,
                     default=Path(__file__).resolve().parents[2],
                     help="repository root holding references/livekit-stable")
@@ -769,6 +830,7 @@ def main() -> int:
                         "harness": {"path": str(Path(__file__).resolve()),
                                     "sha256": sha256(Path(__file__).resolve())},
                         "python": sys.version.split()[0]},
+           "timing": {"settle_s": args.settle, "refuse_wait_s": args.refuse_wait},
            "safety": {"off_limits": list(OFF_LIMITS), "ports_before": default_port_state()},
            "profiles": {}, "runs": {}, "verdicts": []}
     selected = [p for p in profiles(work) if profile_selected(p, args)]
@@ -792,7 +854,8 @@ def main() -> int:
             env = build_env(work, profile.get("env", {}))
             runs[side] = capture(binary, argv, env, work / "logs",
                                  f"{profile['id']}.{side}", profile.get("port"),
-                                 profile.get("probes", []), args.settle)
+                                 profile.get("probes", []), args.settle,
+                                 None if profile["kind"] != "refusal" else args.refuse_wait)
         doc["runs"][profile["id"]] = runs
         result = verdict(profile, runs["go"], runs["rust"])
         doc["verdicts"].append(result)
@@ -812,8 +875,9 @@ def main() -> int:
                       "identity_gate": gate,
                       "scoped_observations": aggregate(doc["verdicts"]),
                       "ports_untouched": doc["safety"]["ports_before"] == doc["safety"]["ports_after"],
-                      "claims": "flag-surface lines, exit codes, listener acceptance and the two "
-                                "auth probes per start row; service request/shutdown logging is "
+                      "claims": "flag-surface lines, exit codes, that a refusal ended the process on "
+                                "its own, listener acceptance and the two auth probes per start row; "
+                                "service request/shutdown logging is "
                                 "reported under scoped_observations, not asserted here",
                       "status": "DONE" if clean else ("FAILED" if passed != len(doc["verdicts"])
                                                       else "IDENTITY_DRIFT")}

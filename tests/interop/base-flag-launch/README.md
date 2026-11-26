@@ -58,11 +58,26 @@ python3 tests/interop/base-flag-launch/run-paired.py --selftest-gate <copy>/exec
 The output directory must not exist: a lane that appends to an earlier slot would mix two
 candidates in one receipt. `--report` re-derives every verdict from a recorded `execution.json`
 without starting a daemon, so a filed receipt can be re-checked offline.
-`--selftest-gate` re-derives the same verdicts under eleven named in-memory mutations and fails
+`--selftest-gate` re-derives the same verdicts under thirteen named in-memory mutations and fails
 unless each mutation reddens the check it targets; it refuses a receipt that lacks a shape some
 injection needs (no refusal row, no `expect`, no probes) rather than sweeping gates nothing reached.
 All three read-only modes write beside the receipt they are given, so they take a **copy** — and
 `refuse_filed_slot` stops any of them pointing at `server/evidence/`.
+
+## A refusal has to end the process by itself
+
+A refusal row is not allowed to be signalled into its exit code. `capture()` waits
+`--refuse-wait` (20 s) for the child to leave on its own and records `self_exited`/`exit_wait_ms`;
+only if it is still alive does the signal ladder run, and then `refusal_self_exits` reddens the row.
+The first full run of this lane did the opposite — `port=None` skipped the settle wait, so the
+harness SIGINTed every refusal about 1 ms after `Popen`, before either binary reached its
+`fmt.Println(err)`. All ten refusal rows came back `exit=-2` with **zero-byte** streams, and because
+two empty streams are equal in every bucket, `parity_flag_lines` and `parity_stdout` passed on them
+while `full_streams_equal` counted ten rows that had no bytes in them. The row-level checks
+(`refusal_exit_1`, `expect_*`) caught it and the lane exited 1, but the emptiness itself was
+matching a check to nothing, so `refusal_printed` now requires a non-empty `flag` bucket on each
+side, and `--selftest-gate` carries `refusal_survives_the_wait` and `refusal_prints_nothing` to
+prove both new checks can fail.
 
 ## What a row actually compares
 
