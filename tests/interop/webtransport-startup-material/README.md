@@ -102,6 +102,31 @@ recorded as the mutant's identity; source tree left dirty during the run so
 So neither refusal family can be satisfied by a generic error, and the directory row is
 discriminated independently of the PEM row.
 
+### Gate falsifiability (C101)
+
+A mutant binary proves the *behaviour* is load-bearing; it does not prove the *receipt's* checks
+can fail. `--selftest-gate <execution.json>` covers that axis: it re-runs `finish()` on in-memory
+copies of a recorded run under seventeen named mutations and requires each to redden the check it
+targets (`listener_never_bound`, `listener_after_readiness`, `dev_warning_missing`,
+`port_left_occupied`, `port_leaked_after_exit`, `killed_not_exited`, `never_reaches_readiness`,
+`refusal_survives_the_wait`, `refusal_prints_nothing`, `refusal_leaves_a_listener`,
+`refusal_leaks_the_port`, `pem_text_not_specific`, `message_order_swapped`,
+`registration_ordering_split`, `binary_identity_drifted`, `harness_identity_drifted`,
+`oracle_moved_off_commit`) plus the untouched baseline. It writes `gate-falsification.json` and
+launches nothing.
+
+Adding that sweep is what surfaced a vacuous control. `message_sequence()` matched only the zap
+*JSON* encoder's `"msg":"…"` field, while the server logs with the console encoder
+(`time\tLEVEL\tlogger\tfile.go:NNN\tmessage\t{json}`), so `messages` was empty on every profile and
+`webtransport_message_sequence_equal` compared two empty lists across six start rows and reported
+agreement. The ordering claims that mattered survived because they are computed with `text.find` on
+the raw log, not from `messages`. `read()`-from-log now feeds both the per-row
+`wt_message_subsequence` and the new `webtransport_listener_lines_ordered` control, which requires
+every row that bound a listener to show `webtransport listener started` before its stop line on both
+sides; the equality control additionally refuses a receipt with no listener row. On the run that
+this fix produced the counts are 2/2, 3/3 and 2/2 (start+stop, plus the dev self-signed notice)
+where the C100-filed run recorded `[]`.
+
 ## Run
 
 ```bash
@@ -109,7 +134,18 @@ python3 /Users/zoujiaqing/projects/livekit-rs/tests/interop/webtransport-startup
   --go   /tmp/c99-build/livekit-server-go \
   --rust /Users/zoujiaqing/projects/livekit-rs/target/release/livecloud \
   --output <fresh-dir>            # --skip-redis drops the two ordering rows
+
+# Offline, against a copy: a filed slot is immutable and both modes write beside their input.
+cp <slot>/lanes/webtransport-material/execution.json /tmp/laneA/
+python3 .../run-paired.py --report       /tmp/laneA/execution.json
+python3 .../run-paired.py --selftest-gate /tmp/laneA/execution.json
 ```
+
+`--report` re-derives the verdict from the receipt without starting a daemon. Identity is part of
+that verdict: `harness_unchanged_since_run` compares the receipt's canonical harness hash with the
+file now, so re-deriving the C100-filed run after this fix reports
+`unmet_gates: ["harness_unchanged_since_run"]` while all fifteen profiles and the other twenty-one
+controls reproduce.
 
 ## Out of scope (honest residual)
 
