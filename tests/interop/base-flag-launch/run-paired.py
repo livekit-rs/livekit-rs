@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import collections
 import hashlib
 import hmac
 import http.client
@@ -74,6 +75,10 @@ def identity(path: Path) -> dict:
 
 
 OFF_LIMITS = (7881, 7882)  # the developer host runs its own server there; this harness never binds it
+
+# The oracle this batch is pinned to, same as the three other launched lanes: the Go binary hash is
+# gated per run, and the checkout the sentences above were read from has to be the commit they name.
+FIXED_GO_COMMIT = "e5655ac20267fa5005dccaf3f0e3bfc3ea688c07"
 
 
 def free_port() -> int:
@@ -542,9 +547,14 @@ def identity_gate(doc: dict) -> dict:
         path = Path(rec.get("path", ""))
         now[side] = sha256(path) if path.exists() else None
     doc["identity_now"] = now
-    return {f"{side}_unchanged": (now[side] is not None
+    gate = {f"{side}_unchanged": (now[side] is not None
                                   and now[side] == rec.get("sha256"))
             for side, rec in ((s, bins.get(s, {})) for s in ("official", "rust", "harness"))}
+    # Part of the same provenance question as a moved binary: the upstream sentences this lane
+    # asserts were read from a specific checkout, and a receipt whose reference commit is not that
+    # commit describes a run against something else.
+    gate["go_reference_matches_locked"] = (bins.get("go_reference_commit") == FIXED_GO_COMMIT)
+    return gate
 
 
 def aggregate(results: list[dict]) -> dict:
@@ -588,6 +598,8 @@ GATE_INJECTIONS = (
      "a receipt re-read after the candidate was rebuilt must name the moved binary"),
     ("harness_identity_drifted", "IDENTITY_DRIFT",
      "a receipt re-read after the harness was edited describes an older lane"),
+    ("go_reference_moved", "IDENTITY_DRIFT",
+     "the upstream sentences are quoted from one checkout, so a receipt from another cannot attest them"),
     ("off_limit_port_in_argv", "AssertionError",
      "7881/7882 belong to the developer host and may never reach argv"),
 )
@@ -605,6 +617,7 @@ def selftest_gate(doc: dict, out_dir: Path) -> int:
              "probe_secret_split": ("probes",), "service_log_only_difference": ("start",),
              "line_order_swapped": ("start",), "forced_kill": ("start",),
              "binary_identity_drifted": (), "harness_identity_drifted": (),
+             "go_reference_moved": (),
              "off_limit_port_in_argv": ()}
     kinds = {m.get("kind") for m in doc["profiles"].values()}
     have_expect = any(m.get("expect") for m in doc["profiles"].values())
@@ -689,6 +702,9 @@ def selftest_gate(doc: dict, out_dir: Path) -> int:
     def inj_harness(d):
         d["binaries"]["harness"]["sha256"] = "stale-hash-from-an-older-harness"
 
+    def inj_reference(d):
+        d["binaries"]["go_reference_commit"] = "0000000000000000000000000000000000000000"
+
     REQ_LINE = ('<TS>\tWARN\tlivekit\tservice/utils.go:85\terror handling request\t'
                 '{"status": 401, "method": "POST", "path": "/twirp/Livekit.RoomService/ListRooms",'
                 ' "error": "invalid authorization token"}')
@@ -715,7 +731,7 @@ def selftest_gate(doc: dict, out_dir: Path) -> int:
                 "refusal_prints_nothing": inj_refusal_silent,
                 "never_accepts": inj_accept, "needle_missing": inj_needle,
                 "probe_secret_split": inj_probe, "binary_identity_drifted": inj_binary,
-                "harness_identity_drifted": inj_harness,
+                "harness_identity_drifted": inj_harness, "go_reference_moved": inj_reference,
                 "service_log_only_difference": inj_service_log_only,
                 "line_order_swapped": inj_order_swap, "forced_kill": inj_forced_kill}
     rows = []
@@ -773,7 +789,7 @@ def main() -> int:
                     help="how long a refusal row may take to exit on its own before the harness "
                          "signals it; a refusal the harness had to kill proves nothing")
     ap.add_argument("--reference", type=Path,
-                    default=Path(__file__).resolve().parents[2],
+                    default=Path(__file__).resolve().parents[3],
                     help="repository root holding references/livekit-stable")
     ap.add_argument("--report", type=Path, default=None,
                     help="re-derive verdicts from a recorded execution.json")
@@ -833,12 +849,13 @@ def main() -> int:
            "timing": {"settle_s": args.settle, "refuse_wait_s": args.refuse_wait},
            "safety": {"off_limits": list(OFF_LIMITS), "ports_before": default_port_state()},
            "profiles": {}, "runs": {}, "verdicts": []}
-    selected = [p for p in profiles(work) if profile_selected(p, args)]
+    all_profiles = profiles(work)
+    selected = [p for p in all_profiles if profile_selected(p, args)]
     # The same vacuity the --report path refuses: a filter that matched nothing would write a
     # receipt with zero legs that every aggregate below reads as unanimous success.
     if not selected:
         raise SystemExit(json.dumps({"error": "no_legs_selected", "filter": args.only,
-                                     "known_ids": [p["id"] for p in profiles(work)]}))
+                                     "known_ids": [p["id"] for p in all_profiles]}))
     doc["profiles"] = {p["id"]: {"kind": p["kind"], "rows": p["rows"], "argv": p["argv"],
                                  "expect": p.get("expect", []),
                                  "probes": [name for name, _ in p.get("probes", [])]}
@@ -871,10 +888,11 @@ def main() -> int:
             print(f"    {name}: {json.dumps(detail, ensure_ascii=False)[:400]}", flush=True)
     doc["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     doc["safety"]["ports_after"] = default_port_state()
-    passed = sum(1 for v in doc["verdicts"] if v["pass"])
     gate = identity_gate(doc)              # also records doc["identity_now"]
     doc["identity_gate"] = gate
-    clean = passed == len(doc["verdicts"]) and all(gate.values())
+    complete = not args.only or len(selected) == len(all_profiles)
+    passed = sum(1 for v in doc["verdicts"] if v["pass"])
+    clean = bool(doc["verdicts"]) and passed == len(doc["verdicts"]) and all(gate.values())
     doc["summary"] = {"legs": len(doc["verdicts"]), "passed": passed,
                       "failed": [v["id"] for v in doc["verdicts"] if not v["pass"]],
                       "identity_gate": gate,
@@ -886,17 +904,23 @@ def main() -> int:
                                 "reported under scoped_observations, not asserted here",
                       "status": "DONE" if clean else ("FAILED" if passed != len(doc["verdicts"])
                                                       else "IDENTITY_DRIFT")}
-    doc["status"] = ("PASS_LAUNCHED_MAIN_BASE_FLAGS" if clean
+    doc["status"] = ("PASS_LAUNCHED_MAIN_BASE_FLAGS" if clean and complete
+                     else "PARTIAL_SELECTION_BASE_FLAGS" if clean
                      else "IDENTITY_DRIFT" if all(v["pass"] for v in doc["verdicts"])
                      else "FAILED")
     # A ledger auditor reads the *top level* of a receipt to decide whether the run accepted
     # anything (scripts/check-parity-ledger.py only looks at `status`/`result` there), and the
     # other launched lanes all publish a lane-level BATCH.json beside the raw records. This lane
     # has to say the same thing in the same place, or a passing pair of servers cannot support a
-    # row. Nothing new is claimed here: every field is lifted from the verdicts above.
+    # row. Nothing new is claimed here: every field is lifted from the verdicts above. A `--only`
+    # run is spelled PARTIAL on purpose: it attests the rows it selected, not the lane.
+    selection = {"filter": args.only, "selected": len(selected),
+                 "total": len(all_profiles), "complete": complete}
+    doc["summary"]["selection"] = selection
     rows = collections.Counter(r for v in doc["verdicts"] for r in v["rows"])
     batch = {"status": doc["status"], "case_count": len(doc["verdicts"]),
              "passed": passed, "failed_cases": doc["summary"]["failed"],
+             "selection": selection,
              "ledger_rows": sorted(rows), "rows_attested": dict(sorted(rows.items())),
              "identity_gate": gate, "identity_now": doc["identity_now"],
              "binaries": doc["binaries"], "timing": doc["timing"],

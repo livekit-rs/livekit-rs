@@ -45,6 +45,16 @@ Refusals are a contract too: upstream prints them with `fmt.Println(err)` and ex
 | A-15…A-18 | `--key-file` valid 0600, world-readable 0644 refusal, missing file, `$VAR` expansion |
 | A-19 | neither key source outside development mode |
 
+## What the lane publishes
+
+The launch writes `execution.json` (per-profile plan, both raw runs, both verdicts, identities at
+start and at read-back) and `BATCH.json` (lane-level `status`, `case_count`, the failed cases, the
+`ledger_rows` the verdicts attest, the identity gate and the scoped observations). `status` is
+derived, not declared: `PASS_LAUNCHED_MAIN_BASE_FLAGS` only when every row passed *and* both
+binaries plus this file still hash to what the launch recorded, else `IDENTITY_DRIFT` or `FAILED`.
+The three other launched lanes report the same way at the top level, and a ledger auditor reads
+exactly that field, so a run that only graded its own `summary` could not support a row.
+
 ## Run
 
 ```bash
@@ -58,7 +68,7 @@ python3 tests/interop/base-flag-launch/run-paired.py --selftest-gate <copy>/exec
 The output directory must not exist: a lane that appends to an earlier slot would mix two
 candidates in one receipt. `--report` re-derives every verdict from a recorded `execution.json`
 without starting a daemon, so a filed receipt can be re-checked offline.
-`--selftest-gate` re-derives the same verdicts under thirteen named in-memory mutations and fails
+`--selftest-gate` re-derives the same verdicts under fourteen named in-memory mutations and fails
 unless each mutation reddens the check it targets; it refuses a receipt that lacks a shape some
 injection needs (no refusal row, no `expect`, no probes) rather than sweeping gates nothing reached.
 All three read-only modes write beside the receipt they are given, so they take a **copy** — and
