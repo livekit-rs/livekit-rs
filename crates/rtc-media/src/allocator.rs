@@ -548,7 +548,10 @@ mod tests {
     #[test]
     fn measured_congestion_capacity_grants_the_base_layer_it_measures() {
         let t = track(1, 2, [160_481, 481_443, 1_444_328]);
-        assert_eq!(plan(Some(203_319), std::slice::from_ref(&t), 1, true).caps, [0]);
+        assert_eq!(
+            plan(Some(203_319), std::slice::from_ref(&t), 1, true).caps,
+            [0]
+        );
         assert_eq!(plan(Some(41_423), &[t], 1, true).caps, [-1]);
     }
 
