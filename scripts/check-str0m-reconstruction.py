@@ -51,12 +51,19 @@ def main():
             expected_patch_hashes[value["patch"]] = value["patch_sha256"]
     patch_hashes = {}
     touched = set()
+    # A patch file that is on disk but not in the chain is silently ignored by the
+    # replay below, and a chain patch with no recorded digest is silently accepted
+    # by the loop, so both drifts have to be named here instead.
+    on_disk = sorted(p.name for p in vendor.glob("*.patch"))
+    check(set(on_disk) == set(patch_names),
+          "patch files on disk and in the declared chain differ: undeclared=%s missing=%s"
+          % (sorted(set(on_disk) - set(patch_names)), sorted(set(patch_names) - set(on_disk))))
     for name in patch_names:
         check(Path(name).name == name, "patch path must stay in vendor root")
         data = (vendor / name).read_bytes()
         patch_hashes[name] = digest(data)
-        if name in expected_patch_hashes:
-            check(digest(data) == expected_patch_hashes[name], f"patch hash differs: {name}")
+        check(patch_hashes[name] == expected_patch_hashes.get(name),
+              f"patch hash undeclared or differs: {name}")
         touched.update(re.findall(r"^\+\+\+ b/(.+)$", data.decode(), re.MULTILINE))
     check(touched == set(reconstruction["exact_files"]), "declared files differ from patch paths")
     check(len(touched) == reconstruction["count"], "declared reconstruction count differs")

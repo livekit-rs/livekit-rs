@@ -25,6 +25,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 ENV_PREFIX = re.compile(r'^([A-Z][A-Z0-9_]*)=(\S+)\s+')
 DEPS = re.compile(r'target/debug/deps/([A-Za-z0-9_.-]+)')
 HARNESS = re.compile(r'tests/[\w./-]*run[\w./-]*\.py')
+PLACEHOLDER = re.compile(r'\{[a-z_]+\}')
+WRITESIDE = re.compile(r'RUST|_OUT$|_OUT_|^OUT_|_DIR$|EVIDENCE')
 PROOF = ('running 1 test', '1 passed; 0 failed')
 
 
@@ -75,6 +77,18 @@ def harness_command(recipe, binary_path, out_dir):
     return None
 
 
+def missing_command_inputs(tokens, skip):
+    """Absolute inputs a harness command reads but that are no longer staged.
+
+    The scratch roots harnesses point at (a compiled Go client, a staged corpus)
+    are temporary by design. A harness that cannot find its input aborts before
+    the Rust binary is exercised, so that is a blocked measurement, not a Rust
+    failure.
+    """
+    return sorted({t for t in tokens if t.startswith('/') and t not in skip
+                   and not pathlib.Path(t).exists()})
+
+
 def consumer_env_names(recipe):
     """The env names the Rust consumer actually reads.
 
@@ -82,14 +96,37 @@ def consumer_env_names(recipe):
     own inputs and outputs). Requiring those would block a consumer that never
     reads them, so only names appearing as literals in the consumer source count.
     """
-    declared = set((recipe.get('env') or {}).keys())
+    env = recipe.get('env') or {}
+    # `env` is a NAME -> value table in every validated recipe; where a row carries
+    # prose instead, only the upper-case tokens it names are candidates.
+    if isinstance(env, dict):
+        declared = set(env.keys())
+    else:
+        declared = {t for t in re.findall(r'\b[A-Z][A-Z0-9_]{2,}\b', str(env))}
     if not declared:
         return set()
-    source = ROOT / recipe['source_file']
+    source = ROOT / (recipe.get('source_file') or '')
     if not source.is_file():
         return declared
     text = source.read_text(errors='replace')
     return {n for n in declared if '"%s"' % n in text}
+
+
+def absent_paths(env):
+    """Env values that name a file which is not there.
+
+    A recipe records the staged producer output it was measured against; once that
+    scratch tree is gone the consumer cannot execute, and running it anyway only
+    produces a panic in `fs::read_to_string`. That is a blocked measurement, not a
+    Rust failure, so it is reported as NOT_RUN with the exact variables.
+
+    Write-side names are excluded: those paths are the consumer's own fresh result
+    file, opened with create_new, so requiring them to pre-exist would block every
+    differential row.
+    """
+    return sorted(name for name, value in env.items()
+                  if value.startswith(('/', './')) and not WRITESIDE.search(name)
+                  and not pathlib.Path(value).exists())
 
 
 def proof_in(directory):
@@ -138,6 +175,7 @@ def main():
     select = set(args.select.split(','))
     rows = []
     harness_done = {}
+    seen_labels = {}
     for entry in table:
         name = entry['test']
         if entry['disposition'] not in select:
@@ -158,6 +196,18 @@ def main():
         if harness:
             row['mode'] = 'harness'
             row['command'] = harness
+            body, henv = split_env(harness)
+            missing_input = missing_command_inputs(
+                shlex.split(body),
+                {binary['path'], str(out / (label + '.harness'))})
+            missing_input += ['%s=%s' % (n, henv[n]) for n in absent_paths(henv)]
+            if missing_input:
+                row.update(status='NOT_RUN', exit_code=None,
+                           reason='harness input absent: %s' % ', '.join(missing_input))
+                rows.append(row)
+                print('NOT_RUN %s ABSENT_HARNESS_INPUTS=%s'
+                      % (name, ','.join(missing_input)), flush=True)
+                continue
             if harness in harness_done:
                 prior = harness_done[harness]
                 row.update(prior)
@@ -195,12 +245,40 @@ def main():
             rows.append(row)
             print('NOT_RUN %s MISSING_ENV=%s' % (name, ','.join(missing)), flush=True)
             continue
+        # Consumers write their fresh results under the recipe's `{out}` scratch token
+        # and open those files with create_new, so each entry needs its own empty
+        # directory; a shared one turns the second compilation of a name into a false
+        # AlreadyExists failure.
+        seq = seen_labels.get(label, 0)
+        seen_labels[label] = seq + 1
+        scratch = out / ('%s.out%s' % (label, seq))
+        scratch.mkdir(parents=True, exist_ok=True)
+        env = {k: (v.replace('{out}', str(scratch)) if isinstance(v, str) else v)
+               for k, v in env.items()}
+        for value in env.values():
+            if isinstance(value, str) and value.startswith(('/', './')):
+                pathlib.Path(value).parent.mkdir(parents=True, exist_ok=True)
+        stuck = sorted('%s=%s' % (k, v) for k, v in env.items()
+                       if k in consumer_env_names(recipe) and PLACEHOLDER.search(v))
+        if stuck:
+            row.update(mode='direct', status='NOT_RUN', exit_code=None,
+                       reason='recipe placeholder unresolved: %s' % ', '.join(stuck))
+            rows.append(row)
+            print('NOT_RUN %s UNRESOLVED_PLACEHOLDER=%s' % (name, ','.join(stuck)), flush=True)
+            continue
+        absent = absent_paths(env)
+        if absent:
+            row.update(mode='direct', status='NOT_RUN', exit_code=None,
+                       reason='staged producer output absent: %s' % ', '.join(absent))
+            rows.append(row)
+            print('NOT_RUN %s ABSENT_INPUTS=%s' % (name, ','.join(absent)), flush=True)
+            continue
         argv = [binary['path'], '--ignored', '--exact', name,
                 '--nocapture', '--test-threads=1']
         row['mode'] = 'direct'
         row['command'] = ' '.join(shlex.quote(a) for a in argv)
         row['env_names'] = sorted(env)
-        log = out / (label + '.log')
+        log = out / ('%s%s.log' % (label, '' if seq == 0 else '.%d' % seq))
         started = time.time()
         with log.open('w') as handle:
             handle.write(row['command'] + '\n')

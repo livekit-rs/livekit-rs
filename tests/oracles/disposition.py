@@ -160,9 +160,16 @@ class Merger:
     def execution(self, path):
         receipt = load(path)
         path = pathlib.Path(path)
+        # Observer receipts from other harnesses are row lists, not the runner's
+        # per-test execution document; they must not enter this merge.
+        if not isinstance(receipt, dict):
+            return
         cases = receipt.get('tests')
         if cases is None and receipt.get('test'):
             cases = [receipt]
+        if not isinstance(cases, list):
+            return
+        cases = [case for case in cases if isinstance(case, dict)]
         binary = receipt.get('binary') or {}
         for case in cases or []:
             self.upsert(case.get('name') or case.get('test'), {
@@ -200,6 +207,8 @@ class Merger:
             return {}
         found = {}
         for row in data.get('rows', []):
+            if not isinstance(row, dict) or 'test' not in row:
+                continue
             if row.get('status') not in {'PASS', 'FAIL', 'TIMEOUT', 'NO_TEST_MATCHED'}:
                 continue
             record = {'receipt': str(path), 'status': row['status'],

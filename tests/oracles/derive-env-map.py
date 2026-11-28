@@ -66,7 +66,16 @@ def harness_mode(recipe):
 
 def consumer_env_names(recipe):
     """Only names the Rust consumer source actually reads as a literal."""
-    declared = set((recipe.get('env') or {}).keys())
+    env = recipe.get('env') or {}
+    # A recipe may carry `env` as prose instead of a NAME -> value table. Only
+    # upper-case tokens that appear verbatim in that prose are candidates; a value
+    # is still required from a recorded producer command, so nothing is guessed.
+    if isinstance(env, dict):
+        declared = set(env.keys())
+    elif isinstance(env, str):
+        declared = {t for t in re.findall(r'\b[A-Z][A-Z0-9_]{2,}\b', env)}
+    else:
+        declared = set()
     if not declared:
         return set()
     source = ROOT / recipe.get('source_file', '')
