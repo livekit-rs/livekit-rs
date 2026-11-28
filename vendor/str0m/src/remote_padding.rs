@@ -1,5 +1,5 @@
 //! Bounded outgoing padding execution, independent of native bandwidth estimation.
-use crate::rtp_::Bitrate;
+use crate::rtp_::{Bitrate, Mid};
 use std::time::{Duration, Instant};
 
 /// Local execution status. No state is proof of remote receipt or capacity.
@@ -49,6 +49,14 @@ pub struct PaddingObservation {
     pub id: u64,
     /// Actual selected local scheduling behavior.
     pub mode: PaddingMode,
+    /// m-line the locally produced padding packets actually rode. `None` until
+    /// the request yields output, so a caller can check the emitted stream
+    /// against the m-line the estimate owner binds.
+    pub mid: Option<Mid>,
+    /// m-line the request bound local output to. The unbound paced API reports
+    /// `None`; it differs from `mid` only when the bound m-line was not yet
+    /// eligible and another stream carried the padding.
+    pub bound: Option<Mid>,
     /// Local authorization/execution status, never receipt proof.
     pub status: PaddingStatus,
     /// Owner-supplied monotonic request time.
@@ -115,6 +123,8 @@ impl PaddingExecutor {
         self.observation = Some(PaddingObservation {
             id,
             mode: PaddingMode::Paced,
+            mid: None,
+            bound: None,
             status: PaddingStatus::Active,
             requested_at: now,
             deadline,
@@ -128,14 +138,19 @@ impl PaddingExecutor {
         self.next_at = Some(now);
         Ok(id)
     }
+    /// Owner-bound burst request. `mid` restricts local output to one m-line;
+    /// `None` keeps the historical first-qualifying-stream selection.
     pub(crate) fn start_burst(
         &mut self,
         bytes: u64,
         duration: Duration,
         now: Instant,
+        mid: Option<Mid>,
     ) -> Result<u64, PaddingRequestError> {
         let id = self.start(bytes, Bitrate::bps(100_000_000), duration, now)?;
-        self.observation.as_mut().unwrap().mode = PaddingMode::Burst;
+        let o = self.observation.as_mut().unwrap();
+        o.mode = PaddingMode::Burst;
+        o.bound = mid;
         if self
             .burst_at
             .is_some_and(|(at, count)| at == now && count >= 16)
@@ -143,6 +158,17 @@ impl PaddingExecutor {
             self.next_at = Some(now + Duration::from_millis(1));
         }
         Ok(id)
+    }
+    pub(crate) fn bound_mid(&self) -> Option<Mid> {
+        self.observation
+            .as_ref()
+            .filter(|o| o.status == PaddingStatus::Active)
+            .and_then(|o| o.bound)
+    }
+    pub(crate) fn is_burst(&self) -> bool {
+        self.observation
+            .as_ref()
+            .is_some_and(|o| o.status == PaddingStatus::Active && o.mode == PaddingMode::Burst)
     }
     pub(crate) fn observation(&self) -> Option<PaddingObservation> {
         self.observation
@@ -180,6 +206,13 @@ impl PaddingExecutor {
         self.observation
             .map(|o| o.max_protected_bytes.saturating_sub(o.sent_protected_bytes))
             .unwrap_or(0)
+    }
+    /// Record the m-line an independently produced padding packet rode, so the
+    /// observation reports the emitted stream rather than the requested binding.
+    pub(crate) fn emitted(&mut self, mid: Mid) {
+        if let Some(o) = self.observation.as_mut() {
+            o.mid = Some(mid);
+        }
     }
     pub(crate) fn sent(&mut self, now: Instant, bytes: usize) {
         let Some(o) = self.observation.as_mut() else {
@@ -319,7 +352,9 @@ mod burst_tests {
         let now = Instant::now();
         let mut e = PaddingExecutor::default();
         for _ in 0..16 {
-            let id = e.start_burst(512, Duration::from_secs(1), now).unwrap();
+            let id = e
+                .start_burst(512, Duration::from_secs(1), now, None)
+                .unwrap();
             assert!(e.due(now));
             e.sent(now, 512);
             let o = e.observation().unwrap();
@@ -327,11 +362,50 @@ mod burst_tests {
             assert_eq!(o.sent_protected_bytes, 512);
             assert_eq!(o.status, PaddingStatus::Completed);
         }
-        e.start_burst(1024, Duration::from_secs(1), now).unwrap();
+        e.start_burst(1024, Duration::from_secs(1), now, None)
+            .unwrap();
         assert!(!e.due(now));
         assert!(e.due(now + Duration::from_millis(1)));
         e.sent(now + Duration::from_millis(1), 512);
         assert_eq!(e.observation().unwrap().sent_protected_bytes, 512);
+    }
+    #[test]
+    fn burst_binds_owner_mid_and_paced_api_stays_unbound() {
+        let now = Instant::now();
+        let mid: Mid = "3".into();
+        let mut paced = PaddingExecutor::default();
+        paced
+            .start(4096, Bitrate::bps(100_000), Duration::from_secs(1), now)
+            .unwrap();
+        assert!(!paced.is_burst());
+        assert_eq!(paced.bound_mid(), None);
+        paced.sent(now, 256);
+        assert_eq!(paced.bound_mid(), None);
+        // The observation records the stream padding actually rode, which is
+        // deliberately not the requested binding: a session that falls back to
+        // another eligible stream still reports the emitted one.
+        let other: Mid = "7".into();
+        assert_eq!(paced.observation().unwrap().mid, None);
+        paced.emitted(other);
+        assert_eq!(paced.observation().unwrap().mid, Some(other));
+        assert_eq!(paced.observation().unwrap().bound, None);
+        assert_eq!(paced.bound_mid(), None);
+        let mut burst = PaddingExecutor::default();
+        let id = burst
+            .start_burst(2048, Duration::from_secs(1), now, Some(mid))
+            .unwrap();
+        assert!(burst.is_burst());
+        assert_eq!(burst.bound_mid(), Some(mid));
+        assert_eq!(burst.observation().unwrap().mid, None);
+        assert_eq!(burst.observation().unwrap().bound, Some(mid));
+        burst.sent(now, 512);
+        assert_eq!(burst.bound_mid(), Some(mid));
+        burst.emitted(other);
+        assert_eq!(burst.observation().unwrap().mid, Some(other));
+        assert_eq!(burst.observation().unwrap().bound, Some(mid));
+        burst.cancel(id);
+        assert!(!burst.is_burst());
+        assert_eq!(burst.bound_mid(), None);
     }
     #[test]
     fn old_paced_api_does_not_gain_burst_credit() {

@@ -137,6 +137,7 @@ pub(crate) struct Session {
     pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
     pub(crate) rtp_stream_restart_detection: bool,
     pub(crate) forwarding_timing_enabled: bool,
+    pub(crate) red_wire_payload_enabled: bool,
     srtp_rx: Option<SrtpContext>,
     srtp_tx: Option<SrtpContext>,
     last_nack: Instant,
@@ -265,6 +266,7 @@ impl Session {
             receiver_report_rtt: VecDeque::new(),
             rtp_stream_restart_detection: false,
             forwarding_timing_enabled: false,
+            red_wire_payload_enabled: false,
             srtp_rx: None,
             srtp_tx: None,
             last_nack: already_happened(),
@@ -326,22 +328,55 @@ impl Session {
         self.send_transport_cc = enabled;
     }
 
-    fn independent_padding_source(&mut self) -> Option<MidRid> {
+    /// Choose the stream that executes an outstanding padding request.
+    ///
+    /// A burst (probe) request is bound to the owner's m-line and carries
+    /// LiveKit's `WritePaddingRTP(paddingOnMute = false)` gates: video only, and
+    /// only for a source the peer has already reported on. Go refuses padding
+    /// on audio and on a stream with no receiver report, and its allocator
+    /// probes the video downtracks that feed the estimate, so padding on an
+    /// unrelated m-line produces a cluster the estimator cannot attribute.
+    /// When the bound m-line is not yet eligible, another eligible video stream
+    /// is used, matching Go's per-track gate over the video track list.
+    fn select_padding_source(&mut self, bound: Option<Mid>, burst: bool) -> Option<MidRid> {
         let medias = &self.medias;
-        self.streams.streams_tx().find_map(|stream| {
-            let pt = stream.padding_pt()?;
-            if stream.rtx().is_none()
-                || !medias.iter().any(|media| {
-                    media.mid() == stream.mid()
-                        && !media.stopped()
-                        && media.direction().is_sending()
-                        && (media.remote_pts().is_empty() || media.remote_pts().contains(&pt))
-                })
-            {
-                return None;
+        let mut fallback = None;
+        for stream in self.streams.streams_tx() {
+            let Some(pt) = stream.padding_pt() else {
+                continue;
+            };
+            if stream.rtx().is_none() {
+                continue;
             }
-            Some(MidRid(stream.mid(), stream.rid()))
-        })
+            let Some(media) = medias.iter().find(|m| m.mid() == stream.mid()) else {
+                continue;
+            };
+            if media.stopped()
+                || !media.direction().is_sending()
+                || !(media.remote_pts().is_empty() || media.remote_pts().contains(&pt))
+            {
+                continue;
+            }
+            if burst
+                && (media.kind() == crate::media::MediaKind::Audio || !stream.has_receiver_report())
+            {
+                continue;
+            }
+            let candidate = MidRid(stream.mid(), stream.rid());
+            if burst && Some(stream.mid()) == bound {
+                return Some(candidate);
+            }
+            if fallback.is_none() {
+                fallback = Some(candidate);
+            }
+        }
+        fallback
+    }
+
+    fn independent_padding_source(&mut self) -> Option<MidRid> {
+        let bound = self.remote_padding.bound_mid();
+        let burst = self.remote_padding.is_burst();
+        self.select_padding_source(bound, burst)
     }
 
     pub(crate) fn request_padding(
@@ -357,17 +392,20 @@ impl Session {
         if self.rtp_closing || !self.ready_for_srtp() {
             return Err(crate::PaddingRequestError::NotReady);
         }
-        if self.independent_padding_source().is_none() {
+        if self.select_padding_source(None, false).is_none() {
             return Err(crate::PaddingRequestError::NoSource);
         }
         self.remote_padding.start(bytes, rate, duration, now)
     }
 
+    /// `mid` binds local probe output to the owner's m-line; `None` keeps the
+    /// unbound selection. Binding does not widen the eligibility gates.
     pub(crate) fn request_padding_burst(
         &mut self,
         bytes: u64,
         duration: Duration,
         now: Instant,
+        mid: Option<Mid>,
     ) -> Result<u64, crate::PaddingRequestError> {
         if self.bwe.is_some() {
             return Err(crate::PaddingRequestError::NativeBweEnabled);
@@ -375,10 +413,10 @@ impl Session {
         if self.rtp_closing || !self.ready_for_srtp() {
             return Err(crate::PaddingRequestError::NotReady);
         }
-        if self.independent_padding_source().is_none() {
+        if self.select_padding_source(mid, true).is_none() {
             return Err(crate::PaddingRequestError::NoSource);
         }
-        self.remote_padding.start_burst(bytes, duration, now)
+        self.remote_padding.start_burst(bytes, duration, now, mid)
     }
     pub(crate) fn cancel_padding(&mut self, id: u64) -> bool {
         self.remote_padding.cancel(id)
@@ -397,6 +435,9 @@ impl Session {
             return None;
         };
         let result = self.poll_packet_on(now, source, None, true);
+        if result.is_some() {
+            self.remote_padding.emitted(source.mid());
+        }
         if result.is_none()
             && self
                 .remote_padding
@@ -1018,6 +1059,14 @@ impl Session {
         // block. The sender counts the whole RED-wrapped payload, so receive stats must too.
         let wire_payload_len = data.len();
 
+        // The pass-through forwarder needs the RFC 2198 block as authenticated, which unwrapping
+        // discards. Retaining it is opt-in and copies only a RED audio payload.
+        let red_wire = if is_red && !self.rtp_mode && self.red_wire_payload_enabled {
+            Some(Arc::<[u8]>::from(data))
+        } else {
+            None
+        };
+
         // RTX packets must be rewritten to be a normal packet. This only changes the
         // the seq_no, however MediaTime might be different when interpreted against the
         // the "main" register.
@@ -1048,6 +1097,8 @@ impl Session {
         } else if is_red && !self.rtp_mode {
             // Frame mode: RED rides the main SSRC/seq. Decode to the primary (Opus) payload
             // and rewrite the header PT; drop the packet if the RED structure is malformed.
+            // The pass-through forwarder needs the block as authenticated, so copy it before
+            // unwrapping narrows `data` to the primary.
             let Some(un) = un_red(&mut header, data, pt) else {
                 return;
             };
@@ -1117,6 +1168,13 @@ impl Session {
         let payload: Arc<[u8]> = Arc::from(data);
 
         let mut packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
+        if let Some(wire) = red_wire {
+            packet
+                .header
+                .ext_vals
+                .user_values
+                .set(crate::media::RedWirePayload(wire));
+        }
         if self.forwarding_timing_enabled {
             packet
                 .header

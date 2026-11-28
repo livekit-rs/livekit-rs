@@ -502,11 +502,15 @@ impl Transport {
     /// Which probe outcome counters this transport reports, by feedback mode.
     ///
     /// Native send-side mode reports the clusters the prober started and how the
-    /// padding window that was opened for them resolved. Receiver-estimate mode
-    /// reports the probe controller's ledger, which is the authority there
-    /// because that controller is the component that requests the validation.
+    /// padding window that was opened for them resolved. Receiver-estimate and
+    /// interceptor modes are owned by `Feedback`, whose policy ledger is the
+    /// authority there because that controller is the component that requests the
+    /// validation; the vendor prober stays idle in those modes.
     pub(crate) fn probe_counters(&self) -> (u64, u64, u64) {
-        if self.send_side.is_some() {
+        if let Some(remote) = &self.remote_feedback {
+            let c = remote.counters;
+            (c.attempts, c.successes, c.failures)
+        } else if self.send_side.is_some() {
             let n = self.native_probes;
             (n.started, n.confirmed, n.congested + n.inconclusive)
         } else {
@@ -515,6 +519,15 @@ impl Transport {
                 self.probes.counters.successes,
                 self.probes.counters.failures,
             )
+        }
+    }
+
+    /// Congestion observations this transport's allocation authority recorded.
+    pub(crate) fn congestion_counter(&self) -> u64 {
+        if let Some(remote) = &self.remote_feedback {
+            remote.counters.congestion_events
+        } else {
+            self.probes.counters.congestion_events
         }
     }
 

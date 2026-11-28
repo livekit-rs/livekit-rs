@@ -1,9 +1,12 @@
-//! Subscriber stream allocation with explicit reserved and overshoot budgets.
+//! Subscriber stream allocation with explicit overshoot accounting.
 //!
-//! Audio is reserved before video; unmanaged screen shares are charged first.
-//! Managed video obtains base layers before priority-ordered upgrades. Pausing
-//! follows the negotiated LiveKit policy: if disabled, unavoidable base-layer
-//! overshoot is measured rather than hidden. Payload rates exclude wire overhead.
+//! Unmanaged screen shares are charged first; managed video obtains base layers
+//! before priority-ordered upgrades, against the committed capacity itself. The
+//! pinned oracle reserves neither wire overhead nor audio before video, so audio
+//! is counted in the allocation total without shrinking the video budget.
+//! Pausing follows the negotiated LiveKit policy: if disabled, unavoidable
+//! base-layer overshoot is measured rather than hidden.
+//! Payload rates exclude wire overhead.
 
 use rtc_core::ids::TrackSid;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -164,7 +167,7 @@ pub(crate) struct AllocationPlan {
     pub overshoot_bps: u64,
 }
 
-/// Reserve audio plus a 10% RTP/SRTP/RTCP/IP allowance before choosing video.
+/// Allocate video against the committed capacity, as the pinned oracle does.
 /// The upstream-shaped entry the allocator tests drive; production always names
 /// the unmanaged-track policy explicitly.
 #[cfg(test)]
@@ -187,8 +190,14 @@ pub(crate) fn plan_with_unmanaged_policy(
     disable_estimation_unmanaged_tracks: bool,
 ) -> AllocationPlan {
     let audio = audio_count.saturating_mul(AUDIO_ALLOWANCE_BPS);
-    let payload_capacity = capacity.map(|c| c.saturating_sub(c / 10));
-    let video_budget = payload_capacity.map(|c| c.saturating_sub(audio));
+    // `getAvailableChannelCapacity` (streamallocator.go:1257-1277) hands the
+    // allocator the committed capacity itself, and `getExpectedBandwidthUsage`
+    // (:1279-1286) sums video tracks only: the pinned oracle reserves neither a
+    // wire-overhead haircut nor an audio allowance before choosing video layers.
+    // Reserving them refused a base layer the pinned Go grants at the same
+    // capacity, which paused every track, collapsed `expected` to zero and let
+    // the loss-based commit pin the allocation authority at 0 bps.
+    let video_budget = capacity;
     let caps = allocate_with_unmanaged_policy(
         video_budget,
         tracks,
@@ -207,7 +216,7 @@ pub(crate) fn plan_with_unmanaged_policy(
         caps,
         allocated_bps,
         video_budget_bps: video_budget,
-        overshoot_bps: payload_capacity.map_or(0, |c| allocated_bps.saturating_sub(c)),
+        overshoot_bps: video_budget.map_or(0, |c| video.saturating_sub(c)),
     }
 }
 
@@ -521,14 +530,28 @@ mod tests {
         assert_eq!(allocate(Some(10_000_000), &t, false), vec![-1, 2]);
     }
     #[test]
-    fn audio_and_wire_reserves_are_charged_before_video() {
+    fn audio_is_counted_but_never_reserved_against_video() {
         let tracks = vec![track(1, 2, B), track(1, 2, B)];
         let p = plan(Some(500_000), &tracks, 1, true);
-        assert_eq!(p.video_budget_bps, Some(386_000));
+        assert_eq!(p.video_budget_bps, Some(500_000));
         assert_eq!(p.caps, [0, 0]);
         assert_eq!(p.allocated_bps, 364_000);
         assert_eq!(p.overshoot_bps, 0);
+        // Two base layers fit in exactly 300k of capacity. A wire haircut plus
+        // an audio reservation would have shrunk the budget below them.
+        assert_eq!(plan(Some(300_000), &tracks, 1, true).caps, [0, 0]);
     }
+
+    /// The grant boundary the congestion leg actually crosses: one audio track
+    /// alongside the measured base layer, at the committed capacity the estimate
+    /// craters to and at the capacity that must still pause it.
+    #[test]
+    fn measured_congestion_capacity_grants_the_base_layer_it_measures() {
+        let t = track(1, 2, [160_481, 481_443, 1_444_328]);
+        assert_eq!(plan(Some(203_319), &[t.clone()], 1, true).caps, [0]);
+        assert_eq!(plan(Some(41_423), &[t], 1, true).caps, [-1]);
+    }
+
     #[test]
     fn managed_budget_is_conserved_across_capacity_and_priority() {
         let tracks = vec![
@@ -538,21 +561,24 @@ mod tests {
         ];
         for capacity in (0..=7_000_000).step_by(12_345) {
             let p = plan(Some(capacity), &tracks, 1, true);
-            // Audio is intentionally not paused; every managed video grant fits.
-            assert!(p.allocated_bps <= (capacity - capacity / 10).max(AUDIO_ALLOWANCE_BPS));
-            if capacity > AUDIO_ALLOWANCE_BPS * 10 / 9 {
-                assert_eq!(p.overshoot_bps, 0);
-            }
+            // Audio is intentionally not paused; it is added on top of a video
+            // grant total that never exceeds the capacity the oracle names.
+            let video = p.allocated_bps.saturating_sub(AUDIO_ALLOWANCE_BPS);
+            assert!(video <= capacity);
+            assert!(p.allocated_bps <= capacity + AUDIO_ALLOWANCE_BPS);
+            assert_eq!(p.overshoot_bps, 0);
         }
     }
+
     #[test]
     fn pause_then_restore_recomputes_targets_without_overshoot() {
         let tracks = vec![track(1, 2, B), track(PRIORITY_SCREENSHARE, 2, B)];
         assert_eq!(plan(Some(100_000), &tracks, 1, true).caps, [-1, -1]);
-        assert_eq!(plan(Some(300_000), &tracks, 1, true).caps, [-1, 0]);
-        assert_eq!(plan(Some(1_000_000), &tracks, 1, true).caps, [0, 1]);
+        assert_eq!(plan(Some(300_000), &tracks, 1, true).caps, [0, 0]);
+        assert_eq!(plan(Some(1_000_000), &tracks, 1, true).caps, [1, 1]);
         assert_eq!(plan(Some(5_000_000), &tracks, 1, true).caps, [2, 2]);
     }
+
     #[test]
     fn exempt_and_unpausable_costs_report_explicit_overshoot() {
         let mut share = track(PRIORITY_SCREENSHARE, 0, [1_000_000, 0, 0]);
@@ -560,7 +586,7 @@ mod tests {
         let p = plan(Some(500_000), &[share, track(1, 2, B)], 1, false);
         assert_eq!(p.caps, [0, 0]);
         assert_eq!(p.allocated_bps, 1_214_000);
-        assert_eq!(p.overshoot_bps, 764_000);
+        assert_eq!(p.overshoot_bps, 650_000);
     }
     fn observation(at: Instant, rates: [u64; 3]) -> LayerBitrateObservation {
         LayerBitrateObservation {

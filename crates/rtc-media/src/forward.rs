@@ -831,6 +831,12 @@ impl MediaEngine {
                 // source; an unmatched PT or an awaited backup codec never reached
                 // this down track in Go (a separate receiver/stream).
                 d.observe_source_seq(data.rid, data.pt, seq.0, seq.1, true, resumed);
+                // wrappedreceiver.go forwards a RED publication's packets as received, so
+                // the subscriber gets the publisher's own redundancy. Re-synthesizing it
+                // here would charge the down budget for blocks that were never published.
+                let red_wire = (!is_video && !d.encrypted && !d.red_disabled)
+                    .then(|| writer.negotiated_red_pt(pt).zip(data.red_wire()))
+                    .flatten();
                 let gap = std::mem::take(&mut d.pending_seq_gap);
                 let writer = if gap > 0 {
                     drop(writer);
@@ -906,6 +912,10 @@ impl MediaEngine {
                     payload.clone()
                 } else {
                     data.data.clone()
+                };
+                let (pt, payload) = match &red_wire {
+                    Some((red_pt, chain)) => (*red_pt, chain.clone()),
+                    None => (pt, payload),
                 };
                 if let Err(e) = w.write(pt, data.network_time, rtp_time, payload) {
                     tracing::debug!(transport = %out_tid, error = %e, "media write failed");
@@ -1899,8 +1909,64 @@ impl MediaEngine {
             .collect();
         // Snapshot acceptance must use this cycle's subscription demand and
         // explicit override, rather than last cycle's now-obsolete controls.
+        //
+        // Go constrains layer choice by `committedChannelCapacity` in exactly one
+        // place: `allocateAllTracks`, and `handleSignalAllocateAllTracks`
+        // (streamallocator.go:690-698) skips that pass unless the allocator is
+        // Deficient. Every other allocation is `allocateTrack`, whose first branch
+        // (:935-943) hands the track `AllocateOptimal` with no capacity argument at
+        // all as long as the state is Stable and the estimator is not in a
+        // deficient congestion state (`isDeficientCongestionState` is `Congested`
+        // only, :1470-1472). A committed capacity therefore gates *admission and
+        // probing*, and binds the layer choice only while a track is already below
+        // its desired layer or the channel is Congested. Constraining every pass
+        // instead pinned a stalled subscriber to its congested-era layer for the
+        // whole recovery window, because the climb out of a 120 kbps wall is
+        // probe-limited while the estimator's own congestion state clears in one
+        // REMB. An explicit operator override keeps its ceiling: upstream applies
+        // it through the constrained pass (:846-850).
+        // One channel-capacity authority for both surfaces. Go moves
+        // `committedChannelCapacity` from exactly two observations — a finalized
+        // non-congesting probe cluster, which may only raise it
+        // (`streamallocator.go:758-761`), and the congested transition, which
+        // replaces it (`:874-895`) — and the allocation pass reads that one field
+        // back (`:1257-1277`) from inside the handler that just wrote it, so the
+        // signal that publishes a measurement is also the pass that allocates
+        // against it. Rust measures the same two events on two paths, the ported
+        // estimator's own cluster commit (`probe_ping`, which reallocates in the
+        // same pass) and the vendor-facing controller's id-scoped proof, so this
+        // is where the controller's measurement merges into the single field
+        // under Go's upward-only rule, and it must precede the read below.
+        // Nothing else is published: the congested transition is already owned by
+        // the estimator's state change, a receiver estimate or an expired
+        // high-water mark has no writer in the pinned oracle, and an explicit
+        // override lives in `overriddenChannelCapacity` instead
+        // (`streamallocator.go:846-854`).
+        if t.remote_feedback.is_none()
+            && let Some(crate::probe_controller::CapacityCommit::ProbeFinalized(bps)) =
+                t.probes.take_capacity_commit()
+        {
+            t.committed_channel_capacity_bps = t
+                .committed_channel_capacity_bps
+                .max(i64::try_from(bps).unwrap_or(i64::MAX));
+        }
+        let congested = match &t.remote_feedback {
+            Some(remote) => remote.is_congested(),
+            None => {
+                t.has_bwe
+                    && t.send_side.as_ref().is_some_and(|send_side| {
+                        send_side.congestion_state()
+                            == crate::send_side_bwe::CongestionState::Congested
+                    })
+            }
+        };
+        let capacity = if t.bw_override_bps > 0 || t.allocator_deficient || congested {
+            t.capacity()
+        } else {
+            None
+        };
         let initial_plan = allocator::plan_with_unmanaged_policy(
-            t.capacity(),
+            capacity,
             &tracks,
             audio_count,
             t.spec.allow_pause,
@@ -1910,28 +1976,6 @@ impl MediaEngine {
             .saturating_add(audio_count.saturating_mul(allocator::AUDIO_ALLOWANCE_BPS));
         let desired_wire = payload_demand.saturating_add(payload_demand.div_ceil(9));
         if t.remote_feedback.is_none() {
-            // One channel-capacity authority for both surfaces. Go moves
-            // `committedChannelCapacity` from exactly two observations — a
-            // finalized non-congesting probe cluster, which may only raise it
-            // (`streamallocator.go:758-761`), and the congested transition,
-            // which replaces it (`:874-895`) — and the allocation pass reads
-            // that one field back (`:1257-1277`). Rust measures the same two
-            // events on two paths, the ported estimator's own cluster commit
-            // (`:1487`) and the vendor-facing controller's id-scoped proof, so
-            // this is where the controller's measurement merges into the single
-            // field under Go's upward-only rule. Nothing else is published: the
-            // congested transition is already owned by the estimator's state
-            // change (`:1670-1676`), a receiver estimate or an expired
-            // high-water mark has no writer in the pinned oracle, and an
-            // explicit override lives in `overriddenChannelCapacity` instead
-            // (`:846-854`).
-            if let Some(crate::probe_controller::CapacityCommit::ProbeFinalized(bps)) =
-                t.probes.take_capacity_commit()
-            {
-                t.committed_channel_capacity_bps = t
-                    .committed_channel_capacity_bps
-                    .max(i64::try_from(bps).unwrap_or(i64::MAX));
-            }
             // The vendor-facing controller mirrors that commit so its probe
             // gates read the same authority `Transport::capacity()` returns
             // (`streamallocator.go:1257-1277`).
@@ -1947,7 +1991,6 @@ impl MediaEngine {
                 t.probes.observe_native(snapshot, now);
             }
         }
-        let capacity = t.capacity();
         let mut plan = allocator::plan_with_unmanaged_policy(
             capacity,
             &tracks,

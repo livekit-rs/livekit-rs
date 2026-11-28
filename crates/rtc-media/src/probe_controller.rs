@@ -1568,11 +1568,14 @@ mod tests {
         assert_eq!(result.start_validation_bps, goal);
         c.validation_started(Some(7), requested);
         tracks[0].bitrates[0] = 149_497;
-        tracks[0].bitrates[1] = 499_541;
+        // The re-measured L1 must be unaffordable inside the capacity itself:
+        // the oracle gives the allocator `committedChannelCapacity` with no
+        // wire or audio reservation taken out first.
+        tracks[0].bitrates[1] = 649_541;
         let intermediate = crate::allocator::plan(Some(615_352), &tracks, 1, true);
         assert_eq!(intermediate.caps, [0]);
         let next = crate::allocator::next_probe_budget(&tracks, &intermediate);
-        assert_eq!(next, Some(626_157));
+        assert_eq!(next, Some(792_824));
         c.prepare_admission(total, next, None, true);
         let completed = requested + Duration::from_millis(1100);
         let mut sample = snapshot(completed, 2_155_916);

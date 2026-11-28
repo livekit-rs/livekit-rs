@@ -465,6 +465,10 @@ impl MediaEngine {
         rtc.set_all_video_packet_events(self.cfg.video.stream_trackers.uses_frame_tracking());
         rtc.set_rtp_stream_restart_detection(rtc_cfg.enable_rtp_stream_restart_detection);
         rtc.set_forwarding_timing_enabled(rtc_cfg.forward_stats.is_some());
+        // Go's wrapped receiver forwards a RED publication's packets verbatim, so the
+        // published RFC 2198 chain must survive the receive-side unwrap. Only a
+        // RED-wrapped audio payload is ever copied.
+        rtc.set_red_wire_payload_enabled(true);
         // Pion RTCP readers unmarshal the entire authenticated compound before
         // delivering any REMB/NACK/TWCC, in every feedback mode and direction.
         rtc.direct_api()
@@ -905,7 +909,7 @@ impl MediaEngine {
             congestion_events: self
                 .transports
                 .values()
-                .map(|t| t.probes.counters.congestion_events)
+                .map(|t| t.congestion_counter())
                 .sum(),
         }
     }

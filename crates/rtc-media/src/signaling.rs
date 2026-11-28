@@ -1068,6 +1068,12 @@ impl MediaEngine {
 
     /// Keep negotiated RED available for a RED source. Active encoding of
     /// plain Opus also requires the publication to permit RED.
+    ///
+    /// deviation: Go takes the source codec from the wire receiver, so `DisableRed` never strips a
+    /// published RED chain. Here `up.mime` only learns `audio/red` from what the publication
+    /// declares, so a publisher that sends PT 63 without declaring it is downgraded to the primary
+    /// when `active_red_encoding` is off. See SPEC-0077 C108 and
+    /// `regression::red_publication_with_red_disabled_forwards_only_the_primary_opus`.
     pub(crate) fn configure_red(&mut self, di: usize, now: Instant) {
         let active_red = self.cfg.audio.active_red_encoding;
         let Some(d) = self.downs.get(di) else { return };

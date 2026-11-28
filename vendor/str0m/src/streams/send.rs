@@ -458,6 +458,13 @@ impl StreamTx {
         self.rtx
     }
 
+    /// Whether the remote has reported reception for this stream. LiveKit's
+    /// `WritePaddingRTP` treats an earlier report as the only proof that the
+    /// peer knows this SSRC, so probe padding is refused without it.
+    pub(crate) fn has_receiver_report(&self) -> bool {
+        self.stats.has_receiver_report()
+    }
+
     /// Mid for this stream.
     ///
     /// In SDP this corresponds to m-line and "Media".

@@ -189,6 +189,53 @@ fn optimistic_initial_is_not_a_received_estimate_and_thresholds_remain_strict() 
     );
 }
 #[test]
+fn measured_go_loss_window_vector_commits_the_logged_capacity() {
+    let start = Instant::now();
+    let mut c = RemoteController::new(RemoteBweConfig::default(), start);
+    assert!(c.on_remb(2_847_232, 1_601_638, 786, 124, start).is_none());
+    let change = c
+        .on_remb(
+            2_847_232,
+            1_601_638,
+            0,
+            0,
+            start + Duration::from_secs(2) + Duration::from_nanos(1),
+        )
+        .expect("124/786 must cross the 0.08 gate once the window is old enough");
+    assert_eq!(change.to, CongestionState::Congested);
+    assert_eq!(change.capacity, 1_500_567);
+    assert_eq!(c.capacity(), 1_500_567);
+}
+
+#[test]
+fn measured_starved_nack_cadence_leaves_optimistic_capacity() {
+    let start = Instant::now();
+    let mut c = RemoteController::new(RemoteBweConfig::default(), start);
+    assert!(c.on_remb(633_844, 1_603_724, 255, 0, start).is_none());
+    assert!(
+        c.on_remb(
+            633_844,
+            1_603_724,
+            255,
+            12,
+            start + Duration::from_millis(500)
+        )
+        .is_none()
+    );
+    assert!(
+        c.on_remb(
+            633_844,
+            1_603_724,
+            267,
+            0,
+            start + Duration::from_millis(2_500) + Duration::from_nanos(1)
+        )
+        .is_none()
+    );
+    assert_eq!(c.state(), CongestionState::None);
+    assert_eq!(c.capacity(), 100_000_000);
+}
+#[test]
 fn repeated_nacks_start_window_and_exact_minimum_is_not_triggered() {
     let now = Instant::now();
     let mut c = RemoteController::new(RemoteBweConfig::default(), now);

@@ -1,0 +1,273 @@
+--- a/src/change/sdp.rs
++++ b/src/change/sdp.rs
+@@ -1360,11 +1360,21 @@
+     }
+ 
+     // Narrowing/ordering of of PT
++    let mut red_pts: Vec<Pt> = vec![];
+     let pts: Vec<Pt> = m
+         .rtp_params()
+         .into_iter()
+-        .filter_map(|p| config.sdp_match_remote(p, m.direction()))
++        .filter_map(|p| {
++            let matched = config.sdp_match_remote(p, m.direction())?;
++            // A `red` mapping parses onto the codec it protects, so the RED type a peer lists is
++            // only visible here; remote_pts itself cannot carry it.
++            if let Some(red) = p.red() {
++                red_pts.push(red);
++            }
++            Some(matched)
++        })
+         .collect();
++    media.set_remote_red_pts(red_pts);
+     media.set_remote_pts(pts);
+ 
+     let mut remote_extmap = ExtensionMap::empty();
+--- a/src/format/codec_config.rs
++++ b/src/format/codec_config.rs
+@@ -686,7 +686,11 @@
+     }
+ 
+     pub(crate) fn has_pt(&self, pt: Pt) -> bool {
+-        self.params.iter().any(|p| p.pt() == pt)
++        // The RED payload type a codec protects is writable too: a forwarder passing the
++        // publisher's own RFC 2198 chain through writes at it, unwrapped.
++        self.params
++            .iter()
++            .any(|p| p.pt() == pt || p.red() == Some(pt))
+     }
+ }
+ 
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1481,6 +1481,13 @@
+         self.session.forwarding_timing_enabled = enabled;
+     }
+ 
++    /// Keep the incoming RFC 2198 block byte-for-byte on RED-unwrapped audio frames so a
++    /// forwarder can pass the publisher's own redundancy through instead of re-synthesizing
++    /// it. Disabled by default; only a RED-wrapped payload is copied.
++    pub fn set_red_wire_payload_enabled(&mut self, enabled: bool) {
++        self.session.red_wire_payload_enabled = enabled;
++    }
++
+     /// Emit original authenticated video packets alongside normal frame events.
+     /// Disabled by default. Drain output after each input to retain every packet.
+     pub fn set_video_packet_events(&mut self, enabled: bool) {
+--- a/src/media/event.rs
++++ b/src/media/event.rs
+@@ -240,6 +240,11 @@
+ pub(crate) struct ForwardingPacketMeta(pub Option<ForwardingPacket>);
+ #[derive(Clone, Debug)]
+ pub(crate) struct ForwardingPacketCohort(pub Vec<ForwardingPacket>);
++
++/// Authenticated RFC 2198 block exactly as it arrived on the wire, before `un_red`
++/// narrowed the payload to the primary. Retained out of band for RED pass-through.
++#[derive(Clone, Debug)]
++pub(crate) struct RedWirePayload(pub Arc<[u8]>);
+ 
+ /// Video or audio data from the remote peer.
+ ///
+@@ -335,6 +340,17 @@
+             .user_values
+             .get::<ForwardingPacketCohort>()
+             .map_or(&[], |cohort| cohort.0.as_slice())
++    }
++
++    /// The RFC 2198 block this frame arrived in, byte for byte, or `None` when the frame
++    /// was not RED-wrapped on the wire (or retention is off). A forwarder writes this at
++    /// the negotiated RED payload type to avoid re-synthesizing redundancy the publisher
++    /// did not send.
++    pub fn red_wire(&self) -> Option<Arc<[u8]>> {
++        self.ext_vals
++            .user_values
++            .get::<RedWirePayload>()
++            .map(|value| value.0.clone())
+     }
+ 
+     /// Return true if MediaData is keyframe independently of Codec
+--- a/src/media/mod.rs
++++ b/src/media/mod.rs
+@@ -107,6 +107,13 @@
+     /// If this is empty, the m-line is disabled/rejected (port=0 in SDP).
+     remote_pts: Vec<Pt>,
+ 
++    /// The RFC 2198 RED payload types the remote peer advertised on this m-line.
++    ///
++    /// [`Media::remote_pts`] can only hold the primary codec payload types (a `red` mapping folds
++    /// onto the codec it protects while parsing), so the RED types a peer is willing to receive are
++    /// recorded beside them.
++    remote_red_pts: Vec<Pt>,
++
+     /// Set when this m-line has been stopped via
+     /// [`SdpApi::stop_media`](crate::change::SdpApi::stop_media) or
+     /// rejected by the remote peer. Independent of `remote_pts` so that
+@@ -405,6 +412,17 @@
+                     ext_vals
+                         .user_values
+                         .set(FrameLogicalRtpBytes(dep.logical_rtp_bytes));
++                }
++                // A RED frame assembled from exactly one wire packet carries that packet's
++                // RFC 2198 block; a multi-packet assembly has no single chain to name.
++                if dep.meta.len() == 1
++                    && let Some(wire) = dep.meta[0]
++                        .header
++                        .ext_vals
++                        .user_values
++                        .get::<RedWirePayload>()
++                {
++                    ext_vals.user_values.set(RedWirePayload(wire.0.clone()));
+                 }
+                 return Ok(Some(MediaData {
+                     mid: self.mid,
+@@ -558,7 +576,12 @@
+     ) -> &mut PayloaderEntry {
+         self.payloaders.entry((pt, rid)).or_insert_with(|| {
+             // Unwrap is OK, the pt should be checked already when calling this function.
+-            let params = params.iter().find(|p| p.pt == pt).unwrap();
++            // The RED payload type a codec protects resolves to that codec: a pre-formed
++            // RFC 2198 chain written at it uses the codec's payloader and is not re-wrapped.
++            let params = params
++                .iter()
++                .find(|p| p.pt == pt || p.red == Some(pt))
++                .unwrap();
+             PayloaderEntry {
+                 payloader: Payloader::new(params.spec, vp9_mode),
+                 red: None,
+@@ -698,8 +721,27 @@
+ 
+     pub(crate) fn set_remote_extmap(&mut self, exts: ExtensionMap) {
+         self.remote_exts = exts;
++    }
++
++    /// Record the RED payload types of the same remote m-line that [`Media::set_remote_pts`]
++    /// consumes. Call it before `set_remote_pts`, because both follow the "first negotiation wins"
++    /// rule keyed on `remote_pts` being unset.
++    pub(crate) fn set_remote_red_pts(&mut self, red_pts: Vec<Pt>) {
++        if !self.remote_pts.is_empty() {
++            return;
++        }
++        debug!("Mid ({}) remote RED PT order is: {:?}", self.mid, red_pts);
++        self.remote_red_pts = red_pts;
+     }
+ 
++    /// The RED payload types the remote peer advertised on this m-line, i.e. the types it is
++    /// prepared to receive or send as RFC 2198 chains. Internal: the application names a chain
++    /// through [`crate::MediaWriter::negotiated_red_pt`], which also refuses a primary payload
++    /// type this m-line never negotiated.
++    pub(crate) fn remote_red_pts(&self) -> &[Pt] {
++        &self.remote_red_pts
++    }
++
+     /// The remote PT (payload types) configured for this Media.
+     ///
+     /// These are negotiated with the remote peer and is the order the remote prefer them.
+@@ -762,6 +804,7 @@
+             msid: Msid::random(),
+             kind: MediaKind::Video,
+             remote_pts: vec![],
++            remote_red_pts: vec![],
+             stopped: false,
+             remote_exts: ExtensionMap::empty(),
+             remote_created: false,
+--- a/src/media/writer.rs
++++ b/src/media/writer.rs
+@@ -70,6 +70,23 @@
+             .codec_config
+             .match_params(params)
+             .map(|p| p.pt())
++    }
++
++    /// The RFC 2198 payload type protecting a codec payload type on this m-line, but only when
++    /// the peer negotiated it. Writing a pre-formed chain at this PT sends it out unchanged.
++    pub fn negotiated_red_pt(&self, pt: Pt) -> Option<Pt> {
++        // This unwrap is OK due to the invariant of self.mid being resolvable
++        let media = self.session.media_by_mid(self.mid).unwrap();
++        let red = self
++            .session
++            .codec_config
++            .params()
++            .iter()
++            .find(|p| p.pt() == pt)
++            .and_then(|p| p.red())?;
++        // The codec PT must be negotiated for this m-line to carry it at all, and the peer must
++        // have listed the RED type on the same m-line.
++        (media.remote_pts().contains(&pt) && media.remote_red_pts().contains(&red)).then_some(red)
+     }
+ 
+     /// Add on an Rtp Stream Id. This is typically used to separate simulcast layers.
+@@ -152,6 +169,9 @@
+     /// This operation fails if the PT doesn't match a negotiated codec, or the RID (`None` or a value)
+     /// does not match anything negotiated.
+     ///
++    /// Writing at a codec's RFC 2198 RED PT (see [`Writer::negotiated_red_pt`]) is the pass-through
++    /// case: `data` must already be a complete RFC 2198 block and is sent unchanged, not re-wrapped.
++    ///
+     /// Regarding `wallclock` and `rtp_time`, the wallclock is the real world time that corresponds to
+     /// the `MediaTime`. For an SFU, this can be hard to know, since RTP packets typically only
+     /// contain the media time (RTP time). In the simplest SFU setup, the wallclock could simply
+@@ -177,7 +197,7 @@
+             .codec_config
+             .params()
+             .iter()
+-            .find(|p| p.pt() == pt)
++            .find(|p| p.pt() == pt || p.red() == Some(pt))
+             .expect("configured payload type exists");
+         let is_audio = params.spec().codec.is_audio();
+         if self.tele_event.is_some() && !is_audio {
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -137,6 +137,7 @@
+     pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
+     pub(crate) rtp_stream_restart_detection: bool,
+     pub(crate) forwarding_timing_enabled: bool,
++    pub(crate) red_wire_payload_enabled: bool,
+     srtp_rx: Option<SrtpContext>,
+     srtp_tx: Option<SrtpContext>,
+     last_nack: Instant,
+@@ -265,6 +266,7 @@
+             receiver_report_rtt: VecDeque::new(),
+             rtp_stream_restart_detection: false,
+             forwarding_timing_enabled: false,
++            red_wire_payload_enabled: false,
+             srtp_rx: None,
+             srtp_tx: None,
+             last_nack: already_happened(),
+@@ -1017,6 +1019,14 @@
+         // Capture the full wire payload length before RED unwrapping narrows `data` to the primary
+         // block. The sender counts the whole RED-wrapped payload, so receive stats must too.
+         let wire_payload_len = data.len();
++
++        // The pass-through forwarder needs the RFC 2198 block as authenticated, which unwrapping
++        // discards. Retaining it is opt-in and copies only a RED audio payload.
++        let red_wire = if is_red && !self.rtp_mode && self.red_wire_payload_enabled {
++            Some(Arc::<[u8]>::from(data))
++        } else {
++            None
++        };
+ 
+         // RTX packets must be rewritten to be a normal packet. This only changes the
+         // the seq_no, however MediaTime might be different when interpreted against the
+@@ -1048,6 +1058,8 @@
+         } else if is_red && !self.rtp_mode {
+             // Frame mode: RED rides the main SSRC/seq. Decode to the primary (Opus) payload
+             // and rewrite the header PT; drop the packet if the RED structure is malformed.
++            // The pass-through forwarder needs the block as authenticated, so copy it before
++            // unwrapping narrows `data` to the primary.
+             let Some(un) = un_red(&mut header, data, pt) else {
+                 return;
+             };
+@@ -1117,6 +1129,13 @@
+         let payload: Arc<[u8]> = Arc::from(data);
+ 
+         let mut packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
++        if let Some(wire) = red_wire {
++            packet
++                .header
++                .ext_vals
++                .user_values
++                .set(crate::media::RedWirePayload(wire));
++        }
+         if self.forwarding_timing_enabled {
+             packet
+                 .header

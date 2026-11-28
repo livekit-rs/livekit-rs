@@ -14,6 +14,17 @@ fn peer(now: Instant) -> Rtc {
         .enable_raw_packets(true)
         .build(now)
 }
+// Fixed Go refuses probe padding on a stream the receiver has never reported, so
+// a burst fixture has to let a real receiver report arrive before it asks.
+fn reporting_peer(now: Instant) -> Rtc {
+    Rtc::builder()
+        .set_crypto_provider(rtc_crypto::provider().into())
+        .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+        .enable_raw_packets(true)
+        .set_rtcp_report_interval_audio(Duration::from_millis(20))
+        .set_rtcp_report_interval_video(Duration::from_millis(20))
+        .build(now)
+}
 #[derive(Debug)]
 struct WireHeader {
     padding: bool,
@@ -225,6 +236,9 @@ mod feedback;
 #[path = "../src/layers.rs"]
 mod layers;
 #[allow(dead_code)]
+#[path = "../src/probe_controller.rs"]
+mod probe_controller;
+#[allow(dead_code)]
 #[path = "../src/send_side_bwe/mod.rs"]
 mod send_side_bwe;
 mod pion_gcc {
@@ -351,12 +365,12 @@ fn real_srtcp_remb_drives_remote_policy_while_media_is_abs_without_outgoing_twcc
 #[test]
 fn remote_burst_uses_real_budget_without_timer_per_packet_and_preserves_duplex_media() {
     let start = Instant::now();
-    let (mut a, mut b, mid) = pair(start);
+    let (mut a, mut b, mid) = pair_with(start, reporting_peer(start), reporting_peer(start));
     a.direct_api().set_send_transport_cc(false);
     a.direct_api().set_remote_feedback_meter(true);
     a.direct_api().enable_twcc_feedback();
     let (mut seen, mut reverse) = (Observed::default(), Observed::default());
-    for ms in 1000..1100 {
+    for ms in 1000..1200 {
         let now = start + Duration::from_millis(ms);
         if ms % 20 == 0 {
             write_frame(&mut a, mid, now, ms);
@@ -364,11 +378,11 @@ fn remote_burst_uses_real_budget_without_timer_per_packet_and_preserves_duplex_m
         }
         tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
     }
-    let now = start + Duration::from_millis(1100);
+    let now = start + Duration::from_millis(1200);
     let before = seen.padding.len();
     let id = a
         .direct_api()
-        .request_padding_burst(4096, Duration::from_millis(100), now)
+        .request_padding_burst(4096, Duration::from_millis(100), now, None)
         .unwrap();
     tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
     let emitted = &seen.padding[before..];
@@ -386,13 +400,13 @@ fn remote_burst_uses_real_budget_without_timer_per_packet_and_preserves_duplex_m
     let new_now = now + Duration::from_millis(1);
     let new = a
         .direct_api()
-        .request_padding_burst(1024, Duration::from_millis(100), new_now)
+        .request_padding_burst(1024, Duration::from_millis(100), new_now, None)
         .unwrap();
     assert!(new > id);
     assert!(!a.direct_api().cancel_padding(id));
     assert!(a.direct_api().cancel_padding(new));
     let before = seen.padding.len();
-    for ms in 1101..1500 {
+    for ms in 1201..1600 {
         let now = start + Duration::from_millis(ms);
         if ms % 20 == 0 {
             write_frame(&mut a, mid, now, ms);
@@ -419,6 +433,382 @@ fn remote_burst_uses_real_budget_without_timer_per_packet_and_preserves_duplex_m
             .all(|header| header.ext_vals.transport_cc.is_none())
     );
     assert!(a.bwe().snapshot().is_none());
+}
+
+// Fixed Go refuses probe padding on a downtrack whose receiver report never
+// arrived. One very long report interval lets the peer drain its single empty
+// report during connect, so later media still cannot produce one.
+fn quiet_reporter(now: Instant) -> Rtc {
+    Rtc::builder()
+        .set_crypto_provider(rtc_crypto::provider().into())
+        .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+        .enable_raw_packets(true)
+        .set_rtcp_report_interval_audio(Duration::from_secs(3600))
+        .set_rtcp_report_interval_video(Duration::from_secs(3600))
+        .build(now)
+}
+fn tx_ssrcs(a: &mut Rtc, mid: str0m::media::Mid) -> Vec<u32> {
+    let mut api = a.direct_api();
+    let tx = api
+        .stream_tx_by_mid(mid, None)
+        .expect("negotiated outgoing stream");
+    let mut out = vec![*tx.ssrc()];
+    let rtx = tx.rtx().map(|s| *s);
+    out.extend(rtx);
+    out
+}
+fn padding_after(seen: &Observed, from: usize) -> Vec<u32> {
+    seen.wire_headers[from..]
+        .iter()
+        .filter(|h| h.padding)
+        .map(|h| h.ssrc)
+        .collect()
+}
+fn burst_bytes(seen: &Observed, from: usize) -> usize {
+    seen.padding[from..].iter().map(|(_, n)| *n).sum()
+}
+
+#[test]
+fn paced_padding_tolerates_a_stream_with_no_receiver_report_while_a_burst_refuses_it() {
+    let start = Instant::now();
+    let (mut a, mut b, mid) = pair_with(start, reporting_peer(start), quiet_reporter(start));
+    a.direct_api().set_send_transport_cc(false);
+    a.direct_api().set_remote_feedback_meter(true);
+    let (mut seen, mut reverse) = (Observed::default(), Observed::default());
+    for ms in 1000..1200 {
+        let now = start + Duration::from_millis(ms);
+        if ms % 20 == 0 {
+            write_frame(&mut a, mid, now, ms);
+        }
+        tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
+    }
+    assert!(
+        reverse.video_frames >= 5,
+        "media really reached the report-quiet peer"
+    );
+    let ssrcs = tx_ssrcs(&mut a, mid);
+    let at = start + Duration::from_millis(1200);
+    let before = seen.wire_headers.len();
+    a.direct_api()
+        .request_padding(1024, Bitrate::bps(1_000_000), Duration::from_millis(20), at)
+        .expect("the historically validated paced path keeps its own eligibility");
+    for ms in 1200..1300 {
+        let now = start + Duration::from_millis(ms);
+        if ms % 20 == 0 {
+            write_frame(&mut a, mid, now, ms);
+        }
+        tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
+    }
+    let paced = padding_after(&seen, before);
+    assert!(
+        !paced.is_empty(),
+        "paced padding runs on a stream nobody reported"
+    );
+    assert!(paced.iter().all(|s| ssrcs.contains(s)));
+    assert_eq!(
+        a.direct_api().padding_status().unwrap().mode,
+        str0m::PaddingMode::Paced
+    );
+    assert_eq!(
+        a.direct_api().padding_status().unwrap().mid,
+        Some(mid),
+        "the observation reports the m-line padding actually rode"
+    );
+    assert_eq!(
+        a.direct_api().padding_status().unwrap().bound,
+        None,
+        "the historically validated paced API stays unbound"
+    );
+    let err = a.direct_api().request_padding_burst(
+        4096,
+        Duration::from_millis(100),
+        start + Duration::from_millis(1300),
+        None,
+    );
+    assert!(
+        matches!(err, Err(str0m::PaddingRequestError::NoSource)),
+        "a burst must not probe a stream the peer never reported: {err:?}"
+    );
+}
+
+// An answer with several active video m-lines is the shape that hid the bug: the
+// unbound selection walked the stream map in hash order, so the probe cluster
+// landed on whichever downtrack happened to come first, not the one feeding the
+// estimate. Binding each owner to its own m-line must therefore isolate them.
+fn multi_peer(
+    start: Instant,
+) -> (
+    Rtc,
+    Rtc,
+    str0m::media::Mid,
+    str0m::media::Mid,
+    str0m::media::Mid,
+) {
+    let aa: SocketAddr = "127.0.0.1:9901".parse().unwrap();
+    let ba: SocketAddr = "127.0.0.1:9902".parse().unwrap();
+    let mut a = reporting_peer(start);
+    let mut b = reporting_peer(start);
+    a.add_local_candidate(Candidate::host(aa, "udp").unwrap());
+    b.add_local_candidate(Candidate::host(ba, "udp").unwrap());
+    let mut change = a.sdp_api();
+    let audio = change.add_media(MediaKind::Audio, Direction::SendRecv, None, None, None);
+    let first = change.add_media(MediaKind::Video, Direction::SendRecv, None, None, None);
+    let second = change.add_media(MediaKind::Video, Direction::SendRecv, None, None, None);
+    let (offer, pending) = change.apply().unwrap();
+    let answer = b.sdp_api().accept_offer(offer).unwrap();
+    a.sdp_api().accept_answer(pending, answer).unwrap();
+    for i in 0..1000 {
+        let now = start + Duration::from_millis(i);
+        a.handle_input(Input::Timeout(now)).unwrap();
+        b.handle_input(Input::Timeout(now)).unwrap();
+        pump(&mut a, &mut b, now, false, &mut Observed::default());
+        pump(&mut b, &mut a, now, false, &mut Observed::default());
+    }
+    assert!(a.is_connected() && b.is_connected());
+    (a, b, audio, first, second)
+}
+
+#[test]
+fn probe_burst_binding_isolates_each_owner_m_line() {
+    let start = Instant::now();
+    let (mut a, mut b, audio, first, second) = multi_peer(start);
+    a.direct_api().set_send_transport_cc(false);
+    a.direct_api().set_remote_feedback_meter(true);
+    let (mut seen, mut reverse) = (Observed::default(), Observed::default());
+    for ms in 1000..1400 {
+        let now = start + Duration::from_millis(ms);
+        if ms % 20 == 0 {
+            write_frame(&mut a, first, now, ms);
+            write_frame(&mut a, second, now, ms);
+        }
+        tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
+    }
+    let audio_ssrcs = tx_ssrcs(&mut a, audio);
+    let first_ssrcs = tx_ssrcs(&mut a, first);
+    let second_ssrcs = tx_ssrcs(&mut a, second);
+    assert_eq!(first_ssrcs.len(), 2, "video negotiates an RTX pair");
+    assert_eq!(second_ssrcs.len(), 2, "video negotiates an RTX pair");
+    assert!(
+        first_ssrcs.iter().all(|s| !second_ssrcs.contains(s)),
+        "the two owners are distinguishable on the wire"
+    );
+    let ssrcs_of = |probe: str0m::media::Mid| -> Vec<u32> {
+        if probe == audio {
+            audio_ssrcs.clone()
+        } else if probe == first {
+            first_ssrcs.clone()
+        } else {
+            second_ssrcs.clone()
+        }
+    };
+    let mut burst =
+        |ms: u64, bind: Option<str0m::media::Mid>| -> (Vec<u32>, Option<str0m::media::Mid>) {
+            let now = start + Duration::from_millis(ms);
+            let before = seen.wire_headers.len();
+            let bytes = seen.padding.len();
+            a.direct_api()
+                .request_padding_burst(4096, Duration::from_millis(100), now, bind)
+                .expect("both video owners are reported and eligible");
+            for step in 1..60 {
+                let at = start + Duration::from_millis(ms + step);
+                if (ms + step).is_multiple_of(20) {
+                    write_frame(&mut a, first, at, ms + step);
+                    write_frame(&mut a, second, at, ms + step);
+                }
+                tick(&mut a, &mut b, at, false, &mut seen, &mut reverse);
+            }
+            let emitted = padding_after(&seen, before);
+            assert!(!emitted.is_empty(), "burst on {bind:?} emitted nothing");
+            assert!(
+                burst_bytes(&seen, bytes) <= 4096,
+                "burst stays inside its authorized budget"
+            );
+            let status = a.direct_api().padding_status().unwrap();
+            assert_eq!(status.mode, str0m::PaddingMode::Burst);
+            assert_eq!(status.bound, bind, "the request records its binding");
+            let reported = status.mid.expect("padding output reports its m-line");
+            let ridden = ssrcs_of(reported);
+            assert!(
+                emitted.iter().all(|s| ridden.contains(s)),
+                "observed m-line {reported:?} disagrees with the wire ssrcs {emitted:?}"
+            );
+            (emitted, Some(reported))
+        };
+    let (on_first, mid_first) = burst(1400, Some(first));
+    let (on_second, mid_second) = burst(1500, Some(second));
+    assert_eq!(mid_first, Some(first), "burst bound to the owner's m-line");
+    assert_eq!(
+        mid_second,
+        Some(second),
+        "burst bound to the owner's m-line"
+    );
+    assert!(
+        on_first.iter().all(|s| first_ssrcs.contains(s)),
+        "bound burst rode another owner's m-line: {on_first:?}"
+    );
+    assert!(
+        on_second.iter().all(|s| second_ssrcs.contains(s)),
+        "bound burst rode another owner's m-line: {on_second:?}"
+    );
+    // Binding never widens eligibility: an audio m-line falls back to an
+    // eligible video stream instead of fabricating a source.
+    let (on_audio, mid_audio) = burst(1600, Some(audio));
+    assert_ne!(mid_audio, Some(audio), "padding output never rides audio");
+    assert!(
+        on_audio.iter().all(|s| !audio_ssrcs.contains(s)),
+        "padding never rides the audio m-line: {on_audio:?}"
+    );
+    assert!(
+        reverse.video_frames >= 20,
+        "both video streams keep flowing"
+    );
+}
+
+// The estimate owner, not the caller, decides which m-line a probe belongs to:
+// Go's allocator probes the video tracks that feed the estimate. Real encrypted
+// REMB alternating between two downtracks has to move the binding with it.
+#[test]
+fn accepted_remb_owner_moves_the_probe_binding_between_m_lines() {
+    use rtc_core::config::CongestionControl;
+    let start = Instant::now();
+    let (mut a, mut b, _audio, first, second) = multi_peer(start);
+    a.direct_api().set_send_transport_cc(false);
+    a.direct_api().set_remote_feedback_meter(true);
+    let mut owner = feedback::Feedback::new(&CongestionControl::default(), start);
+    owner.update_tracks(vec![first, second], 1_000_000);
+    let (mut seen, mut reverse) = (Observed::default(), Observed::default());
+    for ms in 1000..1300 {
+        let now = start + Duration::from_millis(ms);
+        if ms % 20 == 0 {
+            write_frame(&mut a, first, now, ms);
+            write_frame(&mut a, second, now, ms);
+        }
+        tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
+    }
+    let sets = [tx_ssrcs(&mut a, first), tx_ssrcs(&mut a, second)];
+    let mut started = false;
+    let mut accepted = 0;
+    let mut ridden = [Vec::new(), Vec::new()];
+    let mut clock = 1300u64;
+    for (index, src) in [first, second].into_iter().enumerate() {
+        // First let a run of real encrypted reports from this m-line reach the owner.
+        let mut phase_reports = 0;
+        while clock < 8000 {
+            let now = start + Duration::from_millis(clock);
+            if clock.is_multiple_of(20) {
+                write_frame(&mut a, first, now, clock);
+                write_frame(&mut a, second, now, clock);
+            }
+            if clock.is_multiple_of(100) {
+                b.direct_api()
+                    .stream_rx_by_mid(src, None)
+                    .expect("actual received RTP source")
+                    .request_remb(Bitrate::bps(800_000));
+            }
+            // The owner bound for this wake is exactly what production hands over.
+            let bound = owner.remb_mid();
+            if !started {
+                started = owner.maybe_start(Some(1_200_000), true, false, &mut a, now);
+            }
+            owner.service(&mut a, true, now);
+            let before = seen.wire_headers.len();
+            tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
+            let emitted = padding_after(&seen, before);
+            if let Some(mid) = bound {
+                if !emitted.is_empty() {
+                    // Production hands the regulator exactly this binding, so once
+                    // the owner exists every probe cluster must be reported on it.
+                    let status = a.direct_api().padding_status().unwrap();
+                    assert_eq!(
+                        status.mode,
+                        str0m::PaddingMode::Burst,
+                        "the regulator only ever issues bound bursts"
+                    );
+                    assert_eq!(
+                        status.mid,
+                        Some(mid),
+                        "probe padding rode away from the estimate owner"
+                    );
+                    assert_eq!(
+                        status.bound,
+                        Some(mid),
+                        "the regulator must hand the owner's binding to the request"
+                    );
+                }
+                let expected = if mid == second { &sets[1] } else { &sets[0] };
+                assert!(
+                    emitted.iter().all(|s| expected.contains(s)),
+                    "probe padding for owner {mid:?} rode {emitted:?}"
+                );
+                if mid == src {
+                    ridden[index].extend(emitted);
+                }
+            }
+            for (ssrcs, estimate) in seen.remb.drain(..) {
+                let stats = a.direct_api().remote_feedback_stats();
+                if owner.accept_remb(&ssrcs, &stats) {
+                    accepted += 1;
+                    phase_reports += 1;
+                    owner.estimate(estimate, &stats, &mut a, now);
+                }
+            }
+            if owner.remb_mid() == Some(src) && phase_reports >= 6 {
+                break;
+            }
+            clock += 1;
+        }
+        assert_eq!(
+            owner.remb_mid(),
+            Some(src),
+            "the owner must follow the m-line that reports"
+        );
+        // Now probe through the owner binding, as the regulator's seam does.
+        for step in 0..60 {
+            let ms = clock + step;
+            let now = start + Duration::from_millis(ms);
+            if ms.is_multiple_of(20) {
+                write_frame(&mut a, first, now, ms);
+                write_frame(&mut a, second, now, ms);
+            }
+            if step == 0 {
+                let before = seen.wire_headers.len();
+                a.direct_api()
+                    .request_padding_burst(4096, Duration::from_millis(100), now, owner.remb_mid())
+                    .expect("the reporting video owner is eligible");
+                tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
+                ridden[index].extend(padding_after(&seen, before));
+                continue;
+            }
+            tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);
+        }
+        assert_eq!(
+            a.direct_api().padding_status().map(|s| s.mid),
+            Some(Some(src)),
+            "the owner-authorized burst must report the owner's m-line"
+        );
+        clock += 60;
+    }
+    for (index, expected) in sets.iter().enumerate() {
+        assert!(
+            !ridden[index].is_empty(),
+            "owner {index} carried no probe padding"
+        );
+        assert!(
+            ridden[index].iter().all(|s| expected.contains(s)),
+            "owner {index} rode {:?}",
+            ridden[index]
+        );
+    }
+    assert!(
+        ridden[0].iter().all(|s| !sets[1].contains(s)),
+        "the two owners must be separated on the wire"
+    );
+    assert!(started, "the regulator eventually authorizes exploration");
+    assert!(accepted >= 12, "real alternating reports={accepted}");
+    assert!(
+        reverse.video_frames >= 100,
+        "both video streams keep flowing"
+    );
 }
 
 #[test]
@@ -551,7 +941,7 @@ fn interceptor_actual_twcc_drives_remote_owner_without_native_media_pacer() {
     );
     let now = start + Duration::from_millis(3500);
     a.direct_api()
-        .request_padding_burst(4096, Duration::from_millis(100), now)
+        .request_padding_burst(4096, Duration::from_millis(100), now, None)
         .unwrap();
     let before = seen.padding.len();
     tick(&mut a, &mut b, now, false, &mut seen, &mut reverse);

@@ -2532,6 +2532,17 @@ fn add_managed_track(
 /// the allocation outcome is decided by the committed field alone: the fixture's
 /// 500 kbps track does not fit the 71_111 bps commit and the 50 kbps track does,
 /// which is a difference in `committedChannelCapacity` and nothing else.
+///
+/// The zero commit is not itself a withheld allocation. A transport starts
+/// `streamAllocatorStateStable` (`streamallocator.go:266`, zero value of the
+/// iota at `:66`) and the estimator's congestion state starts
+/// `CongestionStateNone` (`pkg/sfu/bwe/bwe.go:60`), so the free pass at
+/// `:935-943` (`state == Stable && !isDeficientCongestionState(...)`, and
+/// `isDeficientCongestionState` is `state == Congested` at `:1470-1472`) sends
+/// every managed track to `AllocateOptimal` (`:939`). The constrained pass only
+/// runs from `allocateAllTracks` inside the congested arm (`:894`) or while
+/// Deficient (`:690-698`), so the arms before the commit must show optimal
+/// allocation and the arms after it must show the withholding.
 fn congested_commit_drives_the_paired_allocator_tracks(lossy_stats: bool) {
     use crate::downtrack::Forward;
     use str0m::bwe::BweEstimateCause;
@@ -2555,12 +2566,21 @@ fn congested_commit_drives_the_paired_allocator_tracks(lossy_stats: bool) {
     engine.allocate_transport(tid, start);
     // Go's `committedChannelCapacity` has no initializer (`:234`) and
     // `MinChannelCapacity` defaults to 0 (`:203`), so a transport that never
-    // committed is a zero-capacity transport.
+    // committed is a zero-capacity transport. That authority is cold but the
+    // allocation is not withheld: the free pass at `:935-943` runs
+    // `AllocateOptimal` for every managed track while the state is Stable and
+    // the estimator is not Congested, so both tracks hold their full rate here.
     let cold = engine.transports[&tid].capacity();
     assert_eq!(cold, Some(0), "a transport that committed nothing");
-    assert_eq!(engine.transports[&tid].allocated_bps, 0);
-    assert!(engine.downs.get(starved).unwrap().bw_paused);
-    assert!(engine.downs.get(served).unwrap().bw_paused);
+    assert_eq!(
+        engine.transports[&tid].allocated_bps, 550_000,
+        "a cold commit is not a constrained allocation"
+    );
+    assert!(
+        !engine.downs.get(starved).unwrap().bw_paused
+            && !engine.downs.get(served).unwrap().bw_paused,
+        "the free pass allocates both tracks optimally before any commit"
+    );
 
     // The early-warning escalation of the oracle stimulus reports a capacity, but
     // Go's handler for that state does not commit it (`:863-872` only releases an
@@ -2578,7 +2598,12 @@ fn congested_commit_drives_the_paired_allocator_tracks(lossy_stats: bool) {
         cold,
         "an early-warning escalation must not commit channel capacity"
     );
-    assert_eq!(engine.transports[&tid].allocated_bps, 0);
+    assert_eq!(
+        engine.transports[&tid].allocated_bps, 550_000,
+        "and the escalation must not withhold anything either: Go's early-warning arm \
+         only releases a hold (`streamallocator.go:868-872`), it never reallocates \
+         against a capacity it did not commit"
+    );
 
     // A vendor estimate carrying a congestion cause is not this allocator's
     // signal: in send-side mode Go's REMB path is a null controller, and nothing
@@ -2599,7 +2624,11 @@ fn congested_commit_drives_the_paired_allocator_tracks(lossy_stats: bool) {
         cold,
         "a vendor estimate is not a capacity commit, whether the receiver reported loss or not"
     );
-    assert_eq!(t.allocated_bps, 0);
+    assert_eq!(
+        t.allocated_bps, 550_000,
+        "and it cannot withhold either, so the only arm in this test that changes the \
+         allocation is the congested commit below"
+    );
 
     // The congested escalation is the commit, and Go reallocates inside the same
     // handler (`:894`) rather than waiting for a periodic ping.
@@ -2808,20 +2837,26 @@ fn peer_stats_native_pass_applies_resume_before_the_next_periodic_tick() {
     let start = Instant::now();
     let (mut engine, tid, di) = peer_stats_allocation_fixture(start);
     // Production ships `AllowPause: false` (`pkg/config/config.go:591-596`), so
-    // a cold 0 bps authority caps this track at its first measured layer rather
-    // than withholding it (`streamallocator.go:1188-1230`: the pause-all branch
-    // is gated on `allowPause`, otherwise the provisional pass grants the first
-    // measured layer even over budget). Raise the toggle the way
-    // `SetAllowPause` does (`:375`, `handleSignalSetAllowPause` at `:842`) to
-    // make the release observable: with pause off there would be nothing to
-    // resume. The cold authority itself is Go's uninitialized
-    // `committedChannelCapacity` (`streamallocator.go:234`, min capacity 0 at
-    // `:203`).
+    // raise the toggle the way `SetAllowPause` does (`streamallocator.go:375`,
+    // `handleSignalSetAllowPause` at `:842`) before anything can be withheld.
+    // The cold transport cannot supply that withheld state on its own: it is
+    // Stable with a clear estimator, so the free pass at `:935-943` allocates
+    // this track optimally even though Go's `committedChannelCapacity` is still
+    // the uninitialized 0 (`:234`, min capacity 0 at `:203`). The pause comes
+    // from the real congested commit (`:892`, which reallocates inside the same
+    // handler at `:894`), so the release below is a change of allocation state
+    // rather than the first allocation of the run.
     engine.transports.get_mut(&tid).unwrap().spec.allow_pause = true;
     engine.allocate_transport(tid, start);
     assert_eq!(engine.transports[&tid].capacity(), Some(0));
+    assert_eq!(engine.transports[&tid].allocated_bps, 500_000);
+    assert!(!engine.downs.get(di).unwrap().bw_paused);
+    commit_congested_capacity(&mut engine, tid, start);
+    assert_eq!(
+        engine.transports[&tid].allocated_bps, 0,
+        "the 71_111 bps commit does not fit this 500 kbps track"
+    );
     assert!(engine.downs.get(di).unwrap().bw_paused);
-    assert_eq!(engine.transports[&tid].allocated_bps, 0);
     let requested = peer_stats_start_request(&mut engine, tid, start);
     let now = requested + Duration::from_millis(1100);
     let mut snapshot = peer_stats_observation(now, 1_000_000);
@@ -6107,6 +6142,58 @@ fn disabled_allocator_does_not_gain_a_limit_when_remote_receiver_reports_arrive(
 }
 
 #[test]
+fn receiver_estimate_probe_report_reads_the_owner_that_requested_the_validation() {
+    use crate::probe_controller::ProbeCounters;
+    let now = Instant::now();
+    let mut e = engine(now);
+    e.cfg.rtc.congestion_control.use_send_side_bwe = false;
+    e.cfg.rtc.congestion_control.use_send_side_bwe_interceptor = false;
+    let tid = transport(&mut e, PcRole::Single, now);
+    let t = e.transports.get_mut(&tid).unwrap();
+    assert!(t.remote_feedback.is_some() && t.send_side.is_none());
+    // Plant distinct non-zero ledgers: whichever source the report reads is visible.
+    t.probes.counters = crate::probe_controller::ProbeCounters {
+        attempts: 3,
+        successes: 2,
+        failures: 1,
+        congestion_events: 4,
+        ..ProbeCounters::default()
+    };
+    assert_eq!(
+        (t.probe_counters(), t.congestion_counter()),
+        ((0, 0, 0), 0),
+        "the vendor prober is idle in receiver-estimate mode, so its ledger must \
+         not be what `/metrics` and the node stats publish"
+    );
+    let remote = t.remote_feedback.as_mut().unwrap();
+    remote.counters = crate::probe_controller::ProbeCounters {
+        attempts: 5,
+        successes: 3,
+        failures: 2,
+        congestion_events: 7,
+        paused_resets: 1,
+        ..ProbeCounters::default()
+    };
+    assert_eq!(
+        (t.probe_counters(), t.congestion_counter()),
+        ((5, 3, 2), 7),
+        "`Feedback` owns the receiver probe lifecycle here, so its ledger is the \
+         reporting authority"
+    );
+    let stats = e.stats();
+    assert_eq!(
+        (
+            stats.probe_attempts,
+            stats.probe_successes,
+            stats.probe_failures,
+            stats.congestion_events
+        ),
+        (5, 3, 2, 7),
+        "the aggregated node stats carry the same authority"
+    );
+}
+
+#[test]
 fn pion_feedback_owner_generation_is_retired_on_transport_failure() {
     let now = Instant::now();
     let mut engine = engine(now);
@@ -6468,8 +6555,9 @@ struct RedWire {
 
 const RED_WINDOW: usize = 8;
 
-/// Real ICE/DTLS/SRTP one-PC audio forwarding with `room.enabled_codecs = [audio/opus, audio/red]`
-/// and a subscriber that negotiates RED PT 63, driven only by `audio.active_red_encoding`.
+/// Real ICE/DTLS/SRTP one-PC audio forwarding with `room.enabled_codecs = [audio/opus, audio/red]`,
+/// a plain Opus up leg and a subscriber that negotiates RED PT 63, driven only by
+/// `audio.active_red_encoding`.
 ///
 /// Go computes `DisableRed = !IsRedEnabled(ti) || !ActiveREDEncoding`
 /// (`pkg/rtc/mediatrackreceiver.go:578`); that one flag both adds `audio/red` to the codec set
@@ -6514,6 +6602,14 @@ fn single_pc_active_red_encoding(active_red: bool) -> RedWire {
     let tx_mid = published_mid(&offer(&mut engine, &mut client, tid, start, |change| {
         change.add_media(MediaKind::Audio, Direction::SendOnly, None, None, None);
     }));
+    // The up leg must be a plain Opus publication: RED stays negotiated on the session, but the
+    // publisher's writer does not wrap, so the server owns the redundancy. That is Go's
+    // `GetRedReceiver` leg; a publisher that wraps itself takes the raw-receiver pass-through leg
+    // instead (`wrappedreceiver.go:DetermineReceiver`), which `single_pc_source_red` covers.
+    assert!(
+        client.direct_api().set_red_send(tx_mid, false),
+        "the publisher writer must stop wrapping into RED"
+    );
     let track = TrackSid::from("TR_red");
     engine.bind_track(tid, &tx_mid.to_string(), track.clone(), start);
     engine.subscribe(
@@ -6693,6 +6789,640 @@ fn inactive_red_encoding_forwards_plain_opus_and_never_wraps() {
             (pt, chain),
             (&111, &vec![(111, 0, *marker)]),
             "no redundancy may be added while active_red_encoding is off, frame {marker}"
+        );
+    }
+}
+
+/// What a RED-enabled publisher actually sends at PT 63: one redundant block (the previous frame,
+/// 10 ms = 480 ticks back) plus the primary. Unique per marker, so an egress payload is attributable
+/// to the exact published frame whose chain it must be.
+fn published_red_chain(marker: u8) -> Vec<u8> {
+    let chain = str0m::rtp::RedEncoder::encode(
+        111,
+        &opus_frame(marker),
+        &[str0m::rtp::RedundantBlock {
+            pt: 111,
+            timestamp_offset: 480,
+            payload: opus_frame(marker.wrapping_sub(1)),
+        }],
+    );
+    // Guard the fixture itself: a 2-block chain is what Go's publisher-side RED sends, and it must
+    // not silently become a plain payload (which would make the pass-through assertion vacuous).
+    assert_eq!(
+        str0m::rtp::RedDecoder::decode(&chain)
+            .expect("fixture is a valid RFC 2198 payload")
+            .len(),
+        2,
+        "the published chain must carry one redundant block plus the primary"
+    );
+    chain
+}
+
+struct SourceRedWire {
+    /// Payload type of every authenticated audio packet the subscriber received.
+    all_pts: Vec<u8>,
+    /// `(egress PT, full RFC 2198 payload bytes, primary marker)` per received egress packet.
+    frames: Vec<(u8, Vec<u8>, u8)>,
+}
+
+/// Real ICE/DTLS/SRTP one-PC audio forwarding where the publisher publishes genuine `audio/red`
+/// chains at PT 63 and the subscriber negotiates PT 63.
+///
+/// Go selects the receiver in `wrappedreceiver.go:DetermineReceiver`. A RED publication with a RED
+/// consumer keeps the received-packet path: `forwardPacket` hands the subscriber the packet that
+/// arrived, so the redundancy published on the up leg is exactly the redundancy charged to the down
+/// leg. Only a RED publication with a plain-Opus consumer takes `GetPrimaryReceiverForRed`
+/// (`receiver_base.go`), which strips to the primary. The three-block `maxRedCount = 2`
+/// re-synthesis belongs to the *Opus* publication case (`GetRedReceiver`), not this one.
+///
+/// `active_red` is `audio.active_red_encoding`, the Rust mirror of Go's `DisableRed`, and it also
+/// drives whether the down track keeps RED forwarding at all.
+fn single_pc_source_red(active_red: bool) -> SourceRedWire {
+    use crate::net::Datagram;
+    use rtc_core::media_api::DownTrackSpec;
+    use rtc_core::model::TrackSettings;
+    use str0m::media::{Frequency, MediaTime};
+    use str0m::net::{Protocol, Receive};
+    use str0m::{Candidate, Event, Input, Output};
+
+    let start = Instant::now();
+    let mut engine = engine(start);
+    engine.cfg.audio.active_red_encoding = active_red;
+    engine.cfg.enabled_codecs.push(CodecSpec {
+        mime: "audio/red".into(),
+        fmtp_line: String::new(),
+    });
+    let packets = PacketQueue::default();
+    engine.out = Box::new(packets.clone());
+    let tid = transport(&mut engine, PcRole::Single, start);
+    let server_addr: std::net::SocketAddr = "127.0.0.1:9021".parse().unwrap();
+    let client_addr: std::net::SocketAddr = "127.0.0.1:9022".parse().unwrap();
+    let t = engine.transports.get_mut(&tid).unwrap();
+    let candidate = t
+        .rtc
+        .add_local_candidate(Candidate::host(server_addr, "udp").unwrap())
+        .unwrap()
+        .clone();
+    t.candidates.push(candidate);
+    let mut client = Rtc::builder()
+        .set_crypto_provider(rtc_crypto::provider().into())
+        .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+        .enable_opus(true, true)
+        .enable_raw_packets(true)
+        .build(start);
+    client.add_local_candidate(Candidate::host(client_addr, "udp").unwrap());
+    let tx_mid = published_mid(&offer(&mut engine, &mut client, tid, start, |change| {
+        change.add_media(MediaKind::Audio, Direction::SendOnly, None, None, None);
+    }));
+    let track = TrackSid::from("TR_source_red");
+    engine.bind_track(tid, &tx_mid.to_string(), track.clone(), start);
+    engine.subscribe(
+        DownTrackSpec {
+            subscriber: ParticipantSid::from("PA_test"),
+            publisher: ParticipantSid::from("PA_test"),
+            track_sid: track.clone(),
+            stream_id: "PA_test|TR_source_red".into(),
+            settings: TrackSettings::default(),
+            adaptive_stream: false,
+        },
+        start,
+    );
+    let mut rx_mid = None;
+    offer(&mut engine, &mut client, tid, start, |change| {
+        rx_mid = Some(change.add_media(MediaKind::Audio, Direction::RecvOnly, None, None, None));
+    });
+    let rx_mid = rx_mid.unwrap();
+
+    let mut all_pts = vec![];
+    let mut frames: Vec<(u8, Vec<u8>, u8)> = vec![];
+    let mut delivered = vec![];
+    let mut marker: u8 = 0;
+    for tick in 0..3000u64 {
+        let now = start + Duration::from_millis(tick * 10);
+        client.handle_input(Input::Timeout(now)).unwrap();
+        if client.is_connected() && frames.len() < SOURCE_RED_WINDOW + 2 {
+            let writer = client.writer(tx_mid).unwrap();
+            let opus_pt = writer
+                .payload_params()
+                .find(|p| p.spec().codec == str0m::format::Codec::Opus)
+                .unwrap()
+                .pt();
+            // The publisher writes the RFC 2198 block itself, at the negotiated RED PT, exactly as
+            // a browser with RED enabled does. This is the input the forwarder must not re-do.
+            let red_pt = writer.negotiated_red_pt(opus_pt).expect(
+                "the server answer advertises the RED payload type for the published codec",
+            );
+            assert_eq!(*red_pt, 63, "the negotiated RED payload type");
+            writer
+                .write(
+                    red_pt,
+                    now,
+                    MediaTime::new(tick * 480, Frequency::FORTY_EIGHT_KHZ),
+                    published_red_chain(marker),
+                )
+                .unwrap();
+            marker = marker.wrapping_add(1);
+        }
+        loop {
+            match client.poll_output().unwrap() {
+                Output::Transmit(p) => {
+                    engine.handle_datagram(Datagram {
+                        transport: tid,
+                        proto: Proto::Udp,
+                        source: client_addr,
+                        destination: server_addr,
+                        data: &p.contents,
+                        received_at: now,
+                    });
+                }
+                Output::Event(Event::MediaData(d)) if d.mid == rx_mid => {
+                    delivered.push(opus_frame_marker(d.data.as_ref()));
+                }
+                Output::Event(Event::RawPacket(packet)) => {
+                    if let str0m::rtp::RawPacket::RtpRx(header, payload) = &*packet {
+                        let pt = *header.payload_type;
+                        if pt == 63 || pt == 111 {
+                            all_pts.push(pt);
+                            let marker = if pt == 63 {
+                                let chain = str0m::rtp::RedDecoder::decode(payload)
+                                    .expect("a RED-forwarded audio payload is decodable");
+                                let primary = chain.last().expect("a chain has a primary block");
+                                assert_eq!(
+                                    (primary.pt, primary.timestamp_offset),
+                                    (111, 0),
+                                    "the primary block is last, unoffset and Opus: {chain:?}"
+                                );
+                                opus_frame_marker(primary.payload)
+                            } else {
+                                opus_frame_marker(payload)
+                            };
+                            frames.push((pt, payload.to_vec(), marker));
+                        }
+                    }
+                }
+                Output::Timeout(_) => break,
+                _ => {}
+            }
+        }
+        engine.handle_timeout(now);
+        let mut engine_events = vec![];
+        engine.drain_events(&mut engine_events);
+        for bytes in packets.0.lock().unwrap().drain(..).collect::<Vec<_>>() {
+            client
+                .handle_input(Input::Receive(
+                    now,
+                    Receive::new(Protocol::Udp, server_addr, client_addr, &bytes).unwrap(),
+                ))
+                .unwrap();
+        }
+        if frames.len() >= SOURCE_RED_WINDOW + 2 {
+            break;
+        }
+    }
+    assert!(
+        frames.len() >= SOURCE_RED_WINDOW,
+        "audio forwarding did not converge: pts={all_pts:?}, delivered={delivered:?}"
+    );
+    let window = &frames[frames.len() - SOURCE_RED_WINDOW..];
+    for pair in window.windows(2) {
+        assert_eq!(
+            pair[1].2,
+            pair[0].2.wrapping_add(1),
+            "the window must be consecutive forwarded frames: {:?}",
+            window.iter().map(|w| w.2).collect::<Vec<_>>()
+        );
+    }
+    let markers: Vec<u8> = window.iter().map(|w| w.2).collect();
+    assert!(
+        delivered.len() >= SOURCE_RED_WINDOW,
+        "the subscriber must depayload {SOURCE_RED_WINDOW} Opus frames, got {delivered:?}"
+    );
+    assert_eq!(
+        &delivered[delivered.len() - SOURCE_RED_WINDOW..],
+        markers.as_slice(),
+        "the subscriber's RED decode yields the primary frames in order"
+    );
+    SourceRedWire { all_pts, frames }
+}
+
+const SOURCE_RED_WINDOW: usize = 8;
+
+#[test]
+fn red_publication_forwards_the_published_chain_verbatim_instead_of_resynthesizing() {
+    let wire = single_pc_source_red(true);
+    assert!(
+        wire.all_pts.iter().all(|pt| *pt == 63),
+        "a RED publication to a RED subscriber must stay on the RED payload type: {:?}",
+        wire.all_pts
+    );
+    for (pt, payload, marker) in &wire.frames {
+        let chain = str0m::rtp::RedDecoder::decode(payload)
+            .expect("the egress payload is an RFC 2198 block");
+        let published = published_red_chain(*marker);
+        assert_eq!(
+            (pt, payload.as_slice(), chain.len()),
+            (&63, published.as_slice(), 2),
+            "frame {marker}: the subscriber must receive the publisher's own 2-block chain byte for \
+             byte. Go forwards the received packet; re-synthesizing maxRedCount=2 would add a third \
+             block and charge the down budget for a frame that was never published on this leg."
+        );
+        assert_eq!(
+            chain
+                .iter()
+                .map(|b| (b.pt, b.timestamp_offset, opus_frame_marker(b.payload)))
+                .collect::<Vec<(u8, u32, u8)>>(),
+            vec![(111, 480, marker.wrapping_sub(1)), (111, 0, *marker)],
+            "frame {marker}: the redundant block is the publisher's single previous frame"
+        );
+    }
+}
+
+#[test]
+fn red_publication_with_red_disabled_forwards_only_the_primary_opus() {
+    // Pinned current behaviour, and a known deviation from Go. `configure_red` only keeps RED for a
+    // source whose *declared* codec is `audio/red`, because `up.mime` is never learned from a wire
+    // payload type 63 (`observe_publication_rtp` matches `Pt`, and str0m registers RED as the Opus
+    // param's `red` slot). So with `active_red_encoding = false` this down track is RED-disabled and
+    // the published chain is stripped. Go derives the receiver from the wire codec
+    // (`receiver.Mime()` in `wrappedreceiver.go:DetermineReceiver`), and `DisableRed` cannot remove
+    // a published RED: its only use is the `len(codecs) == 1 && opus` branch that appends RED
+    // (`NewWrappedReceiver`). A real browser publisher that declares no codecs therefore keeps the
+    // chain verbatim in Go whatever `active_red_encoding` says, and would here. Open gap: wire-RED
+    // detection at bind time; see SPEC-0077 C108.
+    let wire = single_pc_source_red(false);
+    assert!(
+        wire.all_pts.iter().all(|pt| *pt == 111),
+        "the RED-disabled gate must forward the Opus payload type: {:?}",
+        wire.all_pts
+    );
+    for (pt, payload, marker) in &wire.frames {
+        assert_eq!(
+            (pt, payload.as_slice()),
+            (&111, opus_frame(*marker).as_slice()),
+            "frame {marker}: no redundancy may be attached once the down track is RED-disabled"
+        );
+    }
+}
+
+/// The pass-through gate is the negotiated m-line, not the client hello flag: a subscriber that
+/// never lists the RED payload type must not be written at it, or its stack drops every audio
+/// packet for a payload type it does not know.
+#[test]
+fn red_pass_through_refuses_a_payload_type_the_subscriber_did_not_advertise() {
+    use str0m::format::Codec;
+    for advertises_red in [true, false] {
+        let now = Instant::now();
+        let mut engine = engine(now);
+        engine.cfg.audio.active_red_encoding = true;
+        engine.cfg.enabled_codecs.push(CodecSpec {
+            mime: "audio/red".into(),
+            fmtp_line: String::new(),
+        });
+        let tid = transport(&mut engine, PcRole::Single, now);
+        engine
+            .transports
+            .get_mut(&tid)
+            .unwrap()
+            .spec
+            .client_supports_red = true;
+        let mut subscriber = Rtc::builder()
+            .set_crypto_provider(rtc_crypto::provider().into())
+            .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+            .enable_opus(true, advertises_red)
+            .build(now);
+        let mut rx_mid = None;
+        offer(&mut engine, &mut subscriber, tid, now, |change| {
+            rx_mid =
+                Some(change.add_media(MediaKind::Audio, Direction::RecvOnly, None, None, None));
+        });
+        let local_red = engine
+            .transports
+            .get(&tid)
+            .unwrap()
+            .rtc
+            .codec_config()
+            .iter()
+            .find(|p| p.spec().codec == Codec::Opus)
+            .expect("the server configured Opus")
+            .red();
+        let writer = engine
+            .transports
+            .get_mut(&tid)
+            .unwrap()
+            .rtc
+            .writer(rx_mid.unwrap())
+            .expect("subscriber audio writer");
+        let opus_pt = writer
+            .payload_params()
+            .find(|p| p.spec().codec == Codec::Opus)
+            .expect("the subscriber negotiated Opus")
+            .pt();
+        let red = writer.negotiated_red_pt(opus_pt);
+        assert_eq!(
+            red.is_some(),
+            advertises_red,
+            "arm advertises_red={advertises_red}: the pass-through payload type must come from the \
+             negotiated m-line, not the server-side codec config (local Opus RED mapping: \
+             {local_red:?}, writer answer: {red:?})"
+        );
+        assert_eq!(
+            red.map(|p| *p),
+            advertises_red.then_some(63),
+            "arm advertises_red={advertises_red}: the negotiated RED payload type"
+        );
+    }
+}
+
+/// [`red_chain`] with the wire leg and sequence number in the failure message: a PT 63 payload that
+/// is not an RFC 2198 block, or a block that is not one whole marker-carrying Opus frame, is a
+/// finding about that leg's egress rather than a fixture artifact.
+fn wire_chain(leg: &str, payload: &[u8]) -> RedChain {
+    let blocks = str0m::rtp::RedDecoder::decode(payload).unwrap_or_else(|error| {
+        panic!(
+            "{leg}: a RED payload type packet is not an RFC 2198 block ({error:?}), len={}, bytes={payload:02x?}",
+            payload.len()
+        )
+    });
+    blocks
+        .iter()
+        .map(|b| {
+            (
+                b.pt,
+                b.timestamp_offset,
+                opus_frame_marker_checked(leg, b.payload),
+            )
+        })
+        .collect()
+}
+
+/// [`opus_frame_marker`] attributed to the wire leg it was read from.
+fn opus_frame_marker_checked(leg: &str, payload: &[u8]) -> u8 {
+    assert_eq!(
+        payload,
+        opus_frame(*payload.last().unwrap_or(&0xFF)).as_slice(),
+        "{leg}: every RED block must be one whole marker-carrying Opus frame, got {payload:02x?}"
+    );
+    payload[3]
+}
+
+/// Frames the publisher sends before the subscriber track exists, so the SFU's own RED sender starts
+/// the down leg with an empty frame history while the up leg already carries full chains.
+const WIRE_RED_PRE_ROLL: usize = 6;
+/// Frames collected after the join; the first ones are the discriminator.
+const WIRE_RED_WINDOW: usize = 4;
+
+struct WireRedJoin {
+    /// `(primary marker, blocks)` per authenticated RFC 2198 payload the publisher put on the wire.
+    published: Vec<(u8, RedChain)>,
+    /// `(primary marker, egress PT, blocks)` per authenticated audio payload the subscriber received.
+    received: Vec<(u8, u8, RedChain)>,
+    /// Primary markers the subscriber's own depayload path accepted, in arrival order.
+    delivered: Vec<u8>,
+}
+
+/// One-PC audio forwarding where a subscriber joins mid-stream and the publisher's redundancy is
+/// authored entirely by upstream API: plain Opus at the negotiated Opus PT, the redundancy pattern
+/// from [`str0m::RtcConfig::set_red_distances`], and str0m's own send-side wrapper (enabled by
+/// default). No vendored surface appears on the input side, so the identical source runs against the
+/// patched and the unpatched vendor, and the only difference measured is what the SFU emits.
+///
+/// Go hands the down leg the packet that arrived (`wrappedreceiver.go:DetermineReceiver` selects the
+/// received-packet path for a RED publication with a RED consumer, and `forwardPacket` writes it), so
+/// the redundancy a mid-session subscriber sees is the redundancy the publisher published. Deriving
+/// it again from the SFU's own history cannot name frames it never forwarded.
+fn single_pc_wire_red_join() -> WireRedJoin {
+    use crate::net::Datagram;
+    use rtc_core::media_api::DownTrackSpec;
+    use rtc_core::model::TrackSettings;
+    use str0m::media::{Frequency, MediaTime};
+    use str0m::net::{Protocol, Receive};
+    use str0m::{Candidate, Event, Input, Output};
+
+    let start = Instant::now();
+    let mut engine = engine(start);
+    engine.cfg.audio.active_red_encoding = true;
+    engine.cfg.enabled_codecs.push(CodecSpec {
+        mime: "audio/red".into(),
+        fmtp_line: String::new(),
+    });
+    let packets = PacketQueue::default();
+    engine.out = Box::new(packets.clone());
+    let tid = transport(&mut engine, PcRole::Single, start);
+    let server_addr: std::net::SocketAddr = "127.0.0.1:9021".parse().unwrap();
+    let client_addr: std::net::SocketAddr = "127.0.0.1:9022".parse().unwrap();
+    let t = engine.transports.get_mut(&tid).unwrap();
+    let candidate = t
+        .rtc
+        .add_local_candidate(Candidate::host(server_addr, "udp").unwrap())
+        .unwrap()
+        .clone();
+    t.candidates.push(candidate);
+    let mut client = Rtc::builder()
+        .set_crypto_provider(rtc_crypto::provider().into())
+        .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+        .enable_opus(true, true)
+        .set_red_distances(&[1, 2])
+        .enable_raw_packets(true)
+        .build(start);
+    client.add_local_candidate(Candidate::host(client_addr, "udp").unwrap());
+    let tx_mid = published_mid(&offer(&mut engine, &mut client, tid, start, |change| {
+        change.add_media(MediaKind::Audio, Direction::SendOnly, None, None, None);
+    }));
+    let track = TrackSid::from("TR_wire_red");
+    engine.bind_track(tid, &tx_mid.to_string(), track.clone(), start);
+
+    let mut published: Vec<(u8, RedChain)> = vec![];
+    let mut received: Vec<(u8, u8, RedChain)> = vec![];
+    let mut delivered: Vec<u8> = vec![];
+    let mut joined = false;
+    let mut rx_mid = None;
+    let mut marker: u8 = 0;
+    for tick in 0..6000u64 {
+        let now = start + Duration::from_millis(tick * 10);
+        client.handle_input(Input::Timeout(now)).unwrap();
+        if client.is_connected()
+            && (!joined && published.len() < WIRE_RED_PRE_ROLL
+                || joined && received.len() < WIRE_RED_WINDOW + 2)
+        {
+            let writer = client.writer(tx_mid).unwrap();
+            let opus_pt = writer
+                .payload_params()
+                .find(|p| p.spec().codec == str0m::format::Codec::Opus)
+                .unwrap()
+                .pt();
+            writer
+                .write(
+                    opus_pt,
+                    now,
+                    MediaTime::new(tick * 480, Frequency::FORTY_EIGHT_KHZ),
+                    opus_frame(marker),
+                )
+                .unwrap();
+            marker = marker.wrapping_add(1);
+        }
+        loop {
+            match client.poll_output().unwrap() {
+                Output::Transmit(p) => {
+                    engine.handle_datagram(Datagram {
+                        transport: tid,
+                        proto: Proto::Udp,
+                        source: client_addr,
+                        destination: server_addr,
+                        data: &p.contents,
+                        received_at: now,
+                    });
+                }
+                Output::Event(Event::MediaData(d)) if rx_mid.is_some_and(|m| d.mid == m) => {
+                    delivered.push(opus_frame_marker(d.data.as_ref()));
+                }
+                Output::Event(Event::RawPacket(packet)) => match &*packet {
+                    str0m::rtp::RawPacket::RtpTx(header, packet) if *header.payload_type == 63 => {
+                        // Upstream emits the transmit leg as the whole serialized packet, while the
+                        // receive leg is already just the payload; `header_len` is public, so the
+                        // published chain is reachable without any vendored surface.
+                        let mut payload = &packet[header.header_len..];
+                        if header.has_padding {
+                            payload = &payload[..payload.len() - *payload.last().unwrap() as usize];
+                        }
+                        let chain = wire_chain(
+                            &format!("publisher egress seq={}", header.sequence_number),
+                            payload,
+                        );
+                        published
+                            .push((chain.last().expect("a chain has a primary block").2, chain));
+                    }
+                    str0m::rtp::RawPacket::RtpRx(header, payload) if *header.payload_type == 63 => {
+                        let chain = wire_chain(
+                            &format!("subscriber ingress seq={}", header.sequence_number),
+                            payload,
+                        );
+                        received.push((
+                            chain.last().expect("a chain has a primary block").2,
+                            63,
+                            chain,
+                        ));
+                    }
+                    _ => {}
+                },
+                Output::Timeout(_) => break,
+                _ => {}
+            }
+        }
+        engine.handle_timeout(now);
+        let mut engine_events = vec![];
+        engine.drain_events(&mut engine_events);
+        for bytes in packets.0.lock().unwrap().drain(..).collect::<Vec<_>>() {
+            client
+                .handle_input(Input::Receive(
+                    now,
+                    Receive::new(Protocol::Udp, server_addr, client_addr, &bytes).unwrap(),
+                ))
+                .unwrap();
+        }
+        if !joined && published.len() >= WIRE_RED_PRE_ROLL {
+            engine.subscribe(
+                DownTrackSpec {
+                    subscriber: ParticipantSid::from("PA_test"),
+                    publisher: ParticipantSid::from("PA_test"),
+                    track_sid: track.clone(),
+                    stream_id: "PA_test|TR_wire_red".into(),
+                    settings: TrackSettings::default(),
+                    adaptive_stream: false,
+                },
+                now,
+            );
+            let events = offer(&mut engine, &mut client, tid, now, |change| {
+                rx_mid =
+                    Some(change.add_media(MediaKind::Audio, Direction::RecvOnly, None, None, None));
+            });
+            let answer = events
+                .iter()
+                .find_map(|e| match e {
+                    MediaEvent::LocalDescription {
+                        kind: SdpType::Answer,
+                        sdp,
+                        ..
+                    } => Some(sdp.clone()),
+                    _ => None,
+                })
+                .expect("server answers the mid-session subscription");
+            assert!(
+                answer
+                    .lines()
+                    .any(|line| line.starts_with("a=rtpmap:63 red")),
+                "the subscriber must negotiate the RED payload type it will receive: {answer}"
+            );
+            joined = true;
+        }
+        if joined && received.len() >= WIRE_RED_WINDOW {
+            break;
+        }
+    }
+    assert!(
+        joined && received.len() >= WIRE_RED_WINDOW,
+        "the mid-session subscriber never received {WIRE_RED_WINDOW} RED frames: \
+         published={published:?}, received={received:?}"
+    );
+    WireRedJoin {
+        published,
+        received,
+        delivered,
+    }
+}
+
+#[test]
+fn wire_red_join_forwards_the_published_chain_from_the_first_frame() {
+    let wire = single_pc_wire_red_join();
+    let full = wire
+        .published
+        .iter()
+        .filter(|(_, chain)| chain.len() == 3)
+        .count();
+    assert!(
+        full >= WIRE_RED_PRE_ROLL,
+        "the publisher must reach the 3-block redundancy pattern it negotiated; the first frames \
+         ramp only while its own frame history fills: {:?}",
+        wire.published
+    );
+    assert!(
+        wire.received.iter().all(|(_, pt, _)| *pt == 63),
+        "a RED consumer of a RED publication stays on the RED payload type: {:?}",
+        wire.received
+            .iter()
+            .map(|(_, pt, _)| *pt)
+            .collect::<Vec<u8>>()
+    );
+    let first = wire
+        .received
+        .first()
+        .expect("a subscribed RED track must deliver a frame");
+    assert_eq!(
+        first.2.len(),
+        3,
+        "the first frame after a mid-session join must already carry the publisher's full chain. \
+         A shorter chain means the SFU re-derives redundancy from its own history, which was empty \
+         when this subscriber arrived, and frames it never forwarded. Received: {:?}",
+        wire.received
+    );
+    for (marker, _, chain) in &wire.received {
+        let published = wire
+            .published
+            .iter()
+            .find(|(m, _)| m == marker)
+            .unwrap_or_else(|| panic!("frame {marker} was forwarded but never published"))
+            .1
+            .clone();
+        assert_eq!(
+            chain.as_slice(),
+            published.as_slice(),
+            "frame {marker}: the subscriber must receive the publisher's own redundant blocks, not a \
+             chain re-derived from the frames this SFU happened to forward on this track. Go writes \
+             the packet that arrived."
+        );
+        assert!(
+            wire.delivered.contains(marker),
+            "frame {marker} must depayload cleanly at the subscriber: {:?}",
+            wire.delivered
         );
     }
 }
@@ -7471,7 +8201,7 @@ fn three_layer_srtp_quality_and_padding(
                 .unwrap()
                 .rtc
                 .direct_api()
-                .request_padding_burst(2048, Duration::from_millis(100), now)
+                .request_padding_burst(2048, Duration::from_millis(100), now, None)
                 .expect("actual negotiated RTX padding source");
         }
         if publisher.is_connected() && tick.is_multiple_of(30) {

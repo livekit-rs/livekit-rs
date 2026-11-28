@@ -1,0 +1,322 @@
+--- a/src/change/direct.rs
++++ b/src/change/direct.rs
+@@ -112,15 +112,18 @@
+     /// Actual protected-byte budget is512B..16MiB, fixed duration(0,5s]. At most
+     ///16packets can be output at the same logical Instant, then a real1ms yield
+     /// is required. Media/RTX queues are preserved; no receive proof is produced.
++    /// `mid` binds output to one m-line (the owner's reporting video stream);
++    /// `None` leaves the request unbound. Binding never widens eligibility.
+     pub fn request_padding_burst(
+         &mut self,
+         max_protected_bytes: u64,
+         duration: std::time::Duration,
+         now: std::time::Instant,
++        mid: Option<crate::rtp_::Mid>,
+     ) -> Result<u64, crate::PaddingRequestError> {
+         self.rtc
+             .session
+-            .request_padding_burst(max_protected_bytes, duration, now)
++            .request_padding_burst(max_protected_bytes, duration, now, mid)
+     }
+ 
+     /// Cancel only this active identity; repeated/old cancellation is a no-op.
+--- a/src/remote_padding.rs
++++ b/src/remote_padding.rs
+@@ -1,5 +1,5 @@
+ //! Bounded outgoing padding execution, independent of native bandwidth estimation.
+-use crate::rtp_::Bitrate;
++use crate::rtp_::{Bitrate, Mid};
+ use std::time::{Duration, Instant};
+ 
+ /// Local execution status. No state is proof of remote receipt or capacity.
+@@ -49,6 +49,14 @@
+     pub id: u64,
+     /// Actual selected local scheduling behavior.
+     pub mode: PaddingMode,
++    /// m-line the locally produced padding packets actually rode. `None` until
++    /// the request yields output, so a caller can check the emitted stream
++    /// against the m-line the estimate owner binds.
++    pub mid: Option<Mid>,
++    /// m-line the request bound local output to. The unbound paced API reports
++    /// `None`; it differs from `mid` only when the bound m-line was not yet
++    /// eligible and another stream carried the padding.
++    pub bound: Option<Mid>,
+     /// Local authorization/execution status, never receipt proof.
+     pub status: PaddingStatus,
+     /// Owner-supplied monotonic request time.
+@@ -115,6 +123,8 @@
+         self.observation = Some(PaddingObservation {
+             id,
+             mode: PaddingMode::Paced,
++            mid: None,
++            bound: None,
+             status: PaddingStatus::Active,
+             requested_at: now,
+             deadline,
+@@ -128,14 +138,19 @@
+         self.next_at = Some(now);
+         Ok(id)
+     }
++    /// Owner-bound burst request. `mid` restricts local output to one m-line;
++    /// `None` keeps the historical first-qualifying-stream selection.
+     pub(crate) fn start_burst(
+         &mut self,
+         bytes: u64,
+         duration: Duration,
+         now: Instant,
++        mid: Option<Mid>,
+     ) -> Result<u64, PaddingRequestError> {
+         let id = self.start(bytes, Bitrate::bps(100_000_000), duration, now)?;
+-        self.observation.as_mut().unwrap().mode = PaddingMode::Burst;
++        let o = self.observation.as_mut().unwrap();
++        o.mode = PaddingMode::Burst;
++        o.bound = mid;
+         if self
+             .burst_at
+             .is_some_and(|(at, count)| at == now && count >= 16)
+@@ -144,6 +159,17 @@
+         }
+         Ok(id)
+     }
++    pub(crate) fn bound_mid(&self) -> Option<Mid> {
++        self.observation
++            .as_ref()
++            .filter(|o| o.status == PaddingStatus::Active)
++            .and_then(|o| o.bound)
++    }
++    pub(crate) fn is_burst(&self) -> bool {
++        self.observation
++            .as_ref()
++            .is_some_and(|o| o.status == PaddingStatus::Active && o.mode == PaddingMode::Burst)
++    }
+     pub(crate) fn observation(&self) -> Option<PaddingObservation> {
+         self.observation
+     }
+@@ -181,6 +207,13 @@
+             .map(|o| o.max_protected_bytes.saturating_sub(o.sent_protected_bytes))
+             .unwrap_or(0)
+     }
++    /// Record the m-line an independently produced padding packet rode, so the
++    /// observation reports the emitted stream rather than the requested binding.
++    pub(crate) fn emitted(&mut self, mid: Mid) {
++        if let Some(o) = self.observation.as_mut() {
++            o.mid = Some(mid);
++        }
++    }
+     pub(crate) fn sent(&mut self, now: Instant, bytes: usize) {
+         let Some(o) = self.observation.as_mut() else {
+             return;
+@@ -319,7 +352,9 @@
+         let now = Instant::now();
+         let mut e = PaddingExecutor::default();
+         for _ in 0..16 {
+-            let id = e.start_burst(512, Duration::from_secs(1), now).unwrap();
++            let id = e
++                .start_burst(512, Duration::from_secs(1), now, None)
++                .unwrap();
+             assert!(e.due(now));
+             e.sent(now, 512);
+             let o = e.observation().unwrap();
+@@ -327,13 +362,52 @@
+             assert_eq!(o.sent_protected_bytes, 512);
+             assert_eq!(o.status, PaddingStatus::Completed);
+         }
+-        e.start_burst(1024, Duration::from_secs(1), now).unwrap();
++        e.start_burst(1024, Duration::from_secs(1), now, None)
++            .unwrap();
+         assert!(!e.due(now));
+         assert!(e.due(now + Duration::from_millis(1)));
+         e.sent(now + Duration::from_millis(1), 512);
+         assert_eq!(e.observation().unwrap().sent_protected_bytes, 512);
+     }
+     #[test]
++    fn burst_binds_owner_mid_and_paced_api_stays_unbound() {
++        let now = Instant::now();
++        let mid: Mid = "3".into();
++        let mut paced = PaddingExecutor::default();
++        paced
++            .start(4096, Bitrate::bps(100_000), Duration::from_secs(1), now)
++            .unwrap();
++        assert!(!paced.is_burst());
++        assert_eq!(paced.bound_mid(), None);
++        paced.sent(now, 256);
++        assert_eq!(paced.bound_mid(), None);
++        // The observation records the stream padding actually rode, which is
++        // deliberately not the requested binding: a session that falls back to
++        // another eligible stream still reports the emitted one.
++        let other: Mid = "7".into();
++        assert_eq!(paced.observation().unwrap().mid, None);
++        paced.emitted(other);
++        assert_eq!(paced.observation().unwrap().mid, Some(other));
++        assert_eq!(paced.observation().unwrap().bound, None);
++        assert_eq!(paced.bound_mid(), None);
++        let mut burst = PaddingExecutor::default();
++        let id = burst
++            .start_burst(2048, Duration::from_secs(1), now, Some(mid))
++            .unwrap();
++        assert!(burst.is_burst());
++        assert_eq!(burst.bound_mid(), Some(mid));
++        assert_eq!(burst.observation().unwrap().mid, None);
++        assert_eq!(burst.observation().unwrap().bound, Some(mid));
++        burst.sent(now, 512);
++        assert_eq!(burst.bound_mid(), Some(mid));
++        burst.emitted(other);
++        assert_eq!(burst.observation().unwrap().mid, Some(other));
++        assert_eq!(burst.observation().unwrap().bound, Some(mid));
++        burst.cancel(id);
++        assert!(!burst.is_burst());
++        assert_eq!(burst.bound_mid(), None);
++    }
++    #[test]
+     fn old_paced_api_does_not_gain_burst_credit() {
+         let now = Instant::now();
+         let mut e = PaddingExecutor::default();
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -328,24 +328,57 @@
+         self.send_transport_cc = enabled;
+     }
+ 
+-    fn independent_padding_source(&mut self) -> Option<MidRid> {
++    /// Choose the stream that executes an outstanding padding request.
++    ///
++    /// A burst (probe) request is bound to the owner's m-line and carries
++    /// LiveKit's `WritePaddingRTP(paddingOnMute = false)` gates: video only, and
++    /// only for a source the peer has already reported on. Go refuses padding
++    /// on audio and on a stream with no receiver report, and its allocator
++    /// probes the video downtracks that feed the estimate, so padding on an
++    /// unrelated m-line produces a cluster the estimator cannot attribute.
++    /// When the bound m-line is not yet eligible, another eligible video stream
++    /// is used, matching Go's per-track gate over the video track list.
++    fn select_padding_source(&mut self, bound: Option<Mid>, burst: bool) -> Option<MidRid> {
+         let medias = &self.medias;
+-        self.streams.streams_tx().find_map(|stream| {
+-            let pt = stream.padding_pt()?;
+-            if stream.rtx().is_none()
+-                || !medias.iter().any(|media| {
+-                    media.mid() == stream.mid()
+-                        && !media.stopped()
+-                        && media.direction().is_sending()
+-                        && (media.remote_pts().is_empty() || media.remote_pts().contains(&pt))
+-                })
++        let mut fallback = None;
++        for stream in self.streams.streams_tx() {
++            let Some(pt) = stream.padding_pt() else {
++                continue;
++            };
++            if stream.rtx().is_none() {
++                continue;
++            }
++            let Some(media) = medias.iter().find(|m| m.mid() == stream.mid()) else {
++                continue;
++            };
++            if media.stopped()
++                || !media.direction().is_sending()
++                || !(media.remote_pts().is_empty() || media.remote_pts().contains(&pt))
+             {
+-                return None;
++                continue;
+             }
+-            Some(MidRid(stream.mid(), stream.rid()))
+-        })
++            if burst
++                && (media.kind() == crate::media::MediaKind::Audio || !stream.has_receiver_report())
++            {
++                continue;
++            }
++            let candidate = MidRid(stream.mid(), stream.rid());
++            if burst && Some(stream.mid()) == bound {
++                return Some(candidate);
++            }
++            if fallback.is_none() {
++                fallback = Some(candidate);
++            }
++        }
++        fallback
+     }
+ 
++    fn independent_padding_source(&mut self) -> Option<MidRid> {
++        let bound = self.remote_padding.bound_mid();
++        let burst = self.remote_padding.is_burst();
++        self.select_padding_source(bound, burst)
++    }
++
+     pub(crate) fn request_padding(
+         &mut self,
+         bytes: u64,
+@@ -359,17 +392,20 @@
+         if self.rtp_closing || !self.ready_for_srtp() {
+             return Err(crate::PaddingRequestError::NotReady);
+         }
+-        if self.independent_padding_source().is_none() {
++        if self.select_padding_source(None, false).is_none() {
+             return Err(crate::PaddingRequestError::NoSource);
+         }
+         self.remote_padding.start(bytes, rate, duration, now)
+     }
+ 
++    /// `mid` binds local probe output to the owner's m-line; `None` keeps the
++    /// unbound selection. Binding does not widen the eligibility gates.
+     pub(crate) fn request_padding_burst(
+         &mut self,
+         bytes: u64,
+         duration: Duration,
+         now: Instant,
++        mid: Option<Mid>,
+     ) -> Result<u64, crate::PaddingRequestError> {
+         if self.bwe.is_some() {
+             return Err(crate::PaddingRequestError::NativeBweEnabled);
+@@ -377,10 +413,10 @@
+         if self.rtp_closing || !self.ready_for_srtp() {
+             return Err(crate::PaddingRequestError::NotReady);
+         }
+-        if self.independent_padding_source().is_none() {
++        if self.select_padding_source(mid, true).is_none() {
+             return Err(crate::PaddingRequestError::NoSource);
+         }
+-        self.remote_padding.start_burst(bytes, duration, now)
++        self.remote_padding.start_burst(bytes, duration, now, mid)
+     }
+     pub(crate) fn cancel_padding(&mut self, id: u64) -> bool {
+         self.remote_padding.cancel(id)
+@@ -399,6 +435,9 @@
+             return None;
+         };
+         let result = self.poll_packet_on(now, source, None, true);
++        if result.is_some() {
++            self.remote_padding.emitted(source.mid());
++        }
+         if result.is_none()
+             && self
+                 .remote_padding
+--- a/src/streams/send.rs
++++ b/src/streams/send.rs
+@@ -458,6 +458,13 @@
+         self.rtx
+     }
+ 
++    /// Whether the remote has reported reception for this stream. LiveKit's
++    /// `WritePaddingRTP` treats an earlier report as the only proof that the
++    /// peer knows this SSRC, so probe padding is refused without it.
++    pub(crate) fn has_receiver_report(&self) -> bool {
++        self.stats.has_receiver_report()
++    }
++
+     /// Mid for this stream.
+     ///
+     /// In SDP this corresponds to m-line and "Media".
+--- a/src/streams/send_stats.rs
++++ b/src/streams/send_stats.rs
+@@ -84,6 +84,12 @@
+         self.firs += 1;
+     }
+ 
++    /// True once a Receiver Report has arrived for this stream. LiveKit's probe
++    /// padding refuses output until the remote proves it knows the SSRC.
++    pub(crate) fn has_receiver_report(&self) -> bool {
++        self.last_rr.is_some()
++    }
++
+     pub fn update_with_rr(&mut self, now: Instant, last_sent_seq_no: SeqNo, r: ReceptionReport) {
+         let ntp_time = now.to_ntp_duration();
+         let rtt = calculate_rtt(ntp_time, r.last_sr_delay, r.last_sr_time);

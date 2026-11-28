@@ -112,15 +112,18 @@ impl<'a> DirectApi<'a> {
     /// Actual protected-byte budget is512B..16MiB, fixed duration(0,5s]. At most
     ///16packets can be output at the same logical Instant, then a real1ms yield
     /// is required. Media/RTX queues are preserved; no receive proof is produced.
+    /// `mid` binds output to one m-line (the owner's reporting video stream);
+    /// `None` leaves the request unbound. Binding never widens eligibility.
     pub fn request_padding_burst(
         &mut self,
         max_protected_bytes: u64,
         duration: std::time::Duration,
         now: std::time::Instant,
+        mid: Option<crate::rtp_::Mid>,
     ) -> Result<u64, crate::PaddingRequestError> {
         self.rtc
             .session
-            .request_padding_burst(max_protected_bytes, duration, now)
+            .request_padding_burst(max_protected_bytes, duration, now, mid)
     }
 
     /// Cancel only this active identity; repeated/old cancellation is a no-op.

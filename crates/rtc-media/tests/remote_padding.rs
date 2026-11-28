@@ -9,6 +9,7 @@ use str0m::{Candidate, Event, Input, Output, PaddingRequestError, PaddingStatus,
 
 mod rtp_ {
     pub use str0m::bwe::Bitrate;
+    pub use str0m::media::Mid;
 }
 #[allow(dead_code)]
 #[path = "../../../vendor/str0m/src/remote_padding.rs"]

@@ -1,6 +1,7 @@
 //! Runtime owner for the fixed RemoteBWE policy. Native validation remains separate.
 //! Rates are payload allocation bits/s; execution counters are actual RTP bytes
 //! (header+payload, excluding SRTP), as fixed pacer/base.go's ProbeObserver.
+use crate::probe_controller::ProbeCounters;
 use crate::remote_bwe::{CongestionState, ProbeGoal, ProbeResult, ProbeSignal, RemoteController};
 use rtc_core::config::{CongestionControl, FeedbackMode, StreamAllocatorConfig};
 use std::collections::HashMap;
@@ -65,6 +66,8 @@ pub(crate) struct Feedback {
     expected: i64,
     video_mids: Vec<Mid>,
     remb_ssrc: Option<u32>,
+    /// m-line carrying the last accepted REMB; probe padding binds to it.
+    remb_mid: Option<Mid>,
     media_targets: HashMap<Mid, i32>,
     previous: HashMap<(Mid, u32, u64), (u32, u32)>,
     output_previous: HashMap<(Mid, u32, u64), RemoteFeedbackStats>,
@@ -74,6 +77,8 @@ pub(crate) struct Feedback {
     next_poll: Option<Instant>,
     origin: Instant,
     last_rtt: Instant,
+    /// Probe/congestion ledger for this owner; `probes` stays unused in this mode.
+    pub(crate) counters: ProbeCounters,
 }
 impl Feedback {
     pub fn new(config: &CongestionControl, now: Instant) -> Self {
@@ -90,6 +95,7 @@ impl Feedback {
             expected: 0,
             video_mids: vec![],
             remb_ssrc: None,
+            remb_mid: None,
             media_targets: HashMap::new(),
             previous: HashMap::new(),
             output_previous: HashMap::new(),
@@ -98,6 +104,7 @@ impl Feedback {
             next_poll: None,
             origin: now,
             last_rtt: now,
+            counters: ProbeCounters::default(),
         }
     }
     pub fn mode(&self) -> FeedbackMode {
@@ -138,6 +145,12 @@ impl Feedback {
         self.committed
             .max(self.allocator.min_channel_capacity)
             .max(0) as u64
+    }
+    /// Go `isDeficientCongestionState(BWE.CongestionState())`
+    /// (streamallocator.go:1470-1472): only `Congested` withholds the
+    /// unconstrained allocation pass, never an earlier capacity commit.
+    pub fn is_congested(&self) -> bool {
+        self.policy.state() == CongestionState::Congested
     }
     pub fn deadline(&self) -> Option<Instant> {
         self.next_poll
@@ -209,8 +222,20 @@ impl Feedback {
             .remb_ssrc
             .filter(|ssrc| ssrcs.contains(ssrc) && local(*ssrc))
             .or_else(|| ssrcs.iter().copied().find(|ssrc| local(*ssrc)));
+        let mid = selected
+            .and_then(|ssrc| {
+                stats.iter().find(|s| {
+                    self.video_mids.contains(&s.mid) && (s.ssrc == ssrc || s.rtx_ssrc == Some(ssrc))
+                })
+            })
+            .map(|s| s.mid);
         self.remb_ssrc = selected;
+        self.remb_mid = mid;
         selected.is_some()
+    }
+    /// The m-line whose REMB the estimate currently follows; probe padding binds to it.
+    pub fn remb_mid(&self) -> Option<Mid> {
+        self.remb_mid
     }
     pub fn maybe_reset_paused(&mut self, rtc: &mut Rtc, paused: bool, now: Instant) {
         if !paused || self.policy.state() != CongestionState::Congested {
@@ -230,6 +255,8 @@ impl Feedback {
             self.active = None;
             self.next_poll = None;
             self.policy.reset(now); // committed allocator capacity deliberately unchanged.
+            self.counters.paused_resets += 1;
+            tracing::info!(at=?now, last_output_at=?last, "remote stream allocator resetting receiver policy to enable probing");
         }
     }
     pub fn rtt(&mut self, rtt: Option<Duration>, now: Instant) {
@@ -284,6 +311,7 @@ impl Feedback {
         if let Some(change) = change
             && change.to == CongestionState::Congested
         {
+            self.counters.congestion_events += 1;
             self.media_targets.clear();
             if self.active.is_some() {
                 self.finish(rtc, stats, false, now);
@@ -466,6 +494,7 @@ impl Feedback {
         });
         tracing::debug!(id=self.next_id,goal=?goal,requested_at=?now,"remote probe starting");
         self.policy.start_probe(self.next_id, goal, now);
+        self.counters.attempts += 1;
         self.next_poll = Some(now);
         true
     }
@@ -501,13 +530,20 @@ impl Feedback {
         }
         if let Some(outcome) = self.policy.finalize(now) {
             tracing::debug!(outcome=?outcome,"remote probe receiver policy settled");
-            if outcome.signal != ProbeSignal::Congesting {
+            if outcome.signal == ProbeSignal::Congesting {
+                self.counters.failures += 1;
+            } else {
+                self.counters.successes += 1;
                 self.committed = self.committed.max(outcome.capacity);
             }
             self.active = None;
             self.next_poll = None;
             return true;
         }
+        // Fixed Go sends probe clusters on the video downtracks whose receiver
+        // feedback drives the estimate; the REMB-reporting m-line is the owner's
+        // binding for that choice. Read before the active probe borrow.
+        let remb_mid = self.remb_mid();
         let Some(active) = self.active.as_mut().filter(|p| !p.done) else {
             return false;
         };
@@ -526,10 +562,12 @@ impl Feedback {
             // Fixed PassThrough writes each requested burst immediately. The
             // explicit executor also enforces a16-packet/1ms owner fairness yield.
             let bytes = (requested as u64).min(16 * 1024 * 1024);
-            match rtc
-                .direct_api()
-                .request_padding_burst(bytes, Duration::from_secs(5), now)
-            {
+            match rtc.direct_api().request_padding_burst(
+                bytes,
+                Duration::from_secs(5),
+                now,
+                remb_mid,
+            ) {
                 Ok(id) => active.padding_id = Some(id),
                 Err(error) => {
                     tracing::debug!(?error, "remote probe execution unavailable");
@@ -659,6 +697,125 @@ mod tests {
         assert_eq!(
             Feedback::new(&cfg, now).mode(),
             FeedbackMode::NativeSendSide
+        );
+    }
+    #[test]
+    fn receiver_owner_ledger_charges_each_probe_cluster_it_requests() {
+        let start = Instant::now();
+        let mut r = rtc(start);
+        let mut config = CongestionControl::default();
+        config
+            .remote_bwe
+            .channel_observer_non_probe
+            .estimate
+            .required_samples = 3;
+        config
+            .remote_bwe
+            .channel_observer_non_probe
+            .estimate
+            .required_samples_min = 3;
+        config
+            .remote_bwe
+            .channel_observer_non_probe
+            .estimate
+            .collapse_threshold = rtc_core::config::PolicyDuration::ZERO;
+        let mut f = Feedback::new(&config, start);
+        f.update_tracks(vec![Mid::new()], 1_000_000);
+        assert_eq!(
+            f.counters,
+            ProbeCounters::default(),
+            "a cold receiver owner has issued nothing"
+        );
+        let step = |index: usize| start + Duration::from_millis((index as u64 + 1) * 10);
+        for (index, value) in [800_000, 600_000, 400_000].into_iter().enumerate() {
+            f.estimate(value, &[], &mut r, step(index));
+        }
+        assert_eq!(
+            f.counters.congestion_events, 1,
+            "one congested commit must be charged to the owner that made it"
+        );
+        for (index, value) in [800_000, 900_000, 950_000].into_iter().enumerate() {
+            f.estimate(value, &[], &mut r, step(index));
+        }
+        assert_eq!(f.policy.state(), CongestionState::None);
+        assert_eq!(f.counters.congestion_events, 1);
+        let now = start + Duration::from_secs(4);
+        assert!(f.maybe_start(Some(300_000), true, false, &mut r, now));
+        assert_eq!(
+            (
+                f.counters.attempts,
+                f.counters.successes,
+                f.counters.failures
+            ),
+            (1, 0, 0),
+            "starting is the attempt; nothing has settled yet"
+        );
+        f.service(&mut r, true, now);
+        assert_eq!(
+            (f.counters.successes, f.counters.failures),
+            (0, 0),
+            "aborting local execution is not a settlement"
+        );
+        assert!(f.service(&mut r, true, now + Duration::from_secs(1)));
+        assert_eq!(
+            (
+                f.counters.attempts,
+                f.counters.successes,
+                f.counters.failures
+            ),
+            (1, 1, 0),
+            "a non-congesting settlement is one success, and only one"
+        );
+        assert_eq!(f.counters.paused_resets, 0);
+    }
+    #[test]
+    fn receiver_owner_ledger_counts_a_congesting_settlement_as_a_failure() {
+        let start = Instant::now();
+        let mut r = rtc(start);
+        let mut config = CongestionControl::default();
+        config
+            .remote_bwe
+            .channel_observer_probe
+            .estimate
+            .required_samples = 2;
+        config
+            .remote_bwe
+            .channel_observer_probe
+            .estimate
+            .required_samples_min = 2;
+        config
+            .remote_bwe
+            .channel_observer_probe
+            .estimate
+            .collapse_threshold = rtc_core::config::PolicyDuration::ZERO;
+        let mut f = Feedback::new(&config, start);
+        f.update_tracks(vec![Mid::new()], 1_000_000);
+        let now = start + Duration::from_secs(4);
+        assert!(f.maybe_start(Some(300_000), true, false, &mut r, now));
+        f.service(&mut r, true, now);
+        for (index, value) in [400_000, 200_000, 100_000].into_iter().enumerate() {
+            f.estimate(
+                value,
+                &[],
+                &mut r,
+                now + Duration::from_millis((index as u64 + 1) * 10),
+            );
+        }
+        assert_eq!(
+            f.counters.congestion_events, 1,
+            "the congested transition inside a probe is still one notification, \
+             and the frozen observer cannot add another"
+        );
+        assert_eq!((f.counters.attempts, f.counters.successes), (1, 0));
+        assert!(f.service(&mut r, true, now + Duration::from_secs(1)));
+        assert_eq!(
+            (
+                f.counters.attempts,
+                f.counters.successes,
+                f.counters.failures
+            ),
+            (1, 0, 1),
+            "a congested settlement charges the failure, never a success"
         );
     }
 }

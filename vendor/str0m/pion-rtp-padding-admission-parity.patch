@@ -1,8 +1,6 @@
-diff --git a/src/rtp/header.rs b/src/rtp/header.rs
-index df22199..a2da41c 100644
 --- a/src/rtp/header.rs
 +++ b/src/rtp/header.rs
-@@ -117,11 +117,19 @@ impl RtpHeader {
+@@ -117,11 +117,19 @@
  
      /// Returns `buf` with any trailing SRTP padding removed, or `None` if the
      /// trailing padding length is invalid.
@@ -23,7 +21,7 @@ index df22199..a2da41c 100644
          let unpadded_len = buf.len().checked_sub(pad_len)?;
          Some(&buf[..unpadded_len])
      }
-@@ -917,7 +925,8 @@ mod test {
+@@ -917,7 +925,8 @@
              }
          };
  
@@ -33,7 +31,7 @@ index df22199..a2da41c 100644
          assert_eq!(Ok(vec![1, 2, 3, 4]), truncate(vec![1, 2, 3, 4, 1]));
          assert_eq!(Ok(vec![1, 2, 3]), truncate(vec![1, 2, 3, 4, 2]));
          assert_eq!(Ok(vec![1, 2]), truncate(vec![1, 2, 3, 4, 3]));
-@@ -925,8 +934,492 @@ mod test {
+@@ -925,8 +934,538 @@
          assert_eq!(Ok(vec![]), truncate(vec![1, 2, 3, 4, 5]));
          assert_eq!(Err(()), truncate(vec![1, 2, 3, 4, 6]));
          assert_eq!(Err(()), truncate(vec![1, 2, 3, 4, 255]));
@@ -43,7 +41,7 @@ index df22199..a2da41c 100644
 -        assert_eq!(Ok(vec![]), truncate(vec![]));
 +        // A set padding bit with no trailing byte is invalid (Pion errTooSmall).
 +        assert_eq!(Err(()), truncate(vec![]));
-+    }
+     }
 +
 +    /// Frozen `tests/oracles/pion-rtp-padding/cases.jsonl` decision rows. Every
 +    /// field is what the corresponding fixed Go parser reports, so a drift in
@@ -278,9 +276,7 @@ index df22199..a2da41c 100644
 +
 +    fn observation_of(row: &serde_json::Value) -> Observation {
 +        Observation {
-+            accepted: row["accepted"]
-+                .as_bool()
-+                .expect("accepted is a Go bool"),
++            accepted: row["accepted"].as_bool().expect("accepted is a Go bool"),
 +            payload_hex: row["payload_hex"]
 +                .as_str()
 +                .expect("payload_hex is a Go string")
@@ -291,10 +287,12 @@ index df22199..a2da41c 100644
 +            padding_bit: row["padding_bit"]
 +                .as_bool()
 +                .expect("padding_bit is a Go bool"),
-+            padding_size: usize::try_from(row["padding_size"]
-+                .as_u64()
-+                .expect("padding_size is a Go int"))
-+                .expect("padding_size fits usize"),
++            padding_size: usize::try_from(
++                row["padding_size"]
++                    .as_u64()
++                    .expect("padding_size is a Go int"),
++            )
++            .expect("padding_size fits usize"),
 +        }
 +    }
 +
@@ -303,7 +301,9 @@ index df22199..a2da41c 100644
 +        let drift = fields
 +            .into_iter()
 +            .filter(|(_, expected, actual)| expected != actual)
-+            .map(|(field, expected, actual)| format!("{field}: frozen {expected} != actual {actual}"))
++            .map(|(field, expected, actual)| {
++                format!("{field}: frozen {expected} != actual {actual}")
++            })
 +            .collect::<Vec<_>>();
 +        if drift.is_empty() {
 +            Ok(())
@@ -312,27 +312,67 @@ index df22199..a2da41c 100644
 +        }
 +    }
 +
-+    fn compare_observation(case: &str, frozen: &Observation, actual: &Observation) -> Result<(), String> {
++    fn compare_observation(
++        case: &str,
++        frozen: &Observation,
++        actual: &Observation,
++    ) -> Result<(), String> {
 +        check_drift(
 +            case,
 +            vec![
-+                ("accepted", frozen.accepted.to_string(), actual.accepted.to_string()),
-+                ("payload_hex", frozen.payload_hex.clone(), actual.payload_hex.clone()),
-+                ("padding_only", frozen.padding_only.to_string(), actual.padding_only.to_string()),
-+                ("padding_bit", frozen.padding_bit.to_string(), actual.padding_bit.to_string()),
-+                ("padding_size", frozen.padding_size.to_string(), actual.padding_size.to_string()),
++                (
++                    "accepted",
++                    frozen.accepted.to_string(),
++                    actual.accepted.to_string(),
++                ),
++                (
++                    "payload_hex",
++                    frozen.payload_hex.clone(),
++                    actual.payload_hex.clone(),
++                ),
++                (
++                    "padding_only",
++                    frozen.padding_only.to_string(),
++                    actual.padding_only.to_string(),
++                ),
++                (
++                    "padding_bit",
++                    frozen.padding_bit.to_string(),
++                    actual.padding_bit.to_string(),
++                ),
++                (
++                    "padding_size",
++                    frozen.padding_size.to_string(),
++                    actual.padding_size.to_string(),
++                ),
 +            ],
 +        )
 +    }
 +
-+    fn compare_native(case: &str, reference: &Observation, native: &Decision) -> Result<(), String> {
++    fn compare_native(
++        case: &str,
++        reference: &Observation,
++        native: &Decision,
++    ) -> Result<(), String> {
 +        let expected = decision_of(reference);
 +        check_drift(
 +            case,
 +            vec![
-+                ("accepted", expected.accepted.to_string(), native.accepted.to_string()),
-+                ("payload_hex", expected.payload_hex.clone(), native.payload_hex.clone()),
-+                ("padding_only", expected.padding_only.to_string(), native.padding_only.to_string()),
++                (
++                    "accepted",
++                    expected.accepted.to_string(),
++                    native.accepted.to_string(),
++                ),
++                (
++                    "payload_hex",
++                    expected.payload_hex.clone(),
++                    native.payload_hex.clone(),
++                ),
++                (
++                    "padding_only",
++                    expected.padding_only.to_string(),
++                    native.padding_only.to_string(),
++                ),
 +            ],
 +        )
 +    }
@@ -341,7 +381,9 @@ index df22199..a2da41c 100644
 +        include_str!("../../../../tests/oracles/pion-rtp-padding/cases.jsonl")
 +            .lines()
 +            .filter(|line| !line.trim().is_empty())
-+            .map(|line| -> serde_json::Value { serde_json::from_str(line).expect("padding vector") })
++            .map(|line| -> serde_json::Value {
++                serde_json::from_str(line).expect("padding vector")
++            })
 +            .find(|vector| vector["case"] == serde_json::json!(case))
 +            .unwrap_or_else(|| panic!("committed padding vectors are missing {case}"))
 +    }
@@ -350,7 +392,9 @@ index df22199..a2da41c 100644
 +    /// otherwise a row could report a rejection with an empty reason and match.
 +    fn error_agrees_with_acceptance(row: &serde_json::Value) -> Result<(), String> {
 +        let accepted = row["accepted"].as_bool().expect("accepted is a Go bool");
-+        let error_text = row["error_text"].as_str().expect("error_text is a Go string");
++        let error_text = row["error_text"]
++            .as_str()
++            .expect("error_text is a Go string");
 +        if error_text.is_empty() == accepted {
 +            Ok(())
 +        } else {
@@ -409,7 +453,8 @@ index df22199..a2da41c 100644
 +            let mut vector = frozen_vector(row.case);
 +            vector["expected"][field] = value;
 +            assert!(
-+                compare_observation(row.case, &frozen, &observation_of(&vector["expected"])).is_err(),
++                compare_observation(row.case, &frozen, &observation_of(&vector["expected"]))
++                    .is_err(),
 +                "vector mutation {}.{field} was not detected",
 +                row.case
 +            );
@@ -438,7 +483,9 @@ index df22199..a2da41c 100644
 +                .lines()
 +                .filter(|line| !line.trim().is_empty())
 +                .filter_map(|line| line.strip_prefix(prefix))
-+                .map(|line| -> serde_json::Value { serde_json::from_str(line).expect("observer row") })
++                .map(|line| -> serde_json::Value {
++                    serde_json::from_str(line).expect("observer row")
++                })
 +                .collect()
 +        };
 +        let vectors = read_rows(
@@ -504,11 +551,7 @@ index df22199..a2da41c 100644
 +        for (case, field, value) in [
 +            ("pad_zero_count", "accepted", serde_json::json!(true)),
 +            ("pad_zero_count", "padding_size", serde_json::json!(1)),
-+            (
-+                "payload_with_padding",
-+                "payload_hex",
-+                serde_json::json!(""),
-+            ),
++            ("payload_with_padding", "payload_hex", serde_json::json!("")),
 +            ("payload_with_padding", "padding_size", serde_json::json!(0)),
 +        ] {
 +            let table = FROZEN_PADDING_ADMISSION
@@ -522,9 +565,10 @@ index df22199..a2da41c 100644
 +            let mut broken = row.clone();
 +            broken[field] = value;
 +            assert!(
-+                compare_observation(case, &Observation::from(table), &observation_of(&broken)).is_err(),
++                compare_observation(case, &Observation::from(table), &observation_of(&broken))
++                    .is_err(),
 +                "actual-row mutation {case}.{field} was not detected"
 +            );
 +        }
-     }
++    }
  }

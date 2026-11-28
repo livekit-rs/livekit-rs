@@ -241,6 +241,11 @@ pub(crate) struct ForwardingPacketMeta(pub Option<ForwardingPacket>);
 #[derive(Clone, Debug)]
 pub(crate) struct ForwardingPacketCohort(pub Vec<ForwardingPacket>);
 
+/// Authenticated RFC 2198 block exactly as it arrived on the wire, before `un_red`
+/// narrowed the payload to the primary. Retained out of band for RED pass-through.
+#[derive(Clone, Debug)]
+pub(crate) struct RedWirePayload(pub Arc<[u8]>);
+
 /// Video or audio data from the remote peer.
 ///
 /// This is obtained via [`Event::MediaData`][crate::Event::MediaData].
@@ -335,6 +340,17 @@ impl MediaData {
             .user_values
             .get::<ForwardingPacketCohort>()
             .map_or(&[], |cohort| cohort.0.as_slice())
+    }
+
+    /// The RFC 2198 block this frame arrived in, byte for byte, or `None` when the frame
+    /// was not RED-wrapped on the wire (or retention is off). A forwarder writes this at
+    /// the negotiated RED payload type to avoid re-synthesizing redundancy the publisher
+    /// did not send.
+    pub fn red_wire(&self) -> Option<Arc<[u8]>> {
+        self.ext_vals
+            .user_values
+            .get::<RedWirePayload>()
+            .map(|value| value.0.clone())
     }
 
     /// Return true if MediaData is keyframe independently of Codec

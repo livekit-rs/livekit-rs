@@ -1360,11 +1360,21 @@ fn update_media(
     }
 
     // Narrowing/ordering of of PT
+    let mut red_pts: Vec<Pt> = vec![];
     let pts: Vec<Pt> = m
         .rtp_params()
         .into_iter()
-        .filter_map(|p| config.sdp_match_remote(p, m.direction()))
+        .filter_map(|p| {
+            let matched = config.sdp_match_remote(p, m.direction())?;
+            // A `red` mapping parses onto the codec it protects, so the RED type a peer lists is
+            // only visible here; remote_pts itself cannot carry it.
+            if let Some(red) = p.red() {
+                red_pts.push(red);
+            }
+            Some(matched)
+        })
         .collect();
+    media.set_remote_red_pts(red_pts);
     media.set_remote_pts(pts);
 
     let mut remote_extmap = ExtensionMap::empty();

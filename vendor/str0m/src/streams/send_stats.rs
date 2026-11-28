@@ -84,6 +84,12 @@ impl StreamTxStats {
         self.firs += 1;
     }
 
+    /// True once a Receiver Report has arrived for this stream. LiveKit's probe
+    /// padding refuses output until the remote proves it knows the SSRC.
+    pub(crate) fn has_receiver_report(&self) -> bool {
+        self.last_rr.is_some()
+    }
+
     pub fn update_with_rr(&mut self, now: Instant, last_sent_seq_no: SeqNo, r: ReceptionReport) {
         let ntp_time = now.to_ntp_duration();
         let rtt = calculate_rtt(ntp_time, r.last_sr_delay, r.last_sr_time);
