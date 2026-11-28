@@ -32,6 +32,34 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Tests
         run: cargo test --locked --workspace --no-fail-fast
+      - name: Vendored str0m unit tests
+        # always(): a red `Tests` step must not hide this verdict. The step stays
+        # fatal, so its own failure still reddens the job.
+        # The product workspace excludes vendor/*, so the 136 `#[test]` functions
+        # the str0m patch chain adds inside the package never compile there. The
+        # workspace root at vendor/Cargo.toml runs them in place and patches
+        # `is`, `dimpl` and `sctp-proto` the way the product does.
+        # `--lib` only: the fork's `tests/data/*.pcap` fixtures are not committed,
+        # so its 77 integration targets cannot build. `rust-crypto` matches
+        # crates/rtc-crypto, the provider the product build injects into str0m;
+        # without any provider 48 of the failures are one crypto/mod.rs panic.
+        if: always()
+        run: |
+          CARGO_TARGET_DIR=target/vendor-str0m cargo test --locked --manifest-path vendor/str0m/Cargo.toml --lib \
+            --no-default-features --features rust-crypto -- \
+            --skip packet::red::test::red_sender_labels_only_wrapped_bytes_with_the_red_payload_type
+      - name: Vendored str0m red-encoder skip still covers a real defect
+        # always(): a red `Tests` step must not hide this verdict. The step stays
+        # fatal, so its own failure still reddens the job.
+        # The `--skip` above is a scoped known-red, not a permanent carve-out:
+        # the patch that added this test also asserts, two lines earlier, a frame
+        # that contradicts it, so the test has never been green. This step fails
+        # once the assertion is fixed, forcing the `--skip` to be removed.
+        if: always()
+        run: |
+          ! CARGO_TARGET_DIR=target/vendor-str0m cargo test --locked --manifest-path vendor/str0m/Cargo.toml --lib \
+            --no-default-features --features rust-crypto -- \
+            --exact packet::red::test::red_sender_labels_only_wrapped_bytes_with_the_red_payload_type
       - name: WebSocket close policy feature-off and feature-on conformance
         # always(): a red `Tests` step must not hide this verdict. The step stays
         # fatal, so its own failure still reddens the job.

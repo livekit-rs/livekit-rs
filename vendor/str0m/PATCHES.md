@@ -1180,6 +1180,48 @@ one counter. The probe
 binding, the padding-admission parser gate and the ALR acknowledgement feed stay class B, because
 the decision runs on `pub(crate)` state before any public event can name it.
 
+## Unit tests inside the patch chain now run in CI (C109-f6)
+
+47 patches add 136 `#[test]` functions *inside* the `str0m` package (`src/**`,
+not `tests/`). The product workspace excludes every `vendor/*` path, so
+`cargo test --workspace` never compiled them and the CI quality chain said
+nothing about them. They now run through the workspace root at
+`vendor/Cargo.toml`, which is the only shape that resolves `is`, `dimpl` and
+`sctp-proto` to the patched forks the str0m sources require: against the
+registry releases the library itself does not build - 17 `no method named …`
+errors over 15 distinct methods, e.g. `Association::restart_generation`,
+`TransportConfig::with_min_cwnd`, `IceAgent::set_sped_enabled`.
+Running cargo directly on `vendor/str0m` compiles the crate but picks the
+registry graph, and copying the package elsewhere breaks
+`src/rtp/header.rs`, whose `include_str!("../../../../tests/oracles/…")` needs
+the package at exactly this depth. Measured on `aba0848`:
+
+```
+CARGO_TARGET_DIR=target/vendor-str0m cargo test --locked \
+  --manifest-path vendor/str0m/Cargo.toml --lib \
+  --no-default-features --features rust-crypto
+test result: FAILED. 884 passed; 1 failed; 5 ignored; 0 measured; finished in 4.76s
+```
+
+`rust-crypto` is the provider `crates/rtc-crypto` injects into str0m; without
+any provider 48 of the 49 failures are one `crypto/mod.rs:53` panic, not
+136 real verdicts. `_internal_test_exports` changes nothing at this tier
+(884/5/1 either way), and `--lib` is forced: the fork's own `tests/data/*.pcap`
+fixtures are not committed here, so 7 of its 77 integration targets cannot build
+at all.
+
+The one red is `packet::red::test::red_sender_labels_only_wrapped_bytes_with_the_red_payload_type`,
+added by patch 69. It asserts `bytes[0] & 0x80 == 0x80` two lines before
+asserting the frame carries only the primary payload, and the encoder it
+documents legitimately emits the redundant block *first* (`blocks.reverse()`
+in `wrap`), so the expected `&[0x88; 40]` is really `[0x77; 40] ++ [0x88; 40]`.
+`git log -- src/packet/red.rs` shows only `00f0d93` (C73) and the initial
+import: the assertion has never been executed, which is why the gate ships as a
+scoped `--skip` plus an inverted `--exact` canary step rather than a silent
+exemption. Fixing the assertion means editing vendor source, which moves the
+frozen candidate and re-binds the 72-patch reconstruction digests, so it is
+filed as an open item instead of being folded into this gate.
+
 ## Declared patch index (C109-e2)
 
 Every patch the chain declares, in reconstruction order, with the `SOURCE.json` key that

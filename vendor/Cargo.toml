@@ -1,0 +1,47 @@
+# Workspace root that makes the vendored str0m fork testable in place.
+#
+# The product workspace at the repository root lists every vendor/* fork in
+# `exclude`, so `cargo test --workspace` never compiles the `#[test]` functions
+# the str0m patch chain adds inside the package itself. Running cargo directly
+# on vendor/str0m does build them, but resolves `is`, `dimpl` and `sctp-proto`
+# from crates.io, and the patched str0m sources call methods those registry
+# releases do not have.
+#
+# Declaring the workspace one level above the package patches in the same forks
+# the product uses, and keeps str0m at the path its own tests assume:
+# `src/rtp/header.rs` includes `tests/oracles/pion-rtp-padding/cases.jsonl`
+# through `../../../../`, which only resolves while the package sits at
+# vendor/str0m inside this repository.
+#
+# No file under vendor/str0m is touched by this manifest, so the patch chain and
+# its reconstruction digests stay byte-identical. Every other fork stays listed
+# in `exclude`, including the path targets of the patches below: a fork that is
+# neither member nor excluded can no longer be built on its own, because cargo
+# stops at this manifest and reports "current package believes it's in a
+# workspace when it's not" (measured on vendor/sctp-proto).
+[workspace]
+resolver = "3"
+members = ["str0m"]
+exclude = [
+    "axum",
+    "h3",
+    "h3-quinn",
+    "dimpl",
+    "hyper",
+    "is",
+    "prost-derive",
+    "prost-reflect",
+    "quinn-proto",
+    "redis",
+    "rpprof",
+    "rustls",
+    "rustls-webpki",
+    "sctp-proto",
+    "smallvec-wrapper",
+    "tungstenite",
+]
+
+[patch.crates-io]
+dimpl = { path = "dimpl" }
+is = { path = "is" }
+sctp-proto = { path = "sctp-proto" }
