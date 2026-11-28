@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, isAbsolute } from 'node:path';
@@ -10,6 +11,7 @@ import { SignalRequest, SignalResponse, WrappedJoinRequest, JoinRequest } from '
 import { gunzipSync } from 'node:zlib';
 import { normalizer } from './normalize.mjs';
 import { TurnUdpProxy } from './network-proxy.mjs';
+import { ACCURACY_SETTLE_US } from './bandwidth-timeline-gate.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -78,7 +80,70 @@ async function metricsSnapshot() {
     const match = /^(livekit_(?:estimated_capacity_bps|allocated_bps|allocation_overshoot_bps|paused_video_tracks|probe_attempts|probe_successes|probe_failures|congestion_events))(?:\{[^}]*\})? (\d+)$/.exec(line);
     if (match) values[match[1]] = (values[match[1]] || 0) + Number(match[2]);
   }
-  return values;
+  // An empty object is truthy, and returning one made every gauge arm evaluate `undefined < undefined`
+  // on a server that publishes no allocator gauges (the pinned Go exposes none of these names).
+  // Absent gauges must read as absent so the caller can use the server's own records instead.
+  return Object.keys(values).length ? values : undefined;
+}
+
+// The 18s congestion window kept audio flowing on both implementations (measured deltas of 180
+// and 184 samples), so a window that delivers far fewer events means the real-time audio path
+// stalled. The floor sits well below the measurement and far above silence.
+const AUDIO_CONTINUITY_FLOOR = 100;
+
+// A congestion response has to cut the allocation, not merely change a label. The filed receipts of
+// this profile separate cleanly: an allocator that responds drops to 0.10 (2,720,253 -> 270,892) and
+// 0.49 (2,203,442 -> 1,071,466) of its own baseline, while an allocator that ignores the bottleneck
+// never goes below 1.07 of it (frozen 200Mbps pre-fix run: 3,219,418 -> 3,442,914; congestion control
+// switched off: 3,663,759 -> 3,901,836). The ratio sits between the two populations.
+const ALLOCATOR_CUT_RATIO = 0.7;
+
+// The proxy rates this profile applies, named once so the wall, the rate trace, the recovery
+// assertion and the gauge gate cannot drift apart.
+const CONGESTED_BOTTLENECK_BPS = 120000;
+const OPEN_BOTTLENECK_BPS = 4000000;
+
+async function metricsSeries(durationMs, intervalMs) {
+  const samples = [];
+  const until = Date.now() + durationMs;
+  while (Date.now() < until) {
+    const metrics = await metricsSnapshot();
+    if (metrics) samples.push({ atMs: Date.now(), ...metrics });
+    const wait = until - Date.now();
+    if (wait > 0) await sleep(Math.min(intervalMs, wait));
+  }
+  return samples;
+}
+
+const allocatorTargetRank = layer => ((layer?.Spatial ?? -1) * 100) + (layer?.Temporal ?? -1);
+
+// The allocator response is a server-side fact, and the pinned Go oracle reports it only in its
+// stream-allocator log records (`stream allocation: <mode>` carrying the `allocation` object; the
+// requested-bandwidth key is spelled `BandwidthRquested` upstream). INTEROP_SERVER_LOG points at
+// the log of the server this leg is bound to so the same gate can be evaluated on the Go oracle.
+function allocatorLogRecords(logPath) {
+  if (!logPath) return undefined;
+  let text;
+  try {
+    text = readFileSync(logPath, 'utf8');
+  } catch (error) {
+    return { error: String(error) };
+  }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line.includes('stream allocation:')) continue;
+    const at = Date.parse(/^(\S+)/.exec(line)?.[1] ?? '');
+    const record = /"allocation": (\{.*?\}), "lastAllocation"/.exec(line);
+    if (!Number.isFinite(at) || !record) continue;
+    try {
+      const participant = /"participant": "([^"]+)"/.exec(line)?.[1];
+      const track = /"trackID": "([^"]+)"/.exec(line)?.[1];
+      rows.push({ atMs: at, mode: /stream allocation: (\S+)/.exec(line)[1], participant, track, ...JSON.parse(record[1]) });
+    } catch {
+      /* a truncated debug line is not evidence */
+    }
+  }
+  return rows;
 }
 
 function videoBitrateHints(sdp) {
@@ -309,7 +374,10 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
     const participants = await api.listParticipants(currentRoom);
     assert.equal(participants.length, 2);
     const networkResults = [];
-    evidence.pendingNetworkResults = networkResults;
+    // Filed under two names: the pending alias is dropped when the run completes, so the phase rows
+    // (client signals, gauge windows, recovery metrics) survive into the evidence of a green leg too,
+    // while a leg that throws keeps them under the pending name for the failure dump.
+    evidence.pendingNetworkResults = evidence.networkResults = networkResults;
     if (networkProxy) {
       const bandwidthPathsVerifiedAtUs = bandwidthAccuracy ? Math.ceil(performance.now() * 1000) : undefined;
       assert.ok(networkProxy.stats().clients >= 2, 'TURN traffic bypassed the bottleneck proxy');
@@ -337,29 +405,136 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
       networkResults.push({ phase: 'baseline', reports: before, metrics: initialMetrics, proxy: phaseStartStats, status: 'PASS' });
       networkPhase = 'constrained';
       const constraintRequestedUs = bandwidthAccuracy ? Math.floor(performance.now() * 1000) : undefined;
-      networkProxy.setBandwidth(120000);
+      const constraintWallMs = Date.now();
+      networkProxy.setBandwidth(CONGESTED_BOTTLENECK_BPS);
       if (bandwidthAccuracy) {
         const settledByUs = Math.ceil(performance.now() * 1000);
         // Conservative rate history: lower capacity takes effect no later than
         // completion; retain the old higher bound through this call interval.
-        bandwidthRateTrace.push({ run, requestedAtUs: constraintRequestedUs, atUs: settledByUs, settledByUs, bpsPerClient: 120000 });
+        bandwidthRateTrace.push({ run, requestedAtUs: constraintRequestedUs, atUs: settledByUs, settledByUs, bpsPerClient: CONGESTED_BOTTLENECK_BPS });
       }
-      await sleep(18000);
+      // Sample the allocator gauges across the whole window instead of reading them once at its end:
+      // in the filed post-fix run the allocation cratered to 270,892 bps and then a successful probe
+      // re-expanded the commit to 2,475,607 bps before the window closed, so an end-of-window reading
+      // can miss a response that actually happened.
+      const congestionWindowMs = 18000;
+      const windowSamples = await metricsSeries(congestionWindowMs, 500);
       const constrained = await Promise.all(pages.map(page => page.evaluate(() => interop.report())));
+      const congestedAt = Date.now();
       const congestedStats = networkProxy.stats();
       const constrainedMetrics = await metricsSnapshot();
+      // File the congested window before asserting: a failing leg has to show
+      // which arm (pause event vs layer reduction) each client actually saw.
+      const congestedRow = { phase: 'congested', metrics: constrainedMetrics, initialMetrics, proxy: congestedStats, reports: constrained, status: 'PRE-ASSERT' };
+      networkResults.push(congestedRow);
+      congestedRow.signals = constrained.map((report, i) => ({
+        client: i,
+        paused: report.events.slice(before[i].events.length).some(e => e[0] === 'stream-state' && e[2] === 'paused'),
+        lower: report.videoDimensions.slice(-8).some(f => f.width < (before[i].videoDimensions.at(-1)?.width || 0)),
+        streamStateEvents: report.events.slice(before[i].events.length).filter(e => e[0] === 'stream-state'),
+        baselineLastWidth: before[i].videoDimensions.at(-1)?.width ?? null,
+        recentWidths: report.videoDimensions.slice(-8).map(f => f.width),
+        framesGrowth: report.videoFrames - before[i].videoFrames,
+        audioGrowth: report.audibleSamples - before[i].audibleSamples,
+      }));
       assert.ok(congestedStats.droppedPackets > phaseStartStats.droppedPackets, 'bottleneck did not actually drop queued datagrams');
-      for (let i = 0; i < 2; i++) {
-        const paused = constrained[i].events.slice(before[i].events.length).some(e => e[0] === 'stream-state' && e[2] === 'paused');
-        const lower = constrained[i].videoDimensions.slice(-8).some(f => f.width < (before[i].videoDimensions.at(-1)?.width || 0));
-        assert.ok(paused || lower, `client ${i} had no SFU pause/layer reduction under congestion`);
+      const armFailures = congestedRow.signals.filter(signal => !signal.paused && !signal.lower).map(signal => signal.client);
+      const audioGaps = congestedRow.signals.filter(signal => signal.audioGrowth < AUDIO_CONTINUITY_FLOOR).map(signal => signal.client);
+      // The drop counter above proves the bottleneck was real, so the SFU reaction may be read
+      // from three sources and only some of them exist per server build:
+      //  - clientArm: Chrome reports a stream pause or a narrower frame;
+      //  - gaugeArm: the Rust allocator published a cut (allocated down against its own baseline,
+      //    capacity down, congestion events counted);
+      //  - allocatorLogArm: the pinned Go oracle exports none of those gauge names and records the
+      //    same decision only as `stream allocation` log lines.
+      // The client arm cannot be the only gate: the unmodified official v1.13.10 binary leaves both
+      // subscribers at 960x544 with no stream-state event under this same profile, which is filed
+      // in livekit-docs as server/evidence/2026-10-23/official-congestion-baseline.json. A leg that
+      // only read the client arm would be asserting behaviour the reference implementation lacks.
+      const allocatorLog = allocatorLogRecords(process.env.INTEROP_SERVER_LOG);
+      const peakRequested = new Map();
+      const peakTarget = new Map();
+      const allocatorWindow = [];
+      for (const record of Array.isArray(allocatorLog) ? allocatorLog : []) {
+        const key = `${record.participant}/${record.track}`;
+        if (record.atMs < constraintWallMs) {
+          peakRequested.set(key, Math.max(peakRequested.get(key) ?? 0, record.BandwidthRquested ?? 0));
+          peakTarget.set(key, Math.max(peakTarget.get(key) ?? -1, allocatorTargetRank(record.TargetLayer)));
+        } else if (record.atMs <= congestedAt) {
+          allocatorWindow.push({ key, atMs: record.atMs, mode: record.mode, deficient: record.IsDeficient === true,
+            requested: record.BandwidthRquested ?? 0, needed: record.BandwidthNeeded ?? 0, target: record.TargetLayer ?? null,
+            peakRequestedBefore: peakRequested.get(key) ?? 0, peakTargetBefore: peakTarget.get(key) ?? -1 });
+        }
       }
-      networkResults.push({ phase: 'congested', metrics: constrainedMetrics, initialMetrics, proxy: congestedStats, reports: constrained, status: 'PASS' });
+      // `IsDeficient` with `BandwidthNeeded` above `BandwidthRquested` is the allocator's own record of
+      // holding back below what the stream wants; every pre-constraint record of the paired Go run is
+      // deficient=false, so an uncongested allocator does not produce it. The withholding has to be
+      // visible as a smaller request or a lower target layer than that stream had before the wall.
+      const allocatorLogArm = allocatorWindow.some(row => row.deficient && row.needed > row.requested
+        && ((row.peakRequestedBefore > 0 && row.requested < row.peakRequestedBefore)
+          || (row.peakTargetBefore >= 0 && allocatorTargetRank(row.target) < row.peakTargetBefore)));
+      const allocatedWindow = windowSamples.map(sample => sample.livekit_allocated_bps).filter(Number.isFinite);
+      const capacityWindow = windowSamples.map(sample => sample.livekit_estimated_capacity_bps).filter(Number.isFinite);
+      // The estimate claim cannot be relative to the pre-wall snapshot: the estimator is seeded
+      // optimistically (100,000,000 per subscriber, so 200,000,000 aggregate in every filed run of
+      // this profile), and `min < baseline` is then true for a server that never saw the wall - the
+      // filed pre-fix receipt reads 200,000,000 -> 100,392,978 (and 392,978 at its lowest) while the
+      // allocation never cut. The claim has to be absolute against the rate the wall removed: the
+      // server gauge sums each subscriber connection's committed capacity
+      // (crates/rtc-runtime/src/manager.rs), so a majority of qualified snapshots has to sit at or
+      // below the configured open-path aggregate times the verified proxy paths. One dip is not
+      // enough because connection teardown moves the sum on its own, and the qualification window is
+      // the same predeclared 5 s history the allocation-horizon gate uses, so the estimator is not
+      // asked to react inside its own transition blind spot. A gauge that is absent or reads zero
+      // (the congestion-control-off control reports 0 on every sample) proves nothing, so every
+      // qualified snapshot has to carry a real estimate.
+      const proxyPaths = reports.reduce((count, report) => count + report.transports.length, 0);
+      const capacityUnimpairedBps = OPEN_BOTTLENECK_BPS * proxyPaths;
+      const capacityQualified = windowSamples
+        .filter(sample => sample.atMs >= constraintWallMs + ACCURACY_SETTLE_US / 1000)
+        .map(sample => sample.livekit_estimated_capacity_bps).filter(Number.isFinite);
+      const gaugeWindow = allocatedWindow.length >= 4 && initialMetrics ? {
+        windowMs: congestionWindowMs, samples: windowSamples.length,
+        allocatedBaseline: initialMetrics.livekit_allocated_bps, allocatedMin: Math.min(...allocatedWindow),
+        allocatedAtWindowEnd: constrainedMetrics?.livekit_allocated_bps ?? null,
+        capacityBaseline: initialMetrics.livekit_estimated_capacity_bps,
+        capacityWindowSeries: capacityWindow, capacityQualifiedSeries: capacityQualified,
+        capacityQualifiedSamples: capacityQualified.length,
+        capacityPositiveSamples: capacityQualified.filter(value => value > 0).length,
+        capacityAtOrBelowUnimpairedSamples: capacityQualified.filter(value => value <= capacityUnimpairedBps).length,
+        proxyPaths, capacityUnimpairedBps,
+        pausedVideoTracksMax: Math.max(...windowSamples.map(sample => sample.livekit_paused_video_tracks ?? 0)),
+        congestionEvents: constrainedMetrics?.livekit_congestion_events ?? 0,
+      } : undefined;
+      const gaugeArm = !!gaugeWindow
+        && gaugeWindow.allocatedMin > 0
+        && gaugeWindow.allocatedMin <= gaugeWindow.allocatedBaseline * ALLOCATOR_CUT_RATIO
+        && gaugeWindow.capacityQualifiedSamples >= 4
+        && gaugeWindow.capacityPositiveSamples === gaugeWindow.capacityQualifiedSamples
+        && gaugeWindow.capacityAtOrBelowUnimpairedSamples * 2 >= gaugeWindow.capacityQualifiedSamples
+        && gaugeWindow.congestionEvents > (initialMetrics.livekit_congestion_events ?? 0);
+      const clientArm = armFailures.length === 0;
+      congestedRow.response = { clientArm, clientsWithoutSignal: armFailures, audioArm: audioGaps.length === 0,
+        clientsWithAudioGap: audioGaps, audioContinuityFloor: AUDIO_CONTINUITY_FLOOR, gaugeArm, allocatorLogArm,
+        allocatorCutRatio: ALLOCATOR_CUT_RATIO, allocatorLogSource: process.env.INTEROP_SERVER_LOG ?? null,
+        allocatorLogError: allocatorLog?.error ?? null, allocatorWindow, constraintWallMs, congestedAt,
+        gaugeWindow: gaugeWindow ?? { note: `fewer than four in-window allocator gauge samples (${windowSamples.length})` },
+        gauges: { baseline: initialMetrics, constrained: constrainedMetrics } };
+      assert.ok(audioGaps.length === 0, `audio was not continuous through the congestion window for client(s) ${audioGaps.join(',')}: ${JSON.stringify(congestedRow.signals)}`);
+      // INTEROP_RECORD_ONLY keeps the response gate as data instead of an assertion so the run can
+      // reach the recovery phase; the CI leg still asserts.
+      if (!process.env.INTEROP_RECORD_ONLY) {
+        assert.ok(clientArm || gaugeArm || allocatorLogArm,
+          `SFU showed no congestion response under the ${CONGESTED_BOTTLENECK_BPS}bps bottleneck: no client pause/layer reduction (clients ${armFailures.join(',')}), `
+          + `no allocator gauge cut across the window (${JSON.stringify(congestedRow.response.gaugeWindow)}), `
+          + `no deficient in-window allocator record withholding bandwidth or layers (${JSON.stringify(allocatorWindow)})`);
+      }
+      congestedRow.status = clientArm ? 'PASS' : (gaugeArm || allocatorLogArm ? 'PASS-SERVER-SIGNAL-ONLY' : `NO-SERVER-RESPONSE:${armFailures.join(',')}`);
       networkPhase = 'recovering';
       const restoreRequestedUs = bandwidthAccuracy ? Math.floor(performance.now() * 1000) : undefined;
-      networkProxy.setBandwidth(4000000);
+      networkProxy.setBandwidth(OPEN_BOTTLENECK_BPS);
       if (bandwidthAccuracy) bandwidthRateTrace.push({ run, requestedAtUs: restoreRequestedUs, atUs: restoreRequestedUs,
-        settledByUs: Math.ceil(performance.now() * 1000), bpsPerClient: 4000000 });
+        settledByUs: Math.ceil(performance.now() * 1000), bpsPerClient: OPEN_BOTTLENECK_BPS });
       await Promise.all(pages.map((page, i) => page.waitForFunction(({ videoFrames, audioSamples, minWidth }) => {
         const report = interop.report();
         return report.videoFrames >= videoFrames + 20 && report.audibleSamples >= audioSamples + 5
@@ -377,7 +552,9 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
       }
       const recoveredMetrics = await metricsSnapshot();
       if (initialMetrics && constrainedMetrics && recoveredMetrics) {
-        assert.ok(constrainedMetrics.livekit_estimated_capacity_bps < initialMetrics.livekit_estimated_capacity_bps, 'BWE did not fall');
+        assert.ok(constrainedMetrics.livekit_estimated_capacity_bps > 0
+          && constrainedMetrics.livekit_estimated_capacity_bps <= capacityUnimpairedBps,
+          `BWE did not fall under the wall: ${constrainedMetrics.livekit_estimated_capacity_bps}bps is not below the unimpaired aggregate ${capacityUnimpairedBps}bps (${OPEN_BOTTLENECK_BPS} x ${proxyPaths} paths)`);
         assert.ok(recoveredMetrics.livekit_estimated_capacity_bps > constrainedMetrics.livekit_estimated_capacity_bps, 'BWE did not recover');
       }
       networkResults.push({ phase: 'recovered', metrics: recoveredMetrics, proxy: networkProxy.stats(), reports: stableAfter, status: 'PASS' });
@@ -385,7 +562,7 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
         await networkMonitoring;
         const result = evaluateBudgetTimeline({ samples: networkTimeline.filter(sample => sample.run === run),
           rateChanges: bandwidthRateTrace.filter(change => change.run === run),
-          expectedClients: reports.reduce((count, report) => count + report.transports.length, 0),
+          expectedClients: proxyPaths,
           pathIdentityVerifiedAtUs: bandwidthPathsVerifiedAtUs });
         evidence.bandwidthAccuracy.runs.push({ run, ...result });
         evidence.bandwidthAccuracy.status = result.status;
@@ -554,7 +731,7 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
       clusterResults.resources = { closedPeerConnections: closed.map(row => row.peers.length), audioContextsClosed: true, samplingTimersReleased: true, bothEntriesEmpty: true };
     }
     await Promise.all(contexts.map(c => c.close()));
-    if (networkProxy) { await networkProxy.resetClients(); networkProxy.setBandwidth(4000000); }
+    if (networkProxy) { await networkProxy.resetClients(); networkProxy.setBandwidth(OPEN_BOTTLENECK_BPS); }
     try {
       await api.deleteRoom(currentRoom);
       if (clusterMediaProbe) clusterResults.resources.finalDelete = { status: 200 };
@@ -579,6 +756,7 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
   if (bandwidthAccuracy) evidence.bandwidthAccuracy.status = 'PASS';
 } catch (error) {
   evidence.status = 'FAIL'; evidence.error = String(error.stack || error);
+  delete evidence.pendingNetworkResults;
   if (proxyClassTrace?.run !== undefined) evidence.proxyClassTrace.runs.push(proxyClassTrace.endRun());
   if (bandwidthAccuracy && ['RUNNING', 'PASS'].includes(evidence.bandwidthAccuracy.status)) evidence.bandwidthAccuracy.status = 'INCOMPLETE';
   evidence.failedSignals = activeSignals; evidence.failedProfiles = activeProfiles;
