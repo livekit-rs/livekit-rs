@@ -1526,8 +1526,9 @@ impl MediaEngine {
     ///
     /// Frame mode narrows the payload to the primary codec before `MediaData` is
     /// emitted, and the raw event is pushed ahead of that unwrap, so the block is
-    /// named by RTP timestamp. A block is only ever read for a timestamp that
-    /// produced a frame, which is the same validity condition the unwrap applies.
+    /// read back through the sequence range of the frame the depacketizer produced.
+    /// Timestamp alone is not the validity condition: a packet the unwrap refused can
+    /// share one with a frame, and a retransmission carries the same timestamp twice.
     fn note_wire_red_chain(
         &mut self,
         tid: TransportId,
@@ -1568,7 +1569,7 @@ impl MediaEngine {
             .and_then(|ui| self.ups.get_mut(*ui))
             .filter(|up| !up.stopped_reported)
         {
-            up.note_red_chain(header.timestamp, payload);
+            up.note_red_chain(header.timestamp, header.sequence_number, payload);
         }
     }
 

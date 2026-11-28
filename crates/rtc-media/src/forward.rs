@@ -835,7 +835,7 @@ impl MediaEngine {
                 // the subscriber gets the publisher's own redundancy. Re-synthesizing it
                 // here would charge the down budget for blocks that were never published.
                 let chain = (!is_video && !d.encrypted)
-                    .then(|| up.red_chain(data.time.numer() as u32))
+                    .then(|| up.red_chain(data.time.numer() as u32, seq.0 as u16, seq.1 as u16))
                     .flatten();
                 let red_wire: Option<(Pt, std::sync::Arc<[u8]>)> = match chain.zip(
                     writer

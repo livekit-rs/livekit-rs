@@ -7105,6 +7105,583 @@ fn red_publication_falls_back_to_the_primary_for_a_subscriber_without_red() {
     }
 }
 
+/// A marker no legitimate frame uses. Its appearance on the egress names a chain the forwarder
+/// invented for a frame the publisher never sent as a chain.
+const POISON_MARKER: u8 = 0xFE;
+
+/// A structurally valid RFC 2198 block whose *primary* carries a foreign payload type. str0m parses
+/// the headers and then drops the packet (`un_red` refuses a foreign primary PT), so no frame is
+/// formed from it, while the raw packet tap has already seen the authenticated bytes.
+fn refused_red_chain(previous: u8) -> Vec<u8> {
+    let chain = str0m::rtp::RedEncoder::encode(
+        0,
+        &opus_frame(POISON_MARKER),
+        &[str0m::rtp::RedundantBlock {
+            pt: 111,
+            timestamp_offset: 480,
+            payload: opus_frame(previous),
+        }],
+    );
+    let blocks = str0m::rtp::RedDecoder::decode(&chain)
+        .expect("the block is structurally valid, only its primary PT is foreign");
+    assert_eq!(
+        blocks
+            .iter()
+            .map(|b| (b.pt, b.is_primary))
+            .collect::<Vec<(u8, bool)>>(),
+        vec![(111, false), (0, true)],
+        "the stimulus must be a chain the depacketizer drops, not one it truncates"
+    );
+    chain
+}
+
+/// Which up-leg collision to create for one RTP timestamp.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum AttributionCase {
+    /// A chain the depacketizer refuses shares its timestamp with a legitimate plain Opus packet.
+    RefusedChainBesidePlain,
+    /// The published chain is retransmitted under a fresh sequence number (NACK shape).
+    RetransmitNewSeq,
+    /// Two different published chains share one timestamp, so only the sequence number tells
+    /// which frame each block belongs to.
+    TwoChainsOneTimestamp,
+}
+
+struct AttributionWire {
+    /// `(egress PT, egress sequence number, payload)` per authenticated audio packet the subscriber
+    /// received, in arrival order.
+    egress: Vec<(u8, u16, Vec<u8>)>,
+    /// `(egress PT, egress sequence number, length)` for every other authenticated packet, which
+    /// must stay empty: an audio m-line has nothing else to send.
+    other: Vec<(u8, u16, usize)>,
+    /// The primary markers the subscriber's own depayloader produced.
+    delivered: Vec<u8>,
+    /// The RTP timestamp the stimulus packets shared.
+    timestamp: u32,
+    /// `(up PT, up sequence number, frame marker, bytes)` per packet the publisher wrote at that
+    /// timestamp, in write order.
+    stimulus: Vec<(u8, u16, u8, Vec<u8>)>,
+    /// The bytes of the chain the depacketizer refused (empty for the other cases).
+    refused: Vec<u8>,
+    /// The marker of the first frame the stimulus timestamp carried.
+    frame: u8,
+}
+
+/// How many ordinary published chains to send before and after the collision, so the assertions can
+/// tell a local mis-binding apart from a broken pass-through.
+const ATTRIBUTION_WARMUP: u64 = 6;
+const ATTRIBUTION_TAIL: u64 = 4;
+
+/// One publisher write on the negotiated audio stream, at a chosen sequence number.
+fn write_up_audio(
+    client: &mut Rtc,
+    tx_mid: Mid,
+    pt: str0m::media::Pt,
+    seq: str0m::rtp::SeqNo,
+    timestamp: u32,
+    now: Instant,
+    payload: &[u8],
+) {
+    let mut direct = client.direct_api();
+    let stream = direct
+        .stream_tx_by_mid(tx_mid, None)
+        .expect("the published audio m-line has a sender stream");
+    stream.write_rtp(str0m::rtp::RtpWrite::new(
+        pt,
+        seq,
+        timestamp,
+        now,
+        payload.to_vec(),
+    ));
+}
+
+/// Real ICE/DTLS/SRTP one-PC audio forwarding in which several inbound packets collide on one RTP
+/// timestamp. This is the only situation where naming a retained chain by timestamp alone could bind
+/// it to the wrong frame, so the publisher's own writes are recorded and returned with the egress.
+fn single_pc_red_attribution(case: AttributionCase) -> AttributionWire {
+    use crate::net::Datagram;
+    use rtc_core::media_api::DownTrackSpec;
+    use rtc_core::model::TrackSettings;
+    use str0m::net::{Protocol, Receive};
+    use str0m::{Candidate, Event, Input, Output};
+
+    let start = Instant::now();
+    let mut engine = engine(start);
+    engine.cfg.audio.active_red_encoding = true;
+    engine.cfg.enabled_codecs.push(CodecSpec {
+        mime: "audio/red".into(),
+        fmtp_line: String::new(),
+    });
+    let packets = PacketQueue::default();
+    engine.out = Box::new(packets.clone());
+    let tid = transport(&mut engine, PcRole::Single, start);
+    let server_addr: std::net::SocketAddr = "127.0.0.1:9031".parse().unwrap();
+    let client_addr: std::net::SocketAddr = "127.0.0.1:9032".parse().unwrap();
+    let t = engine.transports.get_mut(&tid).unwrap();
+    let candidate = t
+        .rtc
+        .add_local_candidate(Candidate::host(server_addr, "udp").unwrap())
+        .unwrap()
+        .clone();
+    t.candidates.push(candidate);
+    let mut client = Rtc::builder()
+        .set_crypto_provider(rtc_crypto::provider().into())
+        .set_dtls_cert(rtc_crypto::dtls_cert().unwrap())
+        .enable_opus(true, true)
+        .enable_raw_packets(true)
+        .build(start);
+    client.add_local_candidate(Candidate::host(client_addr, "udp").unwrap());
+    let tx_mid = published_mid(&offer(&mut engine, &mut client, tid, start, |change| {
+        change.add_media(MediaKind::Audio, Direction::SendOnly, None, None, None);
+    }));
+    let track = TrackSid::from("TR_red_attribution");
+    engine.bind_track(tid, &tx_mid.to_string(), track.clone(), start);
+    engine.subscribe(
+        DownTrackSpec {
+            subscriber: ParticipantSid::from("PA_test"),
+            publisher: ParticipantSid::from("PA_test"),
+            track_sid: track.clone(),
+            stream_id: "PA_test|TR_red_attribution".into(),
+            settings: TrackSettings::default(),
+            adaptive_stream: false,
+        },
+        start,
+    );
+    let mut rx_mid = None;
+    offer(&mut engine, &mut client, tid, start, |change| {
+        rx_mid = Some(change.add_media(MediaKind::Audio, Direction::RecvOnly, None, None, None));
+    });
+    let rx_mid = rx_mid.unwrap();
+
+    let mut egress: Vec<(u8, u16, Vec<u8>)> = vec![];
+    let mut all_egress: Vec<(u8, u16, usize)> = vec![];
+    let mut delivered = vec![];
+    let mut marker: u8 = 0;
+    let mut warm = 0u64;
+    let mut tail = 0u64;
+    let mut stimulus: Vec<(u8, u16, u8, Vec<u8>)> = vec![];
+    let mut stimulus_timestamp = 0u32;
+    let mut refused = vec![];
+    let mut stimulus_done = false;
+    let mut frame_marker = 0u8;
+    let mut previous_marker = 0u8;
+    let mut ticks_since_write = 0u64;
+    let mut last_writes = 0usize;
+
+    for tick in 0..1200u64 {
+        if last_writes == warm as usize + tail as usize + stimulus.len() {
+            ticks_since_write += 1;
+        } else {
+            ticks_since_write = 0;
+            last_writes = warm as usize + tail as usize + stimulus.len();
+        }
+        let now = start + Duration::from_millis(tick * 10);
+        client.handle_input(Input::Timeout(now)).unwrap();
+        if client.is_connected() && !(warm >= ATTRIBUTION_WARMUP && tail >= ATTRIBUTION_TAIL) {
+            let writer = client.writer(tx_mid).unwrap();
+            let opus_pt = writer
+                .payload_params()
+                .find(|p| p.spec().codec == str0m::format::Codec::Opus)
+                .unwrap()
+                .pt();
+            let red_pt = writer
+                .payload_params()
+                .find(|p| p.pt() == opus_pt)
+                .and_then(|p| p.red())
+                .expect("the answer advertises the RED payload type for the published codec");
+            assert_eq!(*red_pt, 63, "the negotiated RED payload type");
+            drop(writer);
+            let timestamp = (tick * 480) as u32;
+            let next_seq = {
+                let mut direct = client.direct_api();
+                direct
+                    .stream_tx_by_mid(tx_mid, None)
+                    .expect("the published audio m-line has a sender stream")
+                    .next_seq_no()
+            };
+            if warm < ATTRIBUTION_WARMUP {
+                write_up_audio(
+                    &mut client,
+                    tx_mid,
+                    red_pt,
+                    next_seq,
+                    timestamp,
+                    now,
+                    &published_red_chain(marker),
+                );
+                marker = marker.wrapping_add(1);
+                warm += 1;
+            } else if !stimulus_done {
+                stimulus_done = true;
+                stimulus_timestamp = timestamp;
+                previous_marker = marker.wrapping_sub(1);
+                frame_marker = marker;
+                match case {
+                    // The refused chain is recorded by the raw tap but forms no frame; the frame at
+                    // this timestamp comes from the plain Opus packet written right after it.
+                    AttributionCase::RefusedChainBesidePlain => {
+                        refused = refused_red_chain(previous_marker);
+                        write_up_audio(
+                            &mut client,
+                            tx_mid,
+                            red_pt,
+                            next_seq,
+                            timestamp,
+                            now,
+                            &refused,
+                        );
+                        stimulus.push((*red_pt, *next_seq as u16, POISON_MARKER, refused.clone()));
+                        let plain = opus_frame(marker);
+                        let plain_seq = {
+                            let mut direct = client.direct_api();
+                            direct
+                                .stream_tx_by_mid(tx_mid, None)
+                                .expect("sender stream")
+                                .next_seq_no()
+                        };
+                        write_up_audio(
+                            &mut client,
+                            tx_mid,
+                            opus_pt,
+                            plain_seq,
+                            timestamp,
+                            now,
+                            &plain,
+                        );
+                        stimulus.push((*opus_pt, *plain_seq as u16, marker, plain.clone()));
+                        marker = marker.wrapping_add(1);
+                    }
+                    AttributionCase::RetransmitNewSeq => {
+                        let chain = published_red_chain(marker);
+                        write_up_audio(
+                            &mut client,
+                            tx_mid,
+                            red_pt,
+                            next_seq,
+                            timestamp,
+                            now,
+                            &chain,
+                        );
+                        stimulus.push((*red_pt, *next_seq as u16, marker, chain.clone()));
+                        let retry = {
+                            let mut direct = client.direct_api();
+                            direct
+                                .stream_tx_by_mid(tx_mid, None)
+                                .expect("sender stream")
+                                .next_seq_no()
+                        };
+                        write_up_audio(&mut client, tx_mid, red_pt, retry, timestamp, now, &chain);
+                        stimulus.push((*red_pt, *retry as u16, marker, chain));
+                        marker = marker.wrapping_add(1);
+                    }
+                    AttributionCase::TwoChainsOneTimestamp => {
+                        let first = published_red_chain(marker);
+                        write_up_audio(
+                            &mut client,
+                            tx_mid,
+                            red_pt,
+                            next_seq,
+                            timestamp,
+                            now,
+                            &first,
+                        );
+                        stimulus.push((*red_pt, *next_seq as u16, marker, first));
+                        let second = published_red_chain(marker.wrapping_add(1));
+                        let second_seq = {
+                            let mut direct = client.direct_api();
+                            direct
+                                .stream_tx_by_mid(tx_mid, None)
+                                .expect("sender stream")
+                                .next_seq_no()
+                        };
+                        write_up_audio(
+                            &mut client,
+                            tx_mid,
+                            red_pt,
+                            second_seq,
+                            timestamp,
+                            now,
+                            &second,
+                        );
+                        stimulus.push((*red_pt, *second_seq as u16, marker + 1, second));
+                        marker = marker.wrapping_add(2);
+                    }
+                }
+            } else {
+                write_up_audio(
+                    &mut client,
+                    tx_mid,
+                    red_pt,
+                    next_seq,
+                    timestamp,
+                    now,
+                    &published_red_chain(marker),
+                );
+                marker = marker.wrapping_add(1);
+                tail += 1;
+            }
+        }
+        loop {
+            match client.poll_output().unwrap() {
+                Output::Transmit(p) => {
+                    engine.handle_datagram(Datagram {
+                        transport: tid,
+                        proto: Proto::Udp,
+                        source: client_addr,
+                        destination: server_addr,
+                        data: &p.contents,
+                        received_at: now,
+                    });
+                }
+                Output::Event(Event::MediaData(d)) if d.mid == rx_mid => {
+                    delivered.push(opus_frame_marker(d.data.as_ref()));
+                }
+                Output::Event(Event::RawPacket(packet)) => {
+                    if let str0m::rtp::RawPacket::RtpRx(header, payload) = &*packet {
+                        let pt = *header.payload_type;
+                        if pt == 63 || pt == 111 {
+                            egress.push((pt, header.sequence_number, payload.to_vec()));
+                        } else {
+                            all_egress.push((pt, header.sequence_number, payload.len()));
+                        }
+                    }
+                }
+                Output::Timeout(_) => break,
+                _ => {}
+            }
+        }
+        engine.handle_timeout(now);
+        let mut engine_events = vec![];
+        engine.drain_events(&mut engine_events);
+        for bytes in packets.0.lock().unwrap().drain(..).collect::<Vec<_>>() {
+            client
+                .handle_input(Input::Receive(
+                    now,
+                    Receive::new(Protocol::Udp, server_addr, client_addr, &bytes).unwrap(),
+                ))
+                .unwrap();
+        }
+        if warm >= ATTRIBUTION_WARMUP
+            && stimulus_done
+            && tail >= ATTRIBUTION_TAIL
+            && ticks_since_write > FLUSH_TICKS
+        {
+            break;
+        }
+    }
+    assert!(
+        stimulus_done,
+        "the attribution stimulus never ran: egress={egress:?}, delivered={delivered:?}"
+    );
+    assert_eq!(
+        (warm, tail),
+        (ATTRIBUTION_WARMUP, ATTRIBUTION_TAIL),
+        "the fixture must complete its warm-up and tail writes for the assertions to compare them"
+    );
+    let _ = previous_marker;
+    AttributionWire {
+        egress,
+        other: all_egress,
+        delivered,
+        timestamp: stimulus_timestamp,
+        stimulus,
+        refused,
+        frame: frame_marker,
+    }
+}
+
+/// Silent ticks after the last publisher write, long enough for the subscriber's own jitter buffer
+/// to release frames held behind a mirrored source gap.
+const FLUSH_TICKS: u64 = 260;
+
+/// The measured egress shape per packet: payload type, sequence number, RFC 2198 block count and the
+/// primary block's marker. Used in assertion messages so a failure names the wire, not a guess.
+fn egress_shape(egress: &[(u8, u16, Vec<u8>)]) -> Vec<(u8, u16, usize, Option<u8>)> {
+    egress
+        .iter()
+        .map(|(pt, seq, payload)| {
+            let blocks = str0m::rtp::RedDecoder::decode(payload).ok();
+            let primary = blocks
+                .as_ref()
+                .and_then(|b| b.last())
+                .map(|b| *b.payload.last().unwrap_or(&0xFF));
+            (*pt, *seq, blocks.map(|b| b.len()).unwrap_or(1), primary)
+        })
+        .collect()
+}
+
+/// The down leg must advance one sequence position per forwarded frame. `refused` is how many
+/// inbound packets at the stimulus timestamp were authenticated but formed no frame; those keep a
+/// gap downstream, the same way a source packet that never arrived does. A verbatim chain write must
+/// never consume a second position, and two frames must never share one.
+fn assert_egress_positions(wire: &AttributionWire, refused: usize) {
+    let skipped: Vec<u16> = wire
+        .egress
+        .windows(2)
+        .filter(|pair| pair[1].1 != pair[0].1.wrapping_add(1))
+        .map(|pair| pair[0].1.wrapping_add(1))
+        .collect();
+    let duplicates: Vec<u16> = wire
+        .egress
+        .windows(2)
+        .filter(|pair| pair[1].1 <= pair[0].1)
+        .map(|pair| pair[1].1)
+        .collect();
+    assert!(
+        duplicates.is_empty(),
+        "the forwarded audio sequence went backwards or reused a position: {duplicates:?},          egress={:?}",
+        egress_shape(&wire.egress)
+    );
+    assert_eq!(
+        skipped.len(),
+        refused,
+        "only the {refused} inbound packet(s) that formed no frame may leave a downstream gap;          measured skips={skipped:?}, egress={:?}",
+        egress_shape(&wire.egress)
+    );
+    assert!(
+        wire.other.is_empty(),
+        "the audio m-line sent packets outside the negotiated audio payload types: {:?}",
+        wire.other
+    );
+}
+
+/// Every egress packet whose primary block carries `marker` must be exactly `expected`: the
+/// publisher's own bytes, not a chain this server rebuilt.
+fn assert_frame_carries_the_published_chain(wire: &AttributionWire, marker: u8, expected: &[u8]) {
+    let primary_marker = |payload: &[u8]| -> Option<u8> {
+        str0m::rtp::RedDecoder::decode(payload)
+            .ok()
+            .and_then(|blocks| blocks.last().map(|p| *p.payload.last().unwrap_or(&0xFF)))
+    };
+    let for_frame: Vec<(u16, &Vec<u8>)> = wire
+        .egress
+        .iter()
+        .filter(|(_, _, payload)| primary_marker(payload) == Some(marker))
+        .map(|(_, seq, payload)| (*seq, payload))
+        .collect();
+    assert!(
+        !for_frame.is_empty(),
+        "frame {marker} never reached the wire: egress={:?}",
+        egress_shape(&wire.egress)
+    );
+    for (seq, payload) in &for_frame {
+        assert_eq!(
+            payload.as_slice(),
+            expected,
+            "sequence {seq} carries frame {marker} as a {}-block chain instead of the {expected:?} \
+             the publisher sent: egress={:?}",
+            str0m::rtp::RedDecoder::decode(payload)
+                .ok()
+                .map(|b| b.len())
+                .unwrap_or(1),
+            egress_shape(&wire.egress)
+        );
+    }
+}
+
+/// How many egress packets carry `marker` as their primary block.
+fn egress_copies_of(wire: &AttributionWire, marker: u8) -> usize {
+    wire.egress
+        .iter()
+        .filter(|(_, _, payload)| {
+            str0m::rtp::RedDecoder::decode(payload)
+                .ok()
+                .and_then(|blocks| blocks.last().map(|p| *p.payload.last().unwrap_or(&0xFF)))
+                == Some(marker)
+        })
+        .count()
+}
+
+#[test]
+fn wire_red_attribution_refuses_a_block_from_a_packet_that_formed_no_frame() {
+    let wire = single_pc_red_attribution(AttributionCase::RefusedChainBesidePlain);
+    let leaked: Vec<(u8, u16)> = wire
+        .egress
+        .iter()
+        .filter(|(_, _, payload)| {
+            *payload == wire.refused
+                || str0m::rtp::RedDecoder::decode(payload).is_ok_and(|blocks| {
+                    blocks.iter().any(|b| {
+                        b.payload
+                            .last()
+                            .is_some_and(|marker| *marker == POISON_MARKER)
+                    })
+                })
+        })
+        .map(|(pt, seq, _)| (*pt, *seq))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "a chain recorded from a packet that formed no frame was forwarded at timestamp {}: \
+         {leaked:?}. A retained block has to be attributable to the packets of the delivered \
+         frame, not to its RTP timestamp alone.",
+        wire.timestamp
+    );
+    assert!(
+        wire.delivered.contains(&wire.frame),
+        "the plain Opus frame that shared the refused chain's timestamp must still reach the \
+         subscriber: delivered={:?}, egress={:?}",
+        wire.delivered,
+        egress_shape(&wire.egress)
+    );
+    // The refused packet is authenticated and then dropped by the depacketizer, so the munger keeps
+    // its source position as one downstream gap; the frame itself is forwarded from its own packet.
+    assert_egress_positions(&wire, 1);
+}
+
+#[test]
+fn wire_red_attribution_forwards_a_retransmitted_chain_verbatim() {
+    let wire = single_pc_red_attribution(AttributionCase::RetransmitNewSeq);
+    let published = published_red_chain(wire.frame);
+    assert_eq!(
+        wire.stimulus.len(),
+        2,
+        "the retransmit stimulus must write the same chain twice: {:?}",
+        wire.stimulus
+    );
+    assert_eq!(
+        wire.stimulus[0].3, wire.stimulus[1].3,
+        "both stimulus writes must be the identical published chain"
+    );
+    assert_eq!(
+        egress_copies_of(&wire, wire.frame),
+        2,
+        "the retransmission forms two frames, and Go's wrapped receiver forwards both as received: \
+         egress={:?}",
+        egress_shape(&wire.egress)
+    );
+    assert_frame_carries_the_published_chain(&wire, wire.frame, &published);
+    assert!(
+        wire.delivered.iter().filter(|m| **m == wire.frame).count() >= 2,
+        "both copies of the retransmitted frame must be audible: delivered={:?}",
+        wire.delivered
+    );
+    assert_egress_positions(&wire, 0);
+}
+
+#[test]
+fn wire_red_attribution_binds_a_chain_to_the_frame_that_carried_it() {
+    let wire = single_pc_red_attribution(AttributionCase::TwoChainsOneTimestamp);
+    assert_eq!(
+        wire.stimulus.len(),
+        2,
+        "the stimulus must publish two distinct chains on one timestamp: {:?}",
+        wire.stimulus
+    );
+    assert_ne!(
+        wire.stimulus[0].3, wire.stimulus[1].3,
+        "the two chains have to differ for the binding to be observable"
+    );
+    for (pt, seq, marker, chain) in &wire.stimulus {
+        assert_eq!(
+            *pt, 63,
+            "sequence {seq} must publish a chain, not a plain payload"
+        );
+        assert_frame_carries_the_published_chain(&wire, *marker, chain);
+    }
+    assert_egress_positions(&wire, 0);
+}
+
 /// The chain types this server may write to a peer are the ones the peer's own description named.
 /// This is the negotiation half of the pass-through gate: the offer applied through the real
 /// signalling path must land in `Transport::remote_red_pts`, which is what forward.rs consults. The

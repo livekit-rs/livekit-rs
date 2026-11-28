@@ -987,9 +987,14 @@ RTX alone never initializes the primary source.
 
 `go-red-passthrough-on-negotiated-protected-pt.patch` is no longer applied. The
 behaviour it carried lives in `rtc-media` (`red_chain.rs`, `forward.rs`,
-`signaling.rs`, `engine.rs`, `transport.rs`) on the upstream public surface, so the
-vendored tree no longer retains a published RFC 2198 chain, and the chain is
-seventy-two patches over fifty-eight files instead of seventy-three over fifty-nine.
+`signaling.rs`, `engine.rs`, `transport.rs`), so the vendored tree no longer retains a
+published RFC 2198 chain, and the chain is seventy-two patches over fifty-eight files
+instead of seventy-three over fifty-nine. "No new patch" is not the same as "upstream
+public APIs": every seam the retirement needed already existed in the applied tree, and
+one of them - `StreamTx::next_seq_no()` - is `pub(crate)` in released str0m 0.24.1 and is
+public here only because `av1-original-packet-send-padding-and-clock.patch` widens it.
+The accurate statement is that the RED-specific patch was deleted while the existing
+low-level sequence interface was reused; the consumers of that widening are listed below.
 
 What the patch used to do, and where each part went:
 
@@ -1006,7 +1011,10 @@ What the patch used to do, and where each part went:
   behaviour; the `RawPacket::RtpRx` arm in `engine.rs` resolves the
   m-line with `DirectApi::stream_rx`, checks the payload type against the local
   `codec_config()` RED binding for an audio codec, and records the block list in
-  `RedChainStore`.
+  `RedChains`, keyed by RTP timestamp and the wire sequence number that carried each
+  block. The sequence number is part of the key because the raw event also fires for
+  packets the depacketizer later refuses, and those share a timestamp with the packet
+  that did form the frame.
 * *Record the RED types the peer advertised.* `Media::set_remote_red_pts` is gone.
   `signaling.rs::note_remote_red_pts` parses the peer description text on the
   production `handle_offer`/`handle_answer` paths (`sdp_munge::audio_red_pts`) into
@@ -1029,6 +1037,17 @@ What the patch used to do, and where each part went:
   `Writer::payload_params()` and `PayloadParams::red()`/`pt()`/`spec().codec` are
   public and give the same answer from the local config, and the subscriber-facing
   authorization comes from `remote_red_pts` rather than `Media::remote_pts()`.
+
+Consumers of the `StreamTx::next_seq_no()` widening that `av1-original-packet-send-padding-and-clock.patch`
+provides (the patch must stay applied for all of them, and a rename or re-privatisation in
+upstream would break each):
+
+* `forward.rs` - the gap fill before a chain write, and the sequence number of the verbatim
+  RFC 2198 write itself.
+* `av1_packet_forward.rs`, `one_dd_forward.rs`, `dd_fallback.rs` - the direct writes this patch
+  was originally taken for.
+* `regression.rs` - the single-PC RED, source-RED and attribution fixtures, which number their
+  own publisher writes the same way.
 
 The two objections that had kept the patch (the write gate and the sequence-numbering
 collision) turned out to be answerable, and both are now measured rather than argued:
@@ -1153,8 +1172,10 @@ the replay cannot find - reports `… missing=['probe-padding-binds-the-remb-own
 The patch was restored byte-identically (`bcb17b4a…`) and the gate re-runs at exit `0`.
 
 Move-back classification against the pinned upstream public surface: the RED pass-through was
-class A (seams exist at `enable_raw_packets`/`RtpRx` and `StreamTx::write_rtp`) and C109 closed
-the one objection that kept it - the sequence counter is shared through `StreamTx::next_seq_no()`,
-so a direct write and a `Writer::write` packet number one stream from one counter. The probe
+class A minus one widening (seams exist at `enable_raw_packets`/`RtpRx` and `StreamTx::write_rtp`
+in released 0.24.1; `StreamTx::next_seq_no()` is only reachable through the AV1 patch) and C109
+closed the one objection that kept it - the sequence counter is shared through
+`StreamTx::next_seq_no()`, so a direct write and a `Writer::write` packet number one stream from
+one counter. The probe
 binding, the padding-admission parser gate and the ALR acknowledgement feed stay class B, because
 the decision runs on `pub(crate)` state before any public event can name it.

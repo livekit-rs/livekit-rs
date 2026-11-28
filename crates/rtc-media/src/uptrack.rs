@@ -118,8 +118,8 @@ pub(crate) struct UpTrack {
     pub(crate) dd_source: crate::dd_fallback::Source,
     pub(crate) one_dd: crate::one_dd_forward::Sources,
     pub(crate) source_rates: crate::temporal_packet::Receivers,
-    /// RFC 2198 blocks captured from this publication's raw inbound packets,
-    /// keyed by RTP timestamp, for verbatim audio forwarding.
+    /// RFC 2198 blocks captured from this publication's raw inbound packets, keyed by
+    /// RTP timestamp and the sequence number that carried each, for verbatim forwarding.
     red_chain: crate::red_chain::RedChains,
 }
 
@@ -373,15 +373,15 @@ impl UpTrack {
     }
 
     /// Record the RFC 2198 block an inbound RED packet carried, keyed by its RTP
-    /// timestamp. Called from the raw packet tap, which str0m emits before the
-    /// corresponding frame.
-    pub(crate) fn note_red_chain(&mut self, timestamp: u32, chain: &[u8]) {
-        self.red_chain.note(timestamp, chain);
+    /// timestamp and wire sequence number. Called from the raw packet tap, which str0m
+    /// emits before the corresponding frame.
+    pub(crate) fn note_red_chain(&mut self, timestamp: u32, seq: u16, chain: &[u8]) {
+        self.red_chain.note(timestamp, seq, chain);
     }
 
-    /// The published chain for one frame timestamp, for verbatim forwarding.
-    pub(crate) fn red_chain(&self, timestamp: u32) -> Option<&Arc<[u8]>> {
-        self.red_chain.get(timestamp)
+    /// The published chain for the packet range a delivered frame was built from.
+    pub(crate) fn red_chain(&self, timestamp: u32, start: u16, end: u16) -> Option<&Arc<[u8]>> {
+        self.red_chain.get(timestamp, start, end)
     }
 
     pub(crate) fn set_mime(&mut self, mime: &str, now: Instant) {
@@ -1736,6 +1736,61 @@ mod svc_tests {
             now + Duration::from_millis(2300),
         );
         assert_ne!(up.bitrate_observation().generation, before_transport);
+    }
+
+    /// A retained chain describes the source that sent it, so it may not outlive that source.
+    #[test]
+    fn a_source_rebinding_drops_the_retained_red_chain() {
+        let now = Instant::now();
+        let mut up = track(now);
+        up.note_red_chain(4800, 7, &[0x68, 0x01, 0x02]);
+        assert_eq!(&**up.red_chain(4800, 7, 7).unwrap(), &[0x68, 0x01, 0x02]);
+        let mid = up.mid;
+        let spec = up.spec.clone();
+        let same_rids = up.sdp_rids.clone();
+        // The same transport, MID and RIDs is the same publication, so the window stays readable.
+        let transport = up.transport;
+        up.rebind_source(
+            transport,
+            mid,
+            same_rids.clone(),
+            "audio/opus",
+            spec.clone(),
+            now + Duration::from_millis(10),
+        );
+        assert_eq!(
+            &**up.red_chain(4800, 7, 7).unwrap(),
+            &[0x68, 0x01, 0x02],
+            "an identity-preserving rebind must not discard the chains the publication sent"
+        );
+        // A different transport is a different source: its frames have no claim on those bytes.
+        up.rebind_source(
+            TransportId::next(),
+            mid,
+            same_rids.clone(),
+            "audio/opus",
+            spec.clone(),
+            now + Duration::from_millis(20),
+        );
+        assert!(
+            up.red_chain(4800, 7, 7).is_none(),
+            "the retained chain survived a source change"
+        );
+        // The new source's own blocks become attributable again.
+        up.note_red_chain(4800, 40, &[0x68, 0x09]);
+        assert_eq!(&**up.red_chain(4800, 40, 40).unwrap(), &[0x68, 0x09]);
+        up.rebind_source(
+            transport,
+            mid,
+            vec!["q".into()],
+            "audio/opus",
+            spec,
+            now + Duration::from_millis(30),
+        );
+        assert!(
+            up.red_chain(4800, 40, 40).is_none(),
+            "a changed RID list is a new source description too"
+        );
     }
 
     #[test]

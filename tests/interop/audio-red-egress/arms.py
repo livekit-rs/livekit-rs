@@ -46,7 +46,7 @@ PATCH_FILES = [
 RETIRED_APIS = ("set_red_wire_payload_enabled", "negotiated_red_pt")
 
 CHAIN_ORIGINAL = """                let chain = (!is_video && !d.encrypted)
-                    .then(|| up.red_chain(data.time.numer() as u32))
+                    .then(|| up.red_chain(data.time.numer() as u32, seq.0 as u16, seq.1 as u16))
                     .flatten();
 """
 CHAIN_MUTANT = """                let chain: Option<std::sync::Arc<[u8]>> = None;
