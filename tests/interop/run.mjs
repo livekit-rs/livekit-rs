@@ -718,6 +718,11 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
         allocatorLogError: recoveryLog?.error ?? null,
         widths: recoveryRows.map(sample => ({ waitedMs: Math.floor(sample.atMonotonicMs - recoveryStartedAt),
           widths: sample.clients.map(client => client.lastDimensions?.width ?? null) })) };
+      // Same PRE-ASSERT shape as the congested row: the two asserts below can fire on exactly the leg
+      // whose per-arm diagnostics and per-path progress are the whole point of the failure, and
+      // evidence.runs/networkResults are only serialised on the success path.
+      const recoveredRow = { phase: 'recovered', metrics: null, proxy: null, reports: null, recovery, status: 'PRE-ASSERT' };
+      networkResults.push(recoveredRow);
       for (const arm of recoveryArms) {
         assert.ok(arm.recovered, `recovery did not restore the pre-congestion layer for client ${arm.client}: ${JSON.stringify(arm)}`);
       }
@@ -755,7 +760,8 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
           `BWE did not fall under the wall: ${constrainedMetrics.livekit_estimated_capacity_bps}bps is not at or below 70% of this leg's baseline ${initialMetrics.livekit_estimated_capacity_bps}bps (${JSON.stringify(congestedRow.response.gaugeWindow)})`);
         assert.ok(recoveredMetrics.livekit_estimated_capacity_bps > constrainedMetrics.livekit_estimated_capacity_bps, 'BWE did not recover');
       }
-      networkResults.push({ phase: 'recovered', metrics: recoveredMetrics, proxy: networkProxy.stats(), reports: stableAfter, recovery, status: 'PASS' });
+      recoveredRow.metrics = recoveredMetrics; recoveredRow.reports = stableAfter;
+      recoveredRow.proxy = networkProxy.stats(); recoveredRow.status = 'PASS';
       if (bandwidthAccuracy) {
         await networkMonitoring;
         const runSamples = networkTimeline.filter(sample => sample.run === run);
