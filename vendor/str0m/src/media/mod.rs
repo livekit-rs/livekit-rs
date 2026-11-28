@@ -107,13 +107,6 @@ pub struct Media {
     /// If this is empty, the m-line is disabled/rejected (port=0 in SDP).
     remote_pts: Vec<Pt>,
 
-    /// The RFC 2198 RED payload types the remote peer advertised on this m-line.
-    ///
-    /// [`Media::remote_pts`] can only hold the primary codec payload types (a `red` mapping folds
-    /// onto the codec it protects while parsing), so the RED types a peer is willing to receive are
-    /// recorded beside them.
-    remote_red_pts: Vec<Pt>,
-
     /// Set when this m-line has been stopped via
     /// [`SdpApi::stop_media`](crate::change::SdpApi::stop_media) or
     /// rejected by the remote peer. Independent of `remote_pts` so that
@@ -413,17 +406,6 @@ impl Media {
                         .user_values
                         .set(FrameLogicalRtpBytes(dep.logical_rtp_bytes));
                 }
-                // A RED frame assembled from exactly one wire packet carries that packet's
-                // RFC 2198 block; a multi-packet assembly has no single chain to name.
-                if dep.meta.len() == 1
-                    && let Some(wire) = dep.meta[0]
-                        .header
-                        .ext_vals
-                        .user_values
-                        .get::<RedWirePayload>()
-                {
-                    ext_vals.user_values.set(RedWirePayload(wire.0.clone()));
-                }
                 return Ok(Some(MediaData {
                     mid: self.mid,
                     pt: *pt,
@@ -576,12 +558,7 @@ impl Media {
     ) -> &mut PayloaderEntry {
         self.payloaders.entry((pt, rid)).or_insert_with(|| {
             // Unwrap is OK, the pt should be checked already when calling this function.
-            // The RED payload type a codec protects resolves to that codec: a pre-formed
-            // RFC 2198 chain written at it uses the codec's payloader and is not re-wrapped.
-            let params = params
-                .iter()
-                .find(|p| p.pt == pt || p.red == Some(pt))
-                .unwrap();
+            let params = params.iter().find(|p| p.pt == pt).unwrap();
             PayloaderEntry {
                 payloader: Payloader::new(params.spec, vp9_mode),
                 red: None,
@@ -723,25 +700,6 @@ impl Media {
         self.remote_exts = exts;
     }
 
-    /// Record the RED payload types of the same remote m-line that [`Media::set_remote_pts`]
-    /// consumes. Call it before `set_remote_pts`, because both follow the "first negotiation wins"
-    /// rule keyed on `remote_pts` being unset.
-    pub(crate) fn set_remote_red_pts(&mut self, red_pts: Vec<Pt>) {
-        if !self.remote_pts.is_empty() {
-            return;
-        }
-        debug!("Mid ({}) remote RED PT order is: {:?}", self.mid, red_pts);
-        self.remote_red_pts = red_pts;
-    }
-
-    /// The RED payload types the remote peer advertised on this m-line, i.e. the types it is
-    /// prepared to receive or send as RFC 2198 chains. Internal: the application names a chain
-    /// through [`crate::MediaWriter::negotiated_red_pt`], which also refuses a primary payload
-    /// type this m-line never negotiated.
-    pub(crate) fn remote_red_pts(&self) -> &[Pt] {
-        &self.remote_red_pts
-    }
-
     /// The remote PT (payload types) configured for this Media.
     ///
     /// These are negotiated with the remote peer and is the order the remote prefer them.
@@ -804,7 +762,6 @@ impl Default for Media {
             msid: Msid::random(),
             kind: MediaKind::Video,
             remote_pts: vec![],
-            remote_red_pts: vec![],
             stopped: false,
             remote_exts: ExtensionMap::empty(),
             remote_created: false,

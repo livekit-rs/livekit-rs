@@ -13,7 +13,7 @@ use rtc_core::media_api::{
 use rtc_core::model::{StreamState, TrackKind};
 use rtc_core::session::SubscriptionError;
 use str0m::bwe::{Bitrate, BweKind};
-use str0m::media::{KeyframeRequestKind, MediaData, MediaTime, Mid};
+use str0m::media::{KeyframeRequestKind, MediaData, MediaTime, Mid, Pt};
 use str0m::stats::{MediaEgressStats, MediaIngressStats};
 
 use crate::allocator::{self, AllocTrack, PRIORITY_DEFAULT, PRIORITY_SCREENSHARE};
@@ -834,9 +834,28 @@ impl MediaEngine {
                 // wrappedreceiver.go forwards a RED publication's packets as received, so
                 // the subscriber gets the publisher's own redundancy. Re-synthesizing it
                 // here would charge the down budget for blocks that were never published.
-                let red_wire = (!is_video && !d.encrypted && !d.red_disabled)
-                    .then(|| writer.negotiated_red_pt(pt).zip(data.red_wire()))
+                let chain = (!is_video && !d.encrypted)
+                    .then(|| up.red_chain(data.time.numer() as u32))
                     .flatten();
+                let red_wire: Option<(Pt, std::sync::Arc<[u8]>)> = match chain.zip(
+                    writer
+                        .payload_params()
+                        .find(|p| p.pt() == pt)
+                        .and_then(|p| p.red()),
+                ) {
+                    // The local codec config must bind a chain type to the frame's PT and the
+                    // peer must have advertised that type. str0m folds a `red` mapping onto the
+                    // codec it protects, so a peer's accepted chain type is only knowable from
+                    // its SDP text (`remote_pts` never names it).
+                    Some((chain, red_pt))
+                        if t.remote_red_pts
+                            .get(&mid)
+                            .is_some_and(|pts| pts.contains(&*red_pt)) =>
+                    {
+                        Some((red_pt, chain.clone()))
+                    }
+                    _ => None,
+                };
                 let gap = std::mem::take(&mut d.pending_seq_gap);
                 let writer = if gap > 0 {
                     drop(writer);
@@ -913,13 +932,44 @@ impl MediaEngine {
                 } else {
                     data.data.clone()
                 };
-                let (pt, payload) = match &red_wire {
-                    Some((red_pt, chain)) => (*red_pt, chain.clone()),
-                    None => (pt, payload),
+                let written = match red_wire {
+                    // The frame writer would re-synthesize a chain from its own redundancy
+                    // budget, so the published bytes leave through the stream's direct RTP
+                    // write instead. It shares the stream's sequence counter with the writer
+                    // (and with the gap fill above), keeps the u32 media time, and the vendor
+                    // still applies its own rules for that payload type (mid/rid attachment,
+                    // TWCC numbering, the RED nackable clear) in its send path.
+                    Some((red_pt, chain)) => {
+                        drop(w);
+                        let mut direct = t.rtc.direct_api();
+                        let Some(stream) = direct.stream_tx_by_mid(mid, None) else {
+                            continue;
+                        };
+                        let seq_no = stream.next_seq_no();
+                        let mut ext_vals = str0m::rtp::ExtensionValues::default();
+                        ext_vals.abs_capture_time = data.ext_vals.abs_capture_time;
+                        stream.write_rtp(
+                            str0m::rtp::RtpWrite::new(
+                                red_pt,
+                                seq_no,
+                                rtp_time.numer() as u32,
+                                data.network_time,
+                                chain,
+                            )
+                            .ext_vals(ext_vals)
+                            .nackable(true),
+                        );
+                        true
+                    }
+                    None => match w.write(pt, data.network_time, rtp_time, payload) {
+                        Ok(()) => true,
+                        Err(e) => {
+                            tracing::debug!(transport = %out_tid, error = %e, "media write failed");
+                            false
+                        }
+                    },
                 };
-                if let Err(e) = w.write(pt, data.network_time, rtp_time, payload) {
-                    tracing::debug!(transport = %out_tid, error = %e, "media write failed");
-                } else {
+                if written {
                     let reference = if let Some(svc) = svc {
                         svc.ends.iter().position(Option::is_some).map(|s| s as i32)
                     } else if up.svc {

@@ -686,11 +686,7 @@ impl CodecConfig {
     }
 
     pub(crate) fn has_pt(&self, pt: Pt) -> bool {
-        // The RED payload type a codec protects is writable too: a forwarder passing the
-        // publisher's own RFC 2198 chain through writes at it, unwrapped.
-        self.params
-            .iter()
-            .any(|p| p.pt() == pt || p.red() == Some(pt))
+        self.params.iter().any(|p| p.pt() == pt)
     }
 }
 

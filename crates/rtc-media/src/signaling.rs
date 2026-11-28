@@ -535,6 +535,7 @@ impl MediaEngine {
         };
         self.drive_now(tid, now);
         self.apply_queued_candidates(tid, now);
+        self.note_remote_red_pts(tid, sdp);
 
         let role = self.transports[&tid].role();
         let red_answer_mids: Vec<_> = sdp_munge::split_sections(&text)
@@ -974,6 +975,7 @@ impl MediaEngine {
             return;
         }
         self.apply_queued_candidates(tid, now);
+        self.note_remote_red_pts(tid, sdp);
 
         // Down tracks of the answered offer are now negotiated.
         let offered: Vec<Mid> = self
@@ -1069,11 +1071,11 @@ impl MediaEngine {
     /// Keep negotiated RED available for a RED source. Active encoding of
     /// plain Opus also requires the publication to permit RED.
     ///
-    /// deviation: Go takes the source codec from the wire receiver, so `DisableRed` never strips a
-    /// published RED chain. Here `up.mime` only learns `audio/red` from what the publication
-    /// declares, so a publisher that sends PT 63 without declaring it is downgraded to the primary
-    /// when `active_red_encoding` is off. See SPEC-0077 C108 and
-    /// `regression::red_publication_with_red_disabled_forwards_only_the_primary_opus`.
+    /// This switch only governs the writer's own chain synthesis. A publication that already
+    /// sent an RFC 2198 chain keeps forwarding it verbatim (forward.rs), which is what Go's
+    /// wrapped receiver does: `DisableRed`/`active_red_encoding` never strip a published chain.
+    /// See SPEC-0077 C109-a and
+    /// `regression::red_publication_forwards_the_published_chain_verbatim_instead_of_resynthesizing`.
     pub(crate) fn configure_red(&mut self, di: usize, now: Instant) {
         let active_red = self.cfg.audio.active_red_encoding;
         let Some(d) = self.downs.get(di) else { return };
@@ -1097,6 +1099,27 @@ impl MediaEngine {
             t.rtc.direct_api().set_red_send(mid, false);
         }
         self.drive_now(tid, now);
+    }
+
+    /// Record the RFC 2198 chain types the peer advertises on each audio m-line of a
+    /// remote description that was just applied. A published chain is only forwarded to a
+    /// peer that named a type for it, so this is the negotiation half of the pass-through
+    /// (the other half is the local codec config binding a RED type to the frame's PT).
+    /// First description per mid wins, matching how str0m latches remote payload types.
+    fn note_remote_red_pts(&mut self, tid: TransportId, sdp: &str) {
+        let Some(t) = self.transports.get_mut(&tid) else {
+            return;
+        };
+        let mut advertised: std::collections::HashMap<Mid, Vec<u8>> = Default::default();
+        for (mid, pt) in sdp_munge::audio_red_pts(sdp) {
+            advertised
+                .entry(Mid::from(mid.as_str()))
+                .or_default()
+                .push(pt);
+        }
+        for (mid, pts) in advertised {
+            t.remote_red_pts.entry(mid).or_insert(pts);
+        }
     }
 
     /// Drain one transport right after a mutation (events are queued, not handled).

@@ -139,6 +139,11 @@ pub(crate) struct Transport {
     pub srflx_pending: bool,
     pub last_local_first_mid: Option<String>,
     pub remote_description_applied: bool,
+    /// RFC 2198 payload types the peer advertised per audio m-line. `str0m::media::Media::remote_pts`
+    /// folds a `red` mapping onto the codec it protects, so the chain type a peer accepts is
+    /// only knowable from its SDP text. A mid is recorded once, when its first remote
+    /// description is applied (an empty list means that description advertised no chain type).
+    pub remote_red_pts: std::collections::HashMap<Mid, Vec<u8>>,
     pub queued_remote_candidates: Vec<Candidate>,
 
     // ---- connection ----
@@ -351,6 +356,7 @@ impl Transport {
             srflx_pending: false,
             last_local_first_mid: None,
             remote_description_applied: false,
+            remote_red_pts: Default::default(),
             queued_remote_candidates: Vec::new(),
             connected: false,
             established_reported: false,

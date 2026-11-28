@@ -72,23 +72,6 @@ impl<'a> Writer<'a> {
             .map(|p| p.pt())
     }
 
-    /// The RFC 2198 payload type protecting a codec payload type on this m-line, but only when
-    /// the peer negotiated it. Writing a pre-formed chain at this PT sends it out unchanged.
-    pub fn negotiated_red_pt(&self, pt: Pt) -> Option<Pt> {
-        // This unwrap is OK due to the invariant of self.mid being resolvable
-        let media = self.session.media_by_mid(self.mid).unwrap();
-        let red = self
-            .session
-            .codec_config
-            .params()
-            .iter()
-            .find(|p| p.pt() == pt)
-            .and_then(|p| p.red())?;
-        // The codec PT must be negotiated for this m-line to carry it at all, and the peer must
-        // have listed the RED type on the same m-line.
-        (media.remote_pts().contains(&pt) && media.remote_red_pts().contains(&red)).then_some(red)
-    }
-
     /// Add on an Rtp Stream Id. This is typically used to separate simulcast layers.
     pub fn rid(mut self, rid: Rid) -> Self {
         self.rid = Some(rid);
@@ -169,9 +152,6 @@ impl<'a> Writer<'a> {
     /// This operation fails if the PT doesn't match a negotiated codec, or the RID (`None` or a value)
     /// does not match anything negotiated.
     ///
-    /// Writing at a codec's RFC 2198 RED PT (see [`Writer::negotiated_red_pt`]) is the pass-through
-    /// case: `data` must already be a complete RFC 2198 block and is sent unchanged, not re-wrapped.
-    ///
     /// Regarding `wallclock` and `rtp_time`, the wallclock is the real world time that corresponds to
     /// the `MediaTime`. For an SFU, this can be hard to know, since RTP packets typically only
     /// contain the media time (RTP time). In the simplest SFU setup, the wallclock could simply
@@ -197,7 +177,7 @@ impl<'a> Writer<'a> {
             .codec_config
             .params()
             .iter()
-            .find(|p| p.pt() == pt || p.red() == Some(pt))
+            .find(|p| p.pt() == pt)
             .expect("configured payload type exists");
         let is_audio = params.spec().codec.is_audio();
         if self.tele_event.is_some() && !is_audio {

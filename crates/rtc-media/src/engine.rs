@@ -465,10 +465,6 @@ impl MediaEngine {
         rtc.set_all_video_packet_events(self.cfg.video.stream_trackers.uses_frame_tracking());
         rtc.set_rtp_stream_restart_detection(rtc_cfg.enable_rtp_stream_restart_detection);
         rtc.set_forwarding_timing_enabled(rtc_cfg.forward_stats.is_some());
-        // Go's wrapped receiver forwards a RED publication's packets verbatim, so the
-        // published RFC 2198 chain must survive the receive-side unwrap. Only a
-        // RED-wrapped audio payload is ever copied.
-        rtc.set_red_wire_payload_enabled(true);
         // Pion RTCP readers unmarshal the entire authenticated compound before
         // delivering any REMB/NACK/TWCC, in every feedback mode and direction.
         rtc.direct_api()
@@ -1042,6 +1038,7 @@ impl MediaEngine {
             Event::RawPacket(packet) => {
                 if let str0m::rtp::RawPacket::RtpRx(header, payload) = *packet {
                     self.observe_publication_rtp(tid, &header, &payload);
+                    self.note_wire_red_chain(tid, &header, &payload);
                     self.record_one_shot_rtp(tid, header, &payload);
                 }
             }
@@ -1520,6 +1517,58 @@ impl MediaEngine {
                 payload_type: *header.payload_type,
                 receiver_layers,
             });
+        }
+    }
+
+    /// Retain the authenticated RFC 2198 block of a publisher's RED-wrapped audio
+    /// packet so a subscriber can be served the published redundancy verbatim
+    /// instead of a re-synthesized chain (Go's wrapped receiver forwards as received).
+    ///
+    /// Frame mode narrows the payload to the primary codec before `MediaData` is
+    /// emitted, and the raw event is pushed ahead of that unwrap, so the block is
+    /// named by RTP timestamp. A block is only ever read for a timestamp that
+    /// produced a frame, which is the same validity condition the unwrap applies.
+    fn note_wire_red_chain(
+        &mut self,
+        tid: TransportId,
+        header: &str0m::rtp::RtpHeader,
+        payload: &[u8],
+    ) {
+        let Some(t) = self.transports.get_mut(&tid).filter(|t| t.receives_media()) else {
+            return;
+        };
+        let red_pt = header.payload_type;
+        // Not the RED type of a negotiated audio codec (RTX, video RED, unknown PT).
+        if !t
+            .rtc
+            .codec_config()
+            .params()
+            .iter()
+            .any(|p| p.red() == Some(red_pt) && p.spec().codec.kind().is_audio())
+        {
+            return;
+        }
+        let mut direct = t.rtc.direct_api();
+        let Some(mid) = direct.stream_rx(&header.ssrc).map(|stream| stream.mid()) else {
+            return;
+        };
+        if let Some(info) = t.remote_info.get(&mid)
+            && info
+                .primary_ssrcs
+                .as_ref()
+                .is_some_and(|sources| !sources.contains(&*header.ssrc))
+        {
+            // A native stream's MID can survive a publication replacement, but only
+            // the current declared source describes what that publication sent.
+            return;
+        }
+        if let Some(up) = self
+            .up_by_mid
+            .get(&(tid, mid))
+            .and_then(|ui| self.ups.get_mut(*ui))
+            .filter(|up| !up.stopped_reported)
+        {
+            up.note_red_chain(header.timestamp, payload);
         }
     }
 

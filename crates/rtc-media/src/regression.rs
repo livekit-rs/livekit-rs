@@ -6835,13 +6835,16 @@ struct SourceRedWire {
 /// (`receiver_base.go`), which strips to the primary. The three-block `maxRedCount = 2`
 /// re-synthesis belongs to the *Opus* publication case (`GetRedReceiver`), not this one.
 ///
-/// `active_red` is `audio.active_red_encoding`, the Rust mirror of Go's `DisableRed`, and it also
-/// drives whether the down track keeps RED forwarding at all.
-fn single_pc_source_red(active_red: bool) -> SourceRedWire {
+/// `active_red` is `audio.active_red_encoding`, the Rust mirror of the server-side RED switch in
+/// Go's `DisableRed`, and it governs only the writer's own chain synthesis.
+///
+/// `peer_advertises_chain` models the subscriber's description naming `audio/red`. Clearing the
+/// recorded type (after asserting it was negotiated) is what a peer whose SDP lists only Opus
+/// produces, and the forwarder must then fall back to the primary payload.
+fn single_pc_source_red(active_red: bool, peer_advertises_chain: bool) -> SourceRedWire {
     use crate::net::Datagram;
     use rtc_core::media_api::DownTrackSpec;
     use rtc_core::model::TrackSettings;
-    use str0m::media::{Frequency, MediaTime};
     use str0m::net::{Protocol, Receive};
     use str0m::{Candidate, Event, Input, Output};
 
@@ -6892,6 +6895,17 @@ fn single_pc_source_red(active_red: bool) -> SourceRedWire {
         rx_mid = Some(change.add_media(MediaKind::Audio, Direction::RecvOnly, None, None, None));
     });
     let rx_mid = rx_mid.unwrap();
+    if !peer_advertises_chain {
+        // The subscriber's description did name a chain type here, so this removal is the
+        // "peer never offered audio/red" state rather than an unset map the gate never consults.
+        let t = engine.transports.get_mut(&tid).unwrap();
+        assert_eq!(
+            t.remote_red_pts.remove(&rx_mid),
+            Some(vec![63]),
+            "the subscriber offer must negotiate the RED payload type on its own m-line before the \
+             refusal arm can withdraw it"
+        );
+    }
 
     let mut all_pts = vec![];
     let mut frames: Vec<(u8, Vec<u8>, u8)> = vec![];
@@ -6908,19 +6922,29 @@ fn single_pc_source_red(active_red: bool) -> SourceRedWire {
                 .unwrap()
                 .pt();
             // The publisher writes the RFC 2198 block itself, at the negotiated RED PT, exactly as
-            // a browser with RED enabled does. This is the input the forwarder must not re-do.
-            let red_pt = writer.negotiated_red_pt(opus_pt).expect(
-                "the server answer advertises the RED payload type for the published codec",
-            );
+            // a browser with RED enabled does. This is the input the forwarder must not re-do. The
+            // chain type is the one the local codec config folds onto the negotiated Opus param.
+            let red_pt = writer
+                .payload_params()
+                .find(|p| p.pt() == opus_pt)
+                .and_then(|p| p.red())
+                .expect(
+                    "the server answer advertises the RED payload type for the published codec",
+                );
             assert_eq!(*red_pt, 63, "the negotiated RED payload type");
-            writer
-                .write(
-                    red_pt,
-                    now,
-                    MediaTime::new(tick * 480, Frequency::FORTY_EIGHT_KHZ),
-                    published_red_chain(marker),
-                )
-                .unwrap();
+            drop(writer);
+            let mut direct = client.direct_api();
+            let stream = direct
+                .stream_tx_by_mid(tx_mid, None)
+                .expect("the published audio m-line has a sender stream");
+            let seq_no = stream.next_seq_no();
+            stream.write_rtp(str0m::rtp::RtpWrite::new(
+                red_pt,
+                seq_no,
+                (tick * 480) as u32,
+                now,
+                published_red_chain(marker),
+            ));
             marker = marker.wrapping_add(1);
         }
         loop {
@@ -7009,7 +7033,7 @@ const SOURCE_RED_WINDOW: usize = 8;
 
 #[test]
 fn red_publication_forwards_the_published_chain_verbatim_instead_of_resynthesizing() {
-    let wire = single_pc_source_red(true);
+    let wire = single_pc_source_red(true, true);
     assert!(
         wire.all_pts.iter().all(|pt| *pt == 63),
         "a RED publication to a RED subscriber must stay on the RED payload type: {:?}",
@@ -7038,38 +7062,56 @@ fn red_publication_forwards_the_published_chain_verbatim_instead_of_resynthesizi
 }
 
 #[test]
-fn red_publication_with_red_disabled_forwards_only_the_primary_opus() {
-    // Pinned current behaviour, and a known deviation from Go. `configure_red` only keeps RED for a
-    // source whose *declared* codec is `audio/red`, because `up.mime` is never learned from a wire
-    // payload type 63 (`observe_publication_rtp` matches `Pt`, and str0m registers RED as the Opus
-    // param's `red` slot). So with `active_red_encoding = false` this down track is RED-disabled and
-    // the published chain is stripped. Go derives the receiver from the wire codec
-    // (`receiver.Mime()` in `wrappedreceiver.go:DetermineReceiver`), and `DisableRed` cannot remove
-    // a published RED: its only use is the `len(codecs) == 1 && opus` branch that appends RED
-    // (`NewWrappedReceiver`). A real browser publisher that declares no codecs therefore keeps the
-    // chain verbatim in Go whatever `active_red_encoding` says, and would here. Open gap: wire-RED
-    // detection at bind time; see SPEC-0077 C108.
-    let wire = single_pc_source_red(false);
+fn red_publication_forwards_the_published_chain_with_active_red_encoding_off() {
+    // Go derives the receiver from the wire codec (`receiver.Mime()` in
+    // `wrappedreceiver.go:DetermineReceiver`) and `DisableRed` only governs the `len(codecs) == 1 &&
+    // opus` branch that *appends* RED (`NewWrappedReceiver`), so a chain that was published survives
+    // the switch. The Rust gate matches: `active_red_encoding` reaches the writer's synthesis
+    // (`configure_red` -> `set_red_send`) and the verbatim path does not consult it. The pinned Go
+    // side is SPEC-0077 C109-a; the stripped chain here would also re-charge a redundant block the
+    // publisher already paid for on the up leg.
+    let wire = single_pc_source_red(false, true);
+    assert!(
+        wire.all_pts.iter().all(|pt| *pt == 63),
+        "a published chain must survive active_red_encoding = false: {:?}",
+        wire.all_pts
+    );
+    for (pt, payload, marker) in &wire.frames {
+        assert_eq!(
+            (pt, payload.as_slice()),
+            (&63, published_red_chain(*marker).as_slice()),
+            "frame {marker}: the synthesis switch may not strip or re-wrap the published chain"
+        );
+    }
+}
+
+#[test]
+fn red_publication_falls_back_to_the_primary_for_a_subscriber_without_red() {
+    // Go's `GetPrimaryReceiverForRed` is the plain-Opus-consumer leg: a subscriber that never named
+    // a chain type gets the unwrapped frame, because writing it at a payload type its own answer
+    // does not list makes its stack drop every audio packet.
+    let wire = single_pc_source_red(false, false);
     assert!(
         wire.all_pts.iter().all(|pt| *pt == 111),
-        "the RED-disabled gate must forward the Opus payload type: {:?}",
+        "the pass-through gate is the subscriber's negotiated payload types: {:?}",
         wire.all_pts
     );
     for (pt, payload, marker) in &wire.frames {
         assert_eq!(
             (pt, payload.as_slice()),
             (&111, opus_frame(*marker).as_slice()),
-            "frame {marker}: no redundancy may be attached once the down track is RED-disabled"
+            "frame {marker}: the refusal arm must forward the unwrapped primary, not a chain"
         );
     }
 }
 
-/// The pass-through gate is the negotiated m-line, not the client hello flag: a subscriber that
-/// never lists the RED payload type must not be written at it, or its stack drops every audio
-/// packet for a payload type it does not know.
+/// The chain types this server may write to a peer are the ones the peer's own description named.
+/// This is the negotiation half of the pass-through gate: the offer applied through the real
+/// signalling path must land in `Transport::remote_red_pts`, which is what forward.rs consults. The
+/// wire consequence is
+/// [`red_publication_falls_back_to_the_primary_for_a_subscriber_without_red`].
 #[test]
-fn red_pass_through_refuses_a_payload_type_the_subscriber_did_not_advertise() {
-    use str0m::format::Codec;
+fn remote_red_payload_types_come_from_the_peer_description() {
     for advertises_red in [true, false] {
         let now = Instant::now();
         let mut engine = engine(now);
@@ -7091,44 +7133,43 @@ fn red_pass_through_refuses_a_payload_type_the_subscriber_did_not_advertise() {
             .enable_opus(true, advertises_red)
             .build(now);
         let mut rx_mid = None;
-        offer(&mut engine, &mut subscriber, tid, now, |change| {
+        let events = offer(&mut engine, &mut subscriber, tid, now, |change| {
             rx_mid =
                 Some(change.add_media(MediaKind::Audio, Direction::RecvOnly, None, None, None));
         });
-        let local_red = engine
-            .transports
-            .get(&tid)
-            .unwrap()
-            .rtc
-            .codec_config()
+        let rx_mid = rx_mid.unwrap();
+        let answer = events
             .iter()
-            .find(|p| p.spec().codec == Codec::Opus)
-            .expect("the server configured Opus")
-            .red();
-        let writer = engine
-            .transports
-            .get_mut(&tid)
-            .unwrap()
-            .rtc
-            .writer(rx_mid.unwrap())
-            .expect("subscriber audio writer");
-        let opus_pt = writer
-            .payload_params()
-            .find(|p| p.spec().codec == Codec::Opus)
-            .expect("the subscriber negotiated Opus")
-            .pt();
-        let red = writer.negotiated_red_pt(opus_pt);
+            .find_map(|e| match e {
+                MediaEvent::LocalDescription {
+                    kind: SdpType::Answer,
+                    sdp,
+                    ..
+                } => Some(sdp.as_str()),
+                _ => None,
+            })
+            .expect("server answers a real client offer");
+        let advertised = advertises_red.then(|| vec![(rx_mid.to_string(), 63u8)]);
+        // The answer offers a chain type only to a peer that asked for one, so the two arms differ
+        // in the SDP text itself and not merely in what the record happens to hold.
+        let mut answered = crate::sdp_munge::audio_red_pts(answer);
+        answered.sort_by_key(|(_, pt)| *pt);
         assert_eq!(
-            red.is_some(),
-            advertises_red,
-            "arm advertises_red={advertises_red}: the pass-through payload type must come from the \
-             negotiated m-line, not the server-side codec config (local Opus RED mapping: \
-             {local_red:?}, writer answer: {red:?})"
+            answered,
+            advertised.clone().unwrap_or_default(),
+            "arm advertises_red={advertises_red}: chain types the server answer offers"
         );
         assert_eq!(
-            red.map(|p| *p),
-            advertises_red.then_some(63),
-            "arm advertises_red={advertises_red}: the negotiated RED payload type"
+            engine
+                .transports
+                .get(&tid)
+                .unwrap()
+                .remote_red_pts
+                .get(&rx_mid)
+                .cloned(),
+            advertised.map(|pairs| pairs.into_iter().map(|(_, pt)| pt).collect()),
+            "arm advertises_red={advertises_red}: only a peer that lists audio/red authorizes \
+             writing a chain to it"
         );
     }
 }

@@ -35,6 +35,7 @@ mod one_dd_forward;
 mod ordinary_data_writer;
 mod probe_controller;
 mod quality;
+mod red_chain;
 /// Deterministic receiver-estimate policy, consumed by the Remote feedback owner.
 pub mod remote_bwe;
 mod sdp_munge;

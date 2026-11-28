@@ -137,7 +137,6 @@ pub(crate) struct Session {
     pub(crate) receiver_report_rtt: VecDeque<crate::ReceiverReportRtt>,
     pub(crate) rtp_stream_restart_detection: bool,
     pub(crate) forwarding_timing_enabled: bool,
-    pub(crate) red_wire_payload_enabled: bool,
     srtp_rx: Option<SrtpContext>,
     srtp_tx: Option<SrtpContext>,
     last_nack: Instant,
@@ -266,7 +265,6 @@ impl Session {
             receiver_report_rtt: VecDeque::new(),
             rtp_stream_restart_detection: false,
             forwarding_timing_enabled: false,
-            red_wire_payload_enabled: false,
             srtp_rx: None,
             srtp_tx: None,
             last_nack: already_happened(),
@@ -1059,14 +1057,6 @@ impl Session {
         // block. The sender counts the whole RED-wrapped payload, so receive stats must too.
         let wire_payload_len = data.len();
 
-        // The pass-through forwarder needs the RFC 2198 block as authenticated, which unwrapping
-        // discards. Retaining it is opt-in and copies only a RED audio payload.
-        let red_wire = if is_red && !self.rtp_mode && self.red_wire_payload_enabled {
-            Some(Arc::<[u8]>::from(data))
-        } else {
-            None
-        };
-
         // RTX packets must be rewritten to be a normal packet. This only changes the
         // the seq_no, however MediaTime might be different when interpreted against the
         // the "main" register.
@@ -1097,8 +1087,6 @@ impl Session {
         } else if is_red && !self.rtp_mode {
             // Frame mode: RED rides the main SSRC/seq. Decode to the primary (Opus) payload
             // and rewrite the header PT; drop the packet if the RED structure is malformed.
-            // The pass-through forwarder needs the block as authenticated, so copy it before
-            // unwrapping narrows `data` to the primary.
             let Some(un) = un_red(&mut header, data, pt) else {
                 return;
             };
@@ -1168,13 +1156,6 @@ impl Session {
         let payload: Arc<[u8]> = Arc::from(data);
 
         let mut packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
-        if let Some(wire) = red_wire {
-            packet
-                .header
-                .ext_vals
-                .user_values
-                .set(crate::media::RedWirePayload(wire));
-        }
         if self.forwarding_timing_enabled {
             packet
                 .header

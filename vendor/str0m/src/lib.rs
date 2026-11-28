@@ -1481,13 +1481,6 @@ impl Rtc {
         self.session.forwarding_timing_enabled = enabled;
     }
 
-    /// Keep the incoming RFC 2198 block byte-for-byte on RED-unwrapped audio frames so a
-    /// forwarder can pass the publisher's own redundancy through instead of re-synthesizing
-    /// it. Disabled by default; only a RED-wrapped payload is copied.
-    pub fn set_red_wire_payload_enabled(&mut self, enabled: bool) {
-        self.session.red_wire_payload_enabled = enabled;
-    }
-
     /// Emit original authenticated video packets alongside normal frame events.
     /// Disabled by default. Drain output after each input to retain every packet.
     pub fn set_video_packet_events(&mut self, enabled: bool) {

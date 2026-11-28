@@ -139,6 +139,80 @@ fn payload_types_for(section: &str, codec: &str) -> Vec<String> {
         .collect()
 }
 
+/// `(a=mid, payload type)` for every audio m-line's RFC 2198 `red` mapping.
+///
+/// str0m folds a `red` mapping onto the codec it protects while parsing, so
+/// `Media::remote_pts` can never name the chain type a peer accepts. A `red` type
+/// is only usable when its `a=fmtp` names the codec it protects, which the stacks
+/// write in one of two forms: the RFC 2198 redundancy block list (`111/111`, what
+/// str0m, Chrome and pion emit) or the `apt=` binding.
+pub(crate) fn audio_red_pts(sdp: &str) -> Vec<(String, u8)> {
+    let mut out = Vec::new();
+    for section in split_sections(sdp).1 {
+        if section_kind(section) != Some("audio") {
+            continue;
+        }
+        let Some(mid) = section_mid(section) else {
+            continue;
+        };
+        let mut red = Vec::new();
+        let mut codecs = Vec::new();
+        for (pt, name) in rtpmap_payload_types(section) {
+            if name.eq_ignore_ascii_case("red") {
+                red.push(pt);
+            } else {
+                codecs.push(pt);
+            }
+        }
+        for (pt, params) in section
+            .split_inclusive('\n')
+            .filter_map(|l| strip_eol(l).strip_prefix("a=fmtp:"))
+            .filter_map(|v| v.split_once(' '))
+        {
+            let Ok(pt) = pt.parse::<u8>() else {
+                continue;
+            };
+            if red.contains(&pt)
+                && chain_protects(params, &codecs, &red)
+                && !out.iter().any(|(m, seen)| m == mid && *seen == pt)
+            {
+                out.push((mid.to_string(), pt));
+            }
+        }
+    }
+    out
+}
+
+/// Payload types an `a=rtpmap` maps, with the encoding name.
+fn rtpmap_payload_types(section: &str) -> Vec<(u8, &str)> {
+    section
+        .split_inclusive('\n')
+        .filter_map(|l| strip_eol(l).strip_prefix("a=rtpmap:"))
+        .filter_map(|v| {
+            let (pt, enc) = v.split_once(' ')?;
+            Some((pt.parse().ok()?, enc.split('/').next()?))
+        })
+        .collect()
+}
+
+/// Test whether a chain type's `a=fmtp` body names a payload type this section maps
+/// to a non-`red` codec. An RFC 2198 block list heads with the primary codec
+/// (`111/111` protects the codec at 111); `apt=` is the same claim in the other
+/// spelling. A body naming nothing, or only a type the section never maps, is not a
+/// usable chain.
+fn chain_protects(params: &str, codecs: &[u8], red: &[u8]) -> bool {
+    params
+        .split(';')
+        .map(str::trim)
+        .filter_map(|part| match part.split_once('=') {
+            Some(("apt", value)) => Some(value),
+            Some((_, _)) => None,
+            None => Some(part),
+        })
+        .filter_map(|value| value.split('/').next()?.trim().parse::<u8>().ok())
+        .any(|primary| codecs.contains(&primary) && !red.contains(&primary))
+}
+
 /// Rebuild a section line by line; `f` returns `None` to drop a line or the
 /// replacement text without line ending.
 fn map_lines(section: &str, mut f: impl FnMut(&str) -> Option<String>) -> String {
@@ -853,5 +927,45 @@ mod codec_order_tests {
         assert_eq!(prioritize_publisher_codec(&out, "video/VP9"), out);
         assert_eq!(prioritize_publisher_codec(answer, "video/av1"), answer);
         assert_eq!(prioritize_publisher_codec(answer, "audio/opus"), answer);
+    }
+
+    #[test]
+    fn audio_red_pts_names_only_chain_types_bound_to_an_audio_codec() {
+        // Two spellings of the same claim: the RFC 2198 block list str0m, Chrome and
+        // pion write, and the `apt=` binding. Both name opus at 111.
+        let answer = "m=audio 9 UDP/TLS/RTP/SAVPF 111 63 64 65 66 67\r\na=mid:0\r\n\
+a=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;useinbandfec=1\r\n\
+a=rtpmap:63 red/48000/2\r\na=fmtp:63 111/111\r\n\
+a=rtpmap:64 red/48000/2\r\n\
+a=rtpmap:65 red/48000/2\r\na=fmtp:65 apt=112\r\n\
+a=rtpmap:66 red/48000/2\r\na=fmtp:66 64/64\r\n\
+a=rtpmap:67 red/48000/2\r\na=fmtp:67 interleaved=111\r\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96 98\r\na=mid:1\r\n\
+a=rtpmap:96 VP8/90000\r\na=rtpmap:98 red/90000\r\na=fmtp:98 96/96\r\n";
+        // PT 64 has no parameters at all, 65 names a payload type the section never
+        // maps, 66 protects a chain rather than a codec, 67 only uses 111 as the value
+        // of an unrelated key, and the video line's chain is not an audio one.
+        assert_eq!(audio_red_pts(answer), vec![("0".to_string(), 63u8)]);
+        // Nothing is hardcoded to a PT number or to the first m-line.
+        let renamed = answer
+            .replace("a=mid:0", "a=mid:vgh")
+            .replace("63", "122")
+            .replace("a=fmtp:122 111/111", "a=fmtp:122 apt=111");
+        assert_eq!(audio_red_pts(&renamed), vec![("vgh".to_string(), 122u8)]);
+        assert_eq!(audio_red_pts("v=0\r\n"), Vec::new());
+    }
+
+    #[test]
+    fn audio_red_pts_reports_each_audio_line_that_advertises_a_chain() {
+        let sdp = "m=audio 9 UDP/TLS/RTP/SAVPF 111 63\r\na=mid:a\r\n\
+a=rtpmap:111 opus/48000/2\r\na=fmtp:63 111/111\r\na=rtpmap:63 red/48000/2\r\n\
+m=audio 9 UDP/TLS/RTP/SAVPF 111 122\r\na=mid:b\r\n\
+a=rtpmap:111 opus/48000/2\r\na=rtpmap:122 red/48000/2\r\na=fmtp:122 apt=111\r\n";
+        // Two subscriber audio lines, each naming its own chain type on its own mid:
+        // the record must stay per-line, and the same PT number on both is not merged.
+        assert_eq!(
+            audio_red_pts(sdp),
+            vec![("a".to_string(), 63u8), ("b".to_string(), 122u8)]
+        );
     }
 }

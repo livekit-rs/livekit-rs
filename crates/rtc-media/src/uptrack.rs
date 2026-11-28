@@ -1,5 +1,6 @@
 //! A published (upstream) track: bound remote media on a publisher transport.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -117,6 +118,9 @@ pub(crate) struct UpTrack {
     pub(crate) dd_source: crate::dd_fallback::Source,
     pub(crate) one_dd: crate::one_dd_forward::Sources,
     pub(crate) source_rates: crate::temporal_packet::Receivers,
+    /// RFC 2198 blocks captured from this publication's raw inbound packets,
+    /// keyed by RTP timestamp, for verbatim audio forwarding.
+    red_chain: crate::red_chain::RedChains,
 }
 
 impl UpTrack {
@@ -177,6 +181,7 @@ impl UpTrack {
             dd_source: Default::default(),
             one_dd: Default::default(),
             source_rates: Default::default(),
+            red_chain: Default::default(),
             spec,
         };
         if kind == TrackKind::Audio && matches!(t.spec.source, TrackSource::Microphone) {
@@ -356,6 +361,7 @@ impl UpTrack {
         if self.transport != transport || self.mid != mid || self.sdp_rids != rids {
             self.one_dd = Default::default();
             self.media_sizes = Default::default();
+            self.red_chain = Default::default();
             self.reset_cost_measurements(now);
         }
         self.transport = transport;
@@ -364,6 +370,18 @@ impl UpTrack {
         self.stopped_reported = false;
         self.set_mime(mime, now);
         self.update_spec(spec, now);
+    }
+
+    /// Record the RFC 2198 block an inbound RED packet carried, keyed by its RTP
+    /// timestamp. Called from the raw packet tap, which str0m emits before the
+    /// corresponding frame.
+    pub(crate) fn note_red_chain(&mut self, timestamp: u32, chain: &[u8]) {
+        self.red_chain.note(timestamp, chain);
+    }
+
+    /// The published chain for one frame timestamp, for verbatim forwarding.
+    pub(crate) fn red_chain(&self, timestamp: u32) -> Option<&Arc<[u8]>> {
+        self.red_chain.get(timestamp)
     }
 
     pub(crate) fn set_mime(&mut self, mime: &str, now: Instant) {

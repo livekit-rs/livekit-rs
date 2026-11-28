@@ -983,76 +983,104 @@ first-packet path: malformed padding drops before publication, a valid
 padding-only primary still publishes metadata without starting media, and
 RTX alone never initializes the primary source.
 
-## Go RED pass-through at the negotiated protected payload type
+## Go RED pass-through retired from the vendor tree
 
-`go-red-passthrough-on-negotiated-protected-pt.patch` keeps the authenticated
-RFC 2198 block alive beside the payload the frame mode unwraps it to. In frame
-mode `un_red` narrows an audio packet to its primary Opus payload and rewrites
-the payload type, which is what a transcoder wants and what a pass-through
-forwarder must not pay for: wrappedreceiver.go forwards a RED publication as
-received, so re-synthesizing redundancy here charges the down budget for blocks
-the publisher never sent. The session therefore copies the block before
-unwrapping (only when `set_red_wire_payload_enabled` is on, default off, and
-only for a RED audio payload), attaches it to the packet as `RedWirePayload`,
-and `Media::handle_data` re-attaches it to the emitted `MediaData` for a frame
-assembled from exactly one wire packet - a multi-packet assembly has no single
-chain to name. `Media::set_remote_red_pts`/`remote_red_pts` record the RED types
-the peer advertised, because `remote_pts` folds a `red` mapping onto the codec it
-protects while parsing and cannot name them, and the payloader lookup resolves a
-RED payload type to that codec so a pre-formed chain written at it uses the
-codec's payloader instead of being wrapped a second time.
-`MediaWriter::negotiated_red_pt` exposes the mapping to the application; the
-stored list itself is `pub(crate)`, since the only reader outside `Media` is this
-writer gate.
+`go-red-passthrough-on-negotiated-protected-pt.patch` is no longer applied. The
+behaviour it carried lives in `rtc-media` (`red_chain.rs`, `forward.rs`,
+`signaling.rs`, `engine.rs`, `transport.rs`) on the upstream public surface, so the
+vendored tree no longer retains a published RFC 2198 chain, and the chain is
+seventy-two patches over fifty-eight files instead of seventy-three over fifty-nine.
 
-The retention was checked against the pinned upstream public surface
-(`references/crates/str0m-0.24.1`) before it was kept. Two substitutions exist and
-were rejected on cost, and one does not exist:
+What the patch used to do, and where each part went:
 
-*Observation is substitutable.* `RtcConfig::enable_raw_packets` (config.rs:744)
-makes the session queue `RawPacket::RtpRx(header.clone(), data.to_vec())`
-(session.rs:698) *before* the frame-mode narrowing at session.rs:751, and
-`RedDecoder::decode` (packet/red.rs:117) is public, so the application could read
-the wire chain and count its blocks without any of the retention hunks. It is not
-done that way because that flag is documented as cloning every packet and for
-tests and troubleshooting only, and it duplicates every RTP and RTCP packet of the
-session to learn one audio payload, while the frame/packet correlation would move
-into the application.
+* *Keep the authenticated block alive beside the payload frame mode unwraps it
+  to.* In frame mode `un_red` narrows an audio packet to its primary Opus payload
+  and rewrites the payload type, which is what a transcoder wants and what a
+  pass-through forwarder must not pay for: `wrappedreceiver.go` forwards a RED
+  publication as received, so re-synthesizing redundancy charges the down budget
+  for blocks the publisher never sent. The vendor used to copy the block before
+  unwrapping and hand it to the application on `MediaData`. The application now
+  reads the wire chain itself from the raw event: `RtcConfig::enable_raw_packets`
+  was already on for the publisher and single-PC roles (`engine.rs`, since the
+  first commit of this repository), so no transport opted into the clone for this
+  behaviour; the `RawPacket::RtpRx` arm in `engine.rs` resolves the
+  m-line with `DirectApi::stream_rx`, checks the payload type against the local
+  `codec_config()` RED binding for an audio codec, and records the block list in
+  `RedChainStore`.
+* *Record the RED types the peer advertised.* `Media::set_remote_red_pts` is gone.
+  `signaling.rs::note_remote_red_pts` parses the peer description text on the
+  production `handle_offer`/`handle_answer` paths (`sdp_munge::audio_red_pts`) into
+  `TransportRemoteInfo::remote_red_pts`, with the same first-description-per-mid-wins
+  grouping the vendor field had, and the forwarder gate
+  (`forward.rs`, `remote_red_pts … contains(&red_pt)`) is what refuses a chain the
+  subscriber did not advertise. The parser accepts both spellings a stack writes -
+  the RFC 2198 block list (`a=fmtp:63 111/111`, what str0m, Chrome and pion emit)
+  and the `apt=` binding - because a reader that only accepts `apt=` records nothing
+  on real SDP.
+* *Let a pre-formed chain be written at the RED payload type.* Upstream `Writer::write`
+  returns `RtcError::UnknownPt` for a payload type `CodecConfig::has_pt` (both
+  `pub(crate)`) does not accept, and the vendor resolved a RED PT to the codec it
+  protects so the payloader would not wrap the chain a second time. The app-side
+  version skips that whole problem by not using `Writer::write` for the chain: it
+  uses the RTP-mode direct API (`DirectApi::stream_tx_by_mid` plus
+  `StreamTx::write_rtp`), which asks the caller for `seq_no`, `time`, `wallclock`,
+  `ext_vals` and the nackable field.
+* *Expose the mapping to the application.* `MediaWriter::negotiated_red_pt` is gone;
+  `Writer::payload_params()` and `PayloadParams::red()`/`pt()`/`spec().codec` are
+  public and give the same answer from the local config, and the subscriber-facing
+  authorization comes from `remote_red_pts` rather than `Media::remote_pts()`.
 
-*The write gate is not substitutable.* Upstream `Writer::write` returns
-`RtcError::UnknownPt` for a payload type `CodecConfig::has_pt` does not accept
-(writer.rs:172, codec_config.rs:687), and `has_pt` is `pub(crate)`, so no
-application-side registration can make the writer accept the RED type. The only
-public write at an arbitrary PT is the RTP-mode direct API
-(`DirectApi::stream_tx_by_mid`, change/direct.rs:355, and `StreamTx::write_rtp`,
-streams/send.rs:437), which asks the caller for `seq_no`, `time`, `wallclock`,
-`ext_vals` and the nackable/VP8 fields. Using it for one payload type means the
-application owns sequence and transport-assignment numbering for a stream whose
-other packets still come from `Writer::write` through `ToPayload`, so the two paths
-would number the same stream.
+The two objections that had kept the patch (the write gate and the sequence-numbering
+collision) turned out to be answerable, and both are now measured rather than argued:
 
-*The registration stays for the same reason.* `Media::remote_pts()`,
-`MediaWriter::payload_params()` and `PayloadParams::red()` are public, so the
-application could parse the remote SDP and name the type itself, but it could only
-hand the answer back with an application-driven setter that has to reproduce the
+* *The application owns sequence numbering for a stream whose other packets come from
+  `Writer::write`.* `StreamTx::next_seq_no()` reads the same counter the normal
+  payload path consumes, and the forwarder holds the writer while it takes
+  `seq_no = next_seq_no()` and drops the writer before the direct write, so one
+  stream is numbered by one counter. The egress capture that this produces is
+  wire-equivalent to what the vendor path emitted.
+* *The raw-packet clone is too expensive.* `enable_raw_packets` is documented as
+  cloning every packet and for tests and troubleshooting. The cost was not newly
+  taken on for this behaviour - the flag was already enabled for the publisher and
+  single-PC roles and the one-shot offer path, which is exactly the set of transports
+  whose wire chain has to be read before frame mode narrows it, and a plain subscriber
+  transport does not enable it. It is a deliberate reuse, not a discovery that the
+  earlier rejection was free; the RED store is keyed per transport and cleared with it.
+
+The discriminating tests stayed in `rtc-media` and are green without the patch:
+`red_publication_forwards_the_published_chain_verbatim_instead_of_resynthesizing`,
+`red_publication_forwards_the_published_chain_with_active_red_encoding_off`,
+`red_publication_falls_back_to_the_primary_for_a_subscriber_without_red`,
+`remote_red_payload_types_come_from_the_peer_description` and
+`wire_red_join_forwards_the_published_chain_from_the_first_frame`. On the finalized
+72-patch tree `cargo test -p rtc-media --lib red_` reports
+`70 passed; 0 failed; 1 ignored`. The third arm of the earlier pair,
+`red_pass_through_refuses_a_payload_type_the_subscriber_did_not_advertise`, is now
+`remote_red_payload_types_come_from_the_peer_description` (which arms the peer in and
+out of advertising `audio/red` and asserts the record and the produced answer) plus the
+`peer_advertises_chain=false` arm of `single_pc_source_red`, which asserts the
+forwarder falls back to the primary.
+
+The multi-packet arm moved with the rest of the behaviour: `RedChains::note` marks a
+timestamp `Slot::Ambiguous` when a second packet arrives with it, so a frame assembled
+from more than one wire packet names no chain and the forwarder sends the primary, which
+is the same refusal the vendor's `dep.meta.len() == 1` guard produced. That is covered at
+component tier by `a_second_packet_on_the_same_timestamp_names_no_chain`. What remains
+unmeasured is the wire-level version: every RED case publishes one packet per audio
+frame, so a harness that splits a published frame across two RTP packets is still open
+verification for SPEC-0077 C109.
+
+The retired patch is recoverable, and the retirement is reversible by file identity
+rather than by memory of its text: git blob `9638c9c6624138ea8bf500fef012e80c08e6479f`,
+last present at commit `182bfe053233a1f3902e5e572d93e73c1b62c2a6`, SHA-256
+`da1488e8dd0e51e277902a0aa46cf8c6b2f211c4d782753a14809ec7d253d4cc`, 273 lines, touching
+`src/change/sdp.rs`, `src/format/codec_config.rs`, `src/lib.rs`, `src/media/event.rs`,
+`src/media/mod.rs`, `src/media/writer.rs` and `src/session.rs`. Replaying the
+seventy-one patches before it and applying this text on top was checked to land cleanly:
+its `src/session.rs` hunk does not overlap the m-line-binding patch that was last in the
+chain (that file goes from `f03dc61437a6c8512f30fd12583e956512cfc8d6a8dc82ac4941e368e34e42bc`
+to `502dd1cee1f5…` with seventy-two patches, and the retired text expects the same base).
 "first negotiation wins" rule `set_remote_pts` already applies, and the value would
-still have to reach the writer. It is therefore kept, with
-`red_publication_forwards_the_published_chain_verbatim_instead_of_resynthesizing`
-and `red_pass_through_refuses_a_payload_type_the_subscriber_did_not_advertise`
-as the discriminating tests.
-
-Two arms are deliberately not claimed as tested. The `dep.meta.len() == 1` guard
-withholds the chain from a frame assembled from more than one wire packet, which
-is the correct refusal (only one packet's chain was authenticated) but unmeasured:
-every RED case above publishes one packet per audio frame, so the multi-packet arm
-needs a harness that splits a frame across two packets first.
-`negotiated_red_pt`'s `remote_pts().contains(&pt)` conjunct is unexercised too -
-each application call takes `pt` from the already-filtered `payload_params()`, and
-`PayloadParams::red` has no public setter, so no reachable payload type is
-un-negotiated while its RED type is advertised. Both are recorded as open
-verification in SPEC-0077 C108 instead of being covered by a test that cannot
-fail.
-
 ## Probe padding binds the REMB owner m-line
 
 `probe-padding-binds-the-remb-owner-m-line.patch` restricts which stream may
@@ -1076,45 +1104,57 @@ The audio arm is not discriminated by them, because the harness never builds a
 subscriber session with audio on a bound m-line, and it is listed as open
 verification for SPEC-0077 C108 rather than claimed as tested.
 
-## C108 retention receipts
+## C108/C109 retention receipts
 
-The three patches this round touched are retained, each with a single-patch ablation recorded in
-`SOURCE.json` (`verification`, `ablation`, `reconstruction_check`) beside its SHA-256.
+The vendor chain is seventy-two sequential patches over fifty-eight changed files on top of
+`algesten/str0m 0.24.1 @ 8c4c5284cb11b1e3c82962639cda5b3e95af73e8`.
+`python3 scripts/check-str0m-reconstruction.py` on the finalized tree exits `0` with
+`status: PASS`, `original_file_count: 257`, `exact_file_count: 58`, a
+`source_sha256` of `6e67cc12d28874d56ff12c7137ecd2144dc5bc2a363f262cebbf7d23c6f8ef82` and
+`temporary_directory_removed: true`; the published input tree manifest is unchanged at
+`131b4880f6f3a632601f1473ae5536a03f47d62fff4222824b8ce17cda1c0224`. C108 measured the same
+gate on the 73-patch/59-file tree (`SOURCE.json` `d3659d62a8b9cb8417a3621d6d4ae7cfdcdd77c317a475bbd151c4807f0a3fe6`)
+and filed the per-file digests plus the removal and restore logs in livekit-docs
+`server/evidence/2026-11-28/spec0077-c108-vendor-patch-ablation/`.
+
+C108 touched three patches and kept all three; C109 retired the RED pass-through, which is
+what the retirement rests on numerically. Each retained patch keeps its single-patch ablation
+in `SOURCE.json` (`verification`, `ablation`, `reconstruction_check`) beside its SHA-256.
 
 | patch | SHA-256 | only this patch removed | restored |
 | --- | --- | --- | --- |
-| `go-red-passthrough-on-negotiated-protected-pt.patch` | `da1488e8dd0e51e277902a0aa46cf8c6b2f211c4d782753a14809ec7d253d4cc` | `cargo test -p rtc-media --lib red_`: `62 passed; 3 failed` - one behavioural (first post-join frame carries 1 redundant block instead of the published 3-block chain, PT stays 63) and two `UnknownPt(Pt(63))` instrument limits | `65 passed; 0 failed; 1 ignored`, restore verified byte-identical |
-| `probe-padding-binds-the-remb-owner-m-line.patch` | `bcb17b4a93fede7aba8cc7d6b5a2d2b9fff6a46e5b2ad1492d7df0b00eef4020` | `git apply -R` exits 101 at `E0061`, so the behaviour was ablated with the signature preserved: `287 passed; 3 failed`, and the interop congestion-response gate fails outright (capacity frozen at the 200,000,000 seed, allocation rises to 4,170,291, zero pauses, zero probe attempts) | `290 passed; 0 failed; 5 ignored`, restore verified byte-identical |
+| `go-red-passthrough-on-negotiated-protected-pt.patch` (retired in C109) | `da1488e8dd0e51e277902a0aa46cf8c6b2f211c4d782753a14809ec7d253d4cc` | C108, on the 73-patch tree: `cargo test -p rtc-media --lib red_` reports `62 passed; 3 failed` - one behavioural (first post-join frame carries 1 redundant block instead of the published 3-block chain, PT stays 63) and two `UnknownPt(Pt(63))` instrument limits | C109, 72-patch tree with the behaviour in `rtc-media`: `70 passed; 0 failed; 1 ignored; 633 filtered out` |
+| `probe-padding-binds-the-remb-owner-m-line.patch` | `bcb17b4a93fede7aba8cc7d6b5a2d2b9fff6a46e5b2ad1492d7df0b00eef4020` | `git apply -R` exits 101 at `E0061`, so the behaviour was ablated with the signature preserved: `287 passed; 3 failed`, and the interop congestion-response gate fails outright (capacity frozen at the 200,000,000 seed, allocation rises to 4,170,291, zero pauses, zero probe attempts) | `290 passed; 0 failed; 5 ignored` for `--test receiver_feedback_runtime`, restore verified byte-identical; re-measured on the 72-patch tree with the same result |
 | `pion-rtp-padding-admission-parity.patch` | `774f40fea6ac9cfc5274c2ac1b59d0b183681749418bf975d61795b41afa1837` | reconstruction-only change: it now carries the `src/rtp/header.rs` formatting that the withdrawn `pion-rtp-header-observation-formatting.patch` used to declare, so no behaviour arm applies and the admission verdicts stay gated by `tests/oracles/pion-rtp-padding` | the declared chain replays green instead of exiting 1 |
 
-`python3 scripts/check-str0m-reconstruction.py` on the finalized tree exits `0` with `status: PASS`,
-`original_file_count: 257`, `exact_file_count: 59` over 73 sequential patches, and removes its
-temporary directory. The `SOURCE.json` it measured has SHA-256
-`d3659d62a8b9cb8417a3621d6d4ae7cfdcdd77c317a475bbd151c4807f0a3fe6`; the published str0m 0.24.1 input
-tree is `131b4880f6f3a632601f1473ae5536a03f47d62fff4222824b8ce17cda1c0224`. Per-file digests plus the
-removal and restore logs live in livekit-docs
-`server/evidence/2026-11-28/spec0077-c108-vendor-patch-ablation/`.
+The `final_tree_reproduction` blocks in `SOURCE.json` were recorded after `cargo fmt -p rtc-media`
+on the 73-patch tree, so their instrument counts describe that source state: `--lib red_` was
+`65 passed; 0 failed; 1 ignored; 633 filtered out`, `--test receiver_feedback_runtime` was
+`290 passed; 0 failed; 5 ignored`, and the candidate debug binary was re-bound to
+`02b1869bbbaf1ec4f55559b76b7ba56c79bebc2f89a785d06c5bd9b4748745c0`. Of those, the
+receiver-feedback figure still holds on the 72-patch tree (re-measured above), the
+`--lib red_` count has moved with the new `rtc-media` tests, and the debug-binary hash
+belongs to the 73-patch build and no longer identifies the tree; C109 re-binds candidate
+binary digests in its own evidence slot rather than editing the C108 record.
 
-Each behavioural entry also carries a `final_tree_reproduction` block: after `cargo fmt -p rtc-media` the
-same instruments reproduce on the committed tree (`65 passed; 0 failed; 1 ignored; 633 filtered out` for
-`--lib red_`, `290 passed; 0 failed; 5 ignored` for `--test receiver_feedback_runtime`, and the candidate
-debug binary re-bound to `02b1869bbbaf1ec4f55559b76b7ba56c79bebc2f89a785d06c5bd9b4748745c0`), so the recorded
-arm counts describe the source that ships rather than an intermediate state.
-
-Every patch the chain applies is now a `SOURCE.json` entry, so the checker hash-compares all 73 files
-against the recorded digest; `frame-extension-metadata.patch` and `bwe-observations.patch` were
-applied without an entry of their own and are pinned by the C108 inventory pass. The replay only ever
-read the declared order and skipped the digest of a patch it had no entry for, so
+Every patch the chain applies is a `SOURCE.json` entry, so the checker hash-compares all 72
+files against the recorded digest; `frame-extension-metadata.patch` and `bwe-observations.patch`
+were applied without an entry of their own and are pinned by the C108 inventory pass. The replay
+only ever read the declared order and skipped the digest of a patch it had no entry for, so
 `scripts/check-str0m-reconstruction.py` now also requires the disk patch set to equal the declared
-chain and makes the recorded-digest comparison unconditional. Both conditions were shown to fail
-before being relied on: an orphan `zz-c108-gate-probe.patch` on disk reports
-`patch files on disk and in the declared chain differ: undeclared=['zz-c108-gate-probe.patch']`, and a
-one-byte append to the RED pass-through patch reports
-`patch hash undeclared or differs: go-red-passthrough-on-negotiated-protected-pt.patch`. The file was
-restored from a byte-identical backup (`da1488e8…`) and the gate re-runs at exit `0`.
+chain and makes the recorded-digest comparison unconditional. Each condition was shown to fail
+before being relied on, and all three were re-shown on the 72-patch chain: an orphan
+`zz-c109-gate-probe.patch` on disk reports
+`patch files on disk and in the declared chain differ: undeclared=['zz-c109-gate-probe.patch'] missing=[]`,
+a one-byte append to `probe-padding-binds-the-remb-owner-m-line.patch` reports
+`patch hash undeclared or differs: probe-padding-binds-the-remb-owner-m-line.patch`, and moving
+that same patch off disk - the direction the C108 pass did not exercise, a chain that names a file
+the replay cannot find - reports `… missing=['probe-padding-binds-the-remb-owner-m-line.patch']`.
+The patch was restored byte-identically (`bcb17b4a…`) and the gate re-runs at exit `0`.
 
-Move-back classification against the pinned upstream public surface: the RED pass-through is class A
-(seams exist at `enable_raw_packets`/`RtpRx` and `StreamTx::write_rtp`, blocked only on the
-application owning that m-line's sequence counter) and is deferred to its own round; the probe
-binding, the padding-admission parser gate and the ALR acknowledgement feed are class B, because the
-decision runs on `pub(crate)` state before any public event can name it.
+Move-back classification against the pinned upstream public surface: the RED pass-through was
+class A (seams exist at `enable_raw_packets`/`RtpRx` and `StreamTx::write_rtp`) and C109 closed
+the one objection that kept it - the sequence counter is shared through `StreamTx::next_seq_no()`,
+so a direct write and a `Writer::write` packet number one stream from one counter. The probe
+binding, the padding-admission parser gate and the ALR acknowledgement feed stay class B, because
+the decision runs on `pub(crate)` state before any public event can name it.
