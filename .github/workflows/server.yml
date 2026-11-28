@@ -448,6 +448,7 @@ jobs:
           NETWORK_PROFILE: congest-recover
           BANDWIDTH_ACCURACY: "true"
           METRICS_URL: http://127.0.0.1:9191/metrics
+          INTEROP_SERVER_LOG: output/congestion-server.log
           DURATION_MS: "5000"
         run: node ci-leg.mjs congestion -- npm test
       # Re-apply the gate the continue-on-error legs relaxed: any leg that is red or

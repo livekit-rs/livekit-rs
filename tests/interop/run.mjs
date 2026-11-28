@@ -11,7 +11,7 @@ import { SignalRequest, SignalResponse, WrappedJoinRequest, JoinRequest } from '
 import { gunzipSync } from 'node:zlib';
 import { normalizer } from './normalize.mjs';
 import { TurnUdpProxy } from './network-proxy.mjs';
-import { ACCURACY_SETTLE_US } from './bandwidth-timeline-gate.mjs';
+import { ACCURACY_SETTLE_US, accuracyVerdict, evaluateRecoveryProgress, evaluateSeedResponse } from './bandwidth-timeline-gate.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -121,6 +121,44 @@ const allocatorTargetRank = layer => ((layer?.Spatial ?? -1) * 100) + (layer?.Te
 // stream-allocator log records (`stream allocation: <mode>` carrying the `allocation` object; the
 // requested-bandwidth key is spelled `BandwidthRquested` upstream). INTEROP_SERVER_LOG points at
 // the log of the server this leg is bound to so the same gate can be evaluated on the Go oracle.
+// `alloc cost sample` (crates/rtc-media/src/forward.rs) is the same decision on this side: one
+// record per allocation pass per transport, with `caps` (granted spatial layer, -1 = paused) and
+// `costs` holding each track's `([observed], [declared], [resolved])` bitrate triplets. Normalise it
+// onto the Go key names so one arm reads either engine. Without this the arm the reference
+// implementation satisfies was blind here: the filed Rust receipt has 314 records, 63 of them
+// deficient at needed 2,346,972 > requested 64,000 with caps [-1], and the Go-only parser returned
+// `[]` for all of them.
+function rustAllocationRows(line, at) {
+  const payload = /\{"transport": .*\}$/.exec(line)?.[0];
+  if (!payload) return [];
+  let record;
+  try {
+    record = JSON.parse(payload);
+  } catch {
+    return [];
+  }
+  const caps = ((record.caps ?? '').match(/-?\d+/g) ?? []).map(Number);
+  // `capacity_bps` is the committed channel capacity for this transport at the moment of the pass
+  // (crates/rtc-feedback/src/feedback.rs `committed`), filed as evidence next to the request series.
+  // The pinned Go has no equivalent field in `stream allocation:`, so it stays undefined there and
+  // only the request/rank series is claimed across engines.
+  const capacity = Number(/Some\((\d+)\)/.exec(record.capacity_bps ?? '')?.[1]);
+  const capacityBps = Number.isSafeInteger(capacity) ? capacity : undefined;
+  const triplets = [...String(record.costs ?? '').matchAll(/\[([\d,\s]+)\],\s*\[([\d,\s]+)\],\s*\[([\d,\s]+)\]/g)]
+    .map(m => [m[1], m[2], m[3]].map(list => list.split(',').map(value => Number(value.trim()))));
+  return triplets.map((triplet, index) => {
+    const resolved = triplet[2];
+    const cap = caps[index] ?? -1;
+    return {
+      atMs: at, mode: 'alloc cost sample', participant: `transport-${record.transport}`,
+      track: `layer-${index}`, IsDeficient: record.deficient === true, capacityBps,
+      BandwidthNeeded: Math.max(...resolved),
+      BandwidthRquested: cap >= 0 && resolved[cap] !== undefined ? resolved[cap] : 0,
+      TargetLayer: { Spatial: cap, Temporal: 0 },
+    };
+  }).filter(row => row.BandwidthNeeded > 0);
+}
+
 function allocatorLogRecords(logPath) {
   if (!logPath) return undefined;
   let text;
@@ -131,10 +169,16 @@ function allocatorLogRecords(logPath) {
   }
   const rows = [];
   for (const line of text.split('\n')) {
-    if (!line.includes('stream allocation:')) continue;
+    const isGo = line.includes('stream allocation:');
+    if (!isGo && !line.includes('alloc cost sample')) continue;
     const at = Date.parse(/^(\S+)/.exec(line)?.[1] ?? '');
     const record = /"allocation": (\{.*?\}), "lastAllocation"/.exec(line);
-    if (!Number.isFinite(at) || !record) continue;
+    if (!Number.isFinite(at)) continue;
+    if (!isGo) {
+      rows.push(...rustAllocationRows(line, at));
+      continue;
+    }
+    if (!record) continue;
     try {
       const participant = /"participant": "([^"]+)"/.exec(line)?.[1];
       const track = /"trackID": "([^"]+)"/.exec(line)?.[1];
@@ -144,6 +188,60 @@ function allocatorLogRecords(logPath) {
     }
   }
   return rows;
+}
+
+// `remote feedback sample` (crates/rtc-media/src/feedback.rs) is one record per REMB per subscriber
+// transport: the receiver estimate the browser reported, the capacity committed for that transport,
+// the channel-observer verdict and the forwarded stream SSRCs. Those SSRCs are the subscriber's own
+// inbound-rtp SSRCs, which the timeline snapshots already carry, so a record binds to the browser it
+// describes with no server-side identity plumbing (the Rust media logs contain no participant name).
+// The pinned Go emits no `remote feedback sample` line at all (measured on the filed C108 go legs: 0
+// rows), so this arm is Rust-side: on a Go leg it yields no records and reports INSUFFICIENT instead
+// of borrowing the aggregate gauge.
+function receiverFeedbackRecords(logPath, timelineRows) {
+  if (!logPath) return { records: [], ssrcBindings: 0, error: 'no server log' };
+  let text;
+  try {
+    text = readFileSync(logPath, 'utf8');
+  } catch (error) {
+    return { records: [], ssrcBindings: 0, error: String(error) };
+  }
+  const ssrcToClient = new Map();
+  for (const sample of timelineRows) {
+    for (const [client, row] of (sample.clients ?? []).entries()) {
+      for (const peer of row.peers ?? []) {
+        for (const stat of peer.stats ?? []) {
+          if (stat.type === 'inbound-rtp' && typeof stat.ssrc === 'number') ssrcToClient.set(stat.ssrc, client);
+        }
+      }
+    }
+  }
+  const groups = new Map();
+  for (const line of text.split('\n')) {
+    if (!line.includes('remote feedback sample')) continue;
+    const payload = line.slice(line.indexOf('{"mode"'));
+    if (!payload.startsWith('{"mode"')) continue;
+    let record;
+    try {
+      record = JSON.parse(payload);
+    } catch {
+      continue;
+    }
+    const atMs = Date.parse(/^(\S+)/.exec(line)?.[1] ?? '');
+    if (!Number.isFinite(atMs)) continue;
+    const ssrcs = [...String(record.streams ?? '').matchAll(/\("(\d+)", (\d+)/g)].map(match => Number(match[2]));
+    const signature = [...ssrcs].sort((a, b) => a - b).join(',');
+    if (!groups.has(signature)) {
+      const clients = [...new Set(ssrcs.map(ssrc => ssrcToClient.get(ssrc)).filter(v => v !== undefined))];
+      groups.set(signature, { key: clients.length === 1 ? `client-${clients[0]}` : undefined,
+        pathBound: clients.length === 1, ssrcs, rows: [] });
+    }
+    groups.get(signature).rows.push({ atMs, estimateBps: record.receiver_estimate_bps,
+      capacityBps: record.committed_capacity_bps, observation: record.observation });
+  }
+  const records = [...groups.values()].flatMap(group => group.rows.map(row =>
+    ({ key: group.key ?? `ssrc:${group.ssrcs.join(',')}`, pathBound: group.pathBound, ...row })));
+  return { records, ssrcBindings: ssrcToClient.size };
 }
 
 function videoBitrateHints(sdp) {
@@ -475,19 +573,21 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
           || (row.peakTargetBefore >= 0 && allocatorTargetRank(row.target) < row.peakTargetBefore)));
       const allocatedWindow = windowSamples.map(sample => sample.livekit_allocated_bps).filter(Number.isFinite);
       const capacityWindow = windowSamples.map(sample => sample.livekit_estimated_capacity_bps).filter(Number.isFinite);
-      // The estimate claim cannot be relative to the pre-wall snapshot: the estimator is seeded
+      // The estimate claim cannot be relative to the pre-wall snapshot alone: the estimator is seeded
       // optimistically (100,000,000 per subscriber, so 200,000,000 aggregate in every filed run of
       // this profile), and `min < baseline` is then true for a server that never saw the wall - the
       // filed pre-fix receipt reads 200,000,000 -> 100,392,978 (and 392,978 at its lowest) while the
-      // allocation never cut. The claim has to be absolute against the rate the wall removed: the
-      // server gauge sums each subscriber connection's committed capacity
-      // (crates/rtc-runtime/src/manager.rs), so a majority of qualified snapshots has to sit at or
-      // below the configured open-path aggregate times the verified proxy paths. One dip is not
-      // enough because connection teardown moves the sum on its own, and the qualification window is
-      // the same predeclared 5 s history the allocation-horizon gate uses, so the estimator is not
-      // asked to react inside its own transition blind spot. A gauge that is absent or reads zero
-      // (the congestion-control-off control reports 0 on every sample) proves nothing, so every
-      // qualified snapshot has to carry a real estimate.
+      // allocation never cut. It cannot be absolute against the rate the wall removed either: the
+      // gauge sums each subscriber connection's committed capacity
+      // (crates/rtc-runtime/src/manager.rs), so a profile where one of two connections collapses
+      // still reports the other connection's untouched 100,000,000 seed - the responding Rust run
+      // reads 200,000,000 -> 100,000,000 with 0 of 26 qualified samples ever at or below the 8,000,000
+      // open-path aggregate, a condition no server with an uncongested second subscriber can pass.
+      // The claim is therefore a conjunction of three independent server-side signals inside the same
+      // predeclared qualified window: the committed capacity fell below its own baseline, the
+      // allocator actually paused a managed video track, and the congestion counter advanced. A
+      // teardown moves the sum but produces neither of the latter two, and the congestion-control-off
+      // control reports 0 on every sample, so the positivity test still disqualifies it.
       const proxyPaths = reports.reduce((count, report) => count + report.transports.length, 0);
       const capacityUnimpairedBps = OPEN_BOTTLENECK_BPS * proxyPaths;
       const capacityQualified = windowSamples
@@ -498,6 +598,7 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
         allocatedBaseline: initialMetrics.livekit_allocated_bps, allocatedMin: Math.min(...allocatedWindow),
         allocatedAtWindowEnd: constrainedMetrics?.livekit_allocated_bps ?? null,
         capacityBaseline: initialMetrics.livekit_estimated_capacity_bps,
+        capacityMin: capacityQualified.length ? Math.min(...capacityQualified) : null,
         capacityWindowSeries: capacityWindow, capacityQualifiedSeries: capacityQualified,
         capacityQualifiedSamples: capacityQualified.length,
         capacityPositiveSamples: capacityQualified.filter(value => value > 0).length,
@@ -511,7 +612,8 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
         && gaugeWindow.allocatedMin <= gaugeWindow.allocatedBaseline * ALLOCATOR_CUT_RATIO
         && gaugeWindow.capacityQualifiedSamples >= 4
         && gaugeWindow.capacityPositiveSamples === gaugeWindow.capacityQualifiedSamples
-        && gaugeWindow.capacityAtOrBelowUnimpairedSamples * 2 >= gaugeWindow.capacityQualifiedSamples
+        && gaugeWindow.capacityMin !== null && gaugeWindow.capacityMin < gaugeWindow.capacityBaseline
+        && gaugeWindow.pausedVideoTracksMax >= 1
         && gaugeWindow.congestionEvents > (initialMetrics.livekit_congestion_events ?? 0);
       const clientArm = armFailures.length === 0;
       congestedRow.response = { clientArm, clientsWithoutSignal: armFailures, audioArm: audioGaps.length === 0,
@@ -532,41 +634,152 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
       congestedRow.status = clientArm ? 'PASS' : (gaugeArm || allocatorLogArm ? 'PASS-SERVER-SIGNAL-ONLY' : `NO-SERVER-RESPONSE:${armFailures.join(',')}`);
       networkPhase = 'recovering';
       const restoreRequestedUs = bandwidthAccuracy ? Math.floor(performance.now() * 1000) : undefined;
+      const restoreAtMs = Date.now();
       networkProxy.setBandwidth(OPEN_BOTTLENECK_BPS);
       if (bandwidthAccuracy) bandwidthRateTrace.push({ run, requestedAtUs: restoreRequestedUs, atUs: restoreRequestedUs,
         settledByUs: Math.ceil(performance.now() * 1000), bpsPerClient: OPEN_BOTTLENECK_BPS });
-      await Promise.all(pages.map((page, i) => page.waitForFunction(({ videoFrames, audioSamples, minWidth }) => {
-        const report = interop.report();
-        return report.videoFrames >= videoFrames + 20 && report.audibleSamples >= audioSamples + 5
-          && report.videoDimensions.slice(-8).every(f => f.width >= minWidth);
-      }, { videoFrames: constrained[i].videoFrames, audioSamples: constrained[i].audibleSamples,
-        minWidth: Math.min(...before[i].videoDimensions.slice(-8).map(f => f.width)) }, { timeout: 30000 })));
+      const recoveryWant = pages.map((page, i) => ({ videoFrames: constrained[i].videoFrames,
+        audioSamples: constrained[i].audibleSamples,
+        minWidth: Math.min(...before[i].videoDimensions.slice(-8).map(f => f.width)) }));
+      // The recovery arm measures the estimate staircase, so its window has to be as long as the
+      // mechanism the pinned Go implements. After the wall clears, the committed capacity can only
+      // grow at a probe finalize, and a finalize commits the highest receiver estimate seen during
+      // that probe (references/livekit-stable pkg/sfu/bwe/remotebwe/remote_bwe.go:331-338) - the
+      // ordinary estimate path is decrease-only (remote_bwe.go:205-212), so a rising REMB alone never
+      // moves capacity. Each successful round resets the interval to the 3s base and multiplies the
+      // probe duration by 1.5 from 200ms up to 20s (pkg/sfu/ccutils/probe_regulator.go:80-98), so the
+      // commit points land ~3.2/6.5/10/14/18/22/27/34/42/53/67s after the wall clears and each commit
+      // is capped by the REMB the client had reached by then. Measured on this profile (server log of
+      // the 2026-11-27 C108 dbg6 leg): the wall cleared at t=37s, seven finalizes in 28s took one
+      // subscriber 250->1118kbps with the client REMB at 1464kbps and still climbing ~7%/s, while the
+      // 960x544 layer costs 1.9-2.2Mbps measured, so the upgrade needs the 8th-10th commit - 45-60s
+      // after restore. The window is therefore the staircase envelope, not a frame budget, and the
+      // progress assertion below is what keeps it from passing on a stalled estimate.
+      const RECOVERY_WINDOW_MS = 75000;
+      // The client arms may consume the whole window before the allocator series is read, so the
+      // per-path claim is scored over the window plus the observation phase that follows it instead
+      // of a hard cut where the client arms stop waiting.
+      const RECOVERY_OBSERVE_SLACK_MS = 20000;
+      const recoveryStartedAt = Math.floor(performance.now());
+      const recoveryArms = await Promise.all(pages.map(async (page, i) => {
+        try {
+          await page.waitForFunction(({ videoFrames, audioSamples, minWidth }) => {
+            const report = interop.report();
+            return report.videoFrames >= videoFrames + 20 && report.audibleSamples >= audioSamples + 5
+              && report.videoDimensions.slice(-8).every(f => f.width >= minWidth);
+          }, recoveryWant[i], { timeout: RECOVERY_WINDOW_MS, polling: 500 });
+          return { client: i, recovered: true, waitedMs: Math.floor(performance.now()) - recoveryStartedAt };
+        } catch (error) {
+          // A bare Playwright timeout does not say which of the three conditions the client missed,
+          // and the recovery claim is about frame flow versus delivered resolution. The counters are
+          // re-read once so the failure names the arm that did not recover.
+          const report = await page.evaluate(() => interop.report());
+          return { client: i, recovered: false, connection: report.connection,
+            videoFrames: report.videoFrames, needVideoFrames: recoveryWant[i].videoFrames + 20,
+            audibleSamples: report.audibleSamples, needAudibleSamples: recoveryWant[i].audioSamples + 5,
+            last8Widths: report.videoDimensions.slice(-8).map(frame => frame.width),
+            needWidthAtLeast: recoveryWant[i].minWidth, error: String(error).split('\n')[0] };
+        }
+      }));
+      const recoveryRows = networkTimeline.filter(sample => sample.run === run && sample.phase === 'recovering');
+      const recoveryCapacity = recoveryRows.map(sample => sample.metrics?.livekit_estimated_capacity_bps).filter(Number.isFinite);
+      const recoverySteps = recoveryCapacity.filter((value, idx) => idx > 0 && value > recoveryCapacity[idx - 1] * 1.05).length;
+      // The same dual-source problem gate 1 has: the pinned Go binary exports none of the livekit_*
+      // gauge names (its /metrics has 0 rows of these names in every filed leg), so a gauge-only
+      // staircase cannot be satisfied by the reference implementation at all. Allocation records are
+      // the pairable source - both engines emit one per allocation pass - and the claim has to be made
+      // per nominated path, because the capacity gauge sums one committed capacity per subscriber
+      // connection (crates/rtc-runtime/src/manager.rs): on the 2026-11-27 C108 leg transport-1 went
+      // 100,000,000 -> 39,434 and then climbed 68,525/83,694/129,481/163,244/205,713/362,104 while
+      // transport-2 never congested and held its seed, so the summed gauge moved 0.03-0.10% per step
+      // and the old 5%-staircase-on-the-sum arm saw 0 up-steps in 26 qualified samples on a server
+      // that demonstrably responded.
+      const recoveryLog = allocatorLogRecords(process.env.INTEROP_SERVER_LOG);
+      const recoveryRecords = (Array.isArray(recoveryLog) ? recoveryLog : []).map(record => ({
+        key: record.participant, atMs: record.atMs, requestedBps: record.BandwidthRquested ?? 0,
+        targetRank: allocatorTargetRank(record.TargetLayer), capacityBps: record.capacityBps,
+        deficient: record.IsDeficient === true,
+      }));
+      // The window is the client-side recovery wait plus the observation slack after it; the dip is
+      // scored across the whole impaired-plus-recovery period, not up to the restore: in the filed Go
+      // leg the wall lands at t=0 and the deepest cut (Spatial 2/T 3 -> Spatial 1/T 1, 312,592bps
+      // requested) is recorded at t=20.7s, ~2.7s after the wall had already lifted at t=18.0s.
+      const recoveryProgress = evaluateRecoveryProgress({ records: recoveryRecords,
+        wallAtMs: constraintWallMs, restoreAtMs, windowMs: RECOVERY_WINDOW_MS + RECOVERY_OBSERVE_SLACK_MS,
+        cutRatio: ALLOCATOR_CUT_RATIO });
+      const gaugeStaircase = recoveryCapacity.length >= 8 && recoverySteps >= 3;
+      const recovery = { windowMs: RECOVERY_WINDOW_MS, arms: recoveryArms, capacitySamples: recoveryCapacity.length,
+        capacityFirst: recoveryCapacity[0] ?? null, capacityLast: recoveryCapacity.at(-1) ?? null,
+        capacityMax: recoveryCapacity.length ? Math.max(...recoveryCapacity) : null, capacityUpSteps: recoverySteps,
+        restoreAtMs, gaugeStaircase, progress: recoveryProgress,
+        certifiedBy: recoveryProgress.status === 'PASS' ? 'per-path-allocator-records'
+          : gaugeStaircase ? 'aggregate-gauge-staircase' : recoveryProgress.status,
+        allocatorLogSource: process.env.INTEROP_SERVER_LOG ?? null,
+        allocatorLogError: recoveryLog?.error ?? null,
+        widths: recoveryRows.map(sample => ({ waitedMs: Math.floor(sample.atMonotonicMs - recoveryStartedAt),
+          widths: sample.clients.map(client => client.lastDimensions?.width ?? null) })) };
+      for (const arm of recoveryArms) {
+        assert.ok(arm.recovered, `recovery did not restore the pre-congestion layer for client ${arm.client}: ${JSON.stringify(arm)}`);
+      }
+      // The window is long, so the leg has to prove the estimate actually moved inside it: a server
+      // whose committed capacity is pinned fails here rather than after 75s of waiting for pixels.
+      assert.ok(recoveryProgress.status === 'PASS' || gaugeStaircase,
+        `recovery did not progress on any nominated path: ${JSON.stringify(recoveryProgress)}, `
+        + `aggregate gauge ${JSON.stringify({ capacitySamples: recoveryCapacity.length, upSteps: recoverySteps,
+          first: recoveryCapacity[0] ?? null, last: recoveryCapacity.at(-1) ?? null })}`);
       networkPhase = 'recovered-observation';
       const stableBefore = await Promise.all(pages.map(page => page.evaluate(() => interop.report())));
       await sleep(5000);
       const stableAfter = await Promise.all(pages.map(page => page.evaluate(() => interop.report())));
       for (let i = 0; i < 2; i++) {
         assert.equal(stableAfter[i].connection, 'connected'); assert.equal(stableAfter[i].errors.length, 0);
-        assert.ok(stableAfter[i].videoFrames >= stableBefore[i].videoFrames + 20, 'recovery did not sustain video');
-        assert.ok(stableAfter[i].audibleSamples >= stableBefore[i].audibleSamples + 20, 'recovery did not sustain audio');
+        if (stableAfter[i].videoFrames < stableBefore[i].videoFrames + 20
+          || stableAfter[i].audibleSamples < stableBefore[i].audibleSamples + 20) {
+          const widths = stableAfter[i].videoDimensions.slice(-8).map(frame => frame.width);
+          assert.fail(`recovery did not sustain media: client=${i} videoFrames=${stableBefore[i].videoFrames}->`
+            + `${stableAfter[i].videoFrames} need>=${stableBefore[i].videoFrames + 20} `
+            + `audibleSamples=${stableBefore[i].audibleSamples}->${stableAfter[i].audibleSamples} `
+            + `need>=${stableBefore[i].audibleSamples + 20} last8Widths=${JSON.stringify(widths)}`);
+        }
       }
       const recoveredMetrics = await metricsSnapshot();
       if (initialMetrics && constrainedMetrics && recoveredMetrics) {
+        // Judge the wall response against this leg's own baseline, not against the rate the wall
+        // removed: the gauge sums each subscriber connection's committed capacity
+        // (crates/rtc-runtime/src/manager.rs), so an untouched 100,000,000 seed on the second
+        // connection keeps the aggregate above OPEN_BOTTLENECK_BPS x paths no matter how hard the
+        // first one collapses. The 0.7 factor is the same allocator cut ratio gate 1 uses.
         assert.ok(constrainedMetrics.livekit_estimated_capacity_bps > 0
-          && constrainedMetrics.livekit_estimated_capacity_bps <= capacityUnimpairedBps,
-          `BWE did not fall under the wall: ${constrainedMetrics.livekit_estimated_capacity_bps}bps is not below the unimpaired aggregate ${capacityUnimpairedBps}bps (${OPEN_BOTTLENECK_BPS} x ${proxyPaths} paths)`);
+          && constrainedMetrics.livekit_estimated_capacity_bps
+            <= initialMetrics.livekit_estimated_capacity_bps * ALLOCATOR_CUT_RATIO,
+          `BWE did not fall under the wall: ${constrainedMetrics.livekit_estimated_capacity_bps}bps is not at or below 70% of this leg's baseline ${initialMetrics.livekit_estimated_capacity_bps}bps (${JSON.stringify(congestedRow.response.gaugeWindow)})`);
         assert.ok(recoveredMetrics.livekit_estimated_capacity_bps > constrainedMetrics.livekit_estimated_capacity_bps, 'BWE did not recover');
       }
-      networkResults.push({ phase: 'recovered', metrics: recoveredMetrics, proxy: networkProxy.stats(), reports: stableAfter, status: 'PASS' });
+      networkResults.push({ phase: 'recovered', metrics: recoveredMetrics, proxy: networkProxy.stats(), reports: stableAfter, recovery, status: 'PASS' });
       if (bandwidthAccuracy) {
         await networkMonitoring;
-        const result = evaluateBudgetTimeline({ samples: networkTimeline.filter(sample => sample.run === run),
+        const runSamples = networkTimeline.filter(sample => sample.run === run);
+        const result = evaluateBudgetTimeline({ samples: runSamples,
           rateChanges: bandwidthRateTrace.filter(change => change.run === run),
           expectedClients: proxyPaths,
           pathIdentityVerifiedAtUs: bandwidthPathsVerifiedAtUs });
-        evidence.bandwidthAccuracy.runs.push({ run, ...result });
-        evidence.bandwidthAccuracy.status = result.status;
-        assert.equal(result.status, 'PASS', 'stable original budget gauge violated the allocation-horizon invariant, or required measurement metadata was missing');
+        // The aggregate gauge is a sum, so it cannot tell "the SFU ignored its receiver" from "this
+        // receiver never reported congestion". The per-path records can, and they are the only form
+        // of this claim a two-path leg with one unresponsive receiver can satisfy at all: with one
+        // path holding its 100,000,000 seed the sum is >= 100,000,000 forever and every aggregate
+        // sample is PRIOR (measured 2026-11-28: constrained gauge 100,031,685 = 100,000,000 + 31,685).
+        const receiver = evaluateSeedResponse({
+          records: receiverFeedbackRecords(process.env.INTEROP_SERVER_LOG, runSamples).records,
+          wallAtMs: constraintWallMs, restoreAtMs });
+        const runStatus = result.status === 'PASS' ? 'PASS'
+          : result.status === 'INSUFFICIENT' && receiver.status === 'PASS' ? 'PASS_PER_PATH' : result.status;
+        evidence.bandwidthAccuracy.runs.push({ run, ...result, runStatus, receiverResponse: receiver });
+        evidence.bandwidthAccuracy.status = accuracyVerdict(evidence.bandwidthAccuracy.runs);
+        assert.ok(result.status === 'PASS' || receiver.status === 'PASS',
+          `stable original budget gauge violated the allocation-horizon invariant, or required measurement `
+          + `metadata was missing, and no subscriber path was certified against its own receiver estimate: `
+          + `aggregate ${result.status} (${JSON.stringify(result.epochs ?? result.reason)}), `
+          + `per-path ${receiver.status} (${JSON.stringify(receiver.paths)})`);
       }
     }
     const svcResults = [];
@@ -753,12 +966,12 @@ browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || 'chrom
   delete evidence.pendingReports;
   delete evidence.pendingNetworkResults;
   evidence.status = 'PASS';
-  if (bandwidthAccuracy) evidence.bandwidthAccuracy.status = 'PASS';
+  if (bandwidthAccuracy) evidence.bandwidthAccuracy.status = accuracyVerdict(evidence.bandwidthAccuracy.runs);
 } catch (error) {
   evidence.status = 'FAIL'; evidence.error = String(error.stack || error);
   delete evidence.pendingNetworkResults;
   if (proxyClassTrace?.run !== undefined) evidence.proxyClassTrace.runs.push(proxyClassTrace.endRun());
-  if (bandwidthAccuracy && ['RUNNING', 'PASS'].includes(evidence.bandwidthAccuracy.status)) evidence.bandwidthAccuracy.status = 'INCOMPLETE';
+  if (bandwidthAccuracy && ['RUNNING', 'PASS', 'PASS_PER_PATH'].includes(evidence.bandwidthAccuracy.status)) evidence.bandwidthAccuracy.status = 'INCOMPLETE';
   evidence.failedSignals = activeSignals; evidence.failedProfiles = activeProfiles;
   if (networkProxy) evidence.failedNetwork = networkProxy.stats();
   evidence.failedMetrics = await metricsSnapshot().catch(error => ({ error: String(error) }));

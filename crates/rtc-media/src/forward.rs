@@ -1866,6 +1866,9 @@ impl MediaEngine {
             .filter_map(|di| downs.get(*di).map(|d| d.spec.track_sid.clone()))
             .collect();
         t.layer_bitrates.retain(&active);
+        // `costs` in the debug record below is the only per-layer view of what the allocator asked
+        // for; tests/interop/run.mjs parses it into the allocation rows the congestion leg scores.
+        let mut cost_dbg: Vec<([u64; 3], [u64; 3], [u64; 3])> = Vec::new();
         let tracks: Vec<AllocTrack> = video
             .iter()
             .filter_map(|&di| {
@@ -1896,12 +1899,10 @@ impl MediaEngine {
                                 declared[spatial] = declared[spatial].max(u64::from(layer.bitrate));
                             }
                         }
-                        t.layer_bitrates.resolve(
-                            &u.sid,
-                            u.bitrate_observation_for(d.subscriber_temporal_limit),
-                            declared,
-                            now,
-                        )
+                        let obs = u.bitrate_observation_for(d.subscriber_temporal_limit);
+                        let resolved = t.layer_bitrates.resolve(&u.sid, obs, declared, now);
+                        cost_dbg.push((obs.bitrates, declared, resolved));
+                        resolved
                     },
                     exempt: u.is_screenshare() && !u.svc && !u.is_simulcast(),
                 })
@@ -2052,6 +2053,11 @@ impl MediaEngine {
         t.allocator_deficient = tracks.iter().zip(&plan.caps).any(|(track, cap)| {
             !track.exempt && track.max_spatial >= 0 && *cap < track.max_spatial
         });
+        tracing::debug!(transport=%tid, capacity_bps=?t.capacity(), constrained_bps=?capacity,
+            allocated_bps=plan.allocated_bps, video_budget_bps=?plan.video_budget_bps,
+            caps=?plan.caps, deficient=t.allocator_deficient, congested,
+            next_probe_wire_bps=?allocator::next_probe_budget(&tracks, &plan),
+            costs=?cost_dbg, "alloc cost sample");
         if tracks.len() == video.len() && !tracks.is_empty() {
             let caps = &plan.caps;
             for (k, &di) in video.iter().enumerate() {

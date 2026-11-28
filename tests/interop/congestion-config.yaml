@@ -26,6 +26,9 @@ turn:
   allow_restricted_peer_cidrs:
     - 127.0.0.1/32
 logging:
-  level: info
+  # The congestion leg scores allocator decisions from the server log (both the withholding under
+  # the wall and the per-path recovery climb), and the pinned Go oracle records the same decisions
+  # only at debug level, so the fixture has to emit them for the arm to be evaluable on CI.
+  level: debug
 prometheus:
   port: 9191

@@ -183,7 +183,7 @@ METRICS_URL=http://127.0.0.1:9191/metrics RUNS=5 DURATION_MS=5000 npm test
 
 CI 对同一完整场景连续执行 `RUNS=5`，五轮均需独立通过；不会通过重试覆盖失败，也不更改每轮的速率、队列、解码阈值或时间上限。每秒 `networkTimeline` 保存阶段、monotonic 时间、Chrome 原生 RTP/RTCP 统计、BWE 指标与代理状态，失败时仍保留已采集轨迹。`flushTiming` 记录代理定时器延迟；每客户端统计区分过期、溢出及超长包，记录队列年龄、实际 IPv4 转发字节和持续积压期间的 `saturatedDiscardedRefillBytes`。总 `discardedRefillBytes` 包含空闲桶正常弃额，不能单独作为拥塞或容量损失证据；应结合持续积压、实际转发速率和浏览器反馈判断。诊断不会改变限速行为。
 
-设置 `METRICS_URL` 后还检查有效 BWE 容量先降后升，并保存容量、建模媒体预算、暂停数和探测结果。指标按活跃房间聚合；音频/视频分配预算采用 payload 口径，有效容量为预留传输开销前的 bps，二者不是相同口径的原始流量计数。
+设置 `METRICS_URL` 后还保存容量、建模媒体预算、暂停数和探测结果，并按本节点每路订阅的已承诺容量判定受限阶段下降、恢复阶段回升。指标按活跃房间聚合；音频/视频分配预算采用 payload 口径，有效容量为预留传输开销前的 bps，二者不是相同口径的原始流量计数。恢复进展本身按路判定，不读聚合值，理由见下节。
 
 2026-10-23 初期八秒探测窗口版本的本机 Chrome 历史实测通过：受限阶段新增丢包 `86` 次、两路视频暂停，有效总容量从 `639784` 降至 `150338` bps，恢复至 `1502331` bps并恢复解码。两个客户端受限前最后解码尺寸均为 `318×180`，其中一路已经在 `635×360` 与 `318×180` 间变化；恢复报告末帧为 `635×360` 和 `318×180`。该结果验证相对各自基线的恢复和后续五秒持续解码，未证明启动阶段已稳定到最高层，也未证明恢复至发布端最高 `960×544`。长时间满层稳定性、更多 RTT/丢包分布及公网容量仍需单独测量。
 
@@ -191,15 +191,36 @@ CI 对同一完整场景连续执行 `RUNS=5`，五轮均需独立通过；不�
 
 最终 release 版本在上述严格高基线门禁通过：两端基线均为 `960×544`，有效总容量 `4958962 → 65621 → 4532075` bps，两路暂停后恢复，受限阶段新增丢包 `1409` 次（累计 `29 → 1438`）。两端在恢复后的 30 秒内解码到原 `960×544` 的最近八帧，再连续观察五秒确认音视频继续前进。该额外观察结束时末帧分别为 `635×360`、`960×544`，说明动态选层仍继续；此通过不等于随后全程稳定保持最高分辨率。旧版本的低基线通过和高基线失败均保留于证据摘要，未用重跑覆盖。
 
-### 独立 allocation-horizon 上界门禁（可选）
+#### 恢复进展按订阅路判定
+
+`livekit_estimated_capacity_bps` 是把每路订阅连接的已承诺容量相加得到的（`crates/rtc-runtime/src/manager.rs`），而两边实现都把每路容量初值为 100 Mbps，只在出现拥塞趋势或探测授信时才移动（Go `pkg/sfu/bwe/remotebwe/remote_bwe.go` 的 `Reset`/`estimateAvailableChannelCapacity`，Rust `crates/rtc-media/src/feedback.rs` 的 `committed`）。因此只要第二路从未拥塞，聚合值就始终带着它未被观测的 100 Mbps 先验：C108 实测中响应了限速的那一路从 `100,000,000` 跌到 `39,434`，随后按探测结算 climb 到 `68,525/83,694/129,481/163,244/205,713/362,104`，而聚合表每步只动 0.03–0.10%，26 个合格样本中没有一个到达过 8,000,000 bps 的开放路径聚合值——任何“在聚合值上要求相对阶梯或绝对下界”的判据对有一路未拥塞的服务器都不可能满足。
+
+所以恢复判据改为逐路：在同一条订阅路上，既要在墙内出现低于自身墙前峰值的请求（≤ 0.7 倍）且这一削减能归因到服务器自己——被授予的层低于墙前层、该路出现 `IsDeficient`，或其已承诺容量离开了 100 Mbps 种子——也要在墙撤掉后的窗口内出现高于自身受限最低点的请求且层号同时升高。仅在带宽上回升而不交还任何管理层不算恢复；只有需求下降、而服务器既没减层也没报缺、容量仍钉在种子上的轨迹同样不算（C108 实测 `transport-1` 请求 `1,800,000 → 1,219,798`，层号 200 不变、0 条 deficient、容量恒为 `100,000,000`，这是编码器自身码率起伏而非对限速的反应）。判据源是两边都有的分配记录：固定 Go 的 `stream allocation:` 与本仓 `crates/rtc-media/src/forward.rs` 的 `alloc cost sample`。聚合容量的阶梯仍保留为备选判据，只在没有分配日志（例如未开 debug 级别）时生效；`congestion-config.yaml` 已固定 `logging.level: debug`，CI 的拥塞腿通过 `INTEROP_SERVER_LOG` 绑定服务端日志，使本地配对与 CI 走同一条判据。
+
+#### 逐路接收端响应认证（`PASS_PER_PATH`）
+
+聚合预算为 `INSUFFICIENT` 时，同一轮还可以走逐路判据，但换的是判据源，不是放松门槛：读取 `crates/rtc-media/src/feedback.rs` 的 `remote feedback sample`，它每路 REMB 一条，带接收端估算 `receiver_estimate_bps`、本路已承诺 `committed_capacity_bps`、观察者结论 `observation` 和转发的 `streams` SSRC。这些 SSRC 就是订阅端 `inbound-rtp.ssrc`，因此无需服务器加身份字段即可把每条记录绑到产生该估算的浏览器（实测 4 个 SSRC 精确绑定 2 路）。判定如下：
+
+- 某路**有义务**反应——自己的接收端估算塌到墙前最大值的 50% 以下，或服务器为该路报告了 `Congesting/*` 趋势；
+- 有义务却仍保持 `100,000,000` 种子 → `OBLIGATED_NOT_RESPONDED`，整轮 `FAIL`；
+- 已承诺容量跌破种子 → `RESPONDED`，至少一路 `RESPONDED` 且无上述失败即 `PASS`；
+- 接收端从未报任何拥塞 → `SEED_RETAINED`，只披露不打分：没有信号两边实现都不会动，固定 Go 正是更弱的一侧（它没有 `remote feedback sample` 这一行，实测 0 条，因此在 Go 侧该判据为 `INSUFFICIENT`）。
+
+C108 实测两条腿都落在此判据上：`pair14rust` 中 `client-0` 估算 `597,516 → 17,862` 且容量 `100,000,000 → 17,862 → 2,179,520` 为 `RESPONDED`，`client-1` 估算墙前 187,560–281,078、墙内 286,406–309,318 从未下降、观察者也从未报 `Congesting`，故 `SEED_RETAINED`；`pair12rust` 两路的估算都没塌（发布端编码器先退让），义务完全来自 `Congesting/Loss nack_ratio=1.000`，两路各自承诺 `329,017`/`291,943` 而 `PASS`。逐轮结论记为该轮的 `runStatus`，`bandwidthAccuracy.status` 由所有轮次的 `runStatus` 汇总（任一轮 `FAIL` 即 `FAIL`，任一轮 `INSUFFICIENT` 即 `INSUFFICIENT`，全为 `PASS` 才是 `PASS`，否则为 `PASS_PER_PATH`）；聚合值不能靠整条腿跑完就改成通过——腿在别处失败会把结论降级为 `INCOMPLETE`，通过与否只由判据决定。逐路 verdict 与 `preWallEstimateMaxBps`/`underWallEstimateMinBps`/`underWallCapacityMinBps`/`afterWallCapacityMaxBps` 一并存档。
+
+#### 独立 allocation-horizon 上界门禁（可选）
 
 在上面完全相同的五轮拥塞命令中添加 `BANDWIDTH_ACCURACY=true`，原媒体、可靠数据、限速、队列、启动/恢复超时全部保留。缺少 `METRICS_URL` 时拒绝启动该门禁。额外门禁读取原有 `livekit_estimated_capacity_bps`，不裁剪生产值，也不换成新指标；路径数来自实际选中的 DTLS transports，并要求代理客户端数一致。
 
-当前实现明确是**一秒 allocation horizon 的安全不变量**：假设当前配置速率保持一秒，采样的预算不能授予超过 `C*T/8+B` 的服务量。两客户端、每端 4 Mbps/4500 字节桶时上界为 `8,072,000` bps，120 kbps 阶段为 `312,000` bps；其他速率按实际 rate trace 和路径数计算，不是把生产固定硬限在 4 Mbps。它不是“实际观测到完整一秒持续吞吐”或 TWCC 容量下界证明。原恢复门禁也不因此变成完整带宽精度验收。
+该门禁明确是**一秒 allocation horizon 的安全不变量**：假设当前速率保持一秒，采样的预算不能授予超过 `C*T/8+B` 的服务量。它不是“实际观测到完整一秒持续吞吐”或 TWCC 容量下界证明，原恢复门禁也不因此变成完整带宽精度验收。
 
-每次速率变化后先保留五秒历史过渡，再要求一秒同速资格历史；五秒来自现有 Robust ACK 最长窗口与探测结束历史上限，一秒来自现有最小窗口，均在候选运行前固定。变速调用前/完成时间和指标请求起止实际记录；指标读取跨变速、早期过渡及 relay identity 尚未验证的采样保留为 `WARMUP`。这是稳定阶段的不变量，不验收瞬时反应时间。每个初始/受限/恢复 epoch 都必须有有效稳定采样；原指标、时间或精确路径身份缺失为 `INSUFFICIENT`，不能通过。预算超上界为 `FAIL`。
+上界里的 `C` 不是配置速率本身，而是 `max(配置速率 × 路数, 这些路已经真实送达过的最高速率)`，`B` 是每路声明的 4500 字节桶。理由来自固定 oracle：Go 在 LOSS 趋势下按需求推导承诺容量（`remote_bwe.go` `estimateAvailableChannelCapacity`），在 120 kbps 的墙上实测承诺过 `1,573,006` 与 `339,925` bps 每路，远高于 `240,000` bps 的名义聚合值，所以只按配置速率设界会把参考实现判成失败；相反，高于任何已送达速率的预算是无证据的凭空容量，仍为 `FAIL`。判定结果记录 `ceilingSource` 为 `delivered-peak` 或 `configured-rate`，送达速率由代理自己的逐路 `forwardedIpv4Bytes` 差分得出。
 
-证据另存 `bandwidthAccuracy`，逐 epoch 报告预算 min/max 和最大采样盲区。离散采样不能证明盲区中从未出现过冲；原始短 probe rate、持续服务速率和 committed budget 仍分别取证。新增元数据无 payload、SDP 或凭据；独立 evaluator 对超出有界输入上限的记录返回 `INSUFFICIENT`，不静默截断成通过。
+仍留在先验带里的聚合预算（≥ 每路 50 Mbps × 路数，即一半初值）不参与打分，单独记为 `PRIOR`：它是尚未被本路观测修正过的种子，不是本路的观测结果。某个 epoch 若全是 `PRIOR`，只有在该 epoch 的各路确实没有丢包（代理 `expiredPackets`/`queueLimitDrops`/`oversizedDrops` 增量为 0）时才算合理，否则说明限速生效而估算器从未交出观测预算，返回 `INSUFFICIENT`；一个 epoch 都没能合格的整轮同样返回 `INSUFFICIENT`。
+
+每次速率变化后先保留五秒历史过渡，再要求一秒同速资格历史；五秒来自现有 Robust ACK 最长窗口与探测结束历史上限，一秒来自现有最小窗口，均在候选运行前固定。变速调用前/完成时间和指标请求起止实际记录；指标读取跨变速、早期过渡及 relay identity 尚未验证的采样保留为 `WARMUP`。每个初始/受限/恢复 epoch 都必须有有效稳定采样；原指标、时间或精确路径身份缺失为 `INSUFFICIENT`，不能通过。预算超上界为 `FAIL`。
+
+证据另存 `bandwidthAccuracy`，逐 epoch 报告预算 min/max、合格/先验样本数、送达峰值、丢包计数和最大采样盲区。离散采样不能证明盲区中从未出现过冲；原始短 probe rate、持续服务速率和 committed budget 仍分别取证。新增元数据无 payload、SDP 或凭据；独立 evaluator 对超出有界输入上限的记录返回 `INSUFFICIENT`，不静默截断成通过。
 
 独立计量回归可运行：
 
