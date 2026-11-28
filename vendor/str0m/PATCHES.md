@@ -1179,3 +1179,102 @@ closed the one objection that kept it - the sequence counter is shared through
 one counter. The probe
 binding, the padding-admission parser gate and the ALR acknowledgement feed stay class B, because
 the decision runs on `pub(crate)` state before any public event can name it.
+
+## Declared patch index (C109-e2)
+
+Every patch the chain declares, in reconstruction order, with the `SOURCE.json` key that
+carries it and the status now recorded there. 32 of these filenames appeared nowhere in this
+document before the index: a reader could see a behaviour described in prose without being
+able to tell whether a patch file implemented it. Four names do appear above and are *not*
+in the chain: `go-red-passthrough-on-negotiated-protected-pt.patch` (retired from the vendor
+tree), `pion-rtp-header-observation-formatting.patch` (folded into
+`pion-rtp-padding-admission-parity.patch`), `normal-pacing-pre-quantized.patch` and
+`zz-c109-gate-probe.patch` (a gate artefact, not a retained input).
+
+| # | patch | SOURCE.json key | status |
+|---:|---|---|---|
+| 1 | `frame-extension-metadata.patch` | `frame_extension_metadata` | IMPLEMENTED |
+| 2 | `bwe-observations.patch` | `bwe_observations` | IMPLEMENTED |
+| 3 | `googcc-alr-ack.patch` | `googcc_alr_ack` | IMPLEMENTED_NOT_RUN |
+| 4 | `googcc-robust-throughput.patch` | `googcc_robust_throughput` | IMPLEMENTED_NOT_RUN |
+| 5 | `probe-timing-accuracy.patch` | `probe_timing_accuracy` | IMPLEMENTED_NOT_RUN |
+| 6 | `bounded-sustained-validation.patch` | `bounded_sustained_validation` | IMPLEMENTED_NOT_RUN |
+| 7 | `validation-pacing-correction.patch` | `validation_pacing_correction` | IMPLEMENTED |
+| 8 | `validation-scheduling-credit.patch` | `validation_scheduling_credit` | IMPLEMENTED |
+| 9 | `periodic-alr-demand-policy.patch` | `periodic_alr_demand_policy` | IMPLEMENTED |
+| 10 | `periodic-alr-reset-cooldown.patch` | `periodic_alr_reset_cooldown` | IMPLEMENTED |
+| 11 | `normal-media-low-latency-pacing.patch` | `normal_media_low_latency_pacing` | IMPLEMENTED |
+| 12 | `application-managed-probing.patch` | `application_managed_probing` | IMPLEMENTED |
+| 13 | `incoming-twcc-metadata.patch` | `incoming_twcc_metadata` | IMPLEMENTED |
+| 14 | `validation-credit-measurement-segments.patch` | `validation_credit_measurement_segments` | IMPLEMENTED_NOT_RUN |
+| 15 | `matched-feedback-propagation-rtt.patch` | `matched_feedback_propagation_rtt` | IMPLEMENTED |
+| 16 | `validation-proof-floor-and-pacing.patch` | `validation_proof_floor_and_pacing` | IMPLEMENTED |
+| 17 | `independent-remote-padding.patch` | `independent_remote_padding` | IMPLEMENTED_NOT_RUN |
+| 18 | `receive-srtp-auth-tag.patch` | `receive_srtp_auth_tag` | IMPLEMENTED_NOT_RUN |
+| 19 | `external-feedback-boundaries.patch` | `external_feedback_boundaries` | IMPLEMENTED_NOT_RUN |
+| 20 | `data-track-writer-budget.patch` | `data_track_writer_budget` | IMPLEMENTED_NOT_RUN |
+| 21 | `sctp-source-options-and-advertised-limit.patch` | `sctp_source_options` | VERIFIED_FUNCTIONAL_SUBSCOPE_BROADER_SCTP_OPEN |
+| 22 | `independent-source-sctp-policy.patch` | `independent_source_sctp_policy` | VERIFIED_FUNCTIONAL_SUBSCOPE_BROADER_SCTP_OPEN |
+| 23 | `source-sctp-wire-alignment.patch` | `source_sctp_wire_alignment` | VERIFIED_FUNCTIONAL_SUBSCOPE_BROADER_SCTP_OPEN |
+| 24 | `ordinary-data-write-pending.patch` | `ordinary_data_write_pending` | VERIFIED_FUNCTIONAL_SUBSCOPE_ORDINARY_WRITER_OPEN_DATATRACK_BLOCKING |
+| 25 | `snap-answer-requires-local-optin.patch` | `snap_answer_local_optin` | VERIFIED_FUNCTIONAL_SUBSCOPE_SNAP_ANSWER_OPT_IN |
+| 26 | `opus-nack-primary-retransmit.patch` | `opus_nack_primary_retransmit` | IMPLEMENTED_NOT_RUN |
+| 27 | `association-restart-generation.patch` | `association_restart_generation` | IMPLEMENTED_NOT_RUN |
+| 28 | `warp-sped-dtls-in-stun.patch` | `warp_sped` | IMPLEMENTED_NOT_RUN |
+| 29 | `native-media-debug-observations.patch` | `native_media_debug` | IMPLEMENTED_NOT_RUN |
+| 30 | `logical-rtp-node-telemetry.patch` | `logical_node_traffic` | IMPLEMENTED_NOT_RUN |
+| 31 | `bidirectional-sequence-nack-telemetry.patch` | `bidirectional_sequence_nack_telemetry` | IMPLEMENTED_NOT_RUN |
+| 32 | `receiver-source-delta-windows.patch` | `receiver_source_delta_traffic` | IMPLEMENTED_NOT_RUN |
+| 33 | `actual-receiver-report-rtt-producer.patch` | `actual_receiver_report_rtt` | IMPLEMENTED_NOT_RUN |
+| 34 | `source-timestamp-admission-restart.patch` | `source_timestamp_admission_restart` | IMPLEMENTED_NOT_EXECUTED |
+| 35 | `unmanaged-bwe-sender-media-boundaries.patch` | `unmanaged_bwe_media_boundaries` | IMPLEMENTED_NOT_EXECUTED |
+| 36 | `original-packet-forwarding-timing-cohort.patch` | `original_packet_forwarding_timing` | IMPLEMENTED_NOT_EXECUTED |
+| 37 | `transport-feedback-before-media-dedup.patch` | `transport_feedback_before_media_dedup` | IMPLEMENTED_NOT_EXECUTED |
+| 38 | `per-packet-svc-forwarding-admission-metadata.patch` | `per_packet_svc_forwarding_admission_metadata` | SOURCE_ONLY_NOT_EXECUTED |
+| 39 | `sparse-independent-vp9-and-profile-keyframes.patch` | `sparse_independent_vp9_and_profile_keyframes` | SOURCE_ONLY_NOT_EXECUTED |
+| 40 | `ice-nomination-acceptance-waits.patch` | `ice_nomination_acceptance_waits` | SOURCE_ONLY_NOT_COMPILED_NOT_RUN |
+| 41 | `vp9-temporal-component-packetization.patch` | `vp9_temporal_component_packetization` | SOURCE_ONLY_NOT_COMPILED_NOT_RUN |
+| 42 | `vp9-original-reference-translation.patch` | `vp9_original_reference_translation` | SOURCE_ONLY_NOT_COMPILED_NOT_RUN |
+| 43 | `authenticated-original-packet-rate-observer.patch` | `authenticated_original_packet_rate_observer` | IMPLEMENTED_NOT_RUN |
+| 44 | `actual-transport-fallback-observations.patch` | `actual_transport_fallback_observations` | SOURCE_ONLY_NOT_COMPILED_NOT_RUN |
+| 45 | `original-video-packet-observer-real-poll-lifecycle.patch` | `original_packet_real_poll_lifecycle` | SOURCE_ONLY_NOT_RUN |
+| 46 | `original-peer-connection-started.patch` | `original_peer_connection_started` | SOURCE_ONLY_OFFLINE_RECONSTRUCTION_PENDING |
+| 47 | `original-packet-observer-duplex-srtp-readiness.patch` | `original_packet_observer_duplex_srtp_readiness` | IMPLEMENTED_NOT_RUN |
+| 48 | `selected-ice-last-received-observation.patch` | `selected_ice_last_received_observation` | SOURCE_ONLY_NOT_COMPILED_NOT_RUN |
+| 49 | `av1-original-packet-send-padding-and-clock.patch` | `av1_original_packet_send_padding_and_clock` | IMPLEMENTED_NOT_RUN |
+| 50 | `selected-ice-receive-lifetime-and-restart-epochs.patch` | `selected_ice_receive_lifetime_and_restart_epochs` | SOURCE_ONLY_NOT_COMPILED_NOT_RUN |
+| 51 | `original-packet-sender-reserved-counter-fixture.patch` | `original_packet_sender_reserved_counter_fixture` | IMPLEMENTED_NOT_RUN |
+| 52 | `selected-ice-timeout-duration-qualification.patch` | `selected_ice_timeout_duration_qualification` | SOURCE_ONLY_NOT_COMPILED_NOT_RUN |
+| 53 | `receiver-rate-lifetime-identity.patch` | `receiver_rate_lifetime_identity` | IMPLEMENTED_NOT_RUN |
+| 54 | `primary-padding-receive-order.patch` | `primary_padding_receive_order` | IMPLEMENTED_NOT_RUN |
+| 55 | `dd-logical-rtp-rate-bytes.patch` | `dd_logical_rtp_rate_bytes` | IMPLEMENTED_NOT_RUN |
+| 56 | `keyframe-skip-ahead-after-gap.patch` | `keyframe_skip_ahead_after_gap` | VERIFIED_FUNCTIONAL_SUBSCOPE_VP8_VP9_KEYFRAME_RECOVERY |
+| 57 | `rtcp-feedback-intersection.patch` | `rtcp_feedback_intersection` | VERIFIED_FUNCTIONAL_SUBSCOPE_OPUS_NACK_NEGOTIATION |
+| 58 | `answer-in-offer-order.patch` | `answer_in_offer_order` | VERIFIED_FUNCTIONAL_SUBSCOPE_OPT_IN_ANSWER_CODEC_ORDER |
+| 59 | `nack-throttle-until-keyframe.patch` | `nack_throttle_until_keyframe` | VERIFIED_FUNCTIONAL_SUBSCOPE_OPT_IN_NACK_THROTTLE |
+| 60 | `media-packet-arrival-counter.patch` | `media_packet_arrival_counter` | VERIFIED_FUNCTIONAL_SUBSCOPE_READ_ONLY_COUNTER |
+| 61 | `livekit-fir-media-ssrc.patch` | `livekit_fir_media_ssrc` | IMPLEMENTED_AUTHENTICATED_PACKET_REGRESSION |
+| 62 | `frame-tracker-packet-events.patch` | `frame_tracker_packet_events` | IMPLEMENTED |
+| 63 | `livekit-publisher-twcc-feedback.patch` | `livekit_publisher_twcc_feedback` | IMPLEMENTED |
+| 64 | `livekit-publisher-twcc-receipt-history.patch` | `livekit_publisher_twcc_receipt_history` | IMPLEMENTED |
+| 65 | `opus-outage-resume.patch` | `opus_outage_resume` | IMPLEMENTED |
+| 66 | `retained-opus-nack-m-lines.patch` | `retained_opus_nack_m_lines` | IMPLEMENTED |
+| 67 | `frame-vp9-logical-rtp-bytes.patch` | `frame_vp9_logical_rtp_bytes` | IMPLEMENTED |
+| 68 | `ice-local-preference-hook.patch` | `ice_local_preference_hook` | IMPLEMENTED |
+| 69 | `go-red-encoder-parity-and-primary-payload-type.patch` | `go_red_encoder_parity_and_primary_payload_type` | IMPLEMENTED |
+| 70 | `pion-rtp-padding-admission-parity.patch` | `pion_rtp_padding_admission_parity` | IMPLEMENTED |
+| 71 | `send-metering-and-first-packet-padding-drop.patch` | `send_metering_and_first_packet_padding_drop` | IMPLEMENTED |
+| 72 | `probe-padding-binds-the-remb-owner-m-line.patch` | `probe_padding_binds_the_remb_owner_m_line` | IMPLEMENTED |
+
+* 7 entries still carry a not-compiled status while their patch sits in the chain
+  above (`ice_nomination_acceptance_waits`, `vp9_temporal_component_packetization`, `vp9_original_reference_translation`, `actual_transport_fallback_observations`, `selected_ice_last_received_observation`, `selected_ice_receive_lifetime_and_restart_epochs`, `selected_ice_timeout_duration_qualification`). Those labels predate the current chain, so each needs a human
+  reading of the slot that wrote it before it is changed.
+
+* `application_managed_probing` records a verification that cites a scratch `/tmp` path. It is left as written
+  history; no field written by the C109-e2 fill does.
+
+`receive_srtp_auth_tag.exact_files_sha256["src/rtp/srtp.rs"]` keeps a historical literal no
+retained input reproduces, and `external_feedback_boundaries.historical_checkpoint_note` is the
+only record that explains it. The audit's `prefix_check.py` accepts that mismatch only while the
+note declares the path, quotes the literal, states the measured replay digest and the vendored
+file matches it; deleting the note turns the entry `UNEXPLAINED` and fails that check.
